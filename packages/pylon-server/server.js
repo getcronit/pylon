@@ -1,7 +1,9 @@
+#!/usr/bin/env bun
+
 // Set default env variables
 process.env.NODE_ENV = process.env.NODE_ENV || 'production'
 
-import {makeApp} from '@snek-at/function-server'
+import {makeApp} from '@cronitio/pylon-server'
 import {Command} from 'commander'
 import fs from 'fs'
 import path from 'path'

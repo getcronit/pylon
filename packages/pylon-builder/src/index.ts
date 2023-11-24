@@ -1,6 +1,3 @@
-import fs from 'fs'
-import path from 'path'
-
 import {Bundler} from './bundler/bundler.js'
 import {SchemaBuilder} from './schema/builder.js'
 
@@ -23,12 +20,6 @@ export const build = async (options: BuildOptions) => {
 
       // Write typedefs to file (only for debugging purposes)
       const typeDefs = built.typeDefs
-      const folder = path.dirname(options.outputFilePath)
-
-      // Create folder if it doesn't exist
-      fs.mkdirSync(folder, {recursive: true})
-
-      fs.writeFileSync(path.join(folder, 'schema.graphql'), typeDefs)
 
       return typeDefs
     },

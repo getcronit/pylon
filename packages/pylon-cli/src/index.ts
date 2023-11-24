@@ -1,4 +1,4 @@
-#!/usr/bin/env bun run
+#!/usr/bin/env bun
 
 import {Command} from 'commander'
 

@@ -1,10 +1,13 @@
 {
   "name": "@cronitio/pylon-server",
-  "version": "0.0.20",
+  "version": "0.0.23",
   "source": "src/index.ts",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "pylon-server": "server.js"
+  },
   "scripts": {
     "build": "bun run ../../build.js && bun run build:declarations",
     "build:declarations": "tsc --declaration --emitDeclarationOnly --outDir ./dist"
