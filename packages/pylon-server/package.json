@@ -1,0 +1,31 @@
+{
+  "name": "@cronitio/pylon-server",
+  "version": "0.0.20",
+  "source": "src/index.ts",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "bun run ../../build.js && bun run build:declarations",
+    "build:declarations": "tsc --declaration --emitDeclarationOnly --outDir ./dist"
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@hono/sentry": "^1.0.0",
+    "commander": "^11.0.0",
+    "graphql": "^16.6.0",
+    "graphql-yoga": "^5.0.0",
+    "hono": "^3.10.1",
+    "toucan-js": "^3.3.1",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "microbundle": "^0.15.1"
+  },
+  "peerDependencies": {
+    "@snek-at/function": "*"
+  }
+}

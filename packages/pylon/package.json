@@ -1,0 +1,24 @@
+{
+  "name": "@cronitio/pylon",
+  "version": "0.0.45",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "bun run ../../build.js && bun run build:declarations",
+    "build:declarations": "tsc --declaration --emitDeclarationOnly --outDir ./dist"
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "hono": "^3.10.1",
+    "microbundle": "^0.15.1"
+  },
+  "dependencies": {
+    "graphql": "^16.6.0",
+    "lru-cache": "^10.0.3",
+    "winston": "^3.8.2"
+  }
+}

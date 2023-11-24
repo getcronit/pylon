@@ -1,0 +1,27 @@
+{
+  "name": "@cronitio/pylon-cli",
+  "version": "0.0.9",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "pylon": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "bun run ../../build.js && bun run build:declarations",
+    "build:declarations": "tsc --declaration --emitDeclarationOnly --outDir ./dist"
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "microbundle": "^0.15.1"
+  },
+  "dependencies": {
+    "@cronitio/pylon": "*",
+    "@cronitio/pylon-builder": "*",
+    "@cronitio/pylon-server": "*",
+    "commander": "^10.0.0"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "root",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "template"
+  ],
+  "packageManager": "yarn@3.4.1",
+  "devDependencies": {
+    "@types/node": "^18.14.0",
+    "bun-types": "^1.0.14"
+  },
+  "dependencies": {}
+}

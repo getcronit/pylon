@@ -1,0 +1,3 @@
+[submodule "template"]
+	url = https://github.com/snek-functions/template
+	path = template
