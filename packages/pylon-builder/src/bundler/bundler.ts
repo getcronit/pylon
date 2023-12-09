@@ -20,11 +20,22 @@ export class Bundler {
     this.reportStatus('start')
 
     const build = async () => {
+      const external = new Set<string>(['hono'])
+
+      // Read "external" from package.json
+      const packageJson = JSON.parse(fs.readFileSync('./package.json', 'utf8'))
+
+      if (packageJson.pylon && packageJson.pylon.external) {
+        packageJson.pylon.external.forEach((externalPackage: string) => {
+          external.add(externalPackage)
+        })
+      }
+
       await Bun.build({
         entrypoints: [this.sfiFilePath],
         outdir: this.outputDir,
         target: 'bun',
-        external: ['hono']
+        external: Array.from(external)
       })
 
       // attach typeDefs to the output
