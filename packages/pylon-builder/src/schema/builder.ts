@@ -9,7 +9,13 @@ export class SchemaBuilder {
 
   constructor(sfiFilePath: string) {
     this.program = ts.createProgram([sfiFilePath], {
-      strictNullChecks: true
+      target: ts.ScriptTarget.ESNext,
+      module: ts.ModuleKind.CommonJS,
+      strict: true,
+      esModuleInterop: true,
+      skipLibCheck: false,
+      forceConsistentCasingInFileNames: true,
+      noImplicitAny: true
     })
 
     this.checker = this.program.getTypeChecker()
