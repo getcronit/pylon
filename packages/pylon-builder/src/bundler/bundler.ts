@@ -1,5 +1,6 @@
 import fs from 'fs'
 import chokidar from 'chokidar'
+import {loadPackageJson} from '../load-package-json'
 
 export interface BundlerBuildOptions {
   getTypeDefs: () => string
@@ -23,7 +24,7 @@ export class Bundler {
       const external = new Set<string>(['hono'])
 
       // Read "external" from package.json
-      const packageJson = JSON.parse(fs.readFileSync('./package.json', 'utf8'))
+      const packageJson = await loadPackageJson()
 
       if (packageJson.pylon && packageJson.pylon.external) {
         packageJson.pylon.external.forEach((externalPackage: string) => {
