@@ -584,16 +584,19 @@ export class SchemaParser {
               this.sfiFile
             )
 
-            schemaType.args[arg.escapedName as string] = argType
+            // set args to empty object if not set
+            if (schemaType.args) {
+              schemaType.args[arg.escapedName as string] = argType
 
-            recLoop(
-              argType,
-              {
-                parentType: type
-              },
-              'inputs',
-              [...path, arg.escapedName as string]
-            )
+              recLoop(
+                argType,
+                {
+                  parentType: type
+                },
+                'inputs',
+                [...path, arg.escapedName as string]
+              )
+            }
           }
         })
 
