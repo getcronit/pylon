@@ -32,17 +32,21 @@ export class Bundler {
         })
       }
 
-      await Bun.build({
+      const result = await Bun.build({
         entrypoints: [this.sfiFilePath],
         outdir: this.outputDir,
         target: 'bun',
         external: Array.from(external)
       })
 
-      // attach typeDefs to the output
-      this.appendTypeDefs(options.getTypeDefs())
+      if (result.success) {
+        // attach typeDefs to the output
+        this.appendTypeDefs(options.getTypeDefs())
 
-      this.reportStatus('done')
+        this.reportStatus('done')
+      } else {
+        console.error(result.logs)
+      }
     }
     if (options.watch) {
       chokidar.watch(this.sfiFilePath).on('change', async () => {
