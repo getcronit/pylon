@@ -1,14 +1,18 @@
 import ts from 'typescript'
 import {SchemaParser} from './schema-parser'
+import path from 'path'
 
 export class SchemaBuilder {
   private program: ts.Program
   private checker: ts.TypeChecker
   private sfiFile!: ts.SourceFile
   private sfi!: ts.Symbol
+  private sfiFilePath: string
 
   constructor(sfiFilePath: string) {
-    this.program = ts.createProgram([sfiFilePath], {
+    this.sfiFilePath = path.join(process.cwd(), sfiFilePath)
+
+    this.program = ts.createProgram([this.sfiFilePath], {
       target: ts.ScriptTarget.ESNext,
       module: ts.ModuleKind.CommonJS,
       strict: true,
@@ -25,7 +29,7 @@ export class SchemaBuilder {
 
   private loadSfi() {
     const sourceFiles = this.program.getSourceFiles()
-    const file = sourceFiles.find(file => file.fileName.endsWith('index.ts'))
+    const file = sourceFiles.find(file => file.fileName === this.sfiFilePath)
 
     if (!file) {
       throw new Error('Could not find index.ts (pylon entrypoint)')
