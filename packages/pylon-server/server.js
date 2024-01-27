@@ -3,7 +3,7 @@
 // Set default env variables
 process.env.NODE_ENV = process.env.NODE_ENV || 'production'
 
-import {makeApp} from '@cronitio/pylon-server'
+import {makeApp, runtime} from '@cronitio/pylon-server'
 import {Command} from 'commander'
 import fs from 'fs'
 import path from 'path'
@@ -68,9 +68,14 @@ if (args.https) {
 const server = Bun.serve({
   ...app,
   port: args.port,
-  tls
+  tls,
+  websocket: sfi.options.websocket
+    ? sfi.options.websocket(runtime.server)
+    : undefined
 })
 
 sfi.options.configureServer?.(server)
+
+runtime.server = server
 
 console.log(`Listening on localhost:`, server.port)

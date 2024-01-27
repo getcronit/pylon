@@ -1,6 +1,7 @@
 import {build} from '@cronitio/pylon-builder'
-import {makeApp} from '@cronitio/pylon-server'
+import {makeApp, runtime} from '@cronitio/pylon-server'
 import path from 'path'
+import {Server} from 'bun'
 
 import {sfiBuildPath, sfiSourcePath} from '../constants.js'
 import {importFresh} from '../utils/import-fresh.js'
@@ -8,7 +9,7 @@ import {importFresh} from '../utils/import-fresh.js'
 const loadApp = async (outputFile: string) => {
   const sfi = await importFresh(outputFile)
 
-  const app = makeApp({
+  const app = await makeApp({
     schema: {
       typeDefs: sfi.typeDefs,
       resolvers: sfi.default.graphqlResolvers
@@ -16,24 +17,20 @@ const loadApp = async (outputFile: string) => {
     configureApp: sfi.default.options.configureApp
   })
 
-  return app
+  return {
+    app,
+    configureServer: sfi.default.options.configureServer,
+    websocket: sfi.default.options.websocket
+  }
 }
 
 export default async (options: {port: string; client?: boolean}) => {
-  interface Server {
-    development: boolean
-    hostname: string
-    port: number
-    pendingRequests: number
-    stop(b?: boolean): void
-  }
-
   const filePath = path.join(process.cwd(), sfiBuildPath, 'index.js')
 
   let server: Server | null = null
 
   let serve = async () => {
-    const app = await loadApp(filePath)
+    const {app, configureServer, websocket} = await loadApp(filePath)
 
     if (server) {
       server.stop(true)
@@ -42,8 +39,11 @@ export default async (options: {port: string; client?: boolean}) => {
     }
 
     if (!server) {
-      // @ts-ignore
-      server = Bun.serve({...app, port: options.port})
+      server = Bun.serve({
+        ...app,
+        port: options.port,
+        websocket: websocket ? websocket(runtime.server) : undefined
+      })
 
       if (server) {
         // With color
@@ -53,6 +53,12 @@ export default async (options: {port: string; client?: boolean}) => {
         )
       }
     }
+
+    if (configureServer) {
+      await configureServer(server)
+    }
+
+    runtime.server = server
   }
 
   await build({

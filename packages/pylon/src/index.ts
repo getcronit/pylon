@@ -1,4 +1,8 @@
-export {defineService, ServiceError} from './define-pylon.js'
+export {
+  defineService,
+  ServiceError,
+  WebSocketHandlerFunction
+} from './define-pylon.js'
 export {
   withContext,
   decorator,

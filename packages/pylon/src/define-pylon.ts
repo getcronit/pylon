@@ -5,6 +5,7 @@ import {
   SelectionSetNode
 } from 'graphql'
 import {Hono} from 'hono'
+import {Server, WebSocketHandler} from 'bun'
 
 import {
   BaseContext,
@@ -13,17 +14,20 @@ import {
   FnWithContext,
   MaybeWithContext
 } from './withContext'
-import type {Server as HTTPServer} from 'http'
-import type {Server as HTTPSServer} from 'https'
 
 export interface Resolvers<Q, M> {
   Query: Q
   Mutation: M
 }
 
+export type WebSocketHandlerFunction<T extends Record<string, any>> = (
+  server: Server
+) => WebSocketHandler<T>
+
 export interface Options {
   configureApp: (app: Hono) => Hono | void | Promise<void> | Promise<Hono>
-  configureServer?: (server: HTTPSServer | HTTPServer) => void
+  configureServer?: (server: Server) => void
+  websocket?: WebSocketHandlerFunction<any>
 }
 
 type SingleResolver = ((...args: any[]) => any) | object | FnWithContext
