@@ -12,7 +12,6 @@ import {
   Union as _Union,
   Enum as _Enum
 } from './type-definition-builder.js'
-import {appendFileSync} from 'fs'
 
 type Union = _Union & {
   description: string
@@ -443,14 +442,6 @@ export class SchemaParser {
       processing: 'inputs' | 'types' = 'types',
       path: Array<string> = []
     ) => {
-      // Write path to file
-      appendFileSync(
-        'path.txt',
-        `${JSON.stringify(path)} type: ${this.checker.typeToString(
-          type
-        )} parentType: ${this.checker.typeToString(info.parentType!)}\n`
-      )
-
       if (referenceSchema[processing].has(type)) {
         return
       }
