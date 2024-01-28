@@ -19,7 +19,8 @@ export class SchemaBuilder {
       esModuleInterop: true,
       skipLibCheck: false,
       forceConsistentCasingInFileNames: true,
-      noImplicitAny: true
+      noImplicitAny: true,
+      experimentalDecorators: true
     })
 
     this.checker = this.program.getTypeChecker()
