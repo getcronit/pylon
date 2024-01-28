@@ -14,13 +14,13 @@ const loadApp = async (outputFile: string) => {
       typeDefs: sfi.typeDefs,
       resolvers: sfi.default.graphqlResolvers
     },
-    configureApp: sfi.default.options.configureApp
+    configureApp: sfi.configureApp
   })
 
   return {
     app,
-    configureServer: sfi.default.options.configureServer,
-    websocket: sfi.default.options.websocket
+    configureServer: sfi.configureServer,
+    configureWebsocket: sfi.configureWebsocket
   }
 }
 
@@ -30,7 +30,7 @@ export default async (options: {port: string; client?: boolean}) => {
   let server: Server | null = null
 
   let serve = async () => {
-    const {app, configureServer, websocket} = await loadApp(filePath)
+    const {app, configureServer, configureWebsocket} = await loadApp(filePath)
 
     if (server) {
       server.stop(true)
@@ -42,7 +42,9 @@ export default async (options: {port: string; client?: boolean}) => {
       server = Bun.serve({
         ...app,
         port: options.port,
-        websocket: websocket ? websocket(runtime.server) : undefined
+        websocket: configureWebsocket
+          ? configureWebsocket(runtime.server)
+          : undefined
       })
 
       if (server) {

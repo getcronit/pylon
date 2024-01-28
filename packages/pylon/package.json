@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "graphql": "^16.6.0",
-    "lru-cache": "^10.0.3",
+    "lru-cache": "^10.2.0",
     "winston": "^3.8.2"
   }
 }

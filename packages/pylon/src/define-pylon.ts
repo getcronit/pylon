@@ -20,28 +20,26 @@ export interface Resolvers<Q, M> {
   Mutation: M
 }
 
-export type WebSocketHandlerFunction<T extends Record<string, any>> = (
+type WebSocketHandlerFunction<T extends Record<string, any>> = (
   server: Server
 ) => WebSocketHandler<T>
 
-export interface Options {
+export interface PylonAPI {
+  defineService: typeof defineService
   configureApp: (app: Hono) => Hono | void | Promise<void> | Promise<Hono>
-  configureServer?: (server: Server) => void
-  websocket?: WebSocketHandlerFunction<any>
+  configureServer: (server: Server) => void
+  configureWebsocket: WebSocketHandlerFunction<any>
 }
 
 type SingleResolver = ((...args: any[]) => any) | object | FnWithContext
 
-export const defineService = <Q extends Record<string, SingleResolver>, M>(
-  plainResolvers: {
-    Query?: Q
-    Mutation?: M
-  },
-  options: Options = {
-    configureApp: app => app,
-    configureServer: server => server
-  }
-) => {
+export const defineService = <
+  Q extends Record<string, SingleResolver>,
+  M
+>(plainResolvers: {
+  Query?: Q
+  Mutation?: M
+}) => {
   const typedPlainResolvers = plainResolvers as Resolvers<
     Q & {
       version: string
@@ -58,8 +56,7 @@ export const defineService = <Q extends Record<string, SingleResolver>, M>(
 
   return {
     graphqlResolvers,
-    plainResolvers: typedPlainResolvers,
-    options
+    plainResolvers: typedPlainResolvers
   }
 }
 

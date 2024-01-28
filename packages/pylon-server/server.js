@@ -42,7 +42,7 @@ const app = await makeApp({
     typeDefs: typeDefs,
     resolvers: sfi.graphqlResolvers
   },
-  configureApp: sfi.options.configureApp
+  configureApp: sfi.configureApp
 })
 
 let tls = undefined
