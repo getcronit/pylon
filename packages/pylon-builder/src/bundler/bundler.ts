@@ -36,7 +36,8 @@ export class Bundler {
         entrypoints: [this.sfiFilePath],
         outdir: this.outputDir,
         target: 'bun',
-        external: Array.from(external)
+        external: Array.from(external),
+        sourcemap: 'inline'
       })
 
       if (result.success) {
