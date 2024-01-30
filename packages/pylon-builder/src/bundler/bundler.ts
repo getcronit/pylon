@@ -1,6 +1,9 @@
+// bundler.ts
 import fs from 'fs'
 import chokidar from 'chokidar'
 import {loadPackageJson} from '../load-package-json'
+import ncc from '@vercel/ncc'
+import path from 'path'
 
 export interface BundlerBuildOptions {
   getTypeDefs: () => string
@@ -17,7 +20,7 @@ export class Bundler {
     this.outputDir = outputDir
   }
 
-  public async build(options: BundlerBuildOptions) {
+  public async build(options: BundlerBuildOptions): Promise<void> {
     this.reportStatus('start')
 
     const build = async () => {
@@ -32,23 +35,31 @@ export class Bundler {
         })
       }
 
-      const result = await Bun.build({
-        entrypoints: [this.sfiFilePath],
-        outdir: this.outputDir,
-        target: 'bun',
-        external: Array.from(external),
-        sourcemap: 'inline'
+      const nccOptions = {
+        quiet: true,
+        externals: Array.from(external),
+        sourceMap: false // Generate sourcemap
+      }
+
+      const inputPath = path.join(process.cwd(), this.sfiFilePath)
+      const outputPath = path.join(process.cwd(), this.outputDir, 'index.js')
+
+      const {code, map, assets} = await ncc(inputPath, nccOptions)
+
+      //  create folder if not present
+
+      fs.mkdirSync(path.dirname(outputPath), {
+        recursive: true
       })
 
-      if (result.success) {
-        // attach typeDefs to the output
-        this.appendTypeDefs(options.getTypeDefs())
+      fs.writeFileSync(outputPath, code)
 
-        this.reportStatus('done')
-      } else {
-        console.error(result.logs)
-      }
+      // attach typeDefs to the output
+      this.appendTypeDefs(options.getTypeDefs())
+
+      this.reportStatus('done')
     }
+
     if (options.watch) {
       chokidar.watch(this.sfiFilePath).on('change', async () => {
         await build()
@@ -62,8 +73,8 @@ export class Bundler {
     await build()
   }
 
-  private appendTypeDefs(typeDefs: string) {
-    const outputFile = this.outputDir + '/index.js'
+  private appendTypeDefs(typeDefs: string): void {
+    const outputFile = `${this.outputDir}/index.js`
 
     fs.appendFileSync(
       outputFile,
@@ -71,7 +82,7 @@ export class Bundler {
     )
   }
 
-  private reportStatus(status: 'start' | 'done') {
+  private reportStatus(status: 'start' | 'done'): void {
     if (status === 'start') {
       console.log('\x1b[32m%s\x1b[0m', `Bundling Pylon: ${this.sfiFilePath}...`)
     }

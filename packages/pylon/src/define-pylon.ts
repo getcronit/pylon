@@ -21,7 +21,6 @@ export interface PylonAPI {
   configureApp: (app: Hono) => Hono | void | Promise<void> | Promise<Hono>
   configureServer: (server: Server) => void
   configureWebsocket: WebSocketHandlerFunction<any>
-  configureContext: <T extends {}>(context: Context) => T
 }
 
 type SingleResolver = ((...args: any[]) => any) | object
@@ -63,11 +62,11 @@ export const defineService = <
   return {
     graphqlResolvers,
     plainResolvers: typedPlainResolvers,
-    getContext: (args: IArguments) => {
-      return args[args.length - 2] as ReturnType<Options['context']>
+    getContext: (that: any) => {
+      return that.context as ReturnType<Options['context']>
     },
-    getInfo: (args: IArguments) => {
-      return args[args.length - 1] as GraphQLResolveInfo | null
+    getInfo: (that: any) => {
+      return that.info as GraphQLResolveInfo | null
     }
   }
 }
@@ -139,7 +138,7 @@ async function wrapFunctionsRecursively(
     }
 
     // @ts-ignore
-    return await wrapper.call(that, obj, selectionSet, context, info)
+    return await wrapper.call(that, obj, selectionSet, context)
   } else if (obj instanceof Promise) {
     return await wrapFunctionsRecursively(
       await obj,
@@ -192,7 +191,7 @@ async function wrapFunctionsRecursively(
   }
 }
 function spreadFunctionArguments<T extends (...args: any[]) => any>(fn: T) {
-  return (otherArgs: Record<string, any>, _: any, info: GraphQLResolveInfo) => {
+  return (otherArgs: Record<string, any>, c: any, info: GraphQLResolveInfo) => {
     const selections = arguments[1] as SelectionSetNode['selections']
     const context = arguments[2] as Context
 
@@ -227,8 +226,13 @@ function spreadFunctionArguments<T extends (...args: any[]) => any>(fn: T) {
 
     const orderedArgs = Object.keys(args).map(key => args[key])
 
+    const that = this || {}
+
+    that.context = context
+    that.info = info
+
     const result = wrapFunctionsRecursively(
-      fn.call(this || {}, ...orderedArgs, context, info),
+      fn.call(that, ...orderedArgs),
       spreadFunctionArguments,
       this,
       selections,
