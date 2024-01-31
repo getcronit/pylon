@@ -4,8 +4,10 @@ import {
   GraphQLResolveInfo,
   SelectionSetNode
 } from 'graphql'
-import {Context, Hono} from 'hono'
+import {Context, Hono as _Hono} from 'hono'
 import {Server, WebSocketHandler} from 'bun'
+
+import {AuthState} from './auth'
 
 export interface Resolvers<Q, M> {
   Query: Q
@@ -15,6 +17,15 @@ export interface Resolvers<Q, M> {
 type WebSocketHandlerFunction<T extends Record<string, any>> = (
   server: Server
 ) => WebSocketHandler<T>
+
+type Environment = {
+  Variables: {
+    NODE_ENV: string
+    auth?: AuthState
+  }
+}
+
+type Hono = _Hono<Environment>
 
 export interface PylonAPI {
   defineService: typeof defineService
@@ -26,7 +37,7 @@ export interface PylonAPI {
 type SingleResolver = ((...args: any[]) => any) | object
 
 type ContextFn<T extends (...args: any[]) => any> = (
-  context: Context
+  context: Context<Environment>
 ) => ReturnType<T & Context>
 
 export const defineService = <

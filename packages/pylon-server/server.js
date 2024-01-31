@@ -33,16 +33,20 @@ let buildLocation = program.args[0] || './.pylon/index.js'
 
 // Rest of the script remains the same up to importing sfi...
 
-const {default: sfi, typeDefs} = await import(
-  path.resolve(process.cwd(), buildLocation)
-)
+const {
+  default: sfi,
+  typeDefs,
+  configureApp,
+  configureServer,
+  configureWebsocket
+} = await import(path.resolve(process.cwd(), buildLocation))
 
 const app = await makeApp({
   schema: {
     typeDefs: typeDefs,
     resolvers: sfi.graphqlResolvers
   },
-  configureApp: sfi.configureApp
+  configureApp: configureApp
 })
 
 let tls = undefined
@@ -69,12 +73,10 @@ const server = Bun.serve({
   ...app,
   port: args.port,
   tls,
-  websocket: sfi.options.websocket
-    ? sfi.options.websocket(runtime.server)
-    : undefined
+  websocket: configureWebsocket ? configureWebsocket(runtime.server) : undefined
 })
 
-sfi.options.configureServer?.(server)
+configureServer?.(server)
 
 runtime.server = server
 
