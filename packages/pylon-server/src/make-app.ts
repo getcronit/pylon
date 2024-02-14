@@ -5,6 +5,7 @@ import * as crypto from 'crypto'
 import {Hono} from 'hono'
 import {logger} from 'hono/logger'
 import {secureHeaders} from 'hono/secure-headers'
+import {HTTPException} from 'hono/http-exception'
 
 import {sentry} from '@hono/sentry'
 

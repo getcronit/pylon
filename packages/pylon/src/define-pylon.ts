@@ -121,6 +121,16 @@ async function wrapFunctionsRecursively(
     return obj
   }
 
+  if (typeof obj === 'object') {
+    Object.defineProperty(obj, '$info', {
+      value: info
+    })
+
+    Object.defineProperty(obj, '$context', {
+      value: context
+    })
+  }
+
   if (Array.isArray(obj)) {
     return await Promise.all(
       obj.map(async item => {
@@ -382,7 +392,7 @@ export class ServiceError extends GraphQLError {
     extensions: {
       code: string
       statusCode: number
-      message: string
+      details?: Record<string, any>
     }
   ) {
     super(message)

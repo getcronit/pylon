@@ -1,57 +1,65 @@
 import {ServiceError} from '../../define-pylon'
+import {AuthRequireChecks, auth} from '..'
+import {HTTPException} from 'hono/http-exception'
 
-export function requireAuth(
-  target: any,
-  propertyKey: string,
-  descriptor: PropertyDescriptor
-) {
-  const originalMethod = descriptor.value
+export function requireAuth(checks?: AuthRequireChecks) {
+  const checkAuth = async (c: any) => {
+    const ctx = await c
 
-  descriptor.value = async function (...args: any[]) {
-    const ctx = this.context
+    try {
+      await auth.require(checks)(ctx, async () => {})
+    } catch (e) {
+      if (e instanceof HTTPException) {
+        if (e.status === 401) {
+          throw new ServiceError(e.message, {
+            statusCode: 401,
+            code: 'AUTH_REQUIRED'
+          })
+        } else if (e.status === 403) {
+          const res = e.getResponse()
 
-    const auth = ctx.get('auth')
+          throw new ServiceError(res.statusText, {
+            statusCode: res.status,
+            code: 'AUTHORIZATION_REQUIRED',
+            details: {
+              missingRoles: res.headers.get('Missing-Roles')?.split(',')
+            }
+          })
+        } else {
+          throw e
+        }
+      }
 
-    if (!auth?.active) {
-      throw new ServiceError('Authentication required', {
-        code: 'AUTH_REQUIRED',
-        statusCode: 401,
-        message: 'Authentication required. Please login.'
-      })
+      throw e
     }
-
-    return originalMethod.apply(this, args)
   }
-}
 
-export function requireRole(role: string) {
-  return (target: any, propertyKey: string, descriptor: PropertyDescriptor) => {
-    const originalMethod = descriptor.value
+  return function fn(...args: any[]) {
+    const target: any = args[0]
+    const propertyKey: string = args[1]
+    const descriptor: PropertyDescriptor = args[2]
 
-    descriptor.value = async function (...args: any[]) {
-      requireAuth(target, propertyKey, descriptor)
+    if (descriptor) {
+      const originalMethod = descriptor.value
 
-      const ctx = this.context
+      descriptor.value = async function (...args: any[]) {
+        await checkAuth(this.context)
 
-      const auth = ctx.get('auth')
-
-      if (!auth?.active) {
-        return new ServiceError('Authentication required', {
-          code: 'AUTH_REQUIRED',
-          statusCode: 401,
-          message: 'Authentication required. Please login.'
-        })
+        return originalMethod.apply(this, args)
       }
+    } else {
+      Object.defineProperty(target, propertyKey, {
+        get: async function () {
+          const ctx = this.$context
 
-      if (!auth.roles.includes(role)) {
-        return new ServiceError('Authorization required', {
-          code: 'AUTHORIZATION_REQUIRED',
-          statusCode: 403,
-          message: 'Authorization required. Please login.'
-        })
-      }
+          await checkAuth(ctx)
 
-      return originalMethod.apply(this, args)
+          return this._value
+        },
+        set: function (newValue) {
+          this._value = newValue
+        }
+      })
     }
   }
 }

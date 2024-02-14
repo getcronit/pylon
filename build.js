@@ -1,9 +1,11 @@
 const path = require('path')
 
-const dependencies = require(path.join(
-  process.cwd(),
-  'package.json'
-)).dependencies
+const packageJson = require(path.join(process.cwd(), 'package.json'))
+
+const dependencies = {
+  ...packageJson.dependencies,
+  ...packageJson.peerDependencies
+}
 
 const cmd = `bun build ./src/index.ts --target=bun --outdir=./dist --sourcemap=external --external=${Object.keys(
   dependencies

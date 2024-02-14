@@ -24,7 +24,12 @@ export class Bundler {
     this.reportStatus('start')
 
     const build = async () => {
-      const external = new Set<string>(['hono'])
+      const external = new Set<string>([
+        'hono',
+        '@prisma/client',
+        'openid-client',
+        'hono/http-exception'
+      ])
 
       // Read "external" from package.json
       const packageJson = await loadPackageJson()
@@ -38,7 +43,8 @@ export class Bundler {
       const nccOptions = {
         quiet: true,
         externals: Array.from(external),
-        sourceMap: false // Generate sourcemap
+        sourceMap: false, // Generate sourcemap
+        transpileOnly: true
       }
 
       const inputPath = path.join(process.cwd(), this.sfiFilePath)

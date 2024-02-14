@@ -1,10 +1,8 @@
 import {MiddlewareHandler} from 'hono'
-import {generators} from 'openid-client'
 import jwt from 'jsonwebtoken'
-import {IdTokenClaims, IntrospectionResponse, Issuer} from 'openid-client'
+import type {IdTokenClaims, IntrospectionResponse} from 'openid-client'
 import path from 'path'
 import {HTTPException} from 'hono/http-exception'
-import {env} from 'hono/adapter'
 
 export type AuthState = IntrospectionResponse & IdTokenClaims
 
@@ -27,8 +25,6 @@ const authInitialize = () => {
     throw new Error('AUTH_ISSUER is not set')
   }
 
-  const AUTH_ORG_ID = process.env.AUTH_ORG_ID
-
   const middleware: MiddlewareHandler<{
     Variables: {
       auth: AuthState
@@ -37,17 +33,14 @@ const authInitialize = () => {
     // Check authorization header
     const authorizationHeader = ctx.req.header('Authorization')
 
-    const issuer = await Issuer.discover(AUTH_ISSUER)
-
-    const ZITADEL_INTROSPECTION_URL = issuer.metadata
-      .introspection_endpoint as string
+    const ZITADEL_INTROSPECTION_URL = `${AUTH_ISSUER}/oauth/v2/introspect`
 
     async function introspectToken(tokenString: string): Promise<AuthState> {
       // Create JWT for client assertion
       const payload = {
         iss: API_PRIVATE_KEY_FILE.clientId,
         sub: API_PRIVATE_KEY_FILE.clientId,
-        aud: issuer.metadata.issuer,
+        aud: AUTH_ISSUER,
         exp: Math.floor(Date.now() / 1000) + 60 * 60, // Expires in 1 hour
         iat: Math.floor(Date.now() / 1000)
       }
@@ -68,11 +61,12 @@ const authInitialize = () => {
         client_assertion_type:
           'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
         client_assertion: jwtToken,
-        token: tokenString
+        token: tokenString,
+        scope:
+          'openid profile email urn:zitadel:iam:org:project:id:250570845464822126:aud'
       }).toString()
 
       try {
-        console.log(ZITADEL_INTROSPECTION_URL)
         const response = await fetch(ZITADEL_INTROSPECTION_URL, {
           method: 'POST',
           headers: {'Content-Type': 'application/x-www-form-urlencoded'},
@@ -87,6 +81,7 @@ const authInitialize = () => {
         console.log(
           `Token data from introspection: ${JSON.stringify(tokenData)}`
         )
+
         return tokenData as AuthState
       } catch (error) {
         console.error('Error while introspecting token', error)
@@ -105,13 +100,7 @@ const authInitialize = () => {
       const state = await introspectToken(token)
 
       if (state.active) {
-        if (AUTH_ORG_ID) {
-          if (state['urn:zitadel:iam:user:resourceowner:id'] === AUTH_ORG_ID) {
-            ctx.set('auth', state)
-          }
-        } else {
-          ctx.set('auth', state)
-        }
+        ctx.set('auth', state)
       }
     }
 
@@ -121,22 +110,54 @@ const authInitialize = () => {
   return middleware
 }
 
-const authRequire: MiddlewareHandler<{
-  Variables: {
-    auth?: AuthState
-  }
-}> = async (ctx, next) => {
-  // Check if user is authenticated
-  const auth = ctx.get('auth')
+export type AuthRequireChecks = {
+  roles?: string[]
+}
 
-  if (auth) {
+const authRequire = (checks: AuthRequireChecks = {}) => {
+  const middleware: MiddlewareHandler<{
+    Variables: {
+      auth?: AuthState
+    }
+  }> = async (ctx, next) => {
+    // Check if user is authenticated
+    const auth = ctx.get('auth')
+
+    if (!auth) {
+      throw new HTTPException(401, {
+        message: 'Authentication required'
+      })
+    }
+
+    if (checks.roles) {
+      const roles = auth['urn:zitadel:iam:org:project:roles'] || {}
+
+      const rolesKeys = Object.keys(roles)
+
+      const hasRole = checks.roles.some(role => rolesKeys.includes(role))
+
+      if (!hasRole) {
+        const resError = new Response('Forbidden', {
+          status: 403,
+          statusText: 'Forbidden',
+          headers: {
+            'Missing-Roles': checks.roles.join(',')
+          }
+        })
+
+        throw new HTTPException(resError.status, {res: resError})
+      }
+    }
+
     return next()
   }
 
-  return new Response('Authentication required', {status: 401})
+  return middleware
 }
 
 export const auth = {
   initialize: authInitialize,
   require: authRequire
 }
+
+export {requireAuth} from './decorators/requireAuth'
