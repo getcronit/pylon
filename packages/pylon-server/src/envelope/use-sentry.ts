@@ -1,38 +1,16 @@
-import {
-  ExecutionArgs,
-  GraphQLError,
-  Kind,
-  OperationDefinitionNode,
-  print
-} from 'graphql'
+import {GraphQLError, Kind, OperationDefinitionNode, print} from 'graphql'
 import {
   getDocumentString,
   handleStreamOrSingleExecutionResult,
   isOriginalGraphQLError,
   OnExecuteDoneHookResultOnNextHook,
+  TypedExecutionArgs,
   type Plugin
 } from '@envelop/core'
-import {Toucan} from 'toucan-js'
-import type {Span, TraceparentData, Scope} from '@sentry/types'
+import * as Sentry from '@sentry/bun'
+import type {TraceparentData} from '@sentry/types'
 
-const Sentry = new Toucan({
-  dsn: process.env.SENTRY_DSN,
-  environment: process.env.NODE_ENV
-})
-
-export type SentryPluginOptions = {
-  /**
-   * Starts a new transaction for every GraphQL Operation.
-   * When disabled, an already existing Transaction will be used.
-   *
-   * @default true
-   */
-  startTransaction?: boolean
-  /**
-   * Renames Transaction.
-   * @default false
-   */
-  renameTransaction?: boolean
+export type SentryPluginOptions<PluginContext extends Record<string, any>> = {
   /**
    * Adds result of each resolver and operation to Span's data (available under "result")
    * @default false
@@ -56,34 +34,34 @@ export type SentryPluginOptions = {
   /**
    * Adds custom tags to every Transaction.
    */
-  appendTags?: (args: ExecutionArgs) => Record<string, unknown>
-  /**
-   * Callback to set context information onto the scope.
-   */
-  configureScope?: (args: ExecutionArgs, scope: Scope) => void
+  appendTags?: (
+    args: TypedExecutionArgs<PluginContext>
+  ) => Record<string, unknown>
   /**
    * Produces a name of Transaction (only when "renameTransaction" or "startTransaction" are enabled) and description of created Span.
    *
    * @default operation's name or "Anonymous Operation" when missing)
    */
-  transactionName?: (args: ExecutionArgs) => string
+  transactionName?: (args: TypedExecutionArgs<PluginContext>) => string
   /**
    * Produces tracing data for Transaction
    *
    * @default is empty
    */
-  traceparentData?: (args: ExecutionArgs) => TraceparentData | undefined
+  traceparentData?: (
+    args: TypedExecutionArgs<PluginContext>
+  ) => TraceparentData | undefined
   /**
    * Produces a "op" (operation) of created Span.
    *
    * @default execute
    */
-  operationName?: (args: ExecutionArgs) => string
+  operationName?: (args: TypedExecutionArgs<PluginContext>) => string
   /**
    * Indicates whether or not to skip the entire Sentry flow for given GraphQL operation.
    * By default, no operations are skipped.
    */
-  skip?: (args: ExecutionArgs) => boolean
+  skip?: (args: TypedExecutionArgs<PluginContext>) => boolean
   /**
    * Indicates whether or not to skip Sentry exception reporting for a given error.
    * By default, this plugin skips all `GraphQLError` errors and does not report it to Sentry.
@@ -91,22 +69,19 @@ export type SentryPluginOptions = {
   skipError?: (args: Error) => boolean
 }
 
-export const defaultSkipError = isOriginalGraphQLError
-
-export const useSentry = (options: SentryPluginOptions = {}): Plugin => {
-  function pick<K extends keyof SentryPluginOptions>(
+export const useSentry = <PluginContext extends Record<string, any> = {}>(
+  options: SentryPluginOptions<PluginContext> = {}
+): Plugin<PluginContext> => {
+  function pick<K extends keyof SentryPluginOptions<PluginContext>>(
     key: K,
-    defaultValue: NonNullable<SentryPluginOptions[K]>
+    defaultValue: NonNullable<SentryPluginOptions<PluginContext>[K]>
   ) {
     return options[key] ?? defaultValue
   }
 
-  const startTransaction = pick('startTransaction', true)
   const includeRawResult = pick('includeRawResult', false)
   const includeExecuteVariables = pick('includeExecuteVariables', false)
-  const renameTransaction = pick('renameTransaction', false)
   const skipOperation = pick('skip', () => false)
-  const skipError = pick('skipError', defaultSkipError)
 
   const eventIdKey = options.eventIdKey === null ? null : 'sentryEventId'
 
@@ -148,133 +123,84 @@ export const useSentry = (options: SentryPluginOptions = {}): Plugin => {
         ...addedTags
       }
 
-      let rootSpan: Span
+      return Sentry.startSpan({name: transactionName, op, tags}, span => {
+        span?.setAttribute('document', document)
 
-      if (startTransaction) {
-        rootSpan = Sentry.startTransaction({
-          name: transactionName,
-          op,
-          tags,
-          ...traceparentData
-        })
+        return {
+          onExecuteDone(payload) {
+            const handleResult: OnExecuteDoneHookResultOnNextHook<{}> = ({
+              result,
+              setResult
+            }) => {
+              if (includeRawResult) {
+                span?.setAttribute('result', JSON.parse(JSON.stringify(result)))
+              }
 
-        if (!rootSpan) {
-          const error = [
-            `Could not create the root Sentry transaction for the GraphQL operation "${transactionName}".`,
-            `It's very likely that this is because you have not included the Sentry tracing SDK in your app's runtime before handling the request.`
-          ]
-          throw new Error(error.join('\n'))
-        }
-      } else {
-        const scope = Sentry.getScope()
-        const parentSpan = scope?.getSpan()
-        const span = parentSpan?.startChild({
-          description: transactionName,
-          op,
-          tags
-        })
+              if (result.errors && result.errors.length > 0) {
+                Sentry.withScope(scope => {
+                  scope.setTransactionName(opName)
+                  scope.setTag('operation', operationType)
+                  scope.setTag('operationName', opName)
+                  scope.setExtra('document', document)
+                  scope.setTags(addedTags || {})
 
-        if (!span) {
-          // eslint-disable-next-line no-console
-          console.warn(
-            [
-              `Flag "startTransaction" is disabled but Sentry failed to find a transaction.`,
-              `Try to create a transaction before GraphQL execution phase is started.`
-            ].join('\n')
-          )
-          return {}
-        }
-
-        rootSpan = span
-
-        if (renameTransaction) {
-          scope!.setTransactionName(transactionName)
-        }
-      }
-
-      Sentry.configureScope(scope => scope.setSpan(rootSpan))
-
-      rootSpan.setData('document', document)
-
-      if (options.configureScope) {
-        Sentry.configureScope(scope => options.configureScope!(args, scope))
-      }
-
-      return {
-        onExecuteDone(payload) {
-          const handleResult: OnExecuteDoneHookResultOnNextHook<{}> = ({
-            result,
-            setResult
-          }) => {
-            if (includeRawResult) {
-              rootSpan.setData('result', result)
-            }
-
-            if (result.errors && result.errors.length > 0) {
-              Sentry.withScope(scope => {
-                scope.setTransactionName(opName)
-                scope.setTag('operation', operationType)
-                scope.setTag('operationName', opName)
-                scope.setExtra('document', document)
-
-                scope.setTags(addedTags || {})
-
-                if (includeRawResult) {
-                  scope.setExtra('result', result)
-                }
-
-                if (includeExecuteVariables) {
-                  scope.setExtra('variables', args.variableValues)
-                }
-
-                const errors = result.errors?.map(err => {
-                  if (skipError(err) === true) {
-                    return err
+                  if (includeRawResult) {
+                    scope.setExtra('result', result)
                   }
 
-                  const errorPath = (err.path ?? [])
-                    .map((v: string | number) =>
-                      typeof v === 'number' ? '$index' : v
-                    )
-                    .join(' > ')
+                  if (includeExecuteVariables) {
+                    scope.setExtra('variables', args.variableValues)
+                  }
 
-                  if (errorPath) {
-                    scope.addBreadcrumb({
-                      category: 'execution-path',
-                      message: errorPath,
-                      level: 'debug'
+                  const errors = result.errors?.map(err => {
+                    const errorPath = (err.path ?? [])
+                      .map((v: string | number) =>
+                        typeof v === 'number' ? '$index' : v
+                      )
+                      .join(' > ')
+
+                    if (errorPath) {
+                      scope.addBreadcrumb({
+                        category: 'execution-path',
+                        message: errorPath,
+                        level: 'debug'
+                      })
+                    }
+
+                    const eventId = Sentry.captureException(err.originalError, {
+                      fingerprint: [
+                        'graphql',
+                        errorPath,
+                        opName,
+                        operationType
+                      ],
+                      level: isOriginalGraphQLError(err) ? 'info' : 'error',
+                      contexts: {
+                        GraphQL: {
+                          operationName: opName,
+                          operationType,
+                          variables: args.variableValues
+                        }
+                      }
                     })
-                  }
 
-                  scope.setFingerprint([
-                    'graphql',
-                    errorPath,
-                    opName,
-                    operationType
-                  ])
-                  scope.setContext('GraphQL', {
-                    operationName: opName,
-                    operationType,
-                    variables: args.variableValues
+                    return addEventId(err, eventId)
                   })
 
-                  const eventId = Sentry.captureException(err.originalError)
-
-                  return addEventId(err, eventId)
+                  setResult({
+                    ...result,
+                    errors
+                  })
                 })
+              }
 
-                setResult({
-                  ...result,
-                  errors
-                })
-              })
+              span?.end()
             }
 
-            rootSpan.finish()
+            return handleStreamOrSingleExecutionResult(payload, handleResult)
           }
-          return handleStreamOrSingleExecutionResult(payload, handleResult)
         }
-      }
+      })
     }
   }
 }

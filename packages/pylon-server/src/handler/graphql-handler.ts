@@ -1,6 +1,6 @@
 import {createSchema, createYoga} from 'graphql-yoga'
 import {GraphQLScalarType, Kind} from 'graphql'
-import {Context} from 'hono'
+import {Context} from '@cronitio/pylon'
 
 import {BuildSchemaOptions} from '../make-app'
 
@@ -54,10 +54,10 @@ export const graphqlHandler =
       }
     })
 
-    // @ts-ignore
     const yoga = createYoga({
       schema: schema as any,
       landingPage: false,
+
       plugins: [
         useSentry({
           includeResolverArgs: true,

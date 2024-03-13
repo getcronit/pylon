@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken'
 import type {IdTokenClaims, IntrospectionResponse} from 'openid-client'
 import path from 'path'
 import {HTTPException} from 'hono/http-exception'
+import {StatusCode} from 'hono/utils/http-status'
 
 export type AuthState = IntrospectionResponse & IdTokenClaims
 
@@ -30,9 +31,6 @@ const authInitialize = () => {
       auth: AuthState
     }
   }> = async function (ctx, next) {
-    // Check authorization header
-    const authorizationHeader = ctx.req.header('Authorization')
-
     const ZITADEL_INTROSPECTION_URL = `${AUTH_ISSUER}/oauth/v2/introspect`
 
     async function introspectToken(tokenString: string): Promise<AuthState> {
@@ -44,8 +42,6 @@ const authInitialize = () => {
         exp: Math.floor(Date.now() / 1000) + 60 * 60, // Expires in 1 hour
         iat: Math.floor(Date.now() / 1000)
       }
-
-      console.log('Payload: ', payload)
 
       const headers = {
         alg: 'RS256',
@@ -78,9 +74,6 @@ const authInitialize = () => {
         }
 
         const tokenData = await response.json()
-        console.log(
-          `Token data from introspection: ${JSON.stringify(tokenData)}`
-        )
 
         return tokenData as AuthState
       } catch (error) {
@@ -89,19 +82,32 @@ const authInitialize = () => {
       }
     }
 
-    if (
-      authorizationHeader &&
-      authorizationHeader.toLowerCase().startsWith('bearer ')
-    ) {
-      const token = authorizationHeader.substring(7)
+    let token: string | undefined = undefined
 
-      // Verify token and get claims
+    if (ctx.req.header('Authorization')) {
+      const authHeader = ctx.req.header('Authorization')
 
-      const state = await introspectToken(token)
+      if (authHeader) {
+        const parts = authHeader.split(' ')
 
-      if (state.active) {
-        ctx.set('auth', state)
+        if (parts.length === 2 && parts[0] === 'Bearer') {
+          token = parts[1]
+        }
       }
+    }
+
+    if (!token) {
+      const queryToken = ctx.req.query('token')
+
+      if (queryToken) {
+        token = queryToken
+      }
+    }
+
+    if (token) {
+      const auth = await introspectToken(token)
+
+      ctx.set('auth', auth)
     }
 
     return next()
@@ -113,6 +119,8 @@ const authInitialize = () => {
 export type AuthRequireChecks = {
   roles?: string[]
 }
+
+const AUTH_PROJECT_ID = process.env.AUTH_PROJECT_ID
 
 const authRequire = (checks: AuthRequireChecks = {}) => {
   const middleware: MiddlewareHandler<{
@@ -130,11 +138,13 @@ const authRequire = (checks: AuthRequireChecks = {}) => {
     }
 
     if (checks.roles) {
-      const roles = auth['urn:zitadel:iam:org:project:roles'] || {}
+      const roles = (auth['roles'] || []) as string[]
 
-      const rolesKeys = Object.keys(roles)
-
-      const hasRole = checks.roles.some(role => rolesKeys.includes(role))
+      const hasRole = checks.roles.some(role => {
+        return (
+          roles.includes(role) || roles.includes(`${AUTH_PROJECT_ID}:${role}`)
+        )
+      })
 
       if (!hasRole) {
         const resError = new Response('Forbidden', {
@@ -145,7 +155,7 @@ const authRequire = (checks: AuthRequireChecks = {}) => {
           }
         })
 
-        throw new HTTPException(resError.status, {res: resError})
+        throw new HTTPException(resError.status as StatusCode, {res: resError})
       }
     }
 

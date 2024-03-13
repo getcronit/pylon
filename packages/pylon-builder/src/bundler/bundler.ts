@@ -43,25 +43,33 @@ export class Bundler {
       const nccOptions = {
         quiet: true,
         externals: Array.from(external),
-        sourceMap: false, // Generate sourcemap
+        sourceMap: true, // Generate sourcemap
         transpileOnly: true
       }
 
       const inputPath = path.join(process.cwd(), this.sfiFilePath)
-      const outputPath = path.join(process.cwd(), this.outputDir, 'index.js')
+      const dir = path.join(process.cwd(), this.outputDir)
 
       const {code, map, assets} = await ncc(inputPath, nccOptions)
 
-      //  create folder if not present
-
-      fs.mkdirSync(path.dirname(outputPath), {
+      fs.mkdirSync(path.dirname(dir), {
         recursive: true
       })
 
-      fs.writeFileSync(outputPath, code)
+      fs.writeFileSync(`${dir}/index.js`, code)
+
+      Object.entries(assets).forEach(([name, asset]) => {
+        const source = (asset as any).source
+
+        if (typeof source === 'string') {
+          fs.writeFileSync(`${dir}/${name}`, source)
+        } else if (typeof source === 'object') {
+          fs.writeFileSync(`${dir}/${name}`, Buffer.from(source))
+        }
+      })
 
       // attach typeDefs to the output
-      this.appendTypeDefs(options.getTypeDefs())
+      this.prependTypeDefs(options.getTypeDefs())
 
       this.reportStatus('done')
     }
@@ -79,12 +87,13 @@ export class Bundler {
     await build()
   }
 
-  private appendTypeDefs(typeDefs: string): void {
+  private prependTypeDefs(typeDefs: string): void {
     const outputFile = `${this.outputDir}/index.js`
 
-    fs.appendFileSync(
+    fs.writeFileSync(
       outputFile,
-      `\export const typeDefs = ${JSON.stringify(typeDefs)};`
+      `\export const typeDefs = ${JSON.stringify(typeDefs)};\n` +
+        fs.readFileSync(outputFile)
     )
   }
 

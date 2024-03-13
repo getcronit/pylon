@@ -3,8 +3,8 @@
   "private": true,
   "workspaces": {
     "packages": [
-      "packages",
-      "template2"
+      "packages/*",
+      "template"
     ]
   },
   "devDependencies": {

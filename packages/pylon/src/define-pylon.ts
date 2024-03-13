@@ -4,10 +4,11 @@ import {
   GraphQLResolveInfo,
   SelectionSetNode
 } from 'graphql'
-import {Context, Hono as _Hono} from 'hono'
+import {Hono as _Hono} from 'hono'
 import {Server, WebSocketHandler} from 'bun'
+import * as Sentry from '@sentry/bun'
 
-import {AuthState} from './auth'
+import {Context, Env} from './context'
 
 export interface Resolvers<Q, M> {
   Query: Q
@@ -18,14 +19,7 @@ type WebSocketHandlerFunction<T extends Record<string, any>> = (
   server: Server
 ) => WebSocketHandler<T>
 
-type Environment = {
-  Variables: {
-    NODE_ENV: string
-    auth?: AuthState
-  }
-}
-
-type Hono = _Hono<Environment>
+type Hono = _Hono<Env>
 
 export interface PylonAPI {
   defineService: typeof defineService
@@ -37,7 +31,7 @@ export interface PylonAPI {
 type SingleResolver = ((...args: any[]) => any) | object
 
 type ContextFn<T extends (...args: any[]) => any> = (
-  context: Context<Environment>
+  context: Context
 ) => ReturnType<T & Context>
 
 export const defineService = <
@@ -145,21 +139,16 @@ async function wrapFunctionsRecursively(
       })
     )
   } else if (typeof obj === 'function') {
-    if (obj.wrappedWithContext) {
-      obj = await obj(context)
-
-      return await wrapFunctionsRecursively(
-        obj,
-        wrapper,
-        that,
-        selectionSet,
-        context,
-        info
-      )
-    }
-
-    // @ts-ignore
-    return await wrapper.call(that, obj, selectionSet, context)
+    return Sentry.startSpan(
+      {
+        name: obj.name,
+        op: 'pylon.fn'
+      },
+      async () => {
+        // @ts-ignore
+        return await wrapper.call(that, obj, selectionSet, context)
+      }
+    )
   } else if (obj instanceof Promise) {
     return await wrapFunctionsRecursively(
       await obj,
@@ -282,76 +271,95 @@ const resolversToGraphQLResolvers = <Q, M>(
   const rootGraphqlResolver =
     (fn: Function | object | Promise<Function> | Promise<object>) =>
     async (_: object, args: Record<string, any>, ctx: Context, info: any) => {
-      let context = {...ctx} as Context
+      return Sentry.withScope(async scope => {
+        let context = {...ctx} as Context
 
-      if (configureContext) {
-        context = configureContext(context)
-      }
+        const auth = ctx.get('auth')
 
-      // Get the path and field metadata for the current query.
-      const path = info.path
-
-      // get query or mutation field
-
-      const isQuery = info.operation.operation === 'query'
-      const isMutation = info.operation.operation === 'mutation'
-
-      if (!isQuery && !isMutation) {
-        throw new Error('Only queries and mutations are supported.')
-      }
-
-      // Get the field metadata for the current query or mutation.
-      const type = isQuery
-        ? info.schema.getQueryType()
-        : info.schema.getMutationType()
-
-      const field = type?.getFields()[path.key]
-
-      // Get the list of arguments expected by the current query field.
-      const fieldArguments = field?.args || []
-
-      // Prepare the arguments for the resolver function call by adding any missing arguments with an undefined value.
-      const preparedArguments = fieldArguments.reduce(
-        (acc: {[x: string]: undefined}, arg: {name: string | number}) => {
-          if (args[arg.name] !== undefined) {
-            acc[arg.name] = args[arg.name]
-          } else {
-            acc[arg.name] = undefined
-          }
-
-          return acc
-        },
-        {} as Record<string, any>
-      )
-
-      // Determine the resolver function to call (either the given function or the wrappedWithContext function if it exists).
-      let inner = await fn
-
-      let baseSelectionSet: SelectionSetNode['selections'] = []
-
-      // Find the selection set for the current field.
-      for (const selection of info.operation.selectionSet.selections) {
-        if (selection.kind === 'Field' && selection.name.value === path.key) {
-          baseSelectionSet = selection.selectionSet?.selections || []
+        if (auth?.active) {
+          scope.setUser({
+            id: auth.sub,
+            username: auth.preferred_username,
+            email: auth.email,
+            details: auth
+          })
         }
-      }
 
-      // Wrap the resolver function with any required middleware.
-      const wrappedFn = await wrapFunctionsRecursively(
-        inner,
-        spreadFunctionArguments,
-        this,
-        baseSelectionSet,
-        context,
-        info
-      )
+        if (configureContext) {
+          context = await Sentry.startSpan(
+            {
+              name: 'Context',
+              op: 'pylon.context'
+            },
+            () => configureContext(context)
+          )
+        }
 
-      // Call the resolver function with the prepared arguments.
-      if (typeof wrappedFn !== 'function') {
-        return wrappedFn
-      }
+        // Get the path and field metadata for the current query.
+        const path = info.path
 
-      return wrappedFn(preparedArguments)
+        // get query or mutation field
+
+        const isQuery = info.operation.operation === 'query'
+        const isMutation = info.operation.operation === 'mutation'
+
+        if (!isQuery && !isMutation) {
+          throw new Error('Only queries and mutations are supported.')
+        }
+
+        // Get the field metadata for the current query or mutation.
+        const type = isQuery
+          ? info.schema.getQueryType()
+          : info.schema.getMutationType()
+
+        const field = type?.getFields()[path.key]
+
+        // Get the list of arguments expected by the current query field.
+        const fieldArguments = field?.args || []
+
+        // Prepare the arguments for the resolver function call by adding any missing arguments with an undefined value.
+        const preparedArguments = fieldArguments.reduce(
+          (acc: {[x: string]: undefined}, arg: {name: string | number}) => {
+            if (args[arg.name] !== undefined) {
+              acc[arg.name] = args[arg.name]
+            } else {
+              acc[arg.name] = undefined
+            }
+
+            return acc
+          },
+          {} as Record<string, any>
+        )
+
+        // Determine the resolver function to call (either the given function or the wrappedWithContext function if it exists).
+        let inner = await fn
+
+        let baseSelectionSet: SelectionSetNode['selections'] = []
+
+        // Find the selection set for the current field.
+        for (const selection of info.operation.selectionSet.selections) {
+          if (selection.kind === 'Field' && selection.name.value === path.key) {
+            baseSelectionSet = selection.selectionSet?.selections || []
+          }
+        }
+
+        // Wrap the resolver function with any required middleware.
+        const wrappedFn = await wrapFunctionsRecursively(
+          inner,
+          spreadFunctionArguments,
+          this,
+          baseSelectionSet,
+          context,
+          info
+        )
+
+        // Call the resolver function with the prepared arguments.
+        if (typeof wrappedFn !== 'function') {
+          return wrappedFn
+        }
+
+        return wrappedFn(preparedArguments)
+      })
     }
 
   // Convert the Query and Mutation resolvers to GraphQL resolvers.
