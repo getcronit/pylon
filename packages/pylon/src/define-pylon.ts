@@ -8,7 +8,7 @@ import {Hono as _Hono} from 'hono'
 import {Server, WebSocketHandler} from 'bun'
 import * as Sentry from '@sentry/bun'
 
-import {Context, Env} from './context'
+import {Context, Env, asyncContext, getContext} from './context'
 
 export interface Resolvers<Q, M> {
   Query: Q
@@ -30,15 +30,15 @@ export interface PylonAPI {
 
 type SingleResolver = ((...args: any[]) => any) | object
 
-type ContextFn<T extends (...args: any[]) => any> = (
-  context: Context
-) => ReturnType<T & Context>
+type ReturnTypeOrContext<T> = T extends (...args: any) => any
+  ? ReturnType<T>
+  : Context
 
 export const defineService = <
   Q extends Record<string, SingleResolver>,
   M,
   Options extends {
-    context: ContextFn<Options['context']>
+    context: (context: Context) => ReturnTypeOrContext<Options['context']>
   }
 >(
   plainResolvers: {
@@ -67,11 +67,8 @@ export const defineService = <
   return {
     graphqlResolvers,
     plainResolvers: typedPlainResolvers,
-    getContext: (that: any) => {
-      return that.context as ReturnType<Options['context']>
-    },
-    getInfo: (that: any) => {
-      return that.info as GraphQLResolveInfo | null
+    getContext: () => {
+      return getContext() as ReturnType<Options['context']>
     }
   }
 }
@@ -105,9 +102,7 @@ async function wrapFunctionsRecursively(
   obj: any,
   wrapper: FunctionWrapper,
   that: any = null,
-  selectionSet: SelectionSetNode['selections'] = [],
-  context: Context,
-  info: GraphQLResolveInfo
+  selectionSet: SelectionSetNode['selections'] = []
 ): Promise<any> {
   // Skip if the object is a Date object or any other special object.
   // Those objects are then handled by custom resolvers.
@@ -115,27 +110,10 @@ async function wrapFunctionsRecursively(
     return obj
   }
 
-  if (typeof obj === 'object') {
-    Object.defineProperty(obj, '$info', {
-      value: info
-    })
-
-    Object.defineProperty(obj, '$context', {
-      value: context
-    })
-  }
-
   if (Array.isArray(obj)) {
     return await Promise.all(
       obj.map(async item => {
-        return await wrapFunctionsRecursively(
-          item,
-          wrapper,
-          that,
-          selectionSet,
-          context,
-          info
-        )
+        return await wrapFunctionsRecursively(item, wrapper, that, selectionSet)
       })
     )
   } else if (typeof obj === 'function') {
@@ -146,7 +124,7 @@ async function wrapFunctionsRecursively(
       },
       async () => {
         // @ts-ignore
-        return await wrapper.call(that, obj, selectionSet, context)
+        return await wrapper.call(that, obj, selectionSet)
       }
     )
   } else if (obj instanceof Promise) {
@@ -154,9 +132,7 @@ async function wrapFunctionsRecursively(
       await obj,
       wrapper,
       that,
-      selectionSet,
-      context,
-      info
+      selectionSet
     )
   } else if (typeof obj === 'object') {
     const result: any = {}
@@ -184,9 +160,7 @@ async function wrapFunctionsRecursively(
         obj[key],
         wrapper,
         that,
-        selectionSet,
-        context,
-        info
+        selectionSet
       )
     }
 
@@ -203,7 +177,6 @@ async function wrapFunctionsRecursively(
 function spreadFunctionArguments<T extends (...args: any[]) => any>(fn: T) {
   return (otherArgs: Record<string, any>, c: any, info: GraphQLResolveInfo) => {
     const selections = arguments[1] as SelectionSetNode['selections']
-    const context = arguments[2] as Context
 
     let args: Record<string, any> = {}
 
@@ -238,16 +211,11 @@ function spreadFunctionArguments<T extends (...args: any[]) => any>(fn: T) {
 
     const that = this || {}
 
-    that.context = context
-    that.info = info
-
     const result = wrapFunctionsRecursively(
       fn.call(that, ...orderedArgs),
       spreadFunctionArguments,
       this,
-      selections,
-      context,
-      info
+      selections
     )
 
     return result as ReturnType<typeof fn>
@@ -265,14 +233,18 @@ type GraphQLResolvers = {
  */
 const resolversToGraphQLResolvers = <Q, M>(
   resolvers: Resolvers<Q, M>,
-  configureContext?: (context: Context) => any & Context
+  configureContext?: (context: Context) => Context
 ): GraphQLResolvers => {
   // Define a root resolver function that maps a given resolver function or object to a GraphQL resolver.
   const rootGraphqlResolver =
     (fn: Function | object | Promise<Function> | Promise<object>) =>
     async (_: object, args: Record<string, any>, ctx: Context, info: any) => {
       return Sentry.withScope(async scope => {
-        let context = {...ctx} as Context
+        const ctx = asyncContext.getStore()
+
+        if (!ctx) {
+          throw new Error('Internal error. Context not defined.')
+        }
 
         const auth = ctx.get('auth')
 
@@ -286,13 +258,15 @@ const resolversToGraphQLResolvers = <Q, M>(
         }
 
         if (configureContext) {
-          context = await Sentry.startSpan(
+          const configuredCtx = await Sentry.startSpan(
             {
               name: 'Context',
               op: 'pylon.context'
             },
-            () => configureContext(context)
+            () => configureContext(ctx)
           )
+
+          asyncContext.enterWith(configuredCtx)
         }
 
         // Get the path and field metadata for the current query.
@@ -348,9 +322,7 @@ const resolversToGraphQLResolvers = <Q, M>(
           inner,
           spreadFunctionArguments,
           this,
-          baseSelectionSet,
-          context,
-          info
+          baseSelectionSet
         )
 
         // Call the resolver function with the prepared arguments.

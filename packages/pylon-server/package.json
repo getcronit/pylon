@@ -1,6 +1,6 @@
 {
   "name": "@cronitio/pylon-server",
-  "version": "0.0.40",
+  "version": "0.0.42",
   "source": "src/index.ts",
   "type": "module",
   "main": "dist/index.js",

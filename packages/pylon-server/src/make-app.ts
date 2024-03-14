@@ -6,7 +6,7 @@ import {Hono} from 'hono'
 import {logger} from 'hono/logger'
 import {secureHeaders} from 'hono/secure-headers'
 
-import {Env} from '@cronitio/pylon'
+import {Env, asyncContext} from '@cronitio/pylon'
 // import * as Sentry from '@sentry/bun'
 
 export interface BuildSchemaOptions {
@@ -24,6 +24,20 @@ interface MakeServerSetupOptions {
 
 const makeApp = async (options: MakeServerSetupOptions) => {
   const app = new Hono<Env>()
+
+  app.use('*', async (c, next) => {
+    return new Promise((resolve, reject) => {
+      asyncContext.run(c, () => {
+        setImmediate(async () => {
+          try {
+            resolve(await next()) // You can pass the value you want to return here
+          } catch (error) {
+            reject(error) // If an error occurs during the execution of `next()`, reject the Promise
+          }
+        })
+      })
+    })
+  })
 
   app.use('*', logger())
 

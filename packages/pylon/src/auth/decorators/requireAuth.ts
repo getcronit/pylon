@@ -1,6 +1,7 @@
 import {ServiceError} from '../../define-pylon'
 import {AuthRequireChecks, auth} from '..'
 import {HTTPException} from 'hono/http-exception'
+import {getContext} from '../../context'
 
 export function requireAuth(checks?: AuthRequireChecks) {
   const checkAuth = async (c: any) => {
@@ -43,16 +44,14 @@ export function requireAuth(checks?: AuthRequireChecks) {
       const originalMethod = descriptor.value
 
       descriptor.value = async function (...args: any[]) {
-        await checkAuth(this.context)
+        await checkAuth(getContext())
 
         return originalMethod.apply(this, args)
       }
     } else {
       Object.defineProperty(target, propertyKey, {
         get: async function () {
-          const ctx = this.$context
-
-          await checkAuth(ctx)
+          await checkAuth(getContext())
 
           return this._value
         },
