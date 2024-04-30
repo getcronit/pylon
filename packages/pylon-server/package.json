@@ -1,6 +1,6 @@
 {
   "name": "@cronitio/pylon-server",
-  "version": "0.0.42",
+  "version": "0.0.43",
   "source": "src/index.ts",
   "type": "module",
   "main": "dist/index.js",
@@ -21,7 +21,7 @@
     "@sentry/bun": "^7.106.0",
     "commander": "^11.0.0",
     "graphql": "^16.6.0",
-    "graphql-yoga": "^5.0.0",
+    "graphql-yoga": "^5.3.0",
     "hono": "^4.0.8"
   },
   "devDependencies": {

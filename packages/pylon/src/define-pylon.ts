@@ -330,7 +330,7 @@ const resolversToGraphQLResolvers = <Q, M>(
           return wrappedFn
         }
 
-        return wrappedFn(preparedArguments)
+        return await wrappedFn(preparedArguments)
       })
     }
 
