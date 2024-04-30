@@ -1,14 +1,15 @@
-# snek-function
+***Disclaimer: This README is under development. Some sections may be incomplete or subject to change.***
 
-snek-function is a lightweight framework for building GraphQL APIs using Node.js and TypeScript. It eliminates the need for defining a schema by inferring it from the functionality of the functions defined as mutation or query.
+# Pylon
+
+Pylon is a lightweight framework for building GraphQL APIs using Node.js and TypeScript. It eliminates the need for defining a schema by inferring it from the functionality of the functions defined as mutation or query.
 
 ## Table of Content
 
-- [snek-function](#snek-function)
+- [pylon](#pylon)
   - [Features](#features)
   - [CLI](#cli)
   - [Usage](#usage)
-  - [Configuring the Express App](#configuring-the-express-app)
   - [Logging](#logging)
   - [Building and Running the Project](#building-and-running-the-project)
     - [Using the Dockerfile (Recommended)](#using-the-dockerfile-recommended)
@@ -20,19 +21,19 @@ snek-function is a lightweight framework for building GraphQL APIs using Node.js
 
 - Simplified syntax: Define your business logic using simple functions that take arguments and return values.
 - Automatic schema generation: The schema is inferred by the functionality of the functions defined in mutation or query.
-- Express under the hood: Uses Express to provide a flexible middleware stack that can be fully customized.
+- Bun / Hono under the hood: Uses Hono to provide a flexible middleware stack that can be fully customized.
 - TypeScript support: Built with TypeScript, providing type safety and a better developer experience.
 - Extensible: Easily extendable with plugins and third-party middleware.
 - Command-line interface: Use the CLI to generate new projects and start the development server.
 - Logger: Integrated logging functionality to help track the execution of your service.
 
 ## CLI
-snek-function comes with a command-line interface (CLI) that makes it easy to generate new projects and start the development server.
+pylon comes with a command-line interface (CLI) that makes it easy to generate new projects and start the development server.
 
 To create a new project, run:
 
 ```
-npx @snek-at/function-cli new my-project
+npx @getcronit/pylon-cli new my-project
 ```
 
 This will create a new project in the my-project directory.
@@ -47,7 +48,7 @@ This will start the development server on http://localhost:3000.
 
 ## Usage
 
-Here's a simple example of how to define a GraphQL API using snek-function:
+Here's a simple example of how to define a GraphQL API using pylon:
 
 ```typescript
 import { UserService } from "./services/user.service";
@@ -66,49 +67,15 @@ export default defineService({
 
 ```
 
-## Configuring the Express App
-The configureApp function in the service definition allows developers to configure the underlying Express app used by snek-function. This function takes an instance of the Express app as an argument and returns the configured app.
-
-Here's an example of how to use the configureApp function to add middleware to the Express app:
-
-```typescript
-import { defineService, logger } from "@snek-at/function";
-import { UserService } from "./services/user.service";
-import cors from "cors";
-
-export default defineService(
-  {
-    Query: {
-      allUser: UserService.allUser,
-      user: UserService.user,
-    },
-    Mutation: {
-      userCreate: UserService.userCreate,
-      userUpdate: UserService.userUpdate,
-      userDelete: UserService.userDelete,
-    },
-  },
-  {
-    configureApp(app) {
-      // Add CORS middleware to the Express app
-      app.use(cors());
-
-      logger.info("Configuring app");
-      return app;
-    },
-  }
-);
-```
-
 In this example, the cors middleware is added to the Express app using the app.use method inside the configureApp function.
 
 ## Logging
-snek-function includes a built-in logger that developers can use to log information, warnings, and errors. The logger uses the popular winston library under the hood and provides a customizable and extensible logging solution.
+Pylon includes a built-in logger that developers can use to log information, warnings, and errors. The logger uses the popular winston library under the hood and provides a customizable and extensible logging solution.
 
 Here's an example of how to use the logger in a service definition:
 
 ```typescript
-import { defineService, logger } from "@snek-at/function";
+import { defineService, logger } from "@getcronit/pylon";
 import { UserService } from "./services/user.service";
 
 export default defineService({
@@ -178,11 +145,11 @@ This will start the server and make the GraphQL API available at `http://localho
 If you have any questions or issues with building or running the project, please refer to the official documentation or feel free to ask for help.
 
 ## Viewer
-snek-function comes with a built-in viewer that provides a visual overview of your GraphQL API. To access the viewer, you can navigate to the `/viewer` route of your running service. This is a great way to quickly understand the structure of your API and explore the available types, fields, and relationships. With the viewer, you can also test your queries and mutations directly in the browser, making it easy to debug and optimize your API.
+Pylon comes with a built-in viewer that provides a visual overview of your GraphQL API. To access the viewer, you can navigate to the `/viewer` route of your running service. This is a great way to quickly understand the structure of your API and explore the available types, fields, and relationships. With the viewer, you can also test your queries and mutations directly in the browser, making it easy to debug and optimize your API.
 
 ![image](https://user-images.githubusercontent.com/52858351/235554014-f241824e-728b-4a80-9dba-77d975edd735.png)
 
 
 ## Contributing
 
-Contributions to snek-function are always welcome. If you'd like to contribute, please follow the contribution guidelines.
+Contributions to pylon are always welcome. If you'd like to contribute, please follow the contribution guidelines.
