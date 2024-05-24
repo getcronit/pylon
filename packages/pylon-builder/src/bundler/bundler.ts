@@ -52,7 +52,7 @@ export class Bundler {
 
       const {code, map, assets} = await ncc(inputPath, nccOptions)
 
-      fs.mkdirSync(path.dirname(dir), {
+      fs.mkdirSync(dir, {
         recursive: true
       })
 
