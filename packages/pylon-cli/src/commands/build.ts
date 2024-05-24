@@ -1,4 +1,4 @@
-import {build} from '@cronitio/pylon-builder'
+import {build} from '@getcronit/pylon-builder'
 
 import {sfiBuildPath, sfiSourcePath} from '../constants.js'
 

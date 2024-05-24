@@ -6,7 +6,7 @@ import {Hono} from 'hono'
 import {logger} from 'hono/logger'
 import {secureHeaders} from 'hono/secure-headers'
 
-import {Env, asyncContext} from '@cronitio/pylon'
+import {Env, asyncContext} from '@getcronit/pylon'
 // import * as Sentry from '@sentry/bun'
 
 export interface BuildSchemaOptions {

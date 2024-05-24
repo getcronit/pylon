@@ -1,6 +1,6 @@
 {
-  "name": "@cronitio/pylon-server",
-  "version": "0.0.46",
+  "name": "@getcronit/pylon-server",
+  "version": "0.0.47",
   "source": "src/index.ts",
   "type": "module",
   "main": "dist/index.js",
@@ -28,6 +28,6 @@
     "microbundle": "^0.15.1"
   },
   "peerDependencies": {
-    "@cronitio/pylon": "*"
+    "@getcronit/pylon": "*"
   }
 }

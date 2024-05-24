@@ -1,6 +1,6 @@
 import {createSchema, createYoga} from 'graphql-yoga'
 import {GraphQLScalarType, Kind} from 'graphql'
-import {Context} from '@cronitio/pylon'
+import {Context} from '@getcronit/pylon'
 
 import {BuildSchemaOptions} from '../make-app'
 

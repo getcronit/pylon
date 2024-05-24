@@ -1,5 +1,5 @@
-import {build} from '@cronitio/pylon-builder'
-import {makeApp, runtime} from '@cronitio/pylon-server'
+import {build} from '@getcronit/pylon-builder'
+import {makeApp, runtime} from '@getcronit/pylon-server'
 import path from 'path'
 import {Server} from 'bun'
 

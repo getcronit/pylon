@@ -3,7 +3,7 @@
 // Set default env variables
 process.env.NODE_ENV = process.env.NODE_ENV || 'production'
 
-import {makeApp, runtime} from '@cronitio/pylon-server'
+import {makeApp, runtime} from '@getcronit/pylon-server'
 import {Command} from 'commander'
 import fs from 'fs'
 import path from 'path'
