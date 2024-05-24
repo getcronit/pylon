@@ -24,7 +24,7 @@ const loadApp = async (outputFile: string) => {
   }
 }
 
-export default async (options: {port: string; client?: boolean}) => {
+export default async (options: {port: string}) => {
   const filePath = path.join(process.cwd(), sfiBuildPath, 'index.js')
 
   let server: Server | null = null
@@ -66,7 +66,6 @@ export default async (options: {port: string; client?: boolean}) => {
   await build({
     sfiFilePath: sfiSourcePath,
     outputFilePath: sfiBuildPath,
-    withClient: options.client,
     watch: true,
     onWatch: async () => {
       await serve()

@@ -6,7 +6,6 @@ export interface BuildOptions {
   outputFilePath: string
   watch?: boolean
   onWatch?: () => void
-  withClient?: boolean
 }
 
 export const build = async (options: BuildOptions) => {
