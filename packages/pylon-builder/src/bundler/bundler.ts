@@ -25,6 +25,7 @@ export class Bundler {
 
     const build = async () => {
       const external = new Set<string>([
+        '@cronitio/pylon',
         'hono',
         '@prisma/client',
         'openid-client',
