@@ -9,7 +9,8 @@
     "build:declarations": "tsc --declaration --emitDeclarationOnly --outDir ./dist"
   },
   "files": [
-    "dist"
+    "dist",
+    "tsconfig.pylon.json"
   ],
   "license": "UNLICENSED",
   "devDependencies": {
