@@ -23,7 +23,8 @@ export function requireAuth(checks?: AuthRequireChecks) {
             statusCode: res.status,
             code: 'AUTHORIZATION_REQUIRED',
             details: {
-              missingRoles: res.headers.get('Missing-Roles')?.split(',')
+              missingRoles: res.headers.get('Missing-Roles')?.split(','),
+              obtainedRoles: res.headers.get('Obtained-Roles')?.split(',')
             }
           })
         } else {

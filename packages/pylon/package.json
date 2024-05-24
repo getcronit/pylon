@@ -1,6 +1,6 @@
 {
   "name": "@cronitio/pylon",
-  "version": "0.0.80",
+  "version": "0.0.83",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -23,6 +23,7 @@
     "@sentry/bun": "^7.106.0",
     "graphql": "^16.6.0",
     "jsonwebtoken": "^9.0.2",
+    "lodash": "^4.17.21",
     "openid-client": "^5.6.4",
     "winston": "^3.8.2"
   }
