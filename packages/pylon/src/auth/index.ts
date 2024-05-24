@@ -9,7 +9,10 @@ import {logger} from '../logger'
 
 const AUTH_PROJECT_ID = process.env.AUTH_PROJECT_ID
 
-export type AuthState = IntrospectionResponse & IdTokenClaims
+export type AuthState = IntrospectionResponse &
+  IdTokenClaims & {
+    roles: string[]
+  }
 
 const authInitialize = () => {
   // Load private key file from cwd
@@ -47,6 +50,47 @@ const authInitialize = () => {
     () =>
       async function (ctx, next) {
         const ZITADEL_INTROSPECTION_URL = `${AUTH_ISSUER}/oauth/v2/introspect`
+
+        async function getRolesFromToken(tokenString: string) {
+          const response = await fetch(
+            `${AUTH_ISSUER}/auth/v1/usergrants/me/_search`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${tokenString}`
+              }
+            }
+          )
+
+          const data = (await response.json()) as any
+
+          const userRoles = (data.result?.map((grant: any) => {
+            return (grant.roles || []).map((role: any) => {
+              return `${grant.projectId}:${role}`
+            })
+          }) || []) as string[][]
+
+          const projectScopedRoles = userRoles.flat()
+
+          const rolesSet = new Set(projectScopedRoles)
+
+          // Add unscoped roles based on project id
+          // This is useful so that it is not necessary to specify the project id for every role check
+          if (AUTH_PROJECT_ID) {
+            for (const role of projectScopedRoles) {
+              const [projectId, ...roleNameParts] = role.split(':')
+
+              const roleName = roleNameParts.join(':')
+
+              if (projectId === AUTH_PROJECT_ID) {
+                rolesSet.add(roleName)
+              }
+            }
+          }
+
+          return Array.from(rolesSet)
+        }
 
         async function introspectToken(
           tokenString: string
@@ -103,9 +147,16 @@ const authInitialize = () => {
               throw new Error('Network response was not ok')
             }
 
-            const tokenData = await response.json()
+            const tokenData = (await response.json()) as IntrospectionResponse
 
-            return tokenData as AuthState
+            const roles = await getRolesFromToken(tokenString)
+
+            const state = {
+              ...tokenData,
+              roles
+            } as AuthState
+
+            return state
           } catch (error) {
             console.error('Error while introspecting token', error)
             throw new Error('Token introspection failed')
@@ -138,14 +189,14 @@ const authInitialize = () => {
           const auth = await introspectToken(token)
 
           if (auth.active) {
-          ctx.set('auth', auth)
+            ctx.set('auth', auth)
 
-          Sentry.setUser({
-            id: auth.sub,
-            username: auth.preferred_username,
-            email: auth.email,
-            details: auth
-          })
+            Sentry.setUser({
+              id: auth.sub,
+              username: auth.preferred_username,
+              email: auth.email,
+              details: auth
+            })
           }
         }
 
@@ -176,7 +227,7 @@ const authRequire = (checks: AuthRequireChecks = {}) => {
     }
 
     if (checks.roles) {
-      const roles = (auth['roles'] || []) as string[]
+      const roles = auth.roles
 
       const hasRole = checks.roles.some(role => {
         return (
