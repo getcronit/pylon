@@ -13,7 +13,9 @@ export type AuthState = IntrospectionResponse & IdTokenClaims
 
 const authInitialize = () => {
   // Load private key file from cwd
-  const name = path.join(process.cwd(), 'key.json')
+  const authKeyFilePath = path.join(process.cwd(), 'key.json')
+
+  const authKey = process.env.AUTH_KEY
 
   // Load private key file from cwd
   const API_PRIVATE_KEY_FILE: {
@@ -22,7 +24,7 @@ const authInitialize = () => {
     key: string
     appId: string
     clientId: string
-  } = require(name)
+  } = authKey ? JSON.parse(authKey) : require(authKeyFilePath)
 
   const AUTH_ISSUER = process.env.AUTH_ISSUER
 
