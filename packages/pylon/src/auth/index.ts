@@ -137,6 +137,7 @@ const authInitialize = () => {
         if (token) {
           const auth = await introspectToken(token)
 
+          if (auth.active) {
           ctx.set('auth', auth)
 
           Sentry.setUser({
@@ -145,6 +146,7 @@ const authInitialize = () => {
             email: auth.email,
             details: auth
           })
+          }
         }
 
         return next()
