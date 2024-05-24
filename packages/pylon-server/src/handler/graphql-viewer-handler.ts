@@ -6,7 +6,7 @@ export const graphqlViewerHandler: MiddlewareHandler = async (c, next) => {
     <!DOCTYPE html>
     <html>
       <head>
-        <title>SF Viewer</title>
+        <title>Pylon Viewer</title>
         <script src="https://cdn.jsdelivr.net/npm/react@16/umd/react.production.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/react-dom@16/umd/react-dom.production.min.js"></script>
 

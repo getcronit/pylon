@@ -1,6 +1,6 @@
 {
   "name": "@cronitio/pylon-builder",
-  "version": "0.0.46",
+  "version": "0.0.47",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -30,7 +30,6 @@
     "jest": "^29.4.2",
     "jest-environment-jsdom": "^29.4.2",
     "microbundle": "^0.15.1",
-    "snek-query": "^0.0.53",
     "ts-jest": "^29.0.5",
     "tslib": "^2.5.0"
   }

@@ -99,8 +99,8 @@ export const graphqlHandler =
         // Return the GraphiQL config object
         return {
           endpoint,
-          title: 'SF Playground',
-          defaultQuery: `# Welcome to the SF Playground!`
+          title: 'Pylon Playground',
+          defaultQuery: `# Welcome to the Pylon Playground!`
         }
       },
       context: c
