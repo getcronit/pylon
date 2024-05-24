@@ -69,14 +69,27 @@ const authInitialize = () => {
             header: headers
           })
 
+          const scopeSet = new Set<string>()
+
+          scopeSet.add('openid')
+          scopeSet.add('profile')
+          scopeSet.add('email')
+
+          if (AUTH_PROJECT_ID) {
+            scopeSet.add(
+              `urn:zitadel:iam:org:project:id:${AUTH_PROJECT_ID}:aud`
+            )
+          }
+
+          const scope = Array.from(scopeSet).join(' ')
+
           // Send introspection request
           const body = new URLSearchParams({
             client_assertion_type:
               'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
             client_assertion: jwtToken,
             token: tokenString,
-            scope:
-              'openid profile email urn:zitadel:iam:org:project:id:250570845464822126:aud'
+            scope
           }).toString()
 
           try {
