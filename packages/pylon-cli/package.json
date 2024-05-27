@@ -1,6 +1,6 @@
 {
   "name": "@getcronit/pylon-cli",
-  "version": "0.0.24",
+  "version": "0.0.26",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

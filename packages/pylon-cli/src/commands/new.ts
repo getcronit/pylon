@@ -46,5 +46,12 @@ export default async (
   // Create an initial commit
   execSync(`git -C "${projectDir}" commit -m "Initial commit"`)
 
+  console.log('Installing project dependencies...')
+
+  // Bun install the project dependencies
+  execSync(`cd "${projectDir}" && bun install`, {
+    stdio: 'inherit'
+  })
+
   console.log(`Project ${name} created successfully at ${projectDir}.`)
 }
