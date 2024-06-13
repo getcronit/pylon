@@ -3,13 +3,17 @@
   "private": true,
   "workspaces": {
     "packages": [
-      "packages/*",
-      "pylon-template"
+      "packages/*"
     ]
   },
   "devDependencies": {
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/commit-analyzer": "^13.0.0",
+    "@semantic-release/release-notes-generator": "^14.0.0",
     "@types/node": "^18.14.0",
-    "bun-types": "^1.0.14"
+    "bun-types": "^1.0.14",
+    "semantic-release": "^24.0.0",
+    "semantic-release-monorepo": "^8.0.2"
   },
   "dependencies": {}
 }

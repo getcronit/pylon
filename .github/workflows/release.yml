@@ -1,0 +1,25 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+      
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 20
+      - uses: oven-sh/setup-bun@v1
+      - run: bun install --globally yarn
+      - run: bun install
+      - name: Build
+        run: bun run --filter './packages/*' build
+      - name: Release
+        run: yarn workspaces run semantic-release -e semantic-release-monorepo

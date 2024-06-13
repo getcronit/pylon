@@ -1,6 +1,6 @@
 {
   "name": "@getcronit/pylon-server",
-  "version": "0.0.47",
+  "version": "1.0.0",
   "source": "src/index.ts",
   "type": "module",
   "main": "dist/index.js",
