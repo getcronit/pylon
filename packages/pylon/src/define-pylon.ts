@@ -373,9 +373,13 @@ export class ServiceError extends GraphQLError {
       code: string
       statusCode: number
       details?: Record<string, any>
-    }
+    },
+    error?: Error
   ) {
-    super(message)
+    super(message, {
+      originalError: error
+    })
     this.extensions = extensions
+    this.cause = error
   }
 }
