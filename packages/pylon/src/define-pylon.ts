@@ -269,9 +269,6 @@ const resolversToGraphQLResolvers = <Q, M>(
           asyncContext.enterWith(configuredCtx)
         }
 
-        // Get the path and field metadata for the current query.
-        const path = info.path
-
         // get query or mutation field
 
         const isQuery = info.operation.operation === 'query'
@@ -286,7 +283,7 @@ const resolversToGraphQLResolvers = <Q, M>(
           ? info.schema.getQueryType()
           : info.schema.getMutationType()
 
-        const field = type?.getFields()[path.key]
+        const field = type?.getFields()[info.fieldName]
 
         // Get the list of arguments expected by the current query field.
         const fieldArguments = field?.args || []
@@ -312,7 +309,10 @@ const resolversToGraphQLResolvers = <Q, M>(
 
         // Find the selection set for the current field.
         for (const selection of info.operation.selectionSet.selections) {
-          if (selection.kind === 'Field' && selection.name.value === path.key) {
+          if (
+            selection.kind === 'Field' &&
+            selection.name.value === info.fieldName
+          ) {
             baseSelectionSet = selection.selectionSet?.selections || []
           }
         }
