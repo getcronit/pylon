@@ -9,6 +9,7 @@ export default async (
   template: string,
   options: {
     name: string
+    clientPath?: string
   }
 ) => {
   const name = options.name
@@ -52,6 +53,15 @@ export default async (
   execSync(`cd "${projectDir}" && bun install`, {
     stdio: 'inherit'
   })
+
+  // Insert the client path into the package.json file (gqty key)
+  if (options.clientPath) {
+    execSync(
+      `cd "${projectDir}" && npx json -q -I -f package.json -e 'this.pylon = this.pylon || {}; this.pylon.gqty="${options.clientPath}"'`
+    )
+
+    console.log('Inserted client path into package.json')
+  }
 
   console.log(`Project ${name} created successfully at ${projectDir}.`)
 }

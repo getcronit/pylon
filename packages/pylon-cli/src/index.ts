@@ -77,8 +77,15 @@ if (!process.argv.slice(2).length) {
         default: false
       })
 
+      let clientPath: string | undefined = undefined
+      if (useClient) {
+        clientPath = await input({
+          message: 'Path to the client (relative to the pylon project)',
+          default: '../src/client/index.ts'
+        })
+      }
+
       await commands.new(rootPath, template, {name, clientPath})
-      await commands.new(rootPath, template, {name})
     } else if (answer === 'develop') {
       const port = await input({
         message: 'Port to run the server on',

@@ -1,5 +1,6 @@
 import {build} from '@getcronit/pylon-builder'
 import {makeApp, runtime} from '@getcronit/pylon-server'
+import {fetchSchema, generateClient} from '@gqty/cli'
 import path from 'path'
 import {Server} from 'bun'
 
@@ -58,6 +59,29 @@ export default async (options: {port: string}) => {
 
     if (configureServer) {
       await configureServer(server)
+    }
+
+    // Load the package.json file
+    const packageJson = await importFresh(
+      path.resolve(process.cwd(), 'package.json')
+    )
+
+    console.log('packageJson', packageJson)
+
+    const clientPath = packageJson.pylon?.gqty
+
+    if (clientPath) {
+      const endpoint = `http://localhost:${server.port}/graphql`
+
+      console.log('Generating client...', {endpoint, clientPath})
+
+      const schema = await fetchSchema(endpoint)
+
+      await generateClient(schema, {
+        endpoint,
+        destination: clientPath,
+        react: true
+      })
     }
 
     runtime.server = server

@@ -19,6 +19,7 @@
     "microbundle": "^0.15.1"
   },
   "dependencies": {
+    "@gqty/cli": "4.1.0-canary-20240708145747.43f0b4262b24cc7de046a0d5b04777bd9ac1eb21",
     "@getcronit/pylon": "*",
     "@getcronit/pylon-builder": "*",
     "@getcronit/pylon-server": "*",
