@@ -25,11 +25,18 @@ const templates: {
   name: string
   description: string
   url: string
+  branch?: string
 }[] = [
   {
     name: 'Default',
     description: 'Default template',
     url: 'https://github.com/getcronit/pylon-template.git'
+  },
+  {
+    name: 'Database (Prisma)',
+    description: 'Template with Prisma ORM',
+    url: 'https://github.com/getcronit/pylon-template.git',
+    branch: 'prisma'
   }
 ]
 
