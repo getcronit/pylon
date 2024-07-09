@@ -76,7 +76,9 @@ export class Bundler {
     }
 
     if (options.watch) {
-      chokidar.watch(this.sfiFilePath).on('change', async () => {
+      const folder = path.dirname(this.sfiFilePath)
+
+      chokidar.watch(folder).on('change', async () => {
         await build()
 
         if (options.onWatch) {
