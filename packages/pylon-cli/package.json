@@ -22,6 +22,7 @@
     "@getcronit/pylon": "*",
     "@getcronit/pylon-builder": "*",
     "@getcronit/pylon-server": "*",
+    "@inquirer/prompts": "^5.1.2",
     "commander": "^10.0.0"
   }
 }
