@@ -19,10 +19,7 @@ program
   .option('-p, --port <port>', 'Port to run the server on', '3000')
   .action(commands.develop)
 
-program
-  .command('build')
-  .description('Build the application')
-  .action(commands.build)
+program.command('build').description('Build the pylon').action(commands.build)
 
 const templates: {
   name: string
@@ -38,57 +35,57 @@ const templates: {
 
 program
   .command('new')
-  .description('Create a new project')
-  .option('-n, --name <name>', 'Name of the project', 'my-pylon-project')
-  .argument('<rootPath>', 'Path to the project')
+  .description('Create a new pylon')
+  .option('-n, --name <name>', 'Name of the pylon', 'my-pylon')
+  .argument('<rootPath>', 'Path to the pylon')
   .argument('[template]', 'Template to use', templates[0].url)
   .action(commands.new)
 
 if (!process.argv.slice(2).length) {
   ;(async () => {
     const answer = await select({
-      message: 'What do you want to do?',
+      message: 'What action would you like to take?',
       choices: [
-        {name: 'New', value: 'new'},
-        {name: 'Develop', value: 'develop'},
-        {name: 'Build', value: 'build'}
+        {name: 'Create a new pylon', value: 'new'},
+        {name: 'Start development server', value: 'develop'},
+        {name: 'Build the pylon', value: 'build'}
       ]
     })
 
     if (answer === 'new') {
       const name = await input({
-        message: 'Name of the project',
-        default: 'my-pylon-project'
+        message: 'Enter the pylon name',
+        default: 'my-pylon'
       })
 
       const rootPath = await input({
-        message: 'Path to the project',
+        message: 'Specify the pylon path',
         default: `./${name}`
       })
 
       const template = await select({
-        message: 'Select a template',
+        message: 'Choose a pylon template',
         choices: templates.map(t => ({name: t.name, value: t.url}))
       })
 
       const useClient = await confirm({
         message:
-          'Do you want to enable a auto-generated client? (https://pylon.cronit.io/docs/client)',
+          'Would you like to enable an auto-generated client powered by GQty? (https://pylon.cronit.io/docs/client)',
         default: false
       })
 
       let clientPath: string | undefined = undefined
       if (useClient) {
         clientPath = await input({
-          message: 'Path to the client (relative to the pylon project)',
-          default: '../src/client/index.ts'
+          message: 'Enter the client file path (relative to the pylon root)',
+          default: '../src/gqty/index.ts'
         })
       }
 
       await commands.new(rootPath, template, {name, clientPath})
     } else if (answer === 'develop') {
       const port = await input({
-        message: 'Port to run the server on',
+        message: 'Enter the port number to run the server on',
         default: '3000'
       })
 
