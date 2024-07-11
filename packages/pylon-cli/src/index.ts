@@ -39,7 +39,8 @@ const templates: {
   {
     name: 'Default',
     description: 'Default template',
-    url: 'https://github.com/getcronit/pylon-template.git'
+    url: 'https://github.com/getcronit/pylon-template.git',
+    branch: 'beta'
   },
   {
     name: 'Database (Prisma)',
@@ -55,7 +56,15 @@ program
   .option('-n, --name <name>', 'Name of the pylon', 'my-pylon')
   .argument('<rootPath>', 'Path to the pylon')
   .argument('[template]', 'Template to use', templates[0].url)
-  .action(commands.new)
+  .action(async (rootPath, template, options) => {
+    return await commands.new(
+      rootPath,
+      {
+        url: template
+      },
+      options
+    )
+  })
 
 if (!process.argv.slice(2).length) {
   try {
@@ -79,10 +88,12 @@ if (!process.argv.slice(2).length) {
         default: `./${name}`
       })
 
-      const template = await select({
+      const templateIndex = await select({
         message: 'Choose a pylon template',
-        choices: templates.map(t => ({name: t.name, value: t.url}))
+        choices: templates.map((t, i) => ({name: t.name, value: i}))
       })
+
+      const template = templates[templateIndex]
 
       const useClient = await confirm({
         message:

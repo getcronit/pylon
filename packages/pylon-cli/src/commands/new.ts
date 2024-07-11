@@ -10,7 +10,10 @@ const logger = getLogger()
 
 export default async (
   rootPath: string,
-  template: string,
+  template: {
+    url: string
+    branch?: string
+  },
   options: {
     name: string
     clientPath?: string
@@ -21,7 +24,9 @@ export default async (
 
   logger.info(`🚀 Starting project creation: ${name}`)
   logger.info(`📁 Destination: ${rootPath}`)
-  logger.info(`🔖 Template: ${template}`)
+  logger.info(`🔖 Template: ${template.url}`, {
+    template
+  })
 
   await new Promise(resolve => setTimeout(resolve, 100))
 
@@ -54,8 +59,10 @@ export default async (
     logger.info(`Created directory: ${rootPath}`)
 
     // Clone the template repository into the project directory
-    logger.info(`Cloning template from ${template} into ${projectDir}`)
-    await Bun.$`git clone ${template} "${projectDir}"`
+    logger.info(`Cloning template from ${template.url} into ${projectDir}`)
+    await Bun.$`git clone ${template.branch ? `-b ${template.branch}` : ''} ${
+      template.url
+    } "${projectDir}" --single-branch`
 
     // Remove the .git directory from the project directory
     logger.info('Removing existing .git directory')
