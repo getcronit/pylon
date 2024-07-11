@@ -17,6 +17,8 @@ export default async (options: {port: string}) => {
 
   const binPath = stdout.toString().trim()
 
+  const packageJson = await import(path.resolve(process.cwd(), 'package.json'))
+
   let currentProc: Subprocess | null = null
 
   let serve = async () => {
@@ -34,22 +36,20 @@ export default async (options: {port: string}) => {
         NODE_ENV: 'development'
       }
     })
-  }
 
-  const packageJson = await import(path.resolve(process.cwd(), 'package.json'))
+    const clientPath = packageJson.pylon?.gqty
 
-  const clientPath = packageJson.pylon?.gqty
+    if (clientPath) {
+      const endpoint = `http://localhost:${options.port}/graphql`
 
-  if (clientPath) {
-    const endpoint = `http://localhost:${options.port}/graphql`
+      const schema = await fetchSchema(endpoint)
 
-    const schema = await fetchSchema(endpoint)
-
-    await generateClient(schema, {
-      endpoint,
-      destination: clientPath,
-      react: true
-    })
+      await generateClient(schema, {
+        endpoint,
+        destination: clientPath,
+        react: true
+      })
+    }
   }
 
   await build({
