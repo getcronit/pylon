@@ -15,12 +15,18 @@ export const program = new Command()
 
 program.name(cliName).description('Pylon CLI').version(packageJson.version)
 
-Sentry.init({
-  dsn: 'https://cb8dd08e25022c115327258343ffb657@sentry.cronit.io/9',
-  environment: process.env.NODE_ENV,
-  normalizeDepth: 10,
-  tracesSampleRate: 1
-})
+if (process.env.DISABLE_PYLON_TRACING !== 'true') {
+  logger.info(
+    `We use Sentry to collect anonymous usage data. This only includes usage of the CLI and NOT your service. If you would like to disable this, set the environment variable DISABLE_PYLON_TRACING=true.`
+  )
+
+  Sentry.init({
+    dsn: 'https://cb8dd08e25022c115327258343ffb657@sentry.cronit.io/9',
+    environment: process.env.NODE_ENV,
+    normalizeDepth: 10,
+    tracesSampleRate: 1
+  })
+}
 
 program
   .command('develop')
