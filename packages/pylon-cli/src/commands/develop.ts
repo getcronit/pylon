@@ -1,90 +1,46 @@
 import {build} from '@getcronit/pylon-builder'
-import {makeApp, runtime} from '@getcronit/pylon-server'
-import {fetchSchema, generateClient} from '@gqty/cli'
-import path from 'path'
-import {Server} from 'bun'
+import {$, Subprocess} from 'bun'
 
 import {sfiBuildPath, sfiSourcePath} from '../constants.js'
-import {importFresh} from '../utils/import-fresh.js'
-
-const loadApp = async (outputFile: string) => {
-  const sfi = await importFresh(outputFile)
-
-  const app = await makeApp({
-    schema: {
-      typeDefs: sfi.typeDefs,
-      resolvers: sfi.default.graphqlResolvers
-    },
-    configureApp: sfi.configureApp
-  })
-
-  return {
-    app,
-    configureServer: sfi.configureServer,
-    configureWebsocket: sfi.configureWebsocket
-  }
-}
+import path from 'path'
+import {fetchSchema, generateClient} from '@gqty/cli'
 
 export default async (options: {port: string}) => {
-  const filePath = path.join(process.cwd(), sfiBuildPath, 'index.js')
+  const {stdout} = await $`npx -p which which pylon-server`
 
-  let server: Server | null = null
+  const binPath = stdout.toString().trim()
+
+  let currentProc: Subprocess | null = null
 
   let serve = async () => {
-    const {app, configureServer, configureWebsocket} = await loadApp(filePath)
+    if (currentProc) {
+      currentProc.kill()
 
-    if (server) {
-      server.stop(true)
-
-      server = null
+      await currentProc.exited
     }
 
-    if (!server) {
-      server = Bun.serve({
-        ...app,
-        port: options.port,
-        websocket: configureWebsocket
-          ? configureWebsocket(runtime.server)
-          : undefined
-      })
+    currentProc = Bun.spawn({
+      cmd: ['bun', 'run', binPath, '--port', options.port],
+      stdout: 'inherit'
+    })
+  }
 
-      if (server) {
-        // With color
-        console.log(
-          '\x1b[32m%s\x1b[0m',
-          `Listening on http://${server.hostname}:${server.port}`
-        )
-      }
-    }
+  const packageJson = await import(path.resolve(process.cwd(), 'package.json'))
 
-    if (configureServer) {
-      await configureServer(server)
-    }
+  const clientPath = packageJson.pylon?.gqty
 
-    // Load the package.json file
-    const packageJson = await importFresh(
-      path.resolve(process.cwd(), 'package.json')
-    )
+  if (clientPath) {
+    const endpoint = `http://localhost:${options.port}/graphql`
 
-    console.log('packageJson', packageJson)
+    console.log('Generating client...', {endpoint, clientPath})
 
-    const clientPath = packageJson.pylon?.gqty
+    const schema = await fetchSchema(endpoint)
 
-    if (clientPath) {
-      const endpoint = `http://localhost:${server.port}/graphql`
-
-      console.log('Generating client...', {endpoint, clientPath})
-
-      const schema = await fetchSchema(endpoint)
-
-      await generateClient(schema, {
-        endpoint,
-        destination: clientPath,
-        react: true
-      })
-    }
-
-    runtime.server = server
+    await generateClient(schema, {
+      endpoint,
+      destination: clientPath,
+      react: true
+    })
   }
 
   await build({
