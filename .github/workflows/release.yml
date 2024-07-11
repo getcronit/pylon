@@ -21,6 +21,6 @@ jobs:
       - run: bun install --globally yarn
       - run: bun install
       - name: Build
-        run: bun run --filter './packages/*' build
+        run: bun run --filter ./packages/pylon build && bun run --filter ./packages/pylon-builder build && bun run --filter ./packages/pylon-server build && bun run --filter ./packages/pylon-cli build
       - name: Release
         run: yarn workspaces run semantic-release -e semantic-release-monorepo
