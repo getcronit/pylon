@@ -5,6 +5,8 @@ import {input, select, confirm} from '@inquirer/prompts'
 import packageJson from './utils/package-json.js'
 import * as commands from './commands/index.js'
 import {cliName} from './constants.js'
+import {logger} from '@getcronit/pylon'
+import * as Sentry from '@sentry/bun'
 
 // Set development environment
 process.env.NODE_ENV = process.env.NODE_ENV || 'development'
@@ -12,6 +14,13 @@ process.env.NODE_ENV = process.env.NODE_ENV || 'development'
 export const program = new Command()
 
 program.name(cliName).description('Pylon CLI').version(packageJson.version)
+
+Sentry.init({
+  dsn: 'https://cb8dd08e25022c115327258343ffb657@sentry.cronit.io/9',
+  environment: process.env.NODE_ENV,
+  normalizeDepth: 10,
+  tracesSampleRate: 1
+})
 
 program
   .command('develop')
@@ -49,13 +58,13 @@ program
   .action(commands.new)
 
 if (!process.argv.slice(2).length) {
-  ;(async () => {
+  try {
     const answer = await select({
       message: 'What action would you like to take?',
       choices: [
-        {name: 'Create a new pylon', value: 'new'},
-        {name: 'Start development server', value: 'develop'},
-        {name: 'Build the pylon', value: 'build'}
+        {name: 'New', value: 'new'},
+        {name: 'Develop', value: 'develop'},
+        {name: 'Build', value: 'build'}
       ]
     })
 
@@ -100,7 +109,9 @@ if (!process.argv.slice(2).length) {
     } else if (answer === 'build') {
       await commands.build({})
     }
-  })()
+  } catch (e: any) {
+    logger.error(e.toString())
+  }
 } else {
   program.parse()
 }

@@ -3,8 +3,7 @@ import {GraphQLScalarType, Kind} from 'graphql'
 import {Context} from '@getcronit/pylon'
 
 import {BuildSchemaOptions} from '../make-app'
-
-import {useSentry} from '../envelope/use-sentry'
+import {useSentry} from '../envelop/use-sentry'
 
 export const graphqlHandler =
   (c: Context) =>
@@ -31,8 +30,6 @@ export const graphqlHandler =
             )
           },
           serialize(value) {
-            console.log('serialize', value, typeof value)
-
             if (value instanceof Date) {
               return value.toISOString() // value sent to the client
             }
@@ -59,11 +56,7 @@ export const graphqlHandler =
       landingPage: false,
 
       plugins: [
-        useSentry({
-          includeResolverArgs: true,
-          includeExecuteVariables: true,
-          includeRawResult: true
-        })
+        useSentry()
         // useLogger({
         //   logFn: (eventName, args) => {
         //     // Event could be execute-start / execute-end / subscribe-start / subscribe-end / etc.

@@ -1,12 +1,12 @@
 import {build} from '@getcronit/pylon-builder'
-import {$, Subprocess} from 'bun'
+import {$, Subprocess, spawnSync} from 'bun'
 
-import {sfiBuildPath, sfiSourcePath} from '../constants.js'
-import path from 'path'
 import {fetchSchema, generateClient} from '@gqty/cli'
+import path from 'path'
+import {sfiBuildPath, sfiSourcePath} from '../constants.js'
 
 export default async (options: {port: string}) => {
-  const {stdout} = await $`npx -p which which pylon-server`
+  const {stdout} = spawnSync(['npx', '-p', 'which', 'which', 'pylon-server'])
 
   const binPath = stdout.toString().trim()
 
@@ -21,7 +21,11 @@ export default async (options: {port: string}) => {
 
     currentProc = Bun.spawn({
       cmd: ['bun', 'run', binPath, '--port', options.port],
-      stdout: 'inherit'
+      stdout: 'inherit',
+      env: {
+        ...process.env,
+        NODE_ENV: 'development'
+      }
     })
   }
 
@@ -31,8 +35,6 @@ export default async (options: {port: string}) => {
 
   if (clientPath) {
     const endpoint = `http://localhost:${options.port}/graphql`
-
-    console.log('Generating client...', {endpoint, clientPath})
 
     const schema = await fetchSchema(endpoint)
 

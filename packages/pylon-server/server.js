@@ -3,6 +3,7 @@
 // Set default env variables
 process.env.NODE_ENV = process.env.NODE_ENV || 'production'
 
+import {logger} from '@getcronit/pylon'
 import {makeApp, runtime} from '@getcronit/pylon-server'
 import {Command} from 'commander'
 import fs from 'fs'
@@ -80,4 +81,4 @@ configureServer?.(server)
 
 runtime.server = server
 
-console.log(`Listening on localhost:`, server.port)
+logger.info(`Server listening on port ${args.port}`)

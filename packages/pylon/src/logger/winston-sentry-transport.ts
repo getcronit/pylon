@@ -1,141 +1,171 @@
-import _ from 'lodash'
+import * as Sentry from '@sentry/bun'
 import TransportStream from 'winston-transport'
 
-import * as Sentry from '@sentry/bun'
-
-interface Context {
-  level?: any
-  extra?: any
-  fingerprint?: any
+enum SentrySeverity {
+  Debug = 'debug',
+  Log = 'log',
+  Info = 'info',
+  Warning = 'warning',
+  Error = 'error',
+  Fatal = 'fatal'
 }
 
-const errorHandler = (err: any) => {
-  // eslint-disable-next-line
-  console.error(err)
+const DEFAULT_LEVELS_MAP: SeverityOptions = {
+  silly: SentrySeverity.Debug,
+  verbose: SentrySeverity.Debug,
+  info: SentrySeverity.Info,
+  debug: SentrySeverity.Debug,
+  warn: SentrySeverity.Warning,
+  error: SentrySeverity.Error
 }
 
-class WinstonSentryTransport extends TransportStream {
-  protected name: string
-  protected tags: {[s: string]: any}
-  protected levelsMap: any
+export interface SentryTransportOptions
+  extends TransportStream.TransportStreamOptions {
+  sentry?: Sentry.BunOptions
+  levelsMap?: SeverityOptions
+  skipSentryInit?: boolean
+}
 
-  constructor(opts: any) {
+interface SeverityOptions {
+  [key: string]: Sentry.SeverityLevel
+}
+
+class ExtendedError extends Error {
+  constructor(info: any) {
+    super(info.message)
+
+    this.name = info.name || 'Error'
+    if (info.stack && typeof info.stack === 'string') {
+      this.stack = info.stack
+    }
+  }
+}
+
+export default class SentryTransport extends TransportStream {
+  public silent = false
+
+  private levelsMap: SeverityOptions = {}
+
+  public constructor(opts?: SentryTransportOptions) {
     super(opts)
-    this.name = 'winston-sentry-log'
-    this.tags = {}
-    const options = opts
 
-    _.defaultsDeep(opts, {
-      errorHandler,
-      config: {
-        dsn: process.env.SENTRY_DSN
-      },
-      level: 'info',
-      levelsMap: {
-        silly: 'debug',
-        verbose: 'debug',
-        info: 'info',
-        debug: 'debug',
-        warn: 'warning',
-        error: 'error'
-      },
-      name: 'winston-sentry-log',
-      silent: false
-    })
+    this.levelsMap = this.setLevelsMap(opts && opts.levelsMap)
+    this.silent = (opts && opts.silent) || false
 
-    this.levelsMap = options.levelsMap
-
-    if (options.tags) {
-      this.tags = options.tags
-    } else if (options.globalTags) {
-      this.tags = options.globalTags
-    } else if (options.config.tags) {
-      this.tags = options.config.tags
+    if (!opts || !opts.skipSentryInit) {
+      Sentry.init(SentryTransport.withDefaults((opts && opts.sentry) || {}))
     }
-
-    if (options.extra) {
-      options.config.extra = options.config.extra || {}
-      options.config.extra = _.defaults(options.config.extra, options.extra)
-    }
-
-    // if (!Sentry.getClient()) {
-    //   Sentry.init({
-    //     dsn: options.config.dsn,
-    //     environment: process.env.NODE_ENV
-    //   })
-    // }
-
-    Sentry.configureScope(scope => {
-      if (!_.isEmpty(this.tags)) {
-        Object.keys(this.tags).forEach(key => {
-          scope.setTag(key, this.tags[key])
-        })
-      }
-    })
   }
 
-  public log(
-    info: any,
-    callback: any
-  ): ((a: null, b: boolean) => unknown) | undefined {
-    const {message, fingerprint} = info
-
-    const level = Object.keys(this.levelsMap).find(key =>
-      info.level.toString().includes(key)
-    )
-    if (!level) {
-      return callback(null, true)
-    }
-
-    const meta = Object.assign({}, _.omit(info, ['level', 'message', 'label']))
+  public log(info: any, callback: () => void) {
     setImmediate(() => {
-      this.emit('logged', level)
+      this.emit('logged', info)
     })
 
-    if (!!this.silent) {
-      return callback(null, true)
+    if (this.silent) return callback()
+
+    const {message, tags, user, ...meta} = info
+    const winstonLevel = info['level']
+
+    const sentryLevel = this.levelsMap[winstonLevel]
+
+    const scope = Sentry.getCurrentScope()
+
+    scope.clear()
+
+    if (tags !== undefined && SentryTransport.isObject(tags)) {
+      scope.setTags(tags)
     }
 
-    const context: Context = {}
-    context.level = this.levelsMap[level]
-    context.extra = _.omit(meta, ['user', 'tags'])
-    context.fingerprint = [fingerprint, process.env.NODE_ENV]
-    Sentry.withScope(scope => {
-      const user = _.get(meta, 'user')
-      if (_.has(context, 'extra')) {
-        Object.keys(context.extra).forEach(key => {
-          scope.setExtra(key, context.extra[key])
-        })
-      }
+    scope.setExtras(meta)
 
-      if (!_.isEmpty(meta.tags) && _.isObject(meta.tags)) {
-        Object.keys(meta.tags).forEach(key => {
-          scope.setTag(key, meta.tags[key])
-        })
-      }
+    if (user !== undefined && SentryTransport.isObject(user)) {
+      scope.setUser(user)
+    }
 
-      if (!!user) {
-        scope.setUser(user)
-      }
+    // TODO: add fingerprints
+    // scope.setFingerprint(['{{ default }}', path]); // fingerprint should be an array
 
-      if (context.level === 'error' || context.level === 'fatal') {
-        let err: Error | null = null
-        if (_.isError(info)) {
-          err = info
-        } else {
-          err = new Error(message)
-          if (info.stack) {
-            err.stack = info.stack
-          }
-        }
-        Sentry.captureException(err)
-        return callback(null, true)
-      }
-      Sentry.captureMessage(message, context.level)
-      return callback(null, true)
+    // scope.clear();
+
+    // TODO: add breadcrumbs
+    // Sentry.addBreadcrumb({
+    //   message: 'My Breadcrumb',
+    //   // ...
+    // });
+
+    // Capturing Errors / Exceptions
+    if (SentryTransport.shouldLogException(sentryLevel)) {
+      const error =
+        Object.values(info).find(value => value instanceof Error) ??
+        new ExtendedError(info)
+      Sentry.captureException(error, {tags, level: sentryLevel})
+
+      return callback()
+    }
+
+    // Capturing Messages
+    Sentry.captureMessage(message, sentryLevel)
+    return callback()
+  }
+
+  end(...args: any[]) {
+    Sentry.flush().then(() => {
+      super.end(...args)
     })
-    return undefined
+    return this
+  }
+
+  public get sentry() {
+    return Sentry
+  }
+
+  private setLevelsMap = (options?: SeverityOptions): SeverityOptions => {
+    if (!options) {
+      return DEFAULT_LEVELS_MAP
+    }
+
+    const customLevelsMap = Object.keys(options).reduce<SeverityOptions>(
+      (acc: {[key: string]: any}, winstonSeverity: string) => {
+        acc[winstonSeverity] = options[winstonSeverity]
+        return acc
+      },
+      {}
+    )
+
+    return {
+      ...DEFAULT_LEVELS_MAP,
+      ...customLevelsMap
+    }
+  }
+
+  private static withDefaults(options: Sentry.BunOptions) {
+    return {
+      ...options,
+      dsn: (options && options.dsn) || process.env.SENTRY_DSN || '',
+      serverName:
+        (options && options.serverName) || 'winston-transport-sentry-node',
+      environment:
+        (options && options.environment) ||
+        process.env.SENTRY_ENVIRONMENT ||
+        process.env.NODE_ENV ||
+        'production',
+      debug: (options && options.debug) || !!process.env.SENTRY_DEBUG || false,
+      sampleRate: (options && options.sampleRate) || 1.0,
+      maxBreadcrumbs: (options && options.maxBreadcrumbs) || 100
+    }
+  }
+
+  // private normalizeMessage(msg: any) {
+  //   return msg && msg.message ? msg.message : msg;
+  // }
+
+  private static isObject(obj: any) {
+    const type = typeof obj
+    return type === 'function' || (type === 'object' && !!obj)
+  }
+
+  private static shouldLogException(level: Sentry.SeverityLevel) {
+    return level === SentrySeverity.Fatal || level === SentrySeverity.Error
   }
 }
-
-export default WinstonSentryTransport

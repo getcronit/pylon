@@ -21,6 +21,7 @@
   "dependencies": {
     "@gqty/cli": "4.1.0-canary-20240708145747.43f0b4262b24cc7de046a0d5b04777bd9ac1eb21",
     "@inquirer/prompts": "^5.1.2",
+    "@sentry/bun": "^8.17.0",
     "commander": "^10.0.0"
   },
   "peerDependencies": {
