@@ -67,7 +67,7 @@ export default async (
 
     // Initialize a new git repository in the project directory
     logger.info('Initializing new git repository')
-    await Bun.$`git init "${projectDir}"`
+    await Bun.$`git init "${projectDir}" --initial-branch=main`
 
     // Add all files to the git repository
     logger.info('Adding files to git repository')
