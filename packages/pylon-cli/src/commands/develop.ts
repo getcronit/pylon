@@ -34,22 +34,29 @@ export default async (options: {port: string}) => {
       env: {
         ...process.env,
         NODE_ENV: 'development'
+      },
+      async ipc(message, subprocess) {
+        if (message === 'ready') {
+          const clientPath = packageJson.pylon?.gqty
+
+          if (clientPath) {
+            const endpoint = `http://localhost:${options.port}/graphql`
+
+            const generate = async () => {
+              const schema = await fetchSchema(endpoint)
+
+              await generateClient(schema, {
+                endpoint,
+                destination: clientPath,
+                react: true
+              })
+            }
+
+            generate()
+          }
+        }
       }
     })
-
-    const clientPath = packageJson.pylon?.gqty
-
-    if (clientPath) {
-      const endpoint = `http://localhost:${options.port}/graphql`
-
-      const schema = await fetchSchema(endpoint)
-
-      await generateClient(schema, {
-        endpoint,
-        destination: clientPath,
-        react: true
-      })
-    }
   }
 
   await build({

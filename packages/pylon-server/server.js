@@ -82,3 +82,5 @@ configureServer?.(server)
 runtime.server = server
 
 logger.info(`Server listening on port ${args.port}`)
+
+process.send?.('ready')
