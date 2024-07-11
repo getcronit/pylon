@@ -16,7 +16,8 @@
   ],
   "license": "UNLICENSED",
   "devDependencies": {
-    "microbundle": "^0.15.1"
+    "microbundle": "^0.15.1",
+    "@getcronit/pylon": "*"
   },
   "dependencies": {
     "@gqty/cli": "4.1.0-canary-20240708145747.43f0b4262b24cc7de046a0d5b04777bd9ac1eb21",
@@ -25,7 +26,6 @@
     "commander": "^10.0.0"
   },
   "peerDependencies": {
-    "@getcronit/pylon": "*",
     "@getcronit/pylon-builder": "*",
     "@getcronit/pylon-server": "*"
   }
