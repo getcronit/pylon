@@ -24,7 +24,7 @@ export default async (
 
   logger.info(`🚀 Starting project creation: ${name}`)
   logger.info(`📁 Destination: ${rootPath}`)
-  logger.info(`🔖 Template: ${template.url}`, {
+  logger.info(`🔖 Template: ${template.url} on branch ${template.branch}`, {
     template
   })
 
@@ -60,9 +60,16 @@ export default async (
 
     // Clone the template repository into the project directory
     logger.info(`Cloning template from ${template.url} into ${projectDir}`)
-    await Bun.$`git clone ${template.branch ? `-b ${template.branch}` : ''} ${
-      template.url
-    } "${projectDir}" --single-branch`
+
+    Bun.spawnSync([
+      'git',
+      'clone',
+      template.branch ? '-b' : '',
+      template.branch || '',
+      template.url,
+      projectDir,
+      '--single-branch'
+    ])
 
     // Remove the .git directory from the project directory
     logger.info('Removing existing .git directory')
