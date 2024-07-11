@@ -89,9 +89,9 @@ export default async (
       logger.info('Inserted client path into package.json')
 
       // Add @gqty/react and gqty to the cwd package.json and prompt the user to install them
-      await Bun.$`npx json -q -I -f package.json -e 'this.devDependencies = this.devDependencies || {}; this.devDependencies["@gqty/react"] = "*"'`
+      await Bun.$`npx --yes json -q -I -f package.json -e 'this.devDependencies = this.devDependencies || {}; this.devDependencies["@gqty/react"] = "*"'`
 
-      await Bun.$`npx json -q -I -f package.json -e 'this.devDependencies = this.devDependencies || {}; this.devDependencies["gqty"] = "*"'`
+      await Bun.$`npx --yes json -q -I -f package.json -e 'this.devDependencies = this.devDependencies || {}; this.devDependencies["gqty"] = "*"'`
 
       logger.info(
         'Added @gqty/react and gqty to package.json. Run "install" to install them'

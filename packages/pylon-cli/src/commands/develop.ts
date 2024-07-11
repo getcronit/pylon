@@ -6,7 +6,14 @@ import path from 'path'
 import {sfiBuildPath, sfiSourcePath} from '../constants.js'
 
 export default async (options: {port: string}) => {
-  const {stdout} = spawnSync(['npx', '-p', 'which', 'which', 'pylon-server'])
+  const {stdout} = spawnSync([
+    'npx',
+    '--yes',
+    '-p',
+    'which',
+    'which',
+    'pylon-server'
+  ])
 
   const binPath = stdout.toString().trim()
 
