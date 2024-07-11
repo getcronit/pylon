@@ -55,6 +55,13 @@ export default async (options: {port: string}) => {
             generate()
           }
         }
+      },
+      onExit(proc) {
+        // Kill if exited with code 1
+
+        if (proc.exitCode === 1) {
+          process.exit(1)
+        }
       }
     })
   }
