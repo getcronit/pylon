@@ -78,6 +78,7 @@ export const graphqlHandler =
       ],
       graphiql: req => {
         return {
+          shouldPersistHeaders: true,
           title: 'Pylon Playground',
           defaultQuery: `# Welcome to the Pylon Playground!`
         }
