@@ -54,7 +54,6 @@ export const graphqlHandler =
     const yoga = createYoga({
       schema: schema as any,
       landingPage: false,
-
       plugins: [
         useSentry()
         // useLogger({
@@ -78,20 +77,7 @@ export const graphqlHandler =
         // })
       ],
       graphiql: req => {
-        // Get the x-client-path header from the request
-        const xClientPath = req.headers.get('x-client-path')
-
-        // Set the URL to either the x-client-path or the root URL
-        const url = xClientPath
-          ? new URL(xClientPath, req.url)
-          : new URL(req.url, 'http://localhost')
-
-        // Set the GraphQL endpoint to the current path instead of root/graphql
-        const endpoint = url.pathname
-
-        // Return the GraphiQL config object
         return {
-          endpoint,
           title: 'Pylon Playground',
           defaultQuery: `# Welcome to the Pylon Playground!`
         }
