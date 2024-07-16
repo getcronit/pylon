@@ -98,14 +98,14 @@ export default async (
     // Insert the client path into the package.json file (gqty key)
     if (options.clientPath) {
       logger.info('Inserting client path into package.json')
-      await Bun.$`cd "${projectDir}" && npx json --yes -q -I -f package.json -e 'this.pylon = this.pylon || {}; this.pylon.gqty="${options.clientPath}"'`
+      await Bun.$`cd "${projectDir}" && bunx json --yes -q -I -f package.json -e 'this.pylon = this.pylon || {}; this.pylon.gqty="${options.clientPath}"'`
 
       logger.info('Inserted client path into package.json')
 
       // Add @gqty/react and gqty to the cwd package.json and prompt the user to install them
-      await Bun.$`npx --yes json -q -I -f package.json -e 'this.devDependencies = this.devDependencies || {}; this.devDependencies["@gqty/react"] = "*"'`
+      await Bun.$`bunx --yes json -q -I -f package.json -e 'this.devDependencies = this.devDependencies || {}; this.devDependencies["@gqty/react"] = "*"'`
 
-      await Bun.$`npx --yes json -q -I -f package.json -e 'this.devDependencies = this.devDependencies || {}; this.devDependencies["gqty"] = "*"'`
+      await Bun.$`bunx --yes json -q -I -f package.json -e 'this.devDependencies = this.devDependencies || {}; this.devDependencies["gqty"] = "*"'`
 
       logger.info(
         'Added @gqty/react and gqty to package.json. Run "install" to install them'
