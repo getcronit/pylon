@@ -98,7 +98,7 @@ export default async (
     // Insert the client path into the package.json file (gqty key)
     if (options.clientPath) {
       logger.info('Inserting client path into package.json')
-      await Bun.$`cd "${projectDir}" && bunx json --yes -q -I -f package.json -e 'this.pylon = this.pylon || {}; this.pylon.gqty="${options.clientPath}"'`
+      await Bun.$`cd "${projectDir}" && bunx --yes json -q -I -f package.json -e 'this.pylon = this.pylon || {}; this.pylon.gqty="${options.clientPath}"'`
 
       logger.info('Inserted client path into package.json')
 
