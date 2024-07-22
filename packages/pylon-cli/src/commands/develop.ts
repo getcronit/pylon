@@ -41,7 +41,11 @@ export default async (options: {port: string}) => {
               await generateClient(schema, {
                 endpoint,
                 destination: clientPath,
-                react: true
+                react: true,
+                scalarTypes: {
+                  Number: 'number',
+                  Object: 'Record<string, unknown>'
+                }
               })
             }
 
