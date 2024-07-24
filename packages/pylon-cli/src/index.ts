@@ -107,11 +107,18 @@ if (!process.argv.slice(2).length) {
         default: false
       })
 
+      let frontendRootPath: string | undefined = undefined
       let clientPath: string | undefined = undefined
+
       if (useClient) {
+        frontendRootPath = await input({
+          message: 'Enter the frontend path',
+          default: '.'
+        })
+
         clientPath = await input({
-          message: 'Enter the client file path (relative to the pylon root)',
-          default: '../src/gqty/index.ts'
+          message: 'Enter the client file path',
+          default: `../${frontendRootPath}/src/client.ts`
         })
       }
 
