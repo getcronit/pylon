@@ -3,6 +3,7 @@ import winston from 'winston'
 import WinstonSentryTransport from './winston-sentry-transport'
 
 const mainLogger = winston.createLogger({
+  format: winston.format.errors({stack: true}),
   transports: [
     new winston.transports.Console({
       format: winston.format.combine(
@@ -10,13 +11,14 @@ const mainLogger = winston.createLogger({
         winston.format.timestamp({
           format: 'YYYY-MM-DD HH:mm:ss'
         }),
-        winston.format.printf(({timestamp, level, message, label}) => {
-          if (label) {
-            return `${timestamp} [${label}] ${level}: ${message}`
-          }
+        winston.format.errors({stack: true}),
+        winston.format.printf(info => {
+          const label = info.label ? `[${info.label}] ` : ''
 
-          // Workaround for the root logger
-          return `${timestamp} ${level}: ${message}`
+          if (info.stack) {
+            return `${label} ${info.timestamp} ${info.level}: ${info.stack}`
+          }
+          return `${label} ${info.timestamp} ${info.level}: ${info.message}`
         })
       )
     }),
