@@ -13,13 +13,7 @@
   ],
   "license": "UNLICENSED",
   "dependencies": {
-    "@rollup/plugin-commonjs": "^25.0.7",
-    "@rollup/plugin-node-resolve": "^15.2.3",
-    "@rollup/plugin-typescript": "^11.1.6",
-    "@vercel/ncc": "^0.38.1",
     "chokidar": "^3.5.3",
-    "rollup": "^4.9.6",
-    "rollup-plugin-terser": "^7.0.2",
     "source-map-support": "^0.5.21",
     "typescript": "^4.9.5"
   },

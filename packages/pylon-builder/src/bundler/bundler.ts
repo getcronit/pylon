@@ -2,7 +2,6 @@
 import fs from 'fs'
 import chokidar from 'chokidar'
 import {loadPackageJson} from '../load-package-json'
-import ncc from '@vercel/ncc'
 import path from 'path'
 
 export interface BundlerBuildOptions {
@@ -41,33 +40,18 @@ export class Bundler {
         })
       }
 
-      const nccOptions = {
-        quiet: true,
-        externals: Array.from(external),
-        sourceMap: true, // Generate sourcemap
-        transpileOnly: true
-      }
-
       const inputPath = path.join(process.cwd(), this.sfiFilePath)
       const dir = path.join(process.cwd(), this.outputDir)
 
-      const {code, map, assets} = await ncc(inputPath, nccOptions)
-
-      fs.mkdirSync(dir, {
-        recursive: true
+      await Bun.build({
+        entrypoints: [inputPath],
+        outdir: dir,
+        target: 'bun',
+        external: Array.from(external),
+        sourcemap: 'inline'
       })
 
-      fs.writeFileSync(`${dir}/index.js`, code)
-
-      Object.entries(assets).forEach(([name, asset]) => {
-        const source = (asset as any).source
-
-        if (typeof source === 'string') {
-          fs.writeFileSync(`${dir}/${name}`, source)
-        } else if (typeof source === 'object') {
-          fs.writeFileSync(`${dir}/${name}`, Buffer.from(source))
-        }
-      })
+      this.prependSourceMapInstall()
 
       // attach typeDefs to the output
       this.prependTypeDefs(options.getTypeDefs())
@@ -88,6 +72,16 @@ export class Bundler {
     }
 
     await build()
+  }
+
+  private prependSourceMapInstall(): void {
+    const outputFile = `${this.outputDir}/index.js`
+
+    fs.writeFileSync(
+      outputFile,
+      `import sourceMapSupport from 'source-map-support'
+sourceMapSupport.install()\n` + fs.readFileSync(outputFile)
+    )
   }
 
   private prependTypeDefs(typeDefs: string): void {
