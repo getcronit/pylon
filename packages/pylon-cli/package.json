@@ -16,7 +16,6 @@
   ],
   "license": "UNLICENSED",
   "devDependencies": {
-    "microbundle": "^0.15.1",
     "@getcronit/pylon": "*"
   },
   "dependencies": {
