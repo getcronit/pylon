@@ -30,17 +30,26 @@ program.parse(process.argv)
 
 const args = program.opts()
 
-let buildLocation = program.args[0] || './.pylon/index.js'
+let buildLocation = program.args[0] || './.pylon'
+
+const indexLocation = path.resolve(process.cwd(), buildLocation, 'index.js')
+const schemaLocation = path.resolve(
+  process.cwd(),
+  buildLocation,
+  'schema.graphql'
+)
 
 // Rest of the script remains the same up to importing sfi...
 
 const {
   default: sfi,
-  typeDefs,
   configureApp,
   configureServer,
   configureWebsocket
-} = await import(path.resolve(process.cwd(), buildLocation))
+} = await import(indexLocation)
+
+// Load schema
+const typeDefs = fs.readFileSync(schemaLocation, 'utf8')
 
 const app = await makeApp({
   schema: {

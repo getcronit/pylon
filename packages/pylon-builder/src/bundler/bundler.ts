@@ -48,13 +48,14 @@ export class Bundler {
         outdir: dir,
         target: 'bun',
         external: Array.from(external),
-        sourcemap: 'inline'
+        sourcemap: 'external'
       })
 
-      this.prependSourceMapInstall()
+      // Write GraphQL schema to .pylon/schema.graphql
+      const typeDefs = options.getTypeDefs()
+      const schemaPath = path.join(dir, 'schema.graphql')
 
-      // attach typeDefs to the output
-      this.prependTypeDefs(options.getTypeDefs())
+      fs.writeFileSync(schemaPath, typeDefs)
 
       this.reportStatus('done')
     }
@@ -72,26 +73,6 @@ export class Bundler {
     }
 
     await build()
-  }
-
-  private prependSourceMapInstall(): void {
-    const outputFile = `${this.outputDir}/index.js`
-
-    fs.writeFileSync(
-      outputFile,
-      `import sourceMapSupport from 'source-map-support'
-sourceMapSupport.install()\n` + fs.readFileSync(outputFile)
-    )
-  }
-
-  private prependTypeDefs(typeDefs: string): void {
-    const outputFile = `${this.outputDir}/index.js`
-
-    fs.writeFileSync(
-      outputFile,
-      `\export const typeDefs = ${JSON.stringify(typeDefs)};\n` +
-        fs.readFileSync(outputFile)
-    )
   }
 
   private reportStatus(status: 'start' | 'done'): void {
