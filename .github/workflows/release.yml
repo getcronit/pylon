@@ -18,9 +18,11 @@ jobs:
         with:
           node-version: 20
       - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: canary
       - run: bun install --globally yarn
       - run: bun install
       - name: Build
-        run: bun run --filter ./packages/pylon build && bun run --filter ./packages/pylon-builder build && bun run --filter ./packages/pylon-server build && bun run --filter ./packages/pylon-cli build
+        run: bun run build
       - name: Release
         run: yarn workspaces run semantic-release -e semantic-release-monorepo
