@@ -51,7 +51,8 @@ export class Bundler {
         outdir: dir,
         target: 'bun',
         external: Array.from(external),
-        sourcemap: 'external'
+        sourcemap: 'external',
+        packages: 'external'
       })
 
       // Write GraphQL schema to .pylon/schema.graphql
