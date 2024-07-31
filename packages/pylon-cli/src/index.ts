@@ -7,6 +7,7 @@ import * as commands from './commands/index.js'
 import {cliName} from './constants.js'
 import {logger} from '@getcronit/pylon'
 import * as Sentry from '@sentry/bun'
+import path from 'path'
 
 // Set development environment
 process.env.NODE_ENV = process.env.NODE_ENV || 'development'
@@ -107,20 +108,17 @@ if (!process.argv.slice(2).length) {
         default: false
       })
 
-      let frontendRootPath: string | undefined = undefined
-      let clientPath: string | undefined = undefined
+      let clientPath = ''
 
       if (useClient) {
-        frontendRootPath = await input({
-          message: 'Enter the frontend path',
-          default: '.'
-        })
-
         clientPath = await input({
-          message: 'Enter the client file path',
-          default: `../${frontendRootPath}/src/client.ts`
+          message: 'Enter the path where the client should be generated',
+          default: './client'
         })
       }
+
+      // Update the path to be relative to the root path
+      clientPath = path.relative(rootPath, clientPath)
 
       await commands.new(rootPath, template, {name, clientPath})
     } else if (answer === 'develop') {
