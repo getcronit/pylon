@@ -43,6 +43,9 @@ export class Bundler {
       const inputPath = path.join(process.cwd(), this.sfiFilePath)
       const dir = path.join(process.cwd(), this.outputDir)
 
+      // Delete the output directory
+      fs.rmdirSync(dir, {recursive: true})
+
       await Bun.build({
         entrypoints: [inputPath],
         outdir: dir,
