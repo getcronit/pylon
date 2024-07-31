@@ -6,6 +6,8 @@ import {access} from 'fs/promises'
 import {mkdir} from 'fs/promises'
 import {constants} from 'fs/promises'
 
+import {detect} from '../utils/detect-pm'
+
 const logger = getLogger()
 
 export default async (
@@ -107,9 +109,21 @@ export default async (
 
       await Bun.$`bunx --yes json -q -I -f package.json -e 'this.devDependencies = this.devDependencies || {}; this.devDependencies["gqty"] = "*"'`
 
+      const pm = await detect()
+
       logger.info(
-        'Added @gqty/react and gqty to package.json. Run "install" to install them'
+        `Installing GQTy dependencies using the detected package manager: ${pm}`
       )
+
+      if (pm === 'bun') {
+        await Bun.$`bun add @gqty/react gqty`
+      } else if (pm === 'yarn') {
+        await Bun.$`yarn add @gqty/react gqty`
+      } else if (pm === 'pnpm') {
+        await Bun.$`pnpm add @gqty/react gqty`
+      } else {
+        await Bun.$`npm install @gqty/react gqty`
+      }
     }
 
     logger.info(`🎉 Project ${name} created successfully at ${projectDir}.`)
