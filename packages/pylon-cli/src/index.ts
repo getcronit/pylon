@@ -122,7 +122,7 @@ if (!process.argv.slice(2).length) {
       if (useClient) {
         clientPath = await input({
           message: 'Enter the path where the client should be generated',
-          default: path.join(frontendRoot, 'src', 'gqty')
+          default: path.join(frontendRoot, 'src', 'gqty', 'index.ts')
         })
       }
 
