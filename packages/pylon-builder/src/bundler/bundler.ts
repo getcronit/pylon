@@ -46,7 +46,7 @@ export class Bundler {
       // Delete the output directory
       fs.rmdirSync(dir, {recursive: true})
 
-      await Bun.build({
+      const output = await Bun.build({
         entrypoints: [inputPath],
         outdir: dir,
         target: 'bun',
@@ -54,6 +54,14 @@ export class Bundler {
         sourcemap: 'external',
         packages: 'external'
       })
+
+      if (!output.success) {
+        for (const error of output.logs) {
+          console.error(error)
+        }
+
+        throw new Error('Failed to build Pylon')
+      }
 
       // Write GraphQL schema to .pylon/schema.graphql
       const typeDefs = options.getTypeDefs()
