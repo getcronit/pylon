@@ -47,7 +47,7 @@ const templates: {
     name: 'Default',
     description: 'Default template',
     url: 'https://github.com/getcronit/pylon-template.git',
-    branch: 'beta'
+    branch: 'main'
   },
   {
     name: 'Database (Prisma)',
