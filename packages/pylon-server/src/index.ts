@@ -21,3 +21,21 @@ class Runtime {
 }
 
 export const runtime = new Runtime()
+
+import * as Sentry from '@sentry/bun'
+
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: process.env.NODE_ENV,
+  integrations: [
+    Sentry.bunServerIntegration(),
+    // Sentry.anrIntegration({captureStackTrace: true}),
+    Sentry.prismaIntegration(),
+    Sentry.graphqlIntegration({
+      ignoreResolveSpans: false,
+      ignoreTrivalResolveSpans: false
+    })
+  ],
+  normalizeDepth: 10,
+  tracesSampleRate: 1
+})

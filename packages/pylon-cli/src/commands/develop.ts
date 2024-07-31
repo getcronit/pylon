@@ -1,66 +1,67 @@
 import {build} from '@getcronit/pylon-builder'
-import {makeApp, runtime} from '@getcronit/pylon-server'
+import {$, Subprocess, spawnSync} from 'bun'
+
+import {fetchSchema, generateClient} from '@gqty/cli'
 import path from 'path'
-import {Server} from 'bun'
-
 import {sfiBuildPath, sfiSourcePath} from '../constants.js'
-import {importFresh} from '../utils/import-fresh.js'
-
-const loadApp = async (outputFile: string) => {
-  const sfi = await importFresh(outputFile)
-
-  const app = await makeApp({
-    schema: {
-      typeDefs: sfi.typeDefs,
-      resolvers: sfi.default.graphqlResolvers
-    },
-    configureApp: sfi.configureApp
-  })
-
-  return {
-    app,
-    configureServer: sfi.configureServer,
-    configureWebsocket: sfi.configureWebsocket
-  }
-}
+import {logger} from '@getcronit/pylon'
 
 export default async (options: {port: string}) => {
-  const filePath = path.join(process.cwd(), sfiBuildPath, 'index.js')
+  const {stdout} = spawnSync(['bunx', '--yes', '-p', 'which', 'pylon-server'])
 
-  let server: Server | null = null
+  const binPath = stdout.toString().trim()
+
+  const packageJson = await import(path.resolve(process.cwd(), 'package.json'))
+
+  let currentProc: Subprocess | null = null
 
   let serve = async () => {
-    const {app, configureServer, configureWebsocket} = await loadApp(filePath)
+    if (currentProc) {
+      currentProc.kill()
 
-    if (server) {
-      server.stop(true)
-
-      server = null
+      await currentProc.exited
     }
 
-    if (!server) {
-      server = Bun.serve({
-        ...app,
-        port: options.port,
-        websocket: configureWebsocket
-          ? configureWebsocket(runtime.server)
-          : undefined
-      })
+    currentProc = Bun.spawn({
+      cmd: ['bun', 'run', binPath, '--port', options.port],
+      stdout: 'inherit',
+      env: {
+        ...process.env,
+        NODE_ENV: 'development'
+      },
+      async ipc(message, subprocess) {
+        if (message === 'ready') {
+          const clientPath = packageJson.pylon?.gqty
 
-      if (server) {
-        // With color
-        console.log(
-          '\x1b[32m%s\x1b[0m',
-          `Listening on http://${server.hostname}:${server.port}`
+          if (clientPath) {
+            const endpoint = `http://localhost:${options.port}/graphql`
+
+            const generate = async () => {
+              const schema = await fetchSchema(endpoint)
+
+              await generateClient(schema, {
+                endpoint,
+                destination: clientPath,
+                react: true,
+                scalarTypes: {
+                  Number: 'number',
+                  Object: 'Record<string, unknown>'
+                }
+              })
+            }
+
+            generate()
+          }
+        }
+      },
+      onExit(proc) {
+        // Kill if exited with code 1
+
+        logger.error(
+          `Pylon exited with code ${proc.exitCode}, fix the error and save the file to restart the server`
         )
       }
-    }
-
-    if (configureServer) {
-      await configureServer(server)
-    }
-
-    runtime.server = server
+    })
   }
 
   await build({

@@ -14,18 +14,19 @@
   ],
   "license": "UNLICENSED",
   "devDependencies": {
-    "hono": "^4.0.8",
-    "microbundle": "^0.15.1"
-  },
-  "peerDependencies": {
     "hono": "^4.0.8"
   },
+  "peerDependencies": {
+    "hono": "^4.0.8",
+    "@sentry/bun": "^8.17.0"
+  },
   "dependencies": {
-    "@sentry/bun": "^7.106.0",
-    "graphql": "^16.6.0",
+    "graphql": "^16.9.0",
     "jsonwebtoken": "^9.0.2",
-    "lodash": "^4.17.21",
     "openid-client": "^5.6.4",
     "winston": "^3.8.2"
+  },
+  "resolutions": {
+    "graphql": "^16.9.0"
   }
 }

@@ -6,6 +6,9 @@
       "packages/*"
     ]
   },
+  "scripts": {
+    "build": "bun run --filter ./packages/pylon build && bun run --filter ./packages/pylon-builder build && bun run --filter ./packages/pylon-server build && bun run --filter ./packages/pylon-cli build"
+  },
   "devDependencies": {
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/commit-analyzer": "^13.0.0",

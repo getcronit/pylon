@@ -1,15 +1,4 @@
-const path = require('path')
-
-const packageJson = require(path.join(process.cwd(), 'package.json'))
-
-const dependencies = {
-  ...packageJson.dependencies,
-  ...packageJson.peerDependencies
-}
-
-const cmd = `bun build ./src/index.ts --target=bun --outdir=./dist --sourcemap=external --external=${Object.keys(
-  dependencies
-).join(' --external=')}`
+const cmd = `bun build ./src/index.ts --target=bun --outdir=./dist --sourcemap=external --packages external`
 
 const {exec} = require('child_process')
 

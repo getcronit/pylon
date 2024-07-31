@@ -2,7 +2,6 @@
 import fs from 'fs'
 import chokidar from 'chokidar'
 import {loadPackageJson} from '../load-package-json'
-import ncc from '@vercel/ncc'
 import path from 'path'
 
 export interface BundlerBuildOptions {
@@ -41,36 +40,26 @@ export class Bundler {
         })
       }
 
-      const nccOptions = {
-        quiet: true,
-        externals: Array.from(external),
-        sourceMap: true, // Generate sourcemap
-        transpileOnly: true
-      }
-
       const inputPath = path.join(process.cwd(), this.sfiFilePath)
       const dir = path.join(process.cwd(), this.outputDir)
 
-      const {code, map, assets} = await ncc(inputPath, nccOptions)
+      // Delete the output directory
+      fs.rmdirSync(dir, {recursive: true})
 
-      fs.mkdirSync(dir, {
-        recursive: true
+      await Bun.build({
+        entrypoints: [inputPath],
+        outdir: dir,
+        target: 'bun',
+        external: Array.from(external),
+        sourcemap: 'external',
+        packages: 'external'
       })
 
-      fs.writeFileSync(`${dir}/index.js`, code)
+      // Write GraphQL schema to .pylon/schema.graphql
+      const typeDefs = options.getTypeDefs()
+      const schemaPath = path.join(dir, 'schema.graphql')
 
-      Object.entries(assets).forEach(([name, asset]) => {
-        const source = (asset as any).source
-
-        if (typeof source === 'string') {
-          fs.writeFileSync(`${dir}/${name}`, source)
-        } else if (typeof source === 'object') {
-          fs.writeFileSync(`${dir}/${name}`, Buffer.from(source))
-        }
-      })
-
-      // attach typeDefs to the output
-      this.prependTypeDefs(options.getTypeDefs())
+      fs.writeFileSync(schemaPath, typeDefs)
 
       this.reportStatus('done')
     }
@@ -88,16 +77,6 @@ export class Bundler {
     }
 
     await build()
-  }
-
-  private prependTypeDefs(typeDefs: string): void {
-    const outputFile = `${this.outputDir}/index.js`
-
-    fs.writeFileSync(
-      outputFile,
-      `\export const typeDefs = ${JSON.stringify(typeDefs)};\n` +
-        fs.readFileSync(outputFile)
-    )
   }
 
   private reportStatus(status: 'start' | 'done'): void {

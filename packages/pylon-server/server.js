@@ -3,6 +3,7 @@
 // Set default env variables
 process.env.NODE_ENV = process.env.NODE_ENV || 'production'
 
+import {logger} from '@getcronit/pylon'
 import {makeApp, runtime} from '@getcronit/pylon-server'
 import {Command} from 'commander'
 import fs from 'fs'
@@ -29,17 +30,26 @@ program.parse(process.argv)
 
 const args = program.opts()
 
-let buildLocation = program.args[0] || './.pylon/index.js'
+let buildLocation = program.args[0] || './.pylon'
+
+const indexLocation = path.resolve(process.cwd(), buildLocation, 'index.js')
+const schemaLocation = path.resolve(
+  process.cwd(),
+  buildLocation,
+  'schema.graphql'
+)
 
 // Rest of the script remains the same up to importing sfi...
 
 const {
   default: sfi,
-  typeDefs,
   configureApp,
   configureServer,
   configureWebsocket
-} = await import(path.resolve(process.cwd(), buildLocation))
+} = await import(indexLocation)
+
+// Load schema
+const typeDefs = fs.readFileSync(schemaLocation, 'utf8')
 
 const app = await makeApp({
   schema: {
@@ -80,4 +90,6 @@ configureServer?.(server)
 
 runtime.server = server
 
-console.log(`Listening on localhost:`, server.port)
+logger.info(`Server listening on port ${args.port}`)
+
+process.send?.('ready')

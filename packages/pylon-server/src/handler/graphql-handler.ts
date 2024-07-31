@@ -3,8 +3,7 @@ import {GraphQLScalarType, Kind} from 'graphql'
 import {Context} from '@getcronit/pylon'
 
 import {BuildSchemaOptions} from '../make-app'
-
-import {useSentry} from '../envelope/use-sentry'
+import {useSentry} from '../envelop/use-sentry'
 
 export const graphqlHandler =
   (c: Context) =>
@@ -31,8 +30,6 @@ export const graphqlHandler =
             )
           },
           serialize(value) {
-            console.log('serialize', value, typeof value)
-
             if (value instanceof Date) {
               return value.toISOString() // value sent to the client
             }
@@ -57,13 +54,8 @@ export const graphqlHandler =
     const yoga = createYoga({
       schema: schema as any,
       landingPage: false,
-
       plugins: [
-        useSentry({
-          includeResolverArgs: true,
-          includeExecuteVariables: true,
-          includeRawResult: true
-        })
+        useSentry()
         // useLogger({
         //   logFn: (eventName, args) => {
         //     // Event could be execute-start / execute-end / subscribe-start / subscribe-end / etc.
@@ -85,20 +77,8 @@ export const graphqlHandler =
         // })
       ],
       graphiql: req => {
-        // Get the x-client-path header from the request
-        const xClientPath = req.headers.get('x-client-path')
-
-        // Set the URL to either the x-client-path or the root URL
-        const url = xClientPath
-          ? new URL(xClientPath, req.url)
-          : new URL(req.url, 'http://localhost')
-
-        // Set the GraphQL endpoint to the current path instead of root/graphql
-        const endpoint = url.pathname
-
-        // Return the GraphiQL config object
         return {
-          endpoint,
+          shouldPersistHeaders: true,
           title: 'Pylon Playground',
           defaultQuery: `# Welcome to the Pylon Playground!`
         }
