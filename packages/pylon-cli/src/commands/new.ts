@@ -18,7 +18,10 @@ export default async (
   },
   options: {
     name: string
-    clientPath?: string
+    client?: {
+      root: string
+      clientPath: string
+    }
   }
 ) => {
   await new Promise(resolve => setTimeout(resolve, 100))
@@ -34,9 +37,9 @@ export default async (
 
   // await new Promise(resolve => setTimeout(resolve, 100))
 
-  if (options.clientPath) {
+  if (options.client) {
     logger.info(
-      `🔧 Client path will be inserted into package.json: ${options.clientPath}`
+      `🔧 Client path will be inserted into package.json: ${options.client.clientPath}`
     )
   }
 
@@ -98,31 +101,31 @@ export default async (
     await Bun.$`cd "${projectDir}" && bun install`
 
     // Insert the client path into the package.json file (gqty key)
-    if (options.clientPath) {
+    if (options.client) {
       logger.info('Inserting client path into package.json')
-      await Bun.$`cd "${projectDir}" && bunx --yes json -q -I -f package.json -e 'this.pylon = this.pylon || {}; this.pylon.gqty="${options.clientPath}"'`
+      await Bun.$`cd "${projectDir}" && bunx --yes json -q -I -f package.json -e 'this.pylon = this.pylon || {}; this.pylon.gqty="${options.client.clientPath}"'`
 
       logger.info('Inserted client path into package.json')
 
       // Add @gqty/react and gqty to the cwd package.json and prompt the user to install them
-      await Bun.$`bunx --yes json -q -I -f package.json -e 'this.devDependencies = this.devDependencies || {}; this.devDependencies["@gqty/react"] = "*"'`
+      await Bun.$`cd "${options.client.root}" && bunx --yes json -q -I -f package.json -e 'this.devDependencies = this.devDependencies || {}; this.devDependencies["@gqty/react"] = "*"'`
 
-      await Bun.$`bunx --yes json -q -I -f package.json -e 'this.devDependencies = this.devDependencies || {}; this.devDependencies["gqty"] = "*"'`
+      await Bun.$`cd "${options.client.root}" && bunx --yes json -q -I -f package.json -e 'this.devDependencies = this.devDependencies || {}; this.devDependencies["gqty"] = "*"'`
 
-      const pm = await detect()
+      const pm = await detect({cwd: options.client.root})
 
       logger.info(
-        `Installing GQTy dependencies using the detected package manager: ${pm}`
+        `Installing GQTy dependencies under ${options.client.root} using ${pm}`
       )
 
       if (pm === 'bun') {
-        await Bun.$`bun add @gqty/react gqty`
+        await Bun.$`cd "${options.client.root}" && bun add @gqty/react gqty`
       } else if (pm === 'yarn') {
-        await Bun.$`yarn add @gqty/react gqty`
+        await Bun.$`cd "${options.client.root}" && yarn add @gqty/react gqty`
       } else if (pm === 'pnpm') {
-        await Bun.$`pnpm add @gqty/react gqty`
+        await Bun.$`cd "${options.client.root}" && pnpm add @gqty/react gqty`
       } else {
-        await Bun.$`npm install @gqty/react gqty`
+        await Bun.$`cd "${options.client.root}" && npm install @gqty/react gqty`
       }
     }
 

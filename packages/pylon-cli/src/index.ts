@@ -108,19 +108,31 @@ if (!process.argv.slice(2).length) {
         default: false
       })
 
+      let frontendRoot = ''
+
+      if (useClient) {
+        frontendRoot = await input({
+          message: 'Enter the path to the frontend root',
+          default: '.'
+        })
+      }
+
       let clientPath = ''
 
       if (useClient) {
         clientPath = await input({
           message: 'Enter the path where the client should be generated',
-          default: './client'
+          default: path.join(frontendRoot, 'src', 'gqty')
         })
       }
 
       // Update the path to be relative to the root path
       clientPath = path.relative(rootPath, clientPath)
 
-      await commands.new(rootPath, template, {name, clientPath})
+      await commands.new(rootPath, template, {
+        name,
+        client: useClient ? {root: frontendRoot, clientPath} : undefined
+      })
     } else if (answer === 'develop') {
       const port = await input({
         message: 'Enter the port number to run the server on',
