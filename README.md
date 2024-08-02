@@ -1,3 +1,5 @@
+:warning: **Pylon Requires Bun:** This project currently depends on the [Bun runtime](https://bun.sh). If you need support for a different runtime, please upvote and follow the discussion on Issue #6 to help us prioritize it.
+
 <p align="center">
   <a href="https://pylon.cronit.io">
     <img src="https://github.com/getcronit/pylon/assets/52858351/ec8aa54e-6b24-45cb-82a1-03b9c8b8f45f" height="100" alt="gqty" />
