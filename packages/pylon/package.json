@@ -23,17 +23,15 @@
   "devDependencies": {
     "hono": "^4.0.8"
   },
-  "peerDependencies": {
-    "hono": "^4.0.8",
-    "@sentry/bun": "^8.17.0"
-  },
   "dependencies": {
     "@hono/sentry": "^1.2.0",
     "graphql": "^16.9.0",
     "graphql-yoga": "^5.6.2",
     "jsonwebtoken": "^9.0.2",
     "openid-client": "^5.6.4",
-    "winston": "^3.8.2"
+    "winston": "^3.8.2",
+    "hono": "^4.0.8",
+    "@sentry/bun": "^8.17.0"
   },
   "resolutions": {
     "graphql": "^16.9.0"
