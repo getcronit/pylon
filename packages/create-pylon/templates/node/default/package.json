@@ -9,10 +9,10 @@
     "build": "pylon build"
   },
   "dependencies": {
-    "@getcronit/pylon": "*"
+    "@getcronit/pylon": "^2.0.0"
   },
   "devDependencies": {
-    "@getcronit/pylon-dev": "*"
+    "@getcronit/pylon-dev": "^1.0.0"
   },
   "repository": {
     "type": "git",
