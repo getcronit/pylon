@@ -7,6 +7,12 @@ import {input, select, confirm} from '@inquirer/prompts'
 import path from 'path'
 import * as fs from 'fs'
 
+import {fileURLToPath} from 'url'
+import {dirname} from 'path'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
+
 function mkdirp(dir: string) {
   try {
     fs.mkdirSync(dir, {recursive: true})
