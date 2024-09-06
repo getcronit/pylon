@@ -88,10 +88,7 @@ const readdirFilesSyncRecursive = (dir: string): string[] => {
     files.forEach(file => {
       const filePath = path.join(dir, file)
 
-      if (
-        fs.statSync(filePath).isDirectory() &&
-        !filePath.includes('node_modules')
-      ) {
+      if (fs.statSync(filePath).isDirectory()) {
         result.push(...run(filePath))
       }
 
