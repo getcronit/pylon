@@ -1,6 +1,9 @@
 {
   "name": "root",
   "private": true,
+  "publishConfig": {
+    "access": "public"
+  },
   "workspaces": {
     "packages": [
       "packages/*"
