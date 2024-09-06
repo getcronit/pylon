@@ -1,4 +1,6 @@
-:warning: **Pylon Requires Bun:** This project currently depends on the [Bun runtime](https://bun.sh). If you need support for a different runtime, please upvote and follow the discussion on Issue https://github.com/getcronit/pylon/issues/6 to help us prioritize it.
+~~:warning: **Pylon Requires Bun:** This project currently depends on the [Bun runtime](https://bun.sh). If you need support for a different runtime, please upvote and follow the discussion on Issue https://github.com/getcronit/pylon/issues/6 to help us prioritize it.~~
+
+:rocket: **Pylon now supports Node.JS, Bun a and Cloudflare Workers!**. Check out the [Pylon v2.0.0 release notes](https://pylon.cronit.io/docs/release-notes/v2.0) for more information.
 
 <p align="center">
   <a href="https://pylon.cronit.io">
@@ -35,6 +37,7 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for more information.
 
 - **Community Support:** Join the Pylon community on GitHub to report bugs and request features.
 - **Professional Support:** For professional support and consulting services, contact [office@cronit.io](mailto:office@cronit.io).
+
 ---
 
 Pylon is brought to you by Cronit.
