@@ -1,4 +1,5 @@
 import {Context as HonoContext} from 'hono'
+import type {Toucan} from 'toucan-js'
 import {AuthState} from './auth'
 import {AsyncLocalStorage} from 'async_hooks'
 
@@ -8,6 +9,7 @@ export type Env = {
   }
   Variables: {
     auth: AuthState
+    sentry: Toucan
   }
 }
 

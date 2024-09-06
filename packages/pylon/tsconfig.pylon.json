@@ -1,8 +1,5 @@
 {
-    "compilerOptions": {
-      // add Bun type definitions
-      "types": ["bun-types"],
-  
+    "compilerOptions": {  
       // enable latest features
       "lib": ["esnext"],
       "module": "esnext",
@@ -21,6 +18,7 @@
       "forceConsistentCasingInFileNames": true,
       "skipLibCheck": true,
       "experimentalDecorators": true,
+      
     } 
   }
   

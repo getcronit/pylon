@@ -1,0 +1,30 @@
+{
+  "name": "@getcronit/pylon-dev",
+  "type": "module",
+  "version": "2.0.0",
+  "description": "CLI for creating a Pylon",
+  "scripts": {
+    "build": "bun build ./src/index.ts --target=bun --outdir=./dist --sourcemap=inline --packages external"
+  },
+  "bin": {
+    "pylon": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "author": "Nico Schett <nico.schett@cronit.io>",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/getcronit/pylon.git",
+    "directory": "packages/create-pylon"
+  },
+  "homepage": "https://pylon.cronit.io",
+  "dependencies": {
+    "@getcronit/pylon-builder": "*",
+    "@gqty/cli": "^4.2.0",
+    "commander": "^12.1.0",
+    "consola": "^3.2.3",
+    "treekill": "^1.0.0"
+  }
+}

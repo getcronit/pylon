@@ -1,6 +1,5 @@
 import ts from 'typescript'
 import {SchemaParser} from './schema-parser'
-import path from 'path'
 
 export class SchemaBuilder {
   private program: ts.Program
@@ -10,7 +9,7 @@ export class SchemaBuilder {
   private sfiFilePath: string
 
   constructor(sfiFilePath: string) {
-    this.sfiFilePath = path.join(process.cwd(), sfiFilePath)
+    this.sfiFilePath = sfiFilePath
 
     this.program = ts.createProgram([this.sfiFilePath], {
       target: ts.ScriptTarget.ESNext,
@@ -41,11 +40,11 @@ export class SchemaBuilder {
     const sfiFileSymbol = this.checker.getSymbolAtLocation(file)!
     const sfiFileExports = this.checker.getExportsOfModule(sfiFileSymbol!)
     const sfiFileDefaultExport = sfiFileExports.find(
-      exportSymbol => exportSymbol.escapedName === 'default'
+      exportSymbol => exportSymbol.escapedName === 'graphql'
     )
 
     if (!sfiFileDefaultExport) {
-      throw new Error('Could not find default export')
+      throw new Error('Could not find graphql export')
     }
 
     this.sfi = sfiFileDefaultExport
@@ -57,19 +56,19 @@ export class SchemaBuilder {
       this.sfiFile
     )
 
-    const plainResolversProperty = sfiType.getProperty('plainResolvers')
+    // const plainResolversProperty = sfiType.getProperty('plainResolvers')
 
-    if (!plainResolversProperty) {
-      throw new Error('Could not find plainResolvers property')
-    }
+    // if (!plainResolversProperty) {
+    //   throw new Error('Could not find plainResolvers property')
+    // }
 
-    const plainResolversType = this.checker.getTypeOfSymbolAtLocation(
-      plainResolversProperty,
-      this.sfiFile
-    )
+    // const plainResolversType = this.checker.getTypeOfSymbolAtLocation(
+    //   plainResolversProperty,
+    //   this.sfiFile
+    // )
 
-    const queryProperty = plainResolversType.getProperty('Query')
-    const mutationProperty = plainResolversType.getProperty('Mutation')
+    const queryProperty = sfiType.getProperty('Query')
+    const mutationProperty = sfiType.getProperty('Mutation')
 
     const queryType = queryProperty
       ? this.checker.getTypeOfSymbolAtLocation(queryProperty, this.sfiFile)

@@ -5,7 +5,6 @@ import path from 'path'
 import {HTTPException} from 'hono/http-exception'
 import {StatusCode} from 'hono/utils/http-status'
 import * as Sentry from '@sentry/bun'
-import {logger} from '../logger'
 
 const AUTH_PROJECT_ID = process.env.AUTH_PROJECT_ID
 
@@ -34,9 +33,6 @@ const authInitialize = () => {
   if (!AUTH_ISSUER) {
     throw new Error('AUTH_ISSUER is not set')
   }
-
-  logger.info(`AUTH_ISSUER: ${AUTH_ISSUER}`)
-  logger.info(`AUTH_PROJECT_ID: ${AUTH_PROJECT_ID}`)
 
   const middleware: MiddlewareHandler<{
     Variables: {
