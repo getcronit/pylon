@@ -1,7 +1,7 @@
 {
   "name": "create-pylon",
   "type": "module",
-  "version": "0.0.4",
+  "version": "1.0.0",
   "description": "CLI for creating a Pylon",
   "scripts": {
     "build": "bun build ./src/index.ts --target=bun --outdir=./dist --sourcemap=inline --packages external"
