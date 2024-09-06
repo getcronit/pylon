@@ -14,7 +14,7 @@
 
 </h2>
 
-[![Pylon Hero Section](https://github.com/getcronit/pylon/assets/52858351/9ce5833f-c4ce-4dc5-85a9-6eb3910b40bd)](https://pylon.cronit.io)
+[![Pylon Hero Section](https://github.com/user-attachments/assets/c715b5f8-58ac-4967-801a-77a8cd843813)](https://pylon.cronit.io)
 
 The GraphQL schema is generated in real-time from your TypeScript definitions,
 allowing you to focus solely on writing your service logic.
