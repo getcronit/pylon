@@ -5,6 +5,7 @@ import {version} from '../package.json'
 import consola from 'consola'
 import {input, select, confirm} from '@inquirer/prompts'
 import path from 'path'
+import chalk from 'chalk'
 import * as fs from 'fs'
 
 import {fileURLToPath} from 'url'
@@ -457,7 +458,22 @@ async function main(
       consola.success(`Pylon dev script updated`)
     }
 
-    consola.box(`Pylon successfully created in ${target}.\n\nHappy coding!`)
+    const message = `
+🎉 ${chalk.green.bold('Pylon created successfully.')}
+
+💻 ${chalk.cyan.bold('Continue Developing')}
+    ${chalk.yellow('Change directories:')} cd ${chalk.blue(target)}
+    ${chalk.yellow('Start dev server:')} npm run start
+    ${chalk.yellow('Deploy:')} npm run deploy
+
+📖 ${chalk.cyan.bold('Explore Documentation')}
+    ${chalk.underline.blue('https://pylon.cronit.io/docs')}
+
+💬 ${chalk.cyan.bold('Join our Community')}
+    ${chalk.underline.blue('https://discord.gg/cbJjkVrnHe')}
+`
+
+    consola.box(message)
   } catch (e) {
     consola.error(e)
   }
