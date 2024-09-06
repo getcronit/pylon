@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "bun run ../../build.js && bun run build:declarations",
+    "build": "bun build ./src/index.ts --target=bun --outdir=./dist --sourcemap=external --packages external && bun run build:declarations",
     "build:declarations": "tsc --declaration --emitDeclarationOnly --outDir ./dist"
   },
   "files": [
