@@ -37,6 +37,7 @@ export class Bundler {
               const contents = await fs.promises.readFile(args.path, 'utf-8')
 
               return {
+                loader: 'ts',
                 contents:
                   `
       import {graphqlHandler} from "@getcronit/pylon"        
@@ -79,13 +80,7 @@ export class Bundler {
         sourcemap: 'inline',
         packages: 'external',
 
-        plugins: [
-          esbuildPluginTsc({
-            force: true,
-            tsconfigPath: process.cwd() + '/tsconfig.json'
-          }),
-          injectCodePlugin
-        ]
+        plugins: [injectCodePlugin]
       })
 
       if (output.errors.length > 0) {
