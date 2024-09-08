@@ -6,6 +6,7 @@ import {
 } from 'graphql'
 import {Hono as _Hono} from 'hono'
 import * as Sentry from '@sentry/bun'
+import consola from 'consola'
 
 import {Context, Env, asyncContext, getContext} from './context'
 
@@ -157,10 +158,12 @@ export const resolversToGraphQLResolvers = (
         const ctx = asyncContext.getStore()
 
         if (!ctx) {
-          throw new Error('Internal error. Context not defined.')
+          consola.warn(
+            'Context is not defined. Make sure AsyncLocalStorage is supported in your environment.'
+          )
         }
 
-        const auth = ctx.get('auth')
+        const auth = ctx?.get('auth')
 
         if (auth?.active) {
           scope.setUser({
@@ -169,18 +172,6 @@ export const resolversToGraphQLResolvers = (
             email: auth.email,
             details: auth
           })
-        }
-
-        if (configureContext) {
-          const configuredCtx = await Sentry.startSpan(
-            {
-              name: 'Context',
-              op: 'pylon.context'
-            },
-            () => configureContext(ctx)
-          )
-
-          asyncContext.enterWith(configuredCtx)
         }
 
         // get query or mutation field
