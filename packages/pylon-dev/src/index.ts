@@ -154,20 +154,24 @@ async function main(options: ArgOptions, command: Command) {
 
   consola.start('[Pylon]: Building schema')
 
-  await build({
-    sfiFilePath: './src/index.ts',
-    outputFilePath: `./.pylon`,
-    watch: true,
-    onWatch: async (schemaChanged: boolean) => {
-      await serve(schemaChanged)
+  try {
+    await build({
+      sfiFilePath: './src/index.ts',
+      outputFilePath: `./.pylon`,
+      watch: true,
+      onWatch: async (schemaChanged: boolean) => {
+        await serve(schemaChanged)
 
-      consola.start('[Pylon]: Reloading server')
+        consola.start('[Pylon]: Reloading server')
 
-      if (schemaChanged) {
-        consola.info('[Pylon]: Schema updated')
+        if (schemaChanged) {
+          consola.info('[Pylon]: Schema updated')
+        }
       }
-    }
-  })
+    })
+  } catch (e) {
+    consola.error("[Pylon]: Couldn't build schema", e)
+  }
 
   consola.success('[Pylon]: Schema built')
 
