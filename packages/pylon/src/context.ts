@@ -6,6 +6,9 @@ import {AsyncLocalStorage} from 'async_hooks'
 export type Env = {
   Bindings: {
     NODE_ENV: string
+    AUTH_PROJECT_ID?: string
+    AUTH_KEY?: string
+    AUTH_ISSUER?: string
   }
   Variables: {
     auth: AuthState

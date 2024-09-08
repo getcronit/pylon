@@ -4,9 +4,9 @@ import type {IdTokenClaims, IntrospectionResponse} from 'openid-client'
 import path from 'path'
 import {HTTPException} from 'hono/http-exception'
 import {StatusCode} from 'hono/utils/http-status'
+import {env} from 'hono/adapter'
 import * as Sentry from '@sentry/bun'
-
-const AUTH_PROJECT_ID = process.env.AUTH_PROJECT_ID
+import {getContext} from '../context'
 
 export type AuthState = IntrospectionResponse &
   IdTokenClaims & {
@@ -17,7 +17,9 @@ const authInitialize = () => {
   // Load private key file from cwd
   const authKeyFilePath = path.join(process.cwd(), 'key.json')
 
-  const authKey = process.env.AUTH_KEY
+  const c = getContext()
+
+  const authKey = env(c).AUTH_KEY
 
   // Load private key file from cwd
   const API_PRIVATE_KEY_FILE: {
@@ -28,7 +30,7 @@ const authInitialize = () => {
     clientId: string
   } = authKey ? JSON.parse(authKey) : require(authKeyFilePath)
 
-  const AUTH_ISSUER = process.env.AUTH_ISSUER
+  const AUTH_ISSUER = env(c).AUTH_ISSUER
 
   if (!AUTH_ISSUER) {
     throw new Error('AUTH_ISSUER is not set')
@@ -45,6 +47,8 @@ const authInitialize = () => {
     },
     () =>
       async function (ctx, next) {
+        const AUTH_PROJECT_ID = env(ctx).AUTH_PROJECT_ID
+
         const ZITADEL_INTROSPECTION_URL = `${AUTH_ISSUER}/oauth/v2/introspect`
 
         async function getRolesFromToken(tokenString: string) {
@@ -213,6 +217,8 @@ const authRequire = (checks: AuthRequireChecks = {}) => {
       auth?: AuthState
     }
   }> = async (ctx, next) => {
+    const AUTH_PROJECT_ID = env(ctx).AUTH_PROJECT_ID
+
     // Check if user is authenticated
     const auth = ctx.get('auth')
 
