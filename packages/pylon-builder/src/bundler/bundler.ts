@@ -79,8 +79,12 @@ export class Bundler {
         splitting: true,
         sourcemap: 'inline',
         packages: 'external',
-
-        plugins: [injectCodePlugin]
+        plugins: [
+          injectCodePlugin,
+          esbuildPluginTsc({
+            tsconfigPath: path.join(process.cwd(), 'tsconfig.json')
+          })
+        ]
       })
 
       if (output.errors.length > 0) {
