@@ -75,8 +75,8 @@ export class Bundler {
         logLevel: 'silent',
         entryPoints: [inputPath],
         outdir: dir,
+        bundle: true,
         format: 'esm',
-        splitting: true,
         sourcemap: 'inline',
         packages: 'external',
         plugins: [
