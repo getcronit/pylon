@@ -49,7 +49,6 @@ const authInitialize = () => {
     },
     () =>
       async function (ctx, next) {
-        console.log('CTX', env(ctx))
         const AUTH_ISSUER = env(ctx).AUTH_ISSUER
 
         if (!AUTH_ISSUER) {
