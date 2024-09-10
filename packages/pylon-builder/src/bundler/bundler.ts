@@ -39,6 +39,7 @@ export class Bundler {
               return {
                 loader: 'ts',
                 contents:
+                  contents +
                   `
       import {graphqlHandler} from "@getcronit/pylon"        
       app.use('/graphql', async c => {
@@ -56,7 +57,7 @@ export class Bundler {
           resolvers
         }).fetch(c.req.raw, c.env, exCtx || {})
       })  
-      ` + contents
+      `
               }
             }
           )
