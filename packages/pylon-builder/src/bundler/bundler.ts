@@ -113,10 +113,14 @@ export class Bundler {
       const folder = path.dirname(this.sfiFilePath)
 
       chokidar.watch(folder).on('change', async () => {
-        const changedSchema = await buildOnce()
+        try {
+          const changedSchema = await buildOnce()
 
-        if (options.onWatch) {
-          options.onWatch(changedSchema)
+          if (options.onWatch) {
+            options.onWatch(changedSchema)
+          }
+        } catch (e) {
+          consola.error(e)
         }
       })
     }

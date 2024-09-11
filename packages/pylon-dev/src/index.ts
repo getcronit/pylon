@@ -160,26 +160,46 @@ async function main(options: ArgOptions, command: Command) {
       outputFilePath: `./.pylon`,
       watch: true,
       onWatch: async (schemaChanged: boolean) => {
+        const isServerRunning = currentProc !== null
+
+        if (isServerRunning) {
+          consola.start('[Pylon]: Reloading server')
+        } else {
+          consola.start('[Pylon]: Starting server')
+        }
+
         await serve(schemaChanged)
 
-        consola.start('[Pylon]: Reloading server')
+        if (isServerRunning) {
+          consola.ready('[Pylon]: Server reloaded')
+        } else {
+          consola.ready('[Pylon]: Server started')
+
+          consola.box(`
+    Pylon is up and running!
+
+    Press \`Ctrl + C\` to stop the server.
+
+    Encounter any issues? Report them here:  
+    https://github.com/getcronit/pylon/issues
+
+    We value your feedback—help us make Pylon even better!
+          `)
+        }
 
         if (schemaChanged) {
           consola.info('[Pylon]: Schema updated')
         }
       }
     })
-  } catch (e) {
-    consola.error("[Pylon]: Couldn't build schema", e)
-  }
 
-  consola.success('[Pylon]: Schema built')
+    consola.success('[Pylon]: Schema built')
 
-  consola.start('[Pylon]: Starting server')
-  await serve(true)
-  consola.ready('[Pylon]: Server started')
+    consola.start('[Pylon]: Starting server')
+    await serve(true)
+    consola.ready('[Pylon]: Server started')
 
-  consola.box(`
+    consola.box(`
     Pylon is up and running!
 
     Press \`Ctrl + C\` to stop the server.
@@ -189,6 +209,21 @@ async function main(options: ArgOptions, command: Command) {
   
     We value your feedback—help us make Pylon even better!
   `)
+  } catch (e) {
+    consola.error("[Pylon]: Couldn't build schema", e)
+
+    // Kill the server if it's running
+    const proc = currentProc as ChildProcess | null
+    if (proc) {
+      proc.removeAllListeners()
+
+      kill(proc.pid, 'SIGINT', err => {
+        if (err) {
+          consola.error(err)
+        }
+      })
+    }
+  }
 }
 
 program.parse()
