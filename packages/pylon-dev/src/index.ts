@@ -70,8 +70,6 @@ async function main(options: ArgOptions, command: Command) {
       })
     }
 
-    await new Promise(resolve => setTimeout(resolve, 1000))
-
     currentProc = spawn(options.command, {
       shell: true,
       stdio: 'inherit',
