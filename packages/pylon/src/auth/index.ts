@@ -243,6 +243,11 @@ export type AuthRequireChecks = {
 }
 
 const authRequire = (checks: AuthRequireChecks = {}) => {
+  sendFunctionEvent({
+    name: 'authRequire',
+    duration: 0
+  }).then(() => {})
+
   const middleware: MiddlewareHandler<{
     Variables: {
       auth?: AuthState
