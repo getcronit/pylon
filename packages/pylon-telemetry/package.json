@@ -21,13 +21,7 @@
   },
   "homepage": "https://pylon.cronit.io/docs/telemetry",
   "peerDependencies": {
-    "hono": "^4.6.1",
-    "@getcronit/pylon": "^2.0.0"
-  },
-  "peerDependenciesMeta": {
-    "@getcronit/pylon": {
-      "optional": true
-    }
+    "hono": "^4.6.1"
   },
   "engines": {
     "node": ">=18.0.0"
