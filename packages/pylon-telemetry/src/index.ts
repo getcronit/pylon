@@ -2,6 +2,7 @@ import crypto from 'crypto'
 import os from 'os'
 
 import {getRuntimeKey} from 'hono/adapter'
+// @ts-ignore
 import {getEnv} from '@getcronit/pylon'
 
 import {createRequire as createImportMetaRequire} from 'module'

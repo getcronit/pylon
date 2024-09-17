@@ -7,7 +7,7 @@
     ]
   },
   "scripts": {
-    "build": "bun run --filter ./packages/pylon-builder build && bun run --filter ./packages/pylon build &&  bun run --filter ./packages/pylon-dev build && bun run --filter ./packages/create-pylon build"
+    "build": "bun run --filter ./packages/pylon-telemetry build && bun run --filter ./packages/pylon-builder build && bun run --filter ./packages/pylon build &&  bun run --filter ./packages/pylon-dev build && bun run --filter ./packages/create-pylon build"
   },
   "devDependencies": {
     "@semantic-release/changelog": "^6.0.3",
