@@ -22,7 +22,7 @@
   "homepage": "https://pylon.cronit.io",
   "dependencies": {
     "@getcronit/pylon-builder": "beta",
-    "@getcronit/pylon-telemetry": "^1.0.0",
+    "@getcronit/pylon-telemetry": "beta",
     "@gqty/cli": "^4.2.0",
     "commander": "^12.1.0",
     "consola": "^3.2.3",
