@@ -9,7 +9,7 @@ import.meta.require ||= id => createImportMetaRequire(import.meta.url)(id)
 
 // @ts-ignore
 // prettier-ignore
-const getEnv = await import('@getcronit/pylon').then(m => m.getEnv).catch(() => () => process.env)
+const getEnv = async (...args) => await import('@getcronit/pylon').then(m => m.getEnv(...args)).catch(() => process.env)
 
 // @ts-ignore
 // prettier-ignore
@@ -94,10 +94,7 @@ const sendEvent = async (
     clientPort?: number
   }
 ) => {
-  const env = getEnv(
-    // @ts-ignore
-    true
-  )
+  const env = await getEnv(true)
 
   // @ts-ignore
   if (!env.PYLON_TELEMETRY_DISABLED === '1') {
