@@ -25,7 +25,7 @@
     "commander": "^12.1.0",
     "consola": "^3.2.3",
     "detect-package-manager": "^3.0.2",
-    "@getcronit/pylon-telemetry": "beta"
+    "@getcronit/pylon-telemetry": "^1.0.0"
   },
   "engines": {
     "node": ">=18.0.0"
