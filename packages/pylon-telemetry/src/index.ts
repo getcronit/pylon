@@ -2,12 +2,14 @@ import crypto from 'crypto'
 import os from 'os'
 
 import {getRuntimeKey} from 'hono/adapter'
-// @ts-ignore
-import {getEnv} from '@getcronit/pylon'
 
 import {createRequire as createImportMetaRequire} from 'module'
 // @ts-ignore
 import.meta.require ||= id => createImportMetaRequire(import.meta.url)(id)
+
+// @ts-ignore
+// prettier-ignore
+const getEnv = await import('@getcronit/pylon').then(m => m.getEnv).catch(() => () => process.env)
 
 // @ts-ignore
 // prettier-ignore

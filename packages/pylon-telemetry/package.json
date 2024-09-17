@@ -20,11 +20,14 @@
     "directory": "packages/pylon-telemetry"
   },
   "homepage": "https://pylon.cronit.io/docs/telemetry",
-  "dependencies": {
+  "peerDependencies": {
+    "hono": "^4.6.1",
     "@getcronit/pylon": "beta"
   },
-  "peerDependencies": {
-    "hono": "^4.6.1"
+  "peerDependenciesMeta": {
+    "@getcronit/pylon": {
+      "optional": true
+    }
   },
   "engines": {
     "node": ">=18.0.0"
