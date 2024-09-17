@@ -21,7 +21,7 @@
   },
   "homepage": "https://pylon.cronit.io/docs/telemetry",
   "dependencies": {
-    "@getcronit/pylon": "^2.0.0"
+    "@getcronit/pylon": "beta"
   },
   "peerDependencies": {
     "hono": "^4.6.1"
