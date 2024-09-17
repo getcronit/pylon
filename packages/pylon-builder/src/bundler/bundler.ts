@@ -10,7 +10,12 @@ import consola from 'consola'
 export interface BundlerBuildOptions {
   getTypeDefs: () => string
   watch?: boolean
-  onWatch?: (schemaChanged: boolean) => void
+  onWatch?: (output: {
+    totalFiles: number
+    totalSize: number
+    schemaChanged: boolean
+    duration: number
+  }) => void
 }
 
 export class Bundler {
@@ -24,8 +29,10 @@ export class Bundler {
     this.outputDir = outputDir
   }
 
-  public async build(options: BundlerBuildOptions): Promise<void> {
+  public async build(options: BundlerBuildOptions) {
     const buildOnce = async () => {
+      const startTime = Date.now()
+
       const typeDefs = options.getTypeDefs()
 
       const injectCodePlugin: Plugin = {
@@ -56,7 +63,7 @@ export class Bundler {
           typeDefs,
           resolvers
         }).fetch(c.req.raw, c.env, exCtx || {})
-      })  
+      })
       `
               }
             }
@@ -74,6 +81,7 @@ export class Bundler {
 
       const output = await build({
         logLevel: 'silent',
+        metafile: true,
         entryPoints: [inputPath],
         outdir: dir,
         bundle: true,
@@ -102,11 +110,24 @@ export class Bundler {
         }
       }
 
-      const changedSchema = this.cachedTypeDefs !== typeDefs
+      const schemaChanged = this.cachedTypeDefs !== typeDefs
 
       this.cachedTypeDefs = typeDefs
 
-      return changedSchema
+      const duration = Date.now() - startTime
+
+      const totalFiles = Object.keys(output.metafile.inputs).length
+      const totalSize = Object.values(output.metafile.outputs).reduce(
+        (acc, output) => acc + output.bytes,
+        0
+      )
+
+      return {
+        totalFiles,
+        totalSize,
+        schemaChanged,
+        duration
+      }
     }
 
     if (options.watch) {
@@ -114,10 +135,10 @@ export class Bundler {
 
       chokidar.watch(folder).on('change', async () => {
         try {
-          const changedSchema = await buildOnce()
+          const output = await buildOnce()
 
           if (options.onWatch) {
-            options.onWatch(changedSchema)
+            options.onWatch(output)
           }
         } catch (e) {
           consola.error(e)
@@ -125,6 +146,6 @@ export class Bundler {
       })
     }
 
-    await buildOnce()
+    return await buildOnce()
   }
 }

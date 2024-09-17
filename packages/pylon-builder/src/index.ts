@@ -6,7 +6,12 @@ export interface BuildOptions {
   sfiFilePath: string
   outputFilePath: string
   watch?: boolean
-  onWatch?: (schemaChanged: boolean) => void
+  onWatch?: (output: {
+    totalFiles: number
+    totalSize: number
+    schemaChanged: boolean
+    duration: number
+  }) => void
 }
 
 export {SchemaBuilder}
@@ -14,7 +19,7 @@ export {SchemaBuilder}
 export const build = async (options: BuildOptions) => {
   const bundler = new Bundler(options.sfiFilePath, options.outputFilePath)
 
-  await bundler.build({
+  return await bundler.build({
     getTypeDefs: () => {
       const builder = new SchemaBuilder(
         path.join(process.cwd(), options.sfiFilePath)

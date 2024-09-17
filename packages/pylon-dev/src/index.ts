@@ -8,6 +8,10 @@ import path from 'path'
 import {version} from '../package.json'
 import {ChildProcess, spawn} from 'child_process'
 import kill from 'treekill'
+import * as telemetry from '@getcronit/pylon-telemetry'
+import dotenv from 'dotenv'
+
+dotenv.config()
 
 program.name('pylon-dev').description('Pylon Development CLI').version(version)
 
@@ -17,9 +21,16 @@ program
   .action(async () => {
     consola.start('[Pylon]: Building schema')
 
-    await build({
+    const {totalFiles, totalSize, duration} = await build({
       sfiFilePath: './src/index.ts',
       outputFilePath: './.pylon'
+    })
+
+    await telemetry.sendBuildEvent({
+      duration: duration,
+      totalFiles,
+      totalSize,
+      isDevelopment: false
     })
 
     consola.success('[Pylon]: Schema built')
@@ -52,6 +63,8 @@ type ArgOptions = {
   clientPath: string
   clientPort: string
 }
+
+const start = Date.now()
 
 async function main(options: ArgOptions, command: Command) {
   consola.log(`[Pylon]: ${command.name()} version ${command.version()}`)
@@ -153,11 +166,11 @@ async function main(options: ArgOptions, command: Command) {
   consola.start('[Pylon]: Building schema')
 
   try {
-    await build({
+    const {duration, totalFiles, totalSize} = await build({
       sfiFilePath: './src/index.ts',
       outputFilePath: `./.pylon`,
       watch: true,
-      onWatch: async (schemaChanged: boolean) => {
+      onWatch: async ({schemaChanged, totalFiles, totalSize, duration}) => {
         const isServerRunning = currentProc !== null
 
         if (isServerRunning) {
@@ -187,8 +200,22 @@ async function main(options: ArgOptions, command: Command) {
 
         if (schemaChanged) {
           consola.info('[Pylon]: Schema updated')
+
+          await telemetry.sendBuildEvent({
+            duration,
+            totalFiles,
+            totalSize,
+            isDevelopment: true
+          })
         }
       }
+    })
+
+    await telemetry.sendBuildEvent({
+      duration,
+      totalFiles,
+      totalSize,
+      isDevelopment: true
     })
 
     consola.success('[Pylon]: Schema built')
@@ -222,6 +249,30 @@ async function main(options: ArgOptions, command: Command) {
       })
     }
   }
+
+  process.on('SIGINT', async code => {
+    try {
+      if (currentProc) {
+        currentProc.removeAllListeners()
+
+        kill(currentProc.pid, 'SIGINT', err => {
+          if (err) {
+            consola.error(err)
+          }
+        })
+      }
+    } catch {
+      // Ignore
+    } finally {
+      await telemetry.sendDevEvent({
+        duration: Date.now() - start,
+        clientPath: options.clientPath,
+        clientPort: parseInt(options.clientPort)
+      })
+
+      process.exit(0)
+    }
+  })
 }
 
 program.parse()

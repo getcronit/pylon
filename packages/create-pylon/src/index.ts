@@ -8,6 +8,8 @@ import path from 'path'
 import chalk from 'chalk'
 import * as fs from 'fs'
 
+import * as telemetry from '@getcronit/pylon-telemetry'
+
 import {fileURLToPath} from 'url'
 import {dirname} from 'path'
 
@@ -410,9 +412,11 @@ async function main(
         default: false
       }))
 
+    let clientRoot: string = ''
+    let clientPath: string = ''
+    let clientPort: string = ''
+
     if (client) {
-      let clientRoot: string = ''
-      let clientPath: string = ''
       if (!clientPathArg) {
         clientRoot = await input({
           message: 'Path to the root where the client should be generated',
@@ -433,7 +437,7 @@ async function main(
         })
       }
 
-      const clientPort =
+      clientPort =
         clientPortArg ||
         (await input({
           message: 'Port of the pylon server to generate the client from',
@@ -472,6 +476,15 @@ async function main(
 💬 ${chalk.cyan.bold('Join our Community')}
     ${chalk.underline.blue('https://discord.gg/cbJjkVrnHe')}
 `
+
+    await telemetry.sendCreateEvent({
+      name: projectName,
+      pylonCreateVersion: version,
+      runtime: runtimeName,
+      template: templateName,
+      clientPath: clientPath || undefined,
+      clientPort: parseInt(clientPort) || undefined
+    })
 
     consola.box(message)
   } catch (e) {

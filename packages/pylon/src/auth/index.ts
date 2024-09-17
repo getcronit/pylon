@@ -7,6 +7,7 @@ import {StatusCode} from 'hono/utils/http-status'
 import {env} from 'hono/adapter'
 import * as Sentry from '@sentry/bun'
 import {existsSync, readFileSync} from 'fs'
+import {sendFunctionEvent} from '@getcronit/pylon-telemetry'
 
 export type AuthState = IntrospectionResponse &
   IdTokenClaims & {
@@ -229,6 +230,11 @@ const authInitialize = () => {
       }
   )
 
+  sendFunctionEvent({
+    name: 'authInitialize',
+    duration: 0
+  }).then(() => {})
+
   return middleware
 }
 
@@ -278,6 +284,11 @@ const authRequire = (checks: AuthRequireChecks = {}) => {
 
     return next()
   }
+
+  sendFunctionEvent({
+    name: 'authRequire',
+    duration: 0
+  }).then(() => {})
 
   return middleware
 }
