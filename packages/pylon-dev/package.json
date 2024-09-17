@@ -1,7 +1,7 @@
 {
   "name": "@getcronit/pylon-dev",
   "type": "module",
-  "version": "2.0.0",
+  "version": "1.0.0",
   "description": "CLI for creating a Pylon",
   "scripts": {
     "build": "bun build ./src/index.ts --target=bun --outdir=./dist --sourcemap=inline --packages external"
