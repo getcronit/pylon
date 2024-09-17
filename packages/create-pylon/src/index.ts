@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import {Option, program, type Command} from 'commander'
-import {version} from '../package.json'
 import consola from 'consola'
 import {input, select, confirm} from '@inquirer/prompts'
 import path from 'path'
@@ -15,6 +14,12 @@ import {dirname} from 'path'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
+
+const version = (() => {
+  return JSON.parse(
+    fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf-8')
+  ).version as string
+})()
 
 function mkdirp(dir: string) {
   try {
