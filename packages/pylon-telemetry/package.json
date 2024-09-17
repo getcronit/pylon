@@ -1,0 +1,35 @@
+{
+  "name": "@getcronit/pylon-telemetry",
+  "type": "module",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "description": "Telemetry for Pylon",
+  "scripts": {
+    "build": "rimraf ./dist && bun build ./src/index.ts --target=bun --outdir=./dist --sourcemap=external --packages external && bun run build:declarations",
+    "build:declarations": "tsc --declaration --emitDeclarationOnly --outDir ./dist"
+  },
+  "files": [
+    "dist"
+  ],
+  "author": "Nico Schett <nico.schett@cronit.io>",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/getcronit/pylon.git",
+    "directory": "packages/pylon-telemetry"
+  },
+  "homepage": "https://pylon.cronit.io/docs/telemetry",
+  "dependencies": {
+    "@getcronit/pylon": "^2.0.0"
+  },
+  "peerDependencies": {
+    "hono": "^4.6.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
