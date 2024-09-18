@@ -249,7 +249,7 @@ export const resolversToGraphQLResolvers = (
     }
   }
 
-  if (resolvers.Query) {
+  if (resolvers.Query && Object.keys(resolvers.Query).length > 0) {
     for (const [key, value] of Object.entries(resolvers.Query)) {
       if (!graphqlResolvers.Query) {
         graphqlResolvers.Query = {}
@@ -261,7 +261,7 @@ export const resolversToGraphQLResolvers = (
     }
   }
 
-  if (resolvers.Mutation) {
+  if (resolvers.Mutation && Object.keys(resolvers.Mutation).length > 0) {
     if (!graphqlResolvers.Mutation) {
       graphqlResolvers.Mutation = {}
     }
@@ -271,6 +271,23 @@ export const resolversToGraphQLResolvers = (
         value as Function | object
       )
     }
+  }
+
+  // Query root type must be provided.
+  if (!graphqlResolvers.Query) {
+    // Custom Error for Query root type must be provided.
+
+    throw new Error(`At least one 'Query' resolver must be provided.
+
+Example:
+
+export const graphql = {
+  Query: {
+    // Define at least one query resolver here
+    hello: () => 'world'
+  }
+}
+`)
   }
 
   return graphqlResolvers

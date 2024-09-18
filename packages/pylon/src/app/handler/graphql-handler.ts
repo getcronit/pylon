@@ -16,13 +16,6 @@ export interface SchemaOptions {
 export const graphqlHandler =
   (c: Context) =>
   ({typeDefs, resolvers}: SchemaOptions) => {
-    // Remove empty resolvers
-    for (const key in resolvers) {
-      if (Object.keys(resolvers[key]).length === 0) {
-        delete resolvers[key]
-      }
-    }
-
     resolvers = resolversToGraphQLResolvers(resolvers)
 
     const schema = createSchema({
