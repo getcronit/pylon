@@ -1,0 +1,23 @@
+{
+  "name": "__PYLON_NAME__",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Generated with `npm create pylon`",
+  "scripts": {
+    "dev": "pylon dev -c 'node --enable-source-maps .pylon/index.js'",
+    "build": "pylon build"
+  },
+  "dependencies": {
+    "@getcronit/pylon": "^2.0.0",
+    "@hono/node-server": "^1.12.2"
+  },
+  "devDependencies": {
+    "@getcronit/pylon-dev": "^1.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/getcronit/pylon.git"
+  },
+  "homepage": "https://pylon.cronit.io"
+}

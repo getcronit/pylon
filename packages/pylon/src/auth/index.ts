@@ -4,10 +4,10 @@ import type {IdTokenClaims, IntrospectionResponse} from 'openid-client'
 import path from 'path'
 import {HTTPException} from 'hono/http-exception'
 import {StatusCode} from 'hono/utils/http-status'
+import {env} from 'hono/adapter'
 import * as Sentry from '@sentry/bun'
-import {logger} from '../logger'
-
-const AUTH_PROJECT_ID = process.env.AUTH_PROJECT_ID
+import {existsSync, readFileSync} from 'fs'
+import {sendFunctionEvent} from '@getcronit/pylon-telemetry'
 
 export type AuthState = IntrospectionResponse &
   IdTokenClaims & {
@@ -18,25 +18,26 @@ const authInitialize = () => {
   // Load private key file from cwd
   const authKeyFilePath = path.join(process.cwd(), 'key.json')
 
-  const authKey = process.env.AUTH_KEY
-
   // Load private key file from cwd
-  const API_PRIVATE_KEY_FILE: {
-    type: 'application'
-    keyId: string
-    key: string
-    appId: string
-    clientId: string
-  } = authKey ? JSON.parse(authKey) : require(authKeyFilePath)
+  let API_PRIVATE_KEY_FILE:
+    | {
+        type: 'application'
+        keyId: string
+        key: string
+        appId: string
+        clientId: string
+      }
+    | undefined = undefined
 
-  const AUTH_ISSUER = process.env.AUTH_ISSUER
-
-  if (!AUTH_ISSUER) {
-    throw new Error('AUTH_ISSUER is not set')
+  if (existsSync(authKeyFilePath)) {
+    try {
+      API_PRIVATE_KEY_FILE = JSON.parse(readFileSync(authKeyFilePath, 'utf-8'))
+    } catch (error) {
+      throw new Error(
+        'Error while reading key file. Make sure it is valid JSON'
+      )
+    }
   }
-
-  logger.info(`AUTH_ISSUER: ${AUTH_ISSUER}`)
-  logger.info(`AUTH_PROJECT_ID: ${AUTH_PROJECT_ID}`)
 
   const middleware: MiddlewareHandler<{
     Variables: {
@@ -49,6 +50,27 @@ const authInitialize = () => {
     },
     () =>
       async function (ctx, next) {
+        const AUTH_ISSUER = env(ctx).AUTH_ISSUER
+
+        if (!AUTH_ISSUER) {
+          throw new Error('AUTH_ISSUER is not set')
+        }
+
+        if (!API_PRIVATE_KEY_FILE) {
+          // If the private key file is not loaded, try to load it from the environment
+          const AUTH_KEY = env(ctx).AUTH_KEY as string | undefined
+
+          API_PRIVATE_KEY_FILE = AUTH_KEY ? JSON.parse(AUTH_KEY) : undefined
+        }
+
+        if (!API_PRIVATE_KEY_FILE) {
+          throw new Error(
+            'You have initialized the auth middleware without a private key file'
+          )
+        }
+
+        const AUTH_PROJECT_ID = env(ctx).AUTH_PROJECT_ID
+
         const ZITADEL_INTROSPECTION_URL = `${AUTH_ISSUER}/oauth/v2/introspect`
 
         async function getRolesFromToken(tokenString: string) {
@@ -95,6 +117,10 @@ const authInitialize = () => {
         async function introspectToken(
           tokenString: string
         ): Promise<AuthState> {
+          if (!API_PRIVATE_KEY_FILE) {
+            throw new Error('Internal error: API_PRIVATE_KEY_FILE is not set')
+          }
+
           // Create JWT for client assertion
           const payload = {
             iss: API_PRIVATE_KEY_FILE.clientId,
@@ -204,6 +230,11 @@ const authInitialize = () => {
       }
   )
 
+  sendFunctionEvent({
+    name: 'authInitialize',
+    duration: 0
+  }).then(() => {})
+
   return middleware
 }
 
@@ -212,11 +243,18 @@ export type AuthRequireChecks = {
 }
 
 const authRequire = (checks: AuthRequireChecks = {}) => {
+  sendFunctionEvent({
+    name: 'authRequire',
+    duration: 0
+  }).then(() => {})
+
   const middleware: MiddlewareHandler<{
     Variables: {
       auth?: AuthState
     }
   }> = async (ctx, next) => {
+    const AUTH_PROJECT_ID = env(ctx).AUTH_PROJECT_ID
+
     // Check if user is authenticated
     const auth = ctx.get('auth')
 
@@ -251,6 +289,11 @@ const authRequire = (checks: AuthRequireChecks = {}) => {
 
     return next()
   }
+
+  sendFunctionEvent({
+    name: 'authRequire',
+    duration: 0
+  }).then(() => {})
 
   return middleware
 }

@@ -1,5 +1,7 @@
 {
   "compilerOptions": {
+    // add Bun type definitions
+
     // enable latest features
     "lib": ["esnext"],
     "module": "esnext",
@@ -9,7 +11,6 @@
     "noImplicitAny": false,
     "noImplicitThis": false,
 
-    "jsx": "react-jsx", // support JSX
     "allowJs": true, // allow importing `.js` from `.ts`
     "esModuleInterop": true, // allow default imports for CommonJS modules
 
@@ -17,6 +18,13 @@
     "strict": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
-    "useDefineForClassFields": true
-  }
+    "experimentalDecorators": true
+  },
+  "include": ["src/**/*"],
+  "exclude": [
+    "node_modules/**/*",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/__tests__/**/*"
+  ]
 }

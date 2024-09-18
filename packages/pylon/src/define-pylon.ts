@@ -5,96 +5,15 @@ import {
   SelectionSetNode
 } from 'graphql'
 import {Hono as _Hono} from 'hono'
-import {Server, WebSocketHandler} from 'bun'
 import * as Sentry from '@sentry/bun'
+import consola from 'consola'
 
 import {Context, Env, asyncContext, getContext} from './context'
 
-export interface Resolvers<Q, M> {
-  Query: Q
-  Mutation: M
+export interface Resolvers {
+  Query: Record<string, any>
+  Mutation: Record<string, any>
 }
-
-type WebSocketHandlerFunction<T extends Record<string, any>> = (
-  server: Server
-) => WebSocketHandler<T>
-
-type Hono = _Hono<Env>
-
-export interface PylonAPI {
-  defineService: typeof defineService
-  configureApp: (app: Hono) => Hono | void | Promise<void> | Promise<Hono>
-  configureServer: (server: Server) => void
-  configureWebsocket: WebSocketHandlerFunction<any>
-}
-
-type SingleResolver = ((...args: any[]) => any) | object
-
-type ReturnTypeOrContext<T> = T extends (...args: any) => any
-  ? ReturnType<T>
-  : Context
-
-export const defineService = <
-  Q extends Record<string, SingleResolver>,
-  M,
-  Options extends {
-    context: (context: Context) => ReturnTypeOrContext<Options['context']>
-  }
->(
-  plainResolvers: {
-    Query?: Q
-    Mutation?: M
-  },
-  options?: Options
-) => {
-  const typedPlainResolvers = plainResolvers as Resolvers<
-    Q & {
-      version: string
-    },
-    M
-  >
-
-  typedPlainResolvers.Query = {
-    ...typedPlainResolvers.Query,
-    version: 'NOT_IMPLEMENTED_YET'
-  }
-
-  const graphqlResolvers = resolversToGraphQLResolvers(
-    typedPlainResolvers,
-    options?.context
-  )
-
-  return {
-    graphqlResolvers,
-    plainResolvers: typedPlainResolvers,
-    getContext: () => {
-      return getContext() as ReturnType<Options['context']>
-    }
-  }
-}
-
-// function getAllPropertyNames(obj: any) {
-//   function getAllPrototypePropertyNames(obj: any) {
-//     let prototypePropertyNames: string[] = []
-//     let prototype = Object.getPrototypeOf(obj)
-
-//     while (prototype !== null && prototype !== Object.prototype) {
-//       prototypePropertyNames = prototypePropertyNames.concat(
-//         Object.getOwnPropertyNames(prototype)
-//       )
-//       prototype = Object.getPrototypeOf(prototype)
-//     }
-
-//     return Array.from(new Set(prototypePropertyNames))
-//   }
-
-//   if (obj === null) return []
-
-//   const prototypeNames = getAllPrototypePropertyNames(obj)
-//   const ownNames = Object.getOwnPropertyNames(obj)
-
-//   return Array.from(new Set(prototypeNames.concat(ownNames)))
-// }
 
 type FunctionWrapper = (fn: (...args: any[]) => any) => (...args: any[]) => any
 
@@ -221,20 +140,16 @@ function spreadFunctionArguments<T extends (...args: any[]) => any>(fn: T) {
     return result as ReturnType<typeof fn>
   }
 }
-type GraphQLResolvers = {
-  Query: Record<string, any>
-  Mutation: Record<string, any>
-}
 
 /**
  * Converts a set of resolvers into a corresponding set of GraphQL resolvers.
  * @param resolvers The original resolvers.
  * @returns The converted GraphQL resolvers.
  */
-const resolversToGraphQLResolvers = <Q, M>(
-  resolvers: Resolvers<Q, M>,
+export const resolversToGraphQLResolvers = (
+  resolvers: Resolvers,
   configureContext?: (context: Context) => Context
-): GraphQLResolvers => {
+): Resolvers => {
   // Define a root resolver function that maps a given resolver function or object to a GraphQL resolver.
   const rootGraphqlResolver =
     (fn: Function | object | Promise<Function> | Promise<object>) =>
@@ -243,10 +158,12 @@ const resolversToGraphQLResolvers = <Q, M>(
         const ctx = asyncContext.getStore()
 
         if (!ctx) {
-          throw new Error('Internal error. Context not defined.')
+          consola.warn(
+            'Context is not defined. Make sure AsyncLocalStorage is supported in your environment.'
+          )
         }
 
-        const auth = ctx.get('auth')
+        const auth = ctx?.get('auth')
 
         if (auth?.active) {
           scope.setUser({
@@ -255,18 +172,6 @@ const resolversToGraphQLResolvers = <Q, M>(
             email: auth.email,
             details: auth
           })
-        }
-
-        if (configureContext) {
-          const configuredCtx = await Sentry.startSpan(
-            {
-              name: 'Context',
-              op: 'pylon.context'
-            },
-            () => configureContext(ctx)
-          )
-
-          asyncContext.enterWith(configuredCtx)
         }
 
         // get query or mutation field
@@ -335,7 +240,14 @@ const resolversToGraphQLResolvers = <Q, M>(
     }
 
   // Convert the Query and Mutation resolvers to GraphQL resolvers.
-  const graphqlResolvers = {} as GraphQLResolvers
+  const graphqlResolvers = {} as Resolvers
+
+  // Remove empty resolvers
+  for (const key of Object.keys(resolvers.Query)) {
+    if (!resolvers.Query[key]) {
+      delete resolvers.Query[key]
+    }
+  }
 
   if (resolvers.Query) {
     for (const [key, value] of Object.entries(resolvers.Query)) {

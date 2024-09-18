@@ -1,13 +1,19 @@
 import {Context as HonoContext} from 'hono'
+import type {Toucan} from 'toucan-js'
 import {AuthState} from './auth'
 import {AsyncLocalStorage} from 'async_hooks'
+import {sendFunctionEvent} from '@getcronit/pylon-telemetry'
 
 export type Env = {
   Bindings: {
     NODE_ENV: string
+    AUTH_PROJECT_ID?: string
+    AUTH_KEY?: string
+    AUTH_ISSUER?: string
   }
   Variables: {
     auth: AuthState
+    sentry: Toucan
   }
 }
 
@@ -16,7 +22,13 @@ export type Context = HonoContext<Env, string, {}>
 export const asyncContext = new AsyncLocalStorage<Context>()
 
 export const getContext = () => {
+  const start = Date.now()
   const ctx = asyncContext.getStore()
+
+  sendFunctionEvent({
+    name: 'getContext',
+    duration: Date.now() - start
+  }).then(() => {})
 
   if (!ctx) {
     throw new Error('Context not defined')

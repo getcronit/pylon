@@ -1,9 +1,16 @@
-import {ServiceError} from '../../define-pylon'
-import {AuthRequireChecks, auth} from '..'
+import {sendFunctionEvent} from '@getcronit/pylon-telemetry'
 import {HTTPException} from 'hono/http-exception'
+
+import {AuthRequireChecks, auth} from '..'
 import {getContext} from '../../context'
+import {ServiceError} from '../../define-pylon'
 
 export function requireAuth(checks?: AuthRequireChecks) {
+  sendFunctionEvent({
+    name: 'requireAuth',
+    duration: 0
+  }).then(() => {})
+
   const checkAuth = async (c: any) => {
     const ctx = await c
 
