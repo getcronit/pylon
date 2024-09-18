@@ -84,7 +84,11 @@ export default app
 Pylon is fully compatible with Cloudflare Workers, allowing you to deploy your service to the edge in just one minute.
 Watch the video below to see how easy it is to deploy a Pylon.
 
-[![Cloudflare Workers](https://video.com)]
+![Cloudflare Workers](https://github.com/user-attachments/assets/9630be4c-1d90-430b-8742-e97477dd25ee)
+
+
+
+
 
 If you prefer to deploy your service to a different platform, you can use the provided Dockerfile to build a Docker image and deploy it to your favorite cloud provider.
 
