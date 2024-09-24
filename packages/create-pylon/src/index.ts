@@ -160,7 +160,7 @@ const createTemplate = async (options: {
   // Copy the shared template files
   readdirFilesSyncRecursive(sharedTemplateDir).forEach(file => {
     const source = path.join(sharedTemplateDir, file)
-    const target = path.join(targetDirectoryPath, file)
+    let target = path.join(targetDirectoryPath, file)
 
     // Create folder recursively and copy file
 
@@ -178,6 +178,13 @@ const createTemplate = async (options: {
       fs.mkdirSync(targetDir, {recursive: true})
     }
 
+    // If the target ends with `.example`, remove the suffix.
+    // This is useful for `.gitignore.example` files because they are not published in
+    // the `create-pylon` package when named `.gitignore`.
+    if (target.endsWith('.example')) {
+      target = target.replace('.example', '')
+    }
+
     const injectedContent = inject(fs.readFileSync(source, 'utf-8'))
 
     fs.writeFileSync(target, injectedContent)
@@ -186,13 +193,20 @@ const createTemplate = async (options: {
   // Copy the runtime specific template files
   readdirFilesSyncRecursive(templateDir).forEach(file => {
     const source = path.join(templateDir, file)
-    const target = path.join(targetDirectoryPath, file)
+    let target = path.join(targetDirectoryPath, file)
 
     // Create folder recursively and copy file
     const targetDir = path.dirname(target)
 
     if (!fs.existsSync(targetDir)) {
       fs.mkdirSync(targetDir, {recursive: true})
+    }
+
+    // If the target ends with `.example`, remove the suffix.
+    // This is useful for `.gitignore.example` files because they are not published in
+    // the `create-pylon` package when named `.gitignore`.
+    if (target.endsWith('.example')) {
+      target = target.replace('.example', '')
     }
 
     const injectedContent = inject(fs.readFileSync(source, 'utf-8'))
