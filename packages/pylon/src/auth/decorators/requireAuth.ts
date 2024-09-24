@@ -4,6 +4,7 @@ import {HTTPException} from 'hono/http-exception'
 import {AuthRequireChecks, auth} from '..'
 import {getContext} from '../../context'
 import {ServiceError} from '../../define-pylon'
+import {createDecorator} from '../../create-decorator'
 
 export function requireAuth(checks?: AuthRequireChecks) {
   sendFunctionEvent({
@@ -43,30 +44,9 @@ export function requireAuth(checks?: AuthRequireChecks) {
     }
   }
 
-  return function fn(...args: any[]) {
-    const target: any = args[0]
-    const propertyKey: string = args[1]
-    const descriptor: PropertyDescriptor = args[2]
+  return createDecorator(async () => {
+    const ctx = getContext()
 
-    if (descriptor) {
-      const originalMethod = descriptor.value
-
-      descriptor.value = async function (...args: any[]) {
-        await checkAuth(getContext())
-
-        return originalMethod.apply(this, args)
-      }
-    } else {
-      Object.defineProperty(target, propertyKey, {
-        get: async function () {
-          await checkAuth(getContext())
-
-          return this._value
-        },
-        set: function (newValue) {
-          this._value = newValue
-        }
-      })
-    }
-  }
+    await checkAuth(ctx)
+  })
 }
