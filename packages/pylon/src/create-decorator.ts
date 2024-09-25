@@ -40,13 +40,16 @@ export function createDecorator(callback: (...args: any[]) => Promise<void>) {
           } as T
         }
 
-        let value: any
+        let value: any = arg1[propertyKey]
         Object.defineProperty(arg1, propertyKey, {
           get: function () {
             return async function (...args: Parameters<any>) {
               await callback(...args)
+              if (typeof value === 'function') {
+                return value(...args)
+              }
 
-              return value(...args)
+              return value
             }
           },
           set: function (newValue) {
