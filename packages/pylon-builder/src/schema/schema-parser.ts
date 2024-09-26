@@ -352,33 +352,33 @@ export class SchemaParser {
     }
   }
 
-  private getJsDocHeaderFromType = (type: ts.Type) => {
+  private getSymbolDocumentation(symbol: ts.Symbol) {
     let header = ''
 
-    if (type.symbol) {
-      const typeDeclaration = type.symbol.declarations?.[0] as unknown as
-        | {
-            jsDoc: ts.JSDoc[]
-          }
-        | undefined
+    header += ts.displayPartsToString(
+      symbol.getDocumentationComment(this.checker)
+    )
 
-      const comments = typeDeclaration?.jsDoc?.map(doc => doc.comment).join(' ')
+    const tags = symbol
+      .getJsDocTags(this.checker)
+      .map(t => `@${t.name} ${ts.displayPartsToString(t.text)}`)
+      .join('\n')
 
-      if (comments) {
-        header = comments
-      }
-
-      const tags = type.symbol.getJsDocTags()
-      const tagComments = tags
-        ?.map(tag => `@${tag.name} ${tag.text?.map(t => t.text).join(' ')}`)
-        .join('\n')
-
-      if (tagComments) {
-        header = `${header} ${tagComments}`
-      }
+    if (tags) {
+      header += '\n' + tags
     }
 
     return header
+  }
+
+  private getTypeDocumentation = (type: ts.Type) => {
+    const symbol = type.getSymbol()
+
+    if (symbol) {
+      return this.getSymbolDocumentation(symbol)
+    }
+
+    return ''
   }
 
   /**
