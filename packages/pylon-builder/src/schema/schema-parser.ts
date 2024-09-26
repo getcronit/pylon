@@ -67,7 +67,10 @@ type ReferenceSchemaType = {
   returnType: ts.Type
   args: {
     // value needs to be inputs type
-    [key: string]: ts.Type
+    [key: string]: {
+      type: ts.Type
+      documentation: string
+    }
   }
 }
 
@@ -142,7 +145,7 @@ export class SchemaParser {
       .map((union): Union => {
         return {
           ...union,
-          description: this.getJsDocHeaderFromType(union.rawType)
+          description: this.getTypeDocumentation(union.rawType)
         }
       })
 
@@ -151,7 +154,7 @@ export class SchemaParser {
       .map((enumType): Enum => {
         return {
           ...enumType,
-          description: this.getJsDocHeaderFromType(enumType.rawType)
+          description: this.getTypeDocumentation(enumType.rawType)
         }
       })
   }
@@ -284,7 +287,7 @@ export class SchemaParser {
       } else {
         this.schema[processing].push({
           name,
-          description: this.getJsDocHeaderFromType(type),
+          description: this.getTypeDocumentation(type),
           fields: []
         })
 
@@ -305,7 +308,7 @@ export class SchemaParser {
           name: propertyName,
           type: {
             ...fieldDef,
-            description: this.getJsDocHeaderFromType(fieldType)
+            description: this.getTypeDocumentation(fieldType)
           },
           args: []
         }
@@ -314,22 +317,24 @@ export class SchemaParser {
           for (const [argName, arg] of Object.entries(property.args)) {
             const argType = arg
 
-            const fieldDef = getTypeDefinition(argType, {
+            const fieldDef = getTypeDefinition(argType.type, {
               isInputType: true,
               propertyName: argName
             })
 
             if (
-              this.schema.scalars.includes(this.checker.typeToString(argType))
+              this.schema.scalars.includes(
+                this.checker.typeToString(argType.type)
+              )
             ) {
-              fieldDef.name = this.checker.typeToString(argType)
+              fieldDef.name = this.checker.typeToString(argType.type)
             }
 
             field.args.push({
               name: argName,
               type: {
                 ...fieldDef,
-                description: this.getJsDocHeaderFromType(argType)
+                description: argType.documentation
               }
             })
           }
@@ -341,7 +346,7 @@ export class SchemaParser {
           name: propertyName,
           type: {
             ...fieldDef,
-            description: this.getJsDocHeaderFromType(fieldType)
+            description: this.getTypeDocumentation(fieldType)
           }
         }
 
@@ -577,7 +582,10 @@ export class SchemaParser {
 
             // set args to empty object if not set
             if (schemaType.args) {
-              schemaType.args[arg.escapedName as string] = argType
+              schemaType.args[arg.escapedName as string] = {
+                type: argType,
+                documentation: this.getSymbolDocumentation(arg)
+              }
 
               recLoop(
                 argType,
