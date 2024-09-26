@@ -209,7 +209,7 @@ export class SchemaParser {
           args = `(${field.args
             .map(
               arg =>
-                `${addDescription(type.description)}${
+                `${addDescription(arg.type.description)}${
                   arg.name
                 }: ${typeDefinitionToGraphQLType(arg.type)}`
             )
