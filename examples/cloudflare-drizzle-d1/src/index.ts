@@ -7,9 +7,7 @@ import * as schema from './schema'
 const getDb = () => {
   const ctx = getContext()
 
-  const d1 = (ctx.env as any).DB as D1Database
-
-  return drizzle(d1, {schema})
+  return drizzle(ctx.env.DB, {schema})
 }
 
 export const graphql = {

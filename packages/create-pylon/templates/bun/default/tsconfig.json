@@ -3,5 +3,6 @@
   "compilerOptions": {
     // add Bun type definitions
     "types": ["bun-types"]
-  }
+  },
+  "include": ["pylon.d.ts", "src/**/*.ts"]
 }

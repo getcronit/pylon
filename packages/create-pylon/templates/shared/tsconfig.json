@@ -1,3 +1,4 @@
 {
-  "extends": "@getcronit/pylon/tsconfig.pylon.json"
+  "extends": "@getcronit/pylon/tsconfig.pylon.json",
+  "include": ["pylon.d.ts", "src/**/*.ts"]
 }

@@ -4,17 +4,21 @@ import {AuthState} from './auth'
 import {AsyncLocalStorage} from 'async_hooks'
 import {sendFunctionEvent} from '@getcronit/pylon-telemetry'
 
+export interface Bindings {
+  NODE_ENV: string
+  AUTH_PROJECT_ID?: string
+  AUTH_KEY?: string
+  AUTH_ISSUER?: string
+}
+
+export interface Variables {
+  auth: AuthState
+  sentry: Toucan
+}
+
 export type Env = {
-  Bindings: {
-    NODE_ENV: string
-    AUTH_PROJECT_ID?: string
-    AUTH_KEY?: string
-    AUTH_ISSUER?: string
-  }
-  Variables: {
-    auth: AuthState
-    sentry: Toucan
-  }
+  Bindings: Bindings
+  Variables: Variables
 }
 
 export type Context = HonoContext<Env, string, {}>
