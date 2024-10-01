@@ -1,0 +1,4 @@
+{
+  "extends": "@getcronit/pylon/tsconfig.pylon.json",
+  "include": ["worker-configuration.d.ts", "src/**/*.ts"]
+}

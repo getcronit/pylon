@@ -4,7 +4,8 @@
   "workspaces": {
     "packages": [
       "packages/pylon-telemetry",
-      "packages/*"
+      "packages/*",
+      "examples/*"
     ]
   },
   "scripts": {

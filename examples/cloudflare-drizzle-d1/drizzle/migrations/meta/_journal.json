@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1727788407199,
+      "tag": "0000_sudden_brother_voodoo",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1727788711261,
+      "tag": "0001_skinny_carmella_unuscione",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1727788915141,
+      "tag": "0002_robust_korg",
+      "breakpoints": true
+    }
+  ]
+}

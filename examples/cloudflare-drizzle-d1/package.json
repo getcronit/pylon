@@ -1,0 +1,29 @@
+{
+  "name": "cloudflare-drizzle-d1",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "deploy": "pylon build && wrangler deploy",
+    "dev": "pylon dev -c 'wrangler dev'",
+    "cf-typegen": "wrangler types",
+    "generate": "drizzle-kit generate",
+    "migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "@getcronit/pylon": "^2.0.0",
+    "drizzle-orm": "^0.33.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.4.5",
+    "@cloudflare/workers-types": "^4.20240903.0",
+    "@getcronit/pylon-dev": "^1.0.0",
+    "drizzle-kit": "^0.24.2",
+    "typescript": "^5.5.2",
+    "wrangler": "^3.60.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/getcronit/pylon.git"
+  },
+  "homepage": "https://pylon.cronit.io"
+}
