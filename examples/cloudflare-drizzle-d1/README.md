@@ -14,7 +14,7 @@ To init local database and run server locally
 
 ```bash
 npm run wrangler d1 execute <DATABASE_NAME> --local --file=./drizzle/0000_sudden_brother_voodoo.sql
-npm run pylon
+npm run dev
 ```
 
 Generate migration files after changing `./src/schema.ts`
