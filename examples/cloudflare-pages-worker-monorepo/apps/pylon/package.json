@@ -1,0 +1,26 @@
+{
+  "name": "pylon",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "deploy": "pylon build && wrangler deploy",
+    "dev": "pylon dev -c 'wrangler dev' --client --client-port 8787 --client-path ../vite-project/gqty/index.ts",
+    "cf-typegen": "wrangler types"
+  },
+  "dependencies": {
+    "@getcronit/pylon": "^2.0.0",
+    "@repo/qrgrid": "workspace:*"
+  },
+  "devDependencies": {
+    "@getcronit/pylon-dev": "^1.0.0",
+    "@cloudflare/vitest-pool-workers": "^0.4.5",
+    "@cloudflare/workers-types": "^4.20240903.0",
+    "typescript": "^5.5.2",
+    "wrangler": "^3.60.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/getcronit/pylon.git"
+  },
+  "homepage": "https://pylon.cronit.io"
+}

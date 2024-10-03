@@ -1,0 +1,13 @@
+{
+  "name": "cloudflare-pages-worker-monorepo",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run --filter './apps/*' dev",
+    "build": "bun run --filter './apps/*' build",
+    "deploy": "bun run --filter './apps/*' deploy"
+  }
+}
