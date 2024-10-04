@@ -1,14 +1,14 @@
+import * as Sentry from '@sentry/bun'
+import consola from 'consola'
 import {
+  FragmentDefinitionNode,
   GraphQLError,
   GraphQLErrorExtensions,
   GraphQLResolveInfo,
   SelectionSetNode
 } from 'graphql'
-import {Hono as _Hono} from 'hono'
-import * as Sentry from '@sentry/bun'
-import consola from 'consola'
 
-import {Context, Env, asyncContext, getContext} from './context'
+import {Context, asyncContext} from './context'
 
 export interface Resolvers {
   Query: Record<string, any>
@@ -21,7 +21,8 @@ async function wrapFunctionsRecursively(
   obj: any,
   wrapper: FunctionWrapper,
   that: any = null,
-  selectionSet: SelectionSetNode['selections'] = []
+  selectionSet: SelectionSetNode['selections'] = [],
+  info: GraphQLResolveInfo
 ): Promise<any> {
   // Skip if the object is a Date object or any other special object.
   // Those objects are then handled by custom resolvers.
@@ -32,7 +33,13 @@ async function wrapFunctionsRecursively(
   if (Array.isArray(obj)) {
     return await Promise.all(
       obj.map(async item => {
-        return await wrapFunctionsRecursively(item, wrapper, that, selectionSet)
+        return await wrapFunctionsRecursively(
+          item,
+          wrapper,
+          that,
+          selectionSet,
+          info
+        )
       })
     )
   } else if (typeof obj === 'function') {
@@ -43,7 +50,7 @@ async function wrapFunctionsRecursively(
       },
       async () => {
         // @ts-ignore
-        return await wrapper.call(that, obj, selectionSet)
+        return await wrapper.call(that, obj, selectionSet, info)
       }
     )
   } else if (obj instanceof Promise) {
@@ -51,7 +58,8 @@ async function wrapFunctionsRecursively(
       await obj,
       wrapper,
       that,
-      selectionSet
+      selectionSet,
+      info
     )
   } else if (typeof obj === 'object') {
     const result: any = {}
@@ -63,14 +71,39 @@ async function wrapFunctionsRecursively(
 
     that = obj
 
+    const resolveFragmentSpreadFields = (fragment: FragmentDefinitionNode) => {
+      const fragmentFields: typeof fields = []
+
+      for (const fragmentSelection of fragment.selectionSet.selections) {
+        if (fragmentSelection.kind === 'Field') {
+          fragmentFields.push({
+            key: fragmentSelection.name.value,
+            selectionSet: fragmentSelection.selectionSet?.selections || []
+          })
+        } else if (fragmentSelection.kind === 'InlineFragment') {
+          consola.warn(`Inline fragments are not supported yet.`)
+        } else if (fragmentSelection.kind === 'FragmentSpread') {
+          const fragment = info.fragments[fragmentSelection.name.value]
+
+          fragmentFields.push(...resolveFragmentSpreadFields(fragment))
+        }
+      }
+
+      return fragmentFields
+    }
+
     for (const selection of selectionSet) {
       if (selection.kind === 'Field') {
-        selection.selectionSet
-
         fields.push({
           key: selection.name.value,
           selectionSet: selection.selectionSet?.selections || []
         })
+      } else if (selection.kind === 'InlineFragment') {
+        consola.warn(`Inline fragments are not supported yet.`)
+      } else if (selection.kind === 'FragmentSpread') {
+        const fragment = info.fragments[selection.name.value]
+
+        fields.push(...resolveFragmentSpreadFields(fragment))
       }
     }
 
@@ -79,7 +112,8 @@ async function wrapFunctionsRecursively(
         obj[key],
         wrapper,
         that,
-        selectionSet
+        selectionSet,
+        info
       )
     }
 
@@ -96,6 +130,7 @@ async function wrapFunctionsRecursively(
 function spreadFunctionArguments<T extends (...args: any[]) => any>(fn: T) {
   return (otherArgs: Record<string, any>, c: any, info: GraphQLResolveInfo) => {
     const selections = arguments[1] as SelectionSetNode['selections']
+    const realInfo = arguments[2] as GraphQLResolveInfo
 
     let args: Record<string, any> = {}
 
@@ -134,7 +169,8 @@ function spreadFunctionArguments<T extends (...args: any[]) => any>(fn: T) {
       fn.call(that, ...orderedArgs),
       spreadFunctionArguments,
       this,
-      selections
+      selections,
+      realInfo
     )
 
     return result as ReturnType<typeof fn>
@@ -227,7 +263,8 @@ export const resolversToGraphQLResolvers = (
           inner,
           spreadFunctionArguments,
           this,
-          baseSelectionSet
+          baseSelectionSet,
+          info
         )
 
         // Call the resolver function with the prepared arguments.
