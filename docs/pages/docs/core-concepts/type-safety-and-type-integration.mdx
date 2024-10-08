@@ -84,7 +84,28 @@ export default app;
 
 ## TypeScript Types in Pylon
 
-1. **Types**: Define aliases for your object structures using `type` to create flexible and reusable type definitions.
+1. **Primitives**: Define primitives such as `string`, `number`, and `boolean`.
+
+   ```typescript
+   const name: string = 'John Doe'
+   const age: number = 25
+   const isActive: boolean = true
+   ```
+
+   - **Automatic Mapping**: In Pylon, `string` and `boolean` types are automatically mapped to their GraphQL counterparts.
+   - For `number` types, Pylon introduces a new scalar called `Number` to represent both integers and floating-point numbers. This distinction is necessary because TypeScript does not differentiate between integers and floating-point numbers, while GraphQL does.
+
+   If you want to represent `ID`, `Int`, or `Float`, you must use the respective types from Pylon:
+
+   ```typescript
+   import { ID, Int, Float } from '@getcronit/pylon'
+
+   const id: ID = '1'
+   const int: Int = 42
+   const float: Float = 3.14
+   ```
+
+2. **Types**: Define aliases for your object structures using `type` to create flexible and reusable type definitions.
 
    ```typescript
    type Address = {
@@ -94,7 +115,7 @@ export default app;
    };
    ```
 
-2. **Interfaces**: Define the shape of your objects using interfaces. This ensures consistent structure across your application.
+3. **Interfaces**: Define the shape of your objects using interfaces. This ensures consistent structure across your application.
 
    ```typescript
    interface User {
@@ -105,7 +126,7 @@ export default app;
    }
    ```
 
-3. **Classes**: Use classes to create object instances with properties and methods.
+4. **Classes**: Use classes to create object instances with properties and methods.
 
    ```typescript
    class Product {
@@ -117,7 +138,7 @@ export default app;
    }
    ```
 
-4. **Static Functions**: Define static functions within classes to encapsulate logic related to the class.
+5. **Static Functions**: Define static functions within classes to encapsulate logic related to the class.
 
    ```typescript
    class Product {
@@ -134,7 +155,7 @@ export default app;
    }
    ```
 
-5. **Enums**: Define a set of named constants with enums, which are useful for representing a fixed set of related values.
+6. **Enums**: Define a set of named constants with enums, which are useful for representing a fixed set of related values.
 
    ```typescript
    enum Status {
@@ -143,7 +164,7 @@ export default app;
    }
    ```
 
-6. **Functions**: Leverage TypeScript's type annotations in your functions to ensure type safety for parameters and return values.
+7. **Functions**: Leverage TypeScript's type annotations in your functions to ensure type safety for parameters and return values.
 
    ```typescript
    const getUser = (id: number): User => {

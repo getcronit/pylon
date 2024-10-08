@@ -57,6 +57,38 @@ export const graphqlHandler =
 
             return null
           }
+        }),
+        Number: new GraphQLScalarType({
+          name: 'Number',
+          description: 'Custom scalar that handles both integers and floats',
+
+          // Parsing input from query variables
+          parseValue(value) {
+            if (typeof value !== 'number') {
+              throw new TypeError(`Value is not a number: ${value}`)
+            }
+            return value // Valid number
+          },
+
+          // Validation when sending from client (input literals)
+          parseLiteral(ast) {
+            if (ast.kind === Kind.INT || ast.kind === Kind.FLOAT) {
+              return parseFloat(ast.value) // Convert the value to a float
+            }
+            throw new TypeError(
+              `Value is not a valid number or float: ${
+                'value' in ast ? ast.value : ast
+              }`
+            )
+          },
+
+          // Serialize output to be sent to the client
+          serialize(value) {
+            if (typeof value !== 'number') {
+              throw new TypeError(`Value is not a number: ${value}`)
+            }
+            return value
+          }
         })
       }
     })

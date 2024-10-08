@@ -102,6 +102,9 @@ export class SchemaParser {
       unions: [],
       enums: [],
       scalars: [
+        'ID',
+        'Int',
+        'Float',
         'Number',
         'Any',
         'Object',
