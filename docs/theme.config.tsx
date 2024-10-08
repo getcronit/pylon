@@ -1,54 +1,54 @@
-import React from "react";
-import { DocsThemeConfig, Link, useConfig } from "nextra-theme-docs";
+import React from 'react'
+import {DocsThemeConfig, Link, useConfig} from 'nextra-theme-docs'
 
-import Logo from "./components/logo";
-import { useRouter } from "next/router";
+import Logo from './components/logo'
+import {useRouter} from 'next/router'
 
 const config: DocsThemeConfig = {
   banner: {
-    key: "2.0-release",
+    key: '2.0-release',
     text: (
       <a href="/blog/pylon-2.0" target="_blank">
         🎉 Pylon 2.0 is released. Read more →
       </a>
-    ),
+    )
   },
   logo: <Logo />,
   project: {
-    link: "https://github.com/getcronit/pylon",
+    link: 'https://github.com/getcronit/pylon'
   },
   chat: {
-    link: "https://discord.gg/cbJjkVrnHe",
+    link: 'https://discord.gg/cbJjkVrnHe'
   },
-  docsRepositoryBase: "https://github.com/schettn/pylon-docs",
+  docsRepositoryBase: 'https://github.com/getcronit/pylon/tree/main/docs',
   footer: {
     text: (
       <span>
-        {new Date().getFullYear()} ©{" "}
+        {new Date().getFullYear()} ©{' '}
         <a href="https://cronit.io" target="_blank">
           cronit
         </a>
         . <Link href="/imprint">Imprint</Link>
       </span>
-    ),
+    )
   },
   nextThemes: {
-    defaultTheme: "dark",
+    defaultTheme: 'dark'
   },
   useNextSeoProps() {
-    const { asPath } = useRouter();
-    if (asPath !== "/") {
+    const {asPath} = useRouter()
+    if (asPath !== '/') {
       return {
-        titleTemplate: "%s – Pylon",
-      };
+        titleTemplate: '%s – Pylon'
+      }
     }
   },
   head: function useHead() {
-    const config = useConfig<{ description?: string; image?: string }>();
+    const config = useConfig<{description?: string; image?: string}>()
     const description =
       config.frontMatter.description ||
-      "A code-first framework for GraphQL API development, where your schema reflects your functionality.";
-    const image = config.frontMatter.image || "/images/logo.png";
+      'A code-first framework for GraphQL API development, where your schema reflects your functionality.'
+    const image = config.frontMatter.image || '/images/logo.png'
     return (
       <>
         {/* Favicons, meta */}
@@ -93,8 +93,8 @@ const config: DocsThemeConfig = {
         <meta name="og:image" content={image} />
         <meta name="apple-mobile-web-app-title" content="Pylon" />
       </>
-    );
-  },
-};
+    )
+  }
+}
 
-export default config;
+export default config
