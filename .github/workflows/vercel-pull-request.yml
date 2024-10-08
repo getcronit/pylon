@@ -21,6 +21,7 @@ jobs:
           vercel-org-id: ${{ secrets.ORG_ID }}
           vercel-project-id: ${{ secrets.PROJECT_ID }}
           scope: ${{ secrets.ORG_ID }}
+          working-directory: ./docs
       - name: preview-url
         run: |
           echo ${{ steps.vercel-deploy.outputs.preview-url }}
