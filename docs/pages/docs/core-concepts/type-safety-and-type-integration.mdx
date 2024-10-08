@@ -1,0 +1,458 @@
+import { Callout } from "@components/callout";
+
+# Type Safety and Type Integration
+
+Delve into the robust type safety features of Pylon, ensuring your codebase remains reliable and maintainable through tight integration with TypeScript.
+
+## Overview
+
+Pylon leverages TypeScript's powerful type system to provide robust type safety and seamless type integration for your web services. This ensures your services are reliable and maintainable.
+By using TypeScript's various type variants, you can define rich and complex data structures, which are then automatically translated into corresponding GraphQL types by Pylon.
+
+## Supported Type Variants
+
+Pylon supports various TypeScript type variants, including interfaces, classes, types, functions, and enums. This allows you to define rich and complex type structures in your services.
+
+<Callout type="note" title="Note">
+  Almost all TypeScript type variants are supported in Pylon, even from external
+  libraries.
+</Callout>
+
+## Defining a Service
+
+Here’s an example of how to define a Pylon service using different TypeScript type variants:
+
+```typescript
+import { app } from "@getcronit/pylon";
+
+// Define a type
+type Address = {
+  street: string;
+  city: string;
+  zipCode: string;
+};
+
+// Define an interface
+interface User {
+  id: number;
+  name: string;
+  age: number;
+  address: Address;
+}
+
+// Define an enum
+enum Status {
+  ACTIVE = "ACTIVE",
+  INACTIVE = "INACTIVE",
+}
+
+// Define a class
+class Product {
+  constructor(public id: number, public name: string, public price: number) {}
+}
+
+export const graphql = {
+  Query: {
+    getUser: (id: number): User => {
+      return {
+        id,
+        name: "John Doe",
+        age: 25,
+        address: { street: "123 Main St", city: "Anytown", zipCode: "12345" },
+      };
+    },
+    getProduct: (id: number): Product => {
+      return new Product(id, "Example Product", 99.99);
+    },
+    getStatus: (): Status => {
+      return Status.ACTIVE;
+    },
+  },
+  Mutation: {
+    updateUser: (user: User): User => {
+      return { ...user, name: "Updated Name" };
+    },
+    updateProduct: (product: Product): Product => {
+      product.price = 79.99;
+      return product;
+    },
+  },
+};
+
+export default app;
+```
+
+## TypeScript Types in Pylon
+
+1. **Types**: Define aliases for your object structures using `type` to create flexible and reusable type definitions.
+
+   ```typescript
+   type Address = {
+     street: string;
+     city: string;
+     zipCode: string;
+   };
+   ```
+
+2. **Interfaces**: Define the shape of your objects using interfaces. This ensures consistent structure across your application.
+
+   ```typescript
+   interface User {
+     id: number;
+     name: string;
+     age: number;
+     address: Address;
+   }
+   ```
+
+3. **Classes**: Use classes to create object instances with properties and methods.
+
+   ```typescript
+   class Product {
+     constructor(
+       public id: number,
+       public name: string,
+       public price: number
+     ) {}
+   }
+   ```
+
+4. **Static Functions**: Define static functions within classes to encapsulate logic related to the class.
+
+   ```typescript
+   class Product {
+     constructor(
+       public id: number,
+       public name: string,
+       public price: number
+     ) {}
+
+     static fromJSON(json: string): Product {
+       const data = JSON.parse(json);
+       return new Product(data.id, data.name, data.price);
+     }
+   }
+   ```
+
+5. **Enums**: Define a set of named constants with enums, which are useful for representing a fixed set of related values.
+
+   ```typescript
+   enum Status {
+     ACTIVE = "ACTIVE",
+     INACTIVE = "INACTIVE",
+   }
+   ```
+
+6. **Functions**: Leverage TypeScript's type annotations in your functions to ensure type safety for parameters and return values.
+
+   ```typescript
+   const getUser = (id: number): User => {
+     return {
+       id,
+       name: "John Doe",
+       age: 25,
+       address: { street: "123 Main St", city: "Anytown", zipCode: "12345" },
+     };
+   };
+   ```
+
+## GraphQL Integration
+
+Pylon translates these TypeScript definitions into corresponding GraphQL types:
+
+- **Types and Interfaces**: Both are mapped to GraphQL object types.
+- **Enums**: Mapped directly to GraphQL enums.
+- **Classes**: Mapped to GraphQL object types, similar to interfaces and types.
+- **Functions**: Used to define the resolver logic for your queries and mutations, with TypeScript types ensuring the correctness of inputs and outputs.
+
+## Type Variants and GraphQL
+
+- **Union Input Types**: Currently, GraphQL does not support union input types, so they cannot be used in Pylon.
+
+  ```typescript
+  type UserInput = {
+    id: number;
+    name: string;
+  };
+
+  type ProductInput = {
+    id: number;
+    price: number;
+  };
+
+  type Input = UserInput | ProductInput;
+
+  // This will not work in Pylon
+
+  export const graphql = {
+    Mutation: {
+      update: (input: Input) => {
+        // Example implementation
+
+        return "Success";
+      },
+    },
+  };
+  ```
+
+- **Union Output Types**: Supported by GraphQL but do not yet create an interface in Pylon. They can still be defined to return multiple types, though their integration might be limited.
+
+  ```typescript
+  type User = {
+    id: number;
+    name: string;
+  };
+
+  type Product = {
+    id: number;
+    price: number;
+  };
+
+  type Output = User | Product;
+
+  export const graphql = {
+    Query: {
+      get: (): Output => {
+        // Example implementation
+
+        return { id: 1, name: "John Doe" };
+      },
+    },
+  };
+  ```
+
+- **Intersection Types**: Supported by GraphQL and can be used in Pylon. They can be used to define more complex types by combining multiple types.
+
+  ```typescript
+  type User = {
+    id: number;
+    name: string;
+  };
+
+  type Address = {
+    street: string;
+    city: string;
+  };
+
+  type UserWithAddress = User & Address;
+
+  export const graphql = {
+    Query: {
+      getUserWithAddress: (): UserWithAddress => {
+        // Example implementation
+
+        return {
+          id: 1,
+          name: "John Doe",
+          street: "123 Main St",
+          city: "Anytown",
+        };
+      },
+    },
+  };
+  ```
+
+- **Recursive Types**: Supported by GraphQL and can be used in Pylon. They can be used to define recursive data structures.
+
+  ```typescript
+  type Node = {
+    id: number;
+    children: Node[];
+  };
+
+  export const graphql = {
+    Query: {
+      getNode: (): Node => {
+        // Example implementation
+
+        return { id: 1, children: [{ id: 2, children: [] }] };
+      },
+    },
+  };
+  ```
+
+- **Type Assertions**: TypeScript type assertions can be used to override the inferred type of an expression. This can be useful when the type system cannot infer the correct type.
+
+  ```typescript
+  const data: any = { id: 1, name: "John Doe" };
+
+  const user = data as User;
+
+  export const graphql = {
+    Query: {
+      getUser: (): User => {
+        // Example implementation
+
+        return user;
+      },
+    },
+  };
+  ```
+
+* **Type Inference**: Pylon leverages TypeScript's powerful type inference capabilities to automatically infer types where possible. This reduces the need for explicit type annotations and makes your code more concise.
+
+  ```typescript
+  export const graphql = {
+    Query: {
+      getUser: () => {
+        // Example implementation
+
+        return {
+          id: 1,
+          name: "John Doe",
+          age: 25,
+          address: { street: "123 Main St", city: "Anytown", zipCode: "12345" },
+          posts: (query: string) => {
+            // Example implementation
+            return [
+              { id: 1, title: "Post 1" },
+              { id: 2, title: "Post 2" },
+              {
+                id: 3,
+                title: "Post 3",
+                data: async () => {
+                  // Fetch the data from an external API
+
+                  const response = await fetch(
+                    "https://api.example.com/posts/3"
+                  );
+                  const data = await response.json();
+
+                  return data;
+                },
+              },
+            ];
+          },
+        };
+      },
+    },
+  };
+  ```
+
+## Example in Action
+
+### GraphQL Query Example
+
+To use the `getUser` function, you would run a GraphQL query like this:
+
+```graphql
+query {
+  getUser(id: 1) {
+    id
+    name
+    age
+    address {
+      street
+      city
+      zipCode
+    }
+  }
+}
+```
+
+The result would be:
+
+```json
+{
+  "data": {
+    "getUser": {
+      "id": 1,
+      "name": "John Doe",
+      "age": 25,
+      "address": {
+        "street": "123 Main St",
+        "city": "Anytown",
+        "zipCode": "12345"
+      }
+    }
+  }
+}
+```
+
+### GraphQL Mutation Example
+
+To use the `updateUser` function, you would run a GraphQL mutation like this:
+
+```graphql
+mutation {
+  updateUser(
+    user: {
+      id: 1
+      name: "Jane Doe"
+      age: 30
+      address: { street: "456 Elm St", city: "Othertown", zipCode: "67890" }
+    }
+  ) {
+    id
+    name
+    age
+    address {
+      street
+      city
+      zipCode
+    }
+  }
+}
+```
+
+The result would be:
+
+```json
+{
+  "data": {
+    "updateUser": {
+      "id": 1,
+      "name": "Updated Name",
+      "age": 30,
+      "address": {
+        "street": "456 Elm St",
+        "city": "Othertown",
+        "zipCode": "67890"
+      }
+    }
+  }
+}
+```
+
+## Hiding Fields
+
+Often, you may want to hide certain fields from the GraphQL schema. This can be achieved by using TypeScript's `private` access modifier for class properties or by using the `Omit` utility type to exclude fields from an object type.
+
+### Hiding Fields in Classes
+
+To hide fields in classes, you can use the `private` or prefix the field with eather `$` or `#` to make it private.
+
+```typescript
+class Product {
+  constructor(public id: number, public name: string, private price: number) {}
+}
+```
+
+In this example, the `price` field is private and will not be exposed in the GraphQL schema.
+
+### Hiding Fields in Object Types
+
+To hide fields in object types, you can use the `Omit` utility type to exclude fields from the object type.
+
+```typescript
+type User = {
+  id: number;
+  name: string;
+  age: number;
+};
+
+type UserWithoutAge = Omit<User, "age">;
+```
+
+In this example, the `UserWithoutAge` type excludes the `age` field from the `User` type.
+
+### When to use `private` vs. `Omit` vs. `#` vs. `$`
+
+- **`private`**: The `private` keyword is a compile-time check that prevents access to the field outside the class. Use this when you want to hide fields in classes and exclude them from the GraphQL schema.
+- **`Omit`**: Use the `Omit` utility type when you want to exclude fields from an object type. This is useful when you want to hide fields in object types and exclude them from the GraphQL schema.
+- **`#`**: Similar to `private`, the `#` prefix makes a field private to the class (runtime). Use this when you want to hide fields in classes and exclude them from the GraphQL schema.
+- **`$`**: Use this when you don't want to expose a field in the GraphQL schema but still want to access it within your code.
+
+## Conclusion
+
+Pylon's integration with TypeScript ensures that your web services are type-safe and seamlessly integrated with GraphQL. By using TypeScript's various type variants, you can define rich and complex data structures, making your services robust and maintainable.

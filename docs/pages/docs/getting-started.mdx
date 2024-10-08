@@ -1,0 +1,379 @@
+import { QuickLinks, QuickLink } from "@components/quick-link";
+import { Callout } from "@components/callout";
+
+# Code-First GraphQL API Development
+
+Dive into Pylon effortlessly with our streamlined guide, helping you set up your development environment and embark on your journey to building powerful web services.
+
+<QuickLinks>
+  <QuickLink
+    title="Installation"
+    description="Get started with Pylon in minutes."
+    href="#installing-dependencies"
+    icon="installation"
+  />
+  <QuickLink
+    title="Core concepts"
+    description="Learn about the fundamental concepts of Pylon."
+    href="/docs/core-concepts/automatic-graphql-api-generation"
+    icon="presets"
+  />
+  <QuickLink
+    title="Integrations"
+    description="Explore how Pylon integrates with databases and other tools."
+    href="/docs/integrations/databases"
+    icon="plugins"
+  />
+  <QuickLink
+    title="Contributing"
+    description="Contribute to the Pylon project and help make it better."
+    href="/docs/contributing/how-to-contribute"
+    icon="theming"
+  />
+</QuickLinks>
+
+---
+
+## Quick start
+
+This "Quick Start" page provides a step-by-step guide for new users to quickly set up and begin using Pylon, with sections for installing dependencies, creating a new project, starting the development server, building for production, and deploying to production.
+
+### Installing dependencies
+
+To get started with Pylon, you'll first need to set up [Node.js](https://nodejs.org) or [Bun](https://bun.sh/) and [npm](https://www.npmjs.com/). You can install Node.js and npm by following the instructions on the [official Node.js website](https://nodejs.org/en/download/).
+
+### Creating a new project
+
+To create a new Pylon project, run the following command:
+
+```bash
+npm create pylon my-pylon@latest
+```
+
+<Callout type="note" title="Info">
+  Pylon now supports multiple runtimes, including Node.js, Bun and Cloudflare
+  Workers.
+</Callout>
+
+This will create a new directory called `my-pylon` with a basic Pylon project structure.
+
+### Project structure
+
+Pylon projects are structured as follows:
+
+```
+my-pylon/
+├── .pylon/
+├── src/
+│   ├── index.ts
+├── package.json
+├── tsconfig.json
+```
+
+- `.pylon/`: Contains the production build of your project.
+- `src/`: Contains the source code of your project.
+- `src/index.ts`: The entry point of your Pylon service.
+- `package.json`: The npm package configuration file.
+- `tsconfig.json`: The TypeScript configuration file.
+
+Depending on the runtime you choose, the project structure may vary slightly. For example, if you choose the Cloudflare Workers runtime, the project structure will include a `wrangler.toml` configuration file.
+
+All further examples in this guide will use the Bun runtime. If you are using a different runtime, please refer to the runtime-specific documentation for more information.
+
+### Basic example
+
+Here's an example of a basic Pylon service:
+
+```typescript copy
+import { app } from "@getcronit/pylon";
+
+export const graphql = {
+  Query: {
+    sum: (a: number, b: number) => a + b,
+  },
+  Mutation: {
+    divide: (a: number, b: number) => a / b,
+  },
+};
+
+export default app;
+```
+
+<Callout type="note" title="Info">
+  Note that there is no need to define a GraphQL schema in Pylon. The framework
+  automatically generates the schema based on the defined queries and mutations.
+</Callout>
+
+### Starting the development server
+
+Navigate to the project directory and start the development server:
+
+```bash copy
+cd my-pylon
+npm run dev
+```
+
+Your Pylon server should now be running at `http://localhost:3000`.
+
+### Building for production
+
+To build your Pylon project for production, run the following command:
+
+```bash copy
+npm run build
+```
+
+This will compile your project and output the build to the `.pylon` directory.
+The build is not optimized for production, so you may need to configure it further before deploying.
+
+### Deploying to production
+
+To deploy your Pylon project to production, you can use the included Dockerfile or any other deployment method of your choice.
+
+1. Docker deployment (recommended):
+
+Pylon comes with a pre-configured Dockerfile that you can use to deploy your project. To build and run your project using Docker, run the following commands:
+
+```bash copy
+docker build -t my-pylon .
+docker run -p 3000:3000 my-pylon
+```
+
+Your Pylon server should now be running in a Docker container at `http://localhost:3000`.
+
+2. Manual deployment:
+
+You can deploy your Pylon project to any hosting provider that supports Node.js or Bun applications. Simply run the following command to start your Pylon:
+
+```bash copy
+node .pylon/index.js
+
+# Or, if you are using Bun:
+bun run .pylon/index.js
+```
+
+## Built-in GraphQL Playground
+
+Pylon comes with a built-in GraphQL Playground that you can use to interact with your service.
+To access the Playground, navigate to `http://localhost:3000/graphql` in your browser.
+
+The Playground provides a graphical interface for testing queries and mutations, as well as documentation for your service.
+
+![Pylon Playground](/images/pylon-playground.png)
+
+## Built-in GraphQL Viewer
+
+Pylon also comes with a built-in GraphQL Viewer that you can use to view and navigate your service's schema.
+To access the Viewer, navigate to `http://localhost:3000/viewer` in your browser.
+
+The viewer provides a visual representation of your service's schema, including types, queries, and mutations.
+
+![Pylon Viewer](/images/pylon-viewer.png)
+
+<Callout type="note" title="Info">
+  The Pylon viewer is real-time and automatically updates as you make changes to
+  your service. When using the viewer while developing your service, you can see
+  the changes reflected immediately and understand how they affect your schema.
+</Callout>
+
+## Basic usage
+
+Pylon can be used to build a wide range of applications, from simple APIs to complex web services. Here are some basic examples to get you started:
+
+### Query example
+
+The following example fetches a list of starships from the Star Wars API using the `fetch` function:
+
+```typescript copy
+import { app } from "@getcronit/pylon";
+
+interface Starship {
+  name: string;
+  model: string;
+  manufacturer: string;
+}
+
+export const graphql = {
+  Query: {
+    starships: async () => {
+      const response = await fetch("https://swapi.dev/api/starships/");
+      const data = await response.json();
+      return data.results as Starship[];
+    },
+  },
+};
+
+export default app;
+```
+
+Now you can query the `starships` field in your GraphQL client to fetch a list of starships from the Star Wars API.
+Although the fetch returns a much larger object, Pylon will only return the data specified in the `Starship` interface.
+
+### Mutation example
+
+The following example defines a simple mutation that adds two numbers together:
+
+```typescript copy
+import { app } from "@getcronit/pylon";
+
+export const graphql = {
+  Mutation: {
+    add: (a: number, b: number) => a + b,
+  },
+};
+
+export default app;
+```
+
+This example defines a simple `add` mutation that takes two numbers as arguments and returns their sum.
+The types of the arguments and return value are inferred from the TypeScript types.
+
+### Custom starwars API
+
+The following example defines a custom Star Wars API using a class to manage a
+list of characters:
+
+```typescript copy
+import { app } from "@getcronit/pylon";
+
+class StarWarsStore {
+  private characters = [
+    { id: 1, name: "Luke Skywalker", height: 172 },
+    { id: 2, name: "Darth Vader", height: 202 },
+  ];
+
+  constructor() {
+    // Bind methods in order to access `this`
+    this.getCharacter = this.getCharacter.bind(this);
+    this.getCharacters = this.getCharacters.bind(this);
+    this.addCharacter = this.addCharacter.bind(this);
+    this.deleteCharacter = this.deleteCharacter.bind(this);
+  }
+
+  getCharacter(id: number) {
+    return this.characters.find((character) => character.id === id);
+  }
+
+  getCharacters() {
+    return this.characters;
+  }
+
+  addCharacter(name: string, height: number) {
+    const id = this.characters.length + 1;
+    this.characters.push({ id, name, height });
+    return { id, name, height };
+  }
+
+  deleteCharacter(id: number) {
+    const character = this.getCharacter(id);
+    if (character) {
+      this.characters = this.characters.filter((c) => c.id !== id);
+      return character;
+    }
+    return null;
+  }
+}
+
+const store = new StarWarsStore();
+
+export const graphql = {
+  Query: {
+    character: store.getCharacter,
+    characters: store.getCharacters,
+  },
+  Mutation: {
+    addCharacter: store.addCharacter,
+    deleteCharacter: store.deleteCharacter,
+  },
+};
+
+export default app;
+```
+
+This example defines a custom Star Wars API with a `StarWarsStore` class that manages a list of characters.
+The API provides queries to fetch a single character or a list of characters, as well as mutations to add and delete characters.
+
+#### Highly complex types
+
+Pylon supports almost all TypeScript types, including complex types like interfaces and custom classes.
+You can define custom classes and interfaces to manage your data and use them in your service code.
+
+To show the power of Pylon, the next example returns the `Math` class of the JavaScript standard library:
+
+```typescript copy
+import { app } from "@getcronit/pylon";
+
+export const graphql = {
+  Mutation: {
+    math: Math,
+  },
+};
+
+export default app;
+```
+
+Now the `math` mutation will return the `Math` class of the JavaScript standard library, which contains a variety of mathematical constants and functions.
+By using the `Math` class in this way, you can remote control the `Math` class from your GraphQL client.
+
+### Custom error handling
+
+Error handling in Pylon is straightforward and can be customized to fit your needs.
+You can throw an error anywhere in your service code, and Pylon will automatically catch it and return the error message to the client.
+By default, Pylon masks all errors to prevent leaking sensitive information to the client.
+
+When using the `ServiceError` class, you can define custom error messages and status codes:
+
+```typescript copy
+import { app, ServiceError } from "@getcronit/pylon";
+
+export const graphql = {
+  Query: {
+    throwError: () => {
+      throw new ServiceError("This is a custom error message", {
+        statusCode: 400,
+        code: "CUSTOM_ERROR",
+      });
+    },
+  },
+};
+
+export default app;
+```
+
+You can also use the `details` property to provide additional information about the error:
+
+```typescript copy
+import { app, ServiceError } from "@getcronit/pylon";
+
+export const graphql = {
+  Query: {
+    throwError: () => {
+      throw new ServiceError("This is a custom error message", {
+        statusCode: 400,
+        code: "CUSTOM_ERROR",
+        details: {
+          foo: "bar",
+        },
+      });
+    },
+  },
+};
+
+export default app;
+```
+
+## Getting Help
+
+### Documentation
+
+For comprehensive documentation on Pylon, including API references and advanced guides, visit the [Pylon documentation website](#).
+
+### Community Support
+
+Join the Pylon community for support and discussion:
+
+- [Pylon GitHub Issues](https://github.com/getcronit/pylon): Report bugs and feature requests.
+
+### Professional Support
+
+For professional support and consulting services, please contact [office@cronit.io](mailto:office@cronit.io).

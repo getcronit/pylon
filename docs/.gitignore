@@ -1,0 +1,6 @@
+.next
+node_modules
+.DS_Store
+.vercel
+!bun.lockb
+!public

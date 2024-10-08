@@ -1,0 +1,36 @@
+{
+  "index": {
+    "title": "Introduction",
+    "type": "page",
+    "display": "hidden",
+    "theme": {
+      "timestamp": false,
+      "layout": "full"
+    }
+  },
+  "docs": {
+    "type": "page",
+    "title": "Docs"
+  },
+  "playground": {
+    "type": "page",
+    "title": "Playground",
+    "theme": {
+      "layout": "full",
+      "timestamp": false
+    }
+  },
+  "imprint": {
+    "display": "hidden"
+  },
+  "blog": {
+    "title": "Blog",
+    "type": "page",
+    "theme": {
+      "sidebar": false,
+      "toc": true,
+      "breadcrumb": false,
+      "typesetting": "article"
+    }
+  }
+}

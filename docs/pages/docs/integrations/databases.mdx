@@ -1,0 +1,277 @@
+import { Callout } from "@components/callout";
+
+# Databases
+
+Uncover Pylon's seamless integration with databases, enabling you to effortlessly connect and interact with your data stores for enhanced functionality and data management.
+
+Pylon seamlessly integrates with various databases, empowering developers to build robust web services with ease. While Pylon is agnostic to the choice of database, using Prisma is highly recommended due to its TypeScript type generation capabilities, which align well with Pylon's schema generation process.
+
+## Using Prisma
+
+When integrating Prisma with Pylon, developers can leverage the automatic TypeScript type generation provided by Prisma to enhance type safety and streamline development.
+
+Follow the setup instructions in the [Prisma documentation](https://www.prisma.io/docs/getting-started/setup-prisma/add-to-existing-project/relational-databases-typescript-postgresql) to set up Prisma in your project.
+
+Here's an example of how to define a Pylon service using Prisma:
+
+```typescript
+import { app } from "@getcronit/pylon";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
+
+export const graphql = {
+  Query: {
+    // Example query using Prisma
+    getUser: async (id: number) => {
+      return await prisma.user.findUnique({
+        where: { id },
+      });
+    },
+  },
+  Mutation: {
+    // Example mutation using Prisma
+    createUser: async (data: any) => {
+      return await prisma.user.create({
+        data,
+      });
+    },
+  },
+};
+
+export default app;
+```
+
+<Callout type="note" title="Note">
+  When using plain Prisma without additional extensions, relations are not
+  resolved automatically in the GraphQL schema. To resolve relations and create
+  paginatable connections, consider using `@getcronit/prisma-extended-models`.
+</Callout>
+
+## Using prisma-extended-models (recommended)
+
+To simplify the process of defining GraphQL schemas with Prisma, developers can use the `@getcronit/prisma-extended-models` package. This package extends Prisma models with additional fields and methods to facilitate the creation of paginatable connections and resolve relations automatically.
+
+### Installation
+
+To install `@getcronit/prisma-extended-models`, run the following command:
+
+```bash
+bun add @getcronit/prisma-extended-models
+```
+
+### Usage
+
+Now you can generate extended Prisma models and use them in your Pylon services.
+
+```bash
+bunx prisma-extended-models generate
+```
+
+This command generates extended Prisma models in the `src/models` directory. You can import these models in your Pylon services to automatically resolve relations and create paginatable connections.
+
+#### Models structure
+
+The generated extended Prisma models include the following structure:
+
+```plaintext
+my-pylon-project/
+├── src/
+│   ├── repository/
+│   │   ├── models/
+│   │   │   ├── Post.ts
+│   │   │   ├── Author.ts
+│   │   │   └── User.ts
+│   │   ├── .generated.ts
+│   │   └── client.ts
+```
+
+The `Post`, `Author`, and `User` models are extended with additional fields and methods to resolve relations and create paginatable connections. The `client.ts` file exports the Prisma client instance, and the `.generated.ts` file contains the generated Prisma models and helper functions.
+
+<Callout type="note" title="Note">
+  All models can be extended with additional fields and methods. This allows
+  developers to customize the models according to their requirements, for
+  example, securing sensitive fields with access control.
+</Callout>
+
+Here's an example of how to use extended Prisma models in a Pylon service:
+
+```typescript
+import { app } from "@getcronit/pylon";
+import { Post } from "../repository/models";
+
+export const graphql = {
+  Query: {
+    // Example query using extended Prisma models
+    getPost: async (id: number) => {
+      return await Post.get({
+        id,
+      });
+    },
+    allPosts: async () => {
+      return await Post.paginate();
+    },
+  },
+  Mutation: {
+    // Example mutation using extended Prisma models
+    createPost: async (data: any) => {
+      return await Post.create({
+        data,
+      });
+    },
+  },
+};
+
+export default app;
+```
+
+Assuming the `Post` model has a relation to the `User` model, the extended Prisma model will automatically resolve the relation when fetching a post and create paginatable connections for the `User` model.
+
+<Callout type="note" title="Note">
+  When using extended Prisma models, ensure that the generated models are
+  up-to-date with your Prisma schema. You can regenerate the models by running
+  the `bunx prisma-extended-models generate` command.
+</Callout>
+
+### Example in action
+
+#### GraphQL query example
+
+```graphql
+query {
+  allPosts {
+    edges {
+      node {
+        id
+        title
+        content
+        author {
+          id
+          name
+        }
+      }
+    }
+  }
+}
+```
+
+The result will include paginated posts with their authors resolved automatically.
+
+## Deploment with Prisma
+
+Make sure to update your `Dockefile` to include the Prisma schema and migrations in the deployment process. Here is a modified `Dockerfile` that includes Prisma setup:
+
+```docker
+# use the official Bun image
+# see all versions at https://hub.docker.com/r/oven/bun/tags
+FROM oven/bun:1 as base
+
+LABEL description="A Pylon project with Prisma"
+LABEL org.opencontainers.image.source="https://github.com/cronitio/my-pylon-project"
+LABEL maintainer="opensource@cronit.io"
+
+WORKDIR /usr/src/pylon
+
+# install dependencies into temp directory
+# this will cache them and speed up future builds
+FROM base AS install
+ARG NODE_VERSION=20
+RUN apt update \
+    && apt install -y curl
+RUN curl -L https://raw.githubusercontent.com/tj/n/master/bin/n -o n \
+    && bash n $NODE_VERSION \
+    && rm n \
+    && npm install -g n
+
+RUN mkdir -p /temp/dev
+COPY package.json bun.lockb /temp/dev/
+COPY prisma /temp/dev/prisma
+
+RUN cd /temp/dev && bun install --frozen-lockfile
+RUN cd /temp/dev && bun prisma generate
+
+# install with --production (exclude devDependencies)
+RUN mkdir -p /temp/prod
+COPY package.json bun.lockb /temp/prod/
+COPY prisma /temp/prod/prisma
+
+RUN cd /temp/prod && bun install --frozen-lockfile --production
+RUN cd /temp/prod && bun prisma generate
+
+# copy node_modules from temp directory
+# then copy all (non-ignored) project files into the image
+FROM install AS prerelease
+COPY --from=install /temp/dev/node_modules node_modules
+COPY . .
+
+# [optional] tests & build
+ENV NODE_ENV=production
+
+# Create .pylon folder (mkdir)
+RUN mkdir .pylon
+# RUN bun test
+RUN bun run pylon build
+
+# copy production dependencies and asource code into final image
+FROM base AS release
+RUN apt-get update -y && apt-get install -y openssl
+COPY --from=install /temp/prod/node_modules node_modules
+COPY --from=prerelease /usr/src/pylon/.pylon .pylon
+COPY --from=prerelease /usr/src/pylon/package.json .
+COPY --from=prerelease /usr/src/pylon/prisma prisma
+
+# run the app
+USER bun
+EXPOSE 3000/tcp
+ENTRYPOINT [ "bun", "run", "./node_modules/.bin/pylon-server" ]
+```
+
+## Using other databases
+
+For databases other than Prisma, such as MongoDB, developers need to define type interfaces separately and handle database operations accordingly. Here's an example of integrating MongoDB with Pylon:
+
+```typescript
+import { app } from "@getcronit/pylon";
+import { MongoClient } from "mongodb";
+
+const uri = "mongodb://localhost:27017";
+const client = new MongoClient(uri);
+
+// Define MongoDB collections
+let usersCollection: any;
+
+(async () => {
+  await client.connect();
+  const database = client.db("myDatabase");
+  usersCollection = database.collection("users");
+})();
+
+export const graphql = {
+  Query: {
+    // Example query using MongoDB
+    getUser: async (id: string) => {
+      return await usersCollection.findOne({ _id: id });
+    },
+  },
+  Mutation: {
+    // Example mutation using MongoDB
+    createUser: async (user: any) => {
+      await usersCollection.insertOne(user);
+      return user;
+    },
+  },
+};
+
+export default app;
+```
+
+<Callout type="warning" title="Warning">
+  When using other databases, ensure proper type definitions for Pylon to
+  maintain type safety and schema generation. When using the `any` type, Pylon
+  will expose all data of the document to the schema, which may lead to security
+  vulnerabilities.
+</Callout>
+
+## Conclusion
+
+Integrating databases with Pylon is straightforward and flexible, allowing developers to choose the database that best fits their project requirements. Whether using Prisma, MongoDB, or other databases, Pylon provides the necessary tools to build robust web services efficiently.

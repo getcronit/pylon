@@ -1,0 +1,125 @@
+# Automatic GraphQL-API Generation
+
+Explore the magic of Pylon as it seamlessly transforms your TypeScript functions into a fully-functional GraphQL API, saving you time and effort in the development process.
+
+## Overview
+
+Pylon simplifies the creation of web services by automatically generating a fully-functional GraphQL API from your TypeScript functions. This process ensures that your API reflects the complete type definitions of your TypeScript objects, providing a seamless integration between your code and the generated GraphQL schema.
+
+## Defining a Pylon Service
+
+You can define a Pylon service by specifying your logic inside the `graphql` export. This object contains the Query and Mutation resolvers that define the behavior of your API, which Pylon then converts into corresponding GraphQL operations.
+
+Here is a basic example of how to define a Pylon service:
+
+```typescript
+import { app } from "@getcronit/pylon";
+
+export const graphql = {
+  Query: {
+    sum: (a: number, b: number) => a + b,
+  },
+  Mutation: {
+    divide: (a: number, b: number) => a / b,
+  },
+};
+
+export default app;
+```
+
+### Breakdown of the Example
+
+- **Importing Pylon**: The first step is to import the `app` from the `@getcronit/pylon` package.
+
+  ```typescript
+  import { app } from "@getcronit/pylon";
+  ```
+
+- **Defining GraphQL**: The `graphql` export is where you define your GraphQL operations. You can specify Query and Mutation resolvers as needed.
+
+  ```typescript
+  export const graphql = {
+    Query: {
+      sum: (a: number, b: number) => a + b,
+    },
+    Mutation: {
+      divide: (a: number, b: number) => a / b,
+    },
+  };
+  ```
+
+  In this example:
+
+  - **Query Resolvers**: The `Query` object contains resolver functions for read-only operations. Here, `sum` is a function that takes two numbers and returns their sum.
+
+    ```typescript
+    Query: {
+      sum: (a: number, b: number) => a + b,
+    }
+    ```
+
+  - **Mutation Resolvers**: The `Mutation` object contains resolver functions for operations that modify data. Here, `divide` is a function that takes two numbers and returns the result of dividing the first number by the second.
+
+    ```typescript
+    Mutation: {
+      divide: (a: number, b: number) => a / b,
+    }
+    ```
+
+## How It Works
+
+Pylon automatically generates the GraphQL schema based on the TypeScript functions you define:
+
+- **Schema Generation**: Pylon performs an abstract syntax tree (AST) analysis of your TypeScript functions to generate a GraphQL schema that reflects the type definitions of your objects. The entire process is automated, requiring no manual schema definition on your part. This ensures that your API is always in sync with your TypeScript code.
+
+* **Type Safety**: Pylon leverages TypeScript's static type checking to ensure that your GraphQL schema is type-safe, reducing runtime errors and improving development efficiency.
+* **Resolvers**: The functions you define as Query and Mutation resolvers are automatically mapped to the corresponding GraphQL operations, allowing you to interact with your service using GraphQL queries and mutations.
+* **Automatic Documentation**: Pylon generates documentation for your API based on your TypeScript type definitions and JSDoc comments, providing a clear and concise reference for consumers of your service.
+
+## Example Usage
+
+Once your service is defined, you can query it using GraphQL. For instance, with the above service, you could perform the following operations:
+
+### Query Example
+
+To use the `sum` query:
+
+```graphql
+query {
+  sum(a: 5, b: 3)
+}
+```
+
+This query would return:
+
+```json
+{
+  "data": {
+    "sum": 8
+  }
+}
+```
+
+### Mutation Example
+
+To use the `divide` mutation:
+
+```graphql
+mutation {
+  divide(a: 10, b: 2)
+}
+```
+
+This mutation would return:
+
+```json
+{
+  "data": {
+    "divide": 5
+  }
+}
+```
+
+## Conclusion
+
+Pylon simplifies the process of creating web services by automatically generating a GraphQL API from your TypeScript functions. This seamless integration between your code and the generated schema saves you time and effort in the development process, allowing you to focus on building robust and efficient web services.

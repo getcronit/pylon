@@ -1,0 +1,177 @@
+# Migrating from v1 to v2
+
+> Have you run into something that’s not covered here? [Add your changes to GitHub!](https://github.com/getcronit/pylon-docs/edit/main/pages/docs/release-notes/migrating-from-v1-to-v2.mdx)
+
+## Introduction
+
+This is a reference for upgrading your Pylon from v1 to v2. Version 2 introduces the support for various runtimes, a new npm create command, and an improved development server.
+The official supported runtimes by the `npm create pylon` command are Bun, Node.js and Cloudflare Workers. Other runtimes are also supported but require manual setup.
+If you’re curious what’s new, head over to the [v2.0 Release Notes](./v2.0.mdx).
+
+For most users we expect a smooth upgrade path as only a couple of changes will be required:
+
+## Updating your dependencies
+
+You need to update your dependencies to the latest version of Pylon. The `@getcronit/pylon-cli` and `@getcronit/pylon-server` are no longer required and replaced by the `@getcronit/pylon-dev` package.
+
+### Update Pylon version
+
+```json
+{
+  "dependencies": {
+    "@getcronit/pylon": "^2.0.0"
+  }
+}
+```
+
+### Replace old dependencies with pylon-dev
+
+```diff
+{
+  "devDependencies": {
+-    "@getcronit/pylon-cli": "^1.0.0",
+-    "@getcronit/pylon-server": "^1.0.0"
++    "@getcronit/pylon-dev": "^2.0.0"
+  }
+}
+```
+
+## Updating scripts
+
+Pylon v2 introduces a new `pylon dev` command that handles multiple runtimes.
+You can choose your specific start command by using `-c <command>`.
+
+### Update your start script
+
+```diff
+{
+  "scripts": {
+-    "develop": "bun run pylon develop"
++    "dev": "pylon dev -c 'bun run .pylon/index.js'"
+  }
+}
+```
+
+### Update your build script
+
+```diff
+{
+  "scripts": {
+-    "build": "bun run pylon build"
++    "build": "pylon build"
+  }
+}
+```
+
+## Handling breaking changes
+
+Next, we’ll cover the breaking changes that you might encounter when upgrading to Pylon v2.
+In order to successfully update, you’ll need to resolve these changes.
+
+### GraphQL definition
+
+We have updated the way you define your GraphQL schema. Instead of the default export of the `defineService` function you now have to export a `graphql` object.
+This allows for supporting multiple runtimes that depend on the default export.
+
+**Before**
+
+```typescript
+import { defineService } from "@getcronit/pylon";
+
+export default defineService({
+  graphql: {
+    Query: {
+      sum: (a: number, b: number) => a + b,
+    },
+    Mutation: {
+      divide: (a: number, b: number) => a / b,
+    },
+  },
+});
+```
+
+**After**
+
+```typescript
+import { app } from "@getcronit/pylon";
+
+export const graphql = {
+  Query: {
+    sum: (a: number, b: number) => a + b,
+  },
+  Mutation: {
+    divide: (a: number, b: number) => a / b,
+  },
+};
+
+export default app;
+```
+
+### Custom routes and middleware
+
+The `app` instance is now used to define custom routes and middleware. This change allows for a more flexible API and better integration with the underlying runtimes.
+
+**Before**
+
+```typescript
+import { PylonAPI } from "@getcronit/pylon";
+
+export const configureApp: PylonAPI["configureApp"] = (app) => {
+  app.get("/hello", (ctx, next) => {
+    return new Response("Hello, world!");
+  });
+};
+```
+
+**After**
+
+```typescript
+import { app } from "@getcronit/pylon";
+
+app.get("/hello", (ctx, next) => {
+  return new Response("Hello, world!");
+});
+```
+
+### Logging
+
+The `logger` instance has been removed due to the lack of customizability. We are still looking into a better solution for logging in the future.
+If you know of a good solution, [please let us know](https://github.com/getcronit/pylon/issues/new/choose).
+
+Instead of using the `logger` instance, please use `console` for logging, or your favorite logging library.
+
+```diff
+- import { logger } from "@getcronit/pylon";
+
+- logger.info("Hello, world!");
++ console.log("Hello, world!");
+```
+
+### Client Generation (GQty)
+
+You only need to update the client generation if you are using the feature described in the [Client Generation](/docs/client-generation) guide.
+
+```diff
+{
+-  "pylon": {
+-    "gqty": "./frontend/src/gqty/index.ts"
+-  },
+   "scripts": {
+-    "dev": "pylon dev -c 'bun run .pylon/index.js'",
++    "dev": "pylon dev -c 'bun run .pylon/index.js' --client --client-path ./frontend/src/gqty/index.ts --client-port 3000",
+   }
+}
+```
+
+### Dockerfile
+
+If you are using a Dockerfile to build your Pylon project, you need to update the `ENTRYPOINT` to replace the `pylon-server` command.
+
+```diff
+- ENTRYPOINT [ "bun", "run", "./node_modules/.bin/pylon-server" ]
++ ENTRYPOINT [ "bun", "run", "/usr/src/pylon/.pylon/index.js" ]
+```
+
+## Conclusion
+
+We hope this guide has helped you upgrade your Pylon project to v2. If you have any questions or need further assistance, feel free to reach out to us on Discord or GitHub.

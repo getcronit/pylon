@@ -1,0 +1,22 @@
+# Telemetry
+
+Pylon collects completely anonymous telemetry data about general usage. Participation in this anonymous program is optional, and you may opt-out if you'd not like to share any information.
+
+## Why is telemetry collected?
+
+Telemetry data is collected to help us understand how Pylon is being used, and to help us improve the product. This data is completely anonymous and does not contain any personal information.
+
+## What is being collected?
+
+We track general usage information, such as Pylon features being used, and build performance. Specifically, we track the following anonymously:
+
+- Command invoked (pylon dev, pylon build, npm create pylon)
+- Version of Pylon
+- Duration of the build and size of the service (total number of files and total size of the service)
+- Functionality used from `@getcronit/pylon`
+
+You can view exactly what is being collected by setting the following environment variable: `PYLON_TELEMETRY_DEBUG=1`.
+
+## How do I opt-out?
+
+You may opt setting an environment variable: `PYLON_TELEMETRY_DISABLED=1`. This will disable telemetry data collection.

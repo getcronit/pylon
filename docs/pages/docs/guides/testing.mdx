@@ -1,0 +1,491 @@
+# Testing
+
+**Note:** This guide assumes you have already created a Pylon project using `npm create pylon@latest` or have an existing Pylon project. We will be modifying the existing `src/index.ts` file in your project.
+
+For testing, we'll be using the Bun test runner, which is recommended for Pylon projects. However, you can use other test runners of your choice if preferred.
+
+**Important:** Before running any tests, it is crucial to run `bun run build`. This step ensures that the `.pylon/index.js` file is generated, which includes the GraphQL API.
+Always run this build command after making changes to your Pylon application and before running your tests.
+If you use `bun run dev`, while making changes to your application, the `.pylon/index.js` file will be updated automatically.
+
+### Step 1: Set Up the Basic Pylon Application
+
+First, let's modify the `src/index.ts` file to set up a basic Pylon application with an empty posts array.
+
+```typescript project="Pylon App" file="src/index.ts"
+import { app } from "@getcronit/pylon";
+
+const posts: { id: number; title: string; content: string }[] = [];
+
+export default app;
+```
+
+This sets up the foundation for our Pylon application. We've imported the `app` from Pylon and initialized an empty `posts` array to store our blog posts.
+
+### Step 2: Implement GraphQL Query for Fetching Posts
+
+Now, let's implement the GraphQL query to fetch posts. Modify your `src/index.ts` file as follows:
+
+```typescript project="Pylon App" file="src/index.ts"
+import { app } from "@getcronit/pylon";
+
+const posts: { id: number; title: string; content: string }[] = [
+  {
+    id: 1,
+    title: "Hello, world!",
+    content: "This is the first post",
+  },
+  {
+    id: 2,
+    title: "Hello, Pylon!",
+    content: "This is the second post",
+  },
+];
+
+export const graphql = {
+  Query: {
+    posts,
+  },
+};
+
+export default app;
+```
+
+After making these changes, run the build command:
+
+```shellscript
+bun run build
+```
+
+### Step 3: Test GraphQL Query for Fetching Posts
+
+Create a new file named `pylon.test.ts` in your project root and add the following test:
+
+```typescript project="Pylon App" file="pylon.test.ts"
+import { describe, expect, test } from "bun:test";
+// Make sure to run `bun run build` before running the tests
+import app from "./.pylon/index";
+
+describe("GraphQL API", () => {
+  test("Query.posts", async () => {
+    const res = await app.request("/graphql", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        query: "query { posts { id title content } }",
+      }),
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json<any>();
+    expect(data).toEqual({
+      data: {
+        posts: [
+          {
+            id: 1,
+            title: "Hello, world!",
+            content: "This is the first post",
+          },
+          {
+            id: 2,
+            title: "Hello, Pylon!",
+            content: "This is the second post",
+          },
+        ],
+      },
+    });
+  });
+});
+```
+
+Now, run the tests:
+
+```shellscript
+bun test
+```
+
+### Step 4: Implement GraphQL Mutation for Creating Posts
+
+Let's implement the GraphQL mutation to create posts. Update your `src/index.ts` file:
+
+```typescript project="Pylon App" file="src/index.ts"
+import { app } from "@getcronit/pylon";
+
+const posts: { id: number; title: string; content: string }[] = [
+  {
+    id: 1,
+    title: "Hello, world!",
+    content: "This is the first post",
+  },
+  {
+    id: 2,
+    title: "Hello, Pylon!",
+    content: "This is the second post",
+  },
+];
+
+export const graphql = {
+  Query: {
+    posts,
+  },
+  Mutation: {
+    createPost: (title: string, content: string) => {
+      const post = {
+        id: posts.length + 1,
+        title,
+        content,
+      };
+      posts.push(post);
+      return post;
+    },
+  },
+};
+
+export default app;
+```
+
+After making these changes, run the build command again:
+
+```shellscript
+bun run build
+```
+
+### Step 5: Test GraphQL Mutation for Creating Posts
+
+Add the following test to your `pylon.test.ts` file:
+
+```typescript project="Pylon App" file="pylon.test.ts"
+import { describe, expect, test } from "bun:test";
+// Make sure to run `bun run build` before running the tests
+import app from "./.pylon/index";
+
+describe("GraphQL API", () => {
+  test("Query.posts", async () => {
+    const res = await app.request("/graphql", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        query: "query { posts { id title content } }",
+      }),
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json<any>();
+    expect(data).toEqual({
+      data: {
+        posts: [
+          {
+            id: 1,
+            title: "Hello, world!",
+            content: "This is the first post",
+          },
+          {
+            id: 2,
+            title: "Hello, Pylon!",
+            content: "This is the second post",
+          },
+        ],
+      },
+    });
+  });
+
+  test("Mutation.createPost", async () => {
+    const res = await app.request("/graphql", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        query: `
+          mutation {
+            createPost(title: "New Post", content: "This is a new post") {
+              id
+              title
+              content
+            }
+          }
+        `,
+      }),
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json<any>();
+    expect(data).toEqual({
+      data: {
+        createPost: {
+          id: 3,
+          title: "New Post",
+          content: "This is a new post",
+        },
+      },
+    });
+  });
+});
+```
+
+Run the tests:
+
+```shellscript
+bun test
+```
+
+### Step 6: Implement REST API GET /posts Endpoint
+
+Now, let's implement the REST API endpoint to fetch posts. Update your `src/index.ts` file:
+
+```typescript project="Pylon App" file="src/index.ts"
+import { app } from "@getcronit/pylon";
+
+const posts: { id: number; title: string; content: string }[] = [
+  {
+    id: 1,
+    title: "Hello, world!",
+    content: "This is the first post",
+  },
+  {
+    id: 2,
+    title: "Hello, Pylon!",
+    content: "This is the second post",
+  },
+];
+
+export const graphql = {
+  // ... (previous code remains unchanged)
+};
+
+app.get("/posts", (c) => {
+  return c.json(posts);
+});
+
+export default app;
+```
+
+After making these changes, run the build command:
+
+```shellscript
+bun run build
+```
+
+### Step 7: Test REST API GET /posts Endpoint
+
+Add the following test to your `pylon.test.ts` file:
+
+```typescript project="Pylon App" file="pylon.test.ts"
+import { describe, expect, test } from "bun:test";
+// Make sure to run `bun run build` before running the tests
+import app from "./.pylon/index";
+
+describe("GraphQL API", () => {
+  // ... (previous tests remains unchanged)
+});
+
+describe("REST API", () => {
+  test("GET /posts", async () => {
+    const res = await app.request("/posts");
+    expect(res.status).toBe(200);
+    const data = await res.json<any>();
+    expect(data).toEqual([
+      {
+        id: 1,
+        title: "Hello, world!",
+        content: "This is the first post",
+      },
+      {
+        id: 2,
+        title: "Hello, Pylon!",
+        content: "This is the second post",
+      },
+      {
+        id: 3,
+        title: "New Post",
+        content: "This is a new post",
+      },
+    ]);
+  });
+});
+```
+
+Run the tests:
+
+```shellscript
+bun test
+```
+
+### Step 8: Implement REST API POST /posts Endpoint
+
+Finally, let's implement the REST API endpoint to create posts. Update your `src/index.ts` file:
+
+```typescript project="Pylon App" file="src/index.ts"
+import { app } from "@getcronit/pylon";
+
+const posts: { id: number; title: string; content: string }[] = [
+  {
+    id: 1,
+    title: "Hello, world!",
+    content: "This is the first post",
+  },
+  {
+    id: 2,
+    title: "Hello, Pylon!",
+    content: "This is the second post",
+  },
+];
+
+export const graphql = {
+  // ... (previous code remains unchanged)
+};
+
+app.get("/posts", (c) => {
+  return c.json(posts);
+});
+
+app.post("/posts", async (c) => {
+  let body: FormData;
+  try {
+    body = await c.req.formData();
+  } catch (e) {
+    return new Response("Invalid form data", {
+      status: 400,
+    });
+  }
+
+  const title = body.get("title")?.toString();
+  const content = body.get("content")?.toString();
+
+  if (!title || !content) {
+    return new Response("Title and content are required", {
+      status: 400,
+    });
+  }
+
+  const post = {
+    id: posts.length + 1,
+    title,
+    content,
+  };
+
+  posts.push(post);
+
+  return c.json(post, 201, {
+    "X-Custom": "Thanks for creating!",
+  });
+});
+
+export default app;
+```
+
+After making these changes, run the build command:
+
+```shellscript
+bun run build
+```
+
+### Step 9: Test REST API POST /posts Endpoint
+
+Add the following tests to your `pylon.test.ts` file:
+
+```typescript project="Pylon App" file="pylon.test.ts"
+import { describe, expect, test } from "bun:test";
+// Make sure to run `bun run build` before running the tests
+import app from "./.pylon/index";
+
+describe("GraphQL API", () => {
+  // ... (previous tests remains unchanged)
+});
+
+describe("REST API", () => {
+  test("GET /posts", async () => {
+    const res = await app.request("/posts");
+    expect(res.status).toBe(200);
+    const data = await res.json<any>();
+    expect(data).toEqual([
+      {
+        id: 1,
+        title: "Hello, world!",
+        content: "This is the first post",
+      },
+      {
+        id: 2,
+        title: "Hello, Pylon!",
+        content: "This is the second post",
+      },
+      {
+        id: 3,
+        title: "New Post",
+        content: "This is a new post",
+      },
+    ]);
+  });
+
+  test("POST /posts - successful creation", async () => {
+    const formData = new FormData();
+    formData.append("title", "REST Post");
+    formData.append("content", "This post was created via REST");
+
+    const res = await app.request("/posts", {
+      method: "POST",
+      body: formData,
+    });
+
+    expect(res.status).toBe(201);
+    const data = await res.json<any>();
+    expect(data).toEqual({
+      id: 4,
+      title: "REST Post",
+      content: "This post was created via REST",
+    });
+    expect(res.headers.get("X-Custom")).toBe("Thanks for creating!");
+  });
+
+  test("POST /posts - missing title", async () => {
+    const formData = new FormData();
+    formData.append("content", "This post has no title");
+
+    const res = await app.request("/posts", {
+      method: "POST",
+      body: formData,
+    });
+
+    expect(res.status).toBe(400);
+    const text = await res.text();
+    expect(text).toBe("Title and content are required");
+  });
+
+  test("POST /posts - invalid form data", async () => {
+    const res = await app.request("/posts", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        title: "Invalid Post",
+        content: "This post uses JSON instead of form data",
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    const text = await res.text();
+    expect(text).toBe("Invalid form data");
+  });
+});
+```
+
+Run the tests:
+
+```shellscript
+bun test
+```
+
+This comprehensive guide has walked you through the process of implementing and testing a Pylon application with both GraphQL and REST API endpoints. By following these steps, you've created:
+
+1. A GraphQL query to fetch posts
+2. A GraphQL mutation to create posts
+3. A REST API GET endpoint to fetch posts
+4. A REST API POST endpoint to create posts
+
+You've also written tests for each of these features, ensuring that your application is working as expected. Remember to always run `bun run build` after making changes to your `src/index.ts` file and before running your tests. This ensures that the latest version of your application is being tested.
+
+As you continue to develop your Pylon application, you can follow this pattern of implementing a feature, building the application, and then testing it. This approach helps maintain high code quality and ensures that your application remains reliable as it grows in complexity.
+
+Take a look at our testing example in the [Pylon repository](https://github.com/getcronit/pylon/tree/main/examples/bun-testing) for a complete working example of testing a Pylon application with Bun.
