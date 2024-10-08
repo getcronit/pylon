@@ -1,0 +1,108 @@
+import { Callout } from "@components/callout";
+
+# Frequently Asked Questions
+
+This is a list of frequently asked questions about the project. Currently, it is a work in progress.
+
+## Is Pylon just a tooling library or does it provide a framework as well?
+
+Pylon is a full-fledged framework for building web services with GraphQL.
+It provides a comprehensive set of features to streamline the development process, including automatic schema generation,
+type safety, authentication and authorization, logging and monitoring, database integration, and deployment readiness.
+Pylon aims to simplify the development of modern web services by providing a unified platform for building, testing, and deploying GraphQL APIs.
+
+## How does Pylon differ from Pothos?
+
+Pylon is designed to provide a seamless development experience for building GraphQL APIs by inferring the GraphQL schema from TypeScript definitions.
+Pothos does not elimiate the need to define the schema, it just allows you to define the schema using TypeScript. Pylon on the other hand lavereges most TypepScript features to build
+the schema for you. For more information on how Pylon generates the schema, check out [Type Safety and Type Integration](./core-concepts/type-safety-and-type-integration.mdx#type-variants-and-graphql).
+
+The following example illustrates the difference between Pylon and Pothos in defining a simple "hello" query:
+
+**Pothos**:
+
+```typescript {3,5,7,11}
+import { createYoga } from 'graphql-yoga';
+import { createServer } from 'node:http';
+import SchemaBuilder from '@pothos/core';
+
+const builder = new SchemaBuilder({});
+
+builder.queryType({
+  fields: (t) => ({
+    hello: t.string({
+      args: {
+        name: t.arg.string(),
+      },
+      resolve: (parent, { name }) => `hello, ${name || 'World'}`,
+    }),
+  }),
+});
+
+...
+```
+
+**Pylon**:
+
+```typescript
+import { app } from "@getcronit/pylon";
+
+export const graphql = {
+  Query: {
+    hello: (name: string) => {
+      return `hello, ${name || "World"}`;
+    },
+  },
+};
+
+export default app;
+```
+
+The key difference is that in Pothos, you define the schema using TypeScript, allowing you to directly utilize those types in the resolvers.
+In contrast, Pylon does not require you to define the schema; instead, it infers the schema from the TypeScript types used in the resolvers.
+
+When it comes to handling complex types such as enums and unions, Pothos can be quite challenging and may require additional configuration.
+On the other hand, Pylon manages these types effortlessly with no extra setup needed.
+
+## How Does Pylon differ from Grats?
+
+Both Pylon and Grats generate GraphQL schemas from TypeScript definitions, but they have several key differences:
+
+| Feature                  | Pylon                                                                                         | Grats                                                                     |
+| ------------------------ | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| **Type Inference**       | Automatically infers the GraphQL schema from TypeScript definitions                           | Requires explicit type annotations and decorators                         |
+| **Type Support**         | Supports both implicit and explicit TypeScript types, including those from external libraries | Works only with explicitly annotated types combined with their decorators |
+| **GraphQL Server**       | Integrates seamlessly with graphql-yoga                                                       | Requires manual setup of the server                                       |
+| **Type Composition**     | Supports TypeScript unions and intersections                                                  | Does not support unions and intersections                                 |
+| **Complex Types**        | Handles complex type compositions without additional configuration                            | May need extra configuration for complex types                            |
+| **Framework Features**   | Includes built-in features like authentication, logging, and deployment                       | Focuses primarily on schema generation                                    |
+| **Math Library Example** | Can [generate a GraphQL API for the Math library](./getting-started.mdx#highly-complex-types) | May not support generating APIs for complex libraries                     |
+
+<Callout>
+  Pylon also offers a strong type support including generics, static functions,
+  function arguments, and more. Therefore it can also handle Prisma models and
+  other complex types. See [Prisma
+  Integration](./integrations/databases.mdx#using-prisma) for more information.
+</Callout>
+
+### Key Advantages of Pylon
+
+- **Ease of Use**: Pylon does not require additional configuration or decorators to generate the schema, simplifying the process of building GraphQL APIs.
+- **Comprehensive Features**: As a full-fledged framework, Pylon offers built-in features for authentication, logging, and deployment, providing an all-in-one solution for developers.
+- **Versatile Type Support**: Pylon's ability to handle both implicit and explicit types from TypeScript, including those from external libraries, makes it highly flexible and adaptable.
+
+## Does Pylon support subscriptions?
+
+No, Pylon does not currently support subscriptions. However, it is on the roadmap for future releases. Stay tuned for updates on this feature!
+
+## Is Pylon stable?
+
+Yes, Pylon is stable and production-ready. It has been extensively tested and is used in various production environments. We are committed to maintaining and improving Pylon to ensure its stability and reliability.
+If you encounter any issues or have suggestions for improvement, please feel free to [open an issue](https://github.com/getcronit/pylon/issues) on GitHub.
+
+## Which runtimes does Pylon support?
+
+~~Currently, Pylon supports the [Bun](https://bun.sh) runtime. However, we have a open issue to support this [Runtimes](https://hono.dev/docs/getting-started/basic).~~
+~~If you would like to see support for other runtimes, please let us know by upvoting [this issue](https://github.com/getcronit/pylon/issues/6) on GitHub.~~
+
+As of Pylon v2, the framework now supports multiple runtimes, including Bun, Node.js and Cloudflare Workers. Other runtimes are also supported but require manual setup. For more information on the supported runtimes, refer to the [release notes](/docs/release-notes/v2.0.mdx).

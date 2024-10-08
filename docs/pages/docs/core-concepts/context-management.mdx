@@ -1,0 +1,102 @@
+# Context Management
+
+Optimize request handling and configurations in Pylon with context management. Integrate seamlessly with Hono, access context within service functions, and elevate your web services' performance.
+
+In Pylon, context management plays a crucial role in handling incoming requests, accessing request-specific data, and configuring your application. This document outlines how context management works in Pylon, including accessing the underlying Hono framework and utilizing context within service functions.
+
+## Hono Integration
+
+Pylon leverages [Hono](https://hono.dev/), a fast and lightweight web framework, to power its underlying infrastructure. Understanding how to interact with the Hono framework is essential for customizing routes, middleware, and other configurations within your Pylon application.
+
+### `app` Instance
+
+The `app` instance in Pylon represents the Hono application and provides a central point for defining routes, middleware, and other application-specific configurations. By accessing the `app` instance, you can define custom logic and behavior tailored to your application's requirements.
+
+```typescript
+import { app, PylonAPI } from "@getcronit/pylon";
+
+export const graphql = {
+  Query: {
+    sum: (a: number, b: number) => a + b,
+  },
+  Mutation: {
+    divide: (a: number, b: number) => a / b,
+  },
+};
+
+app.get("/hello", (ctx, next) => {
+  return new Response("Hello, world!");
+});
+
+export default app;
+```
+
+### Custom Routes and Middleware
+
+By utilizing the `app` instance, you can define custom routes and middleware to handle incoming requests and implement additional functionality. This allows you to customize your application's behavior and extend its capabilities as needed.
+
+```typescript
+app.get("/hello", (ctx, next) => {
+  return new Response("Hello, world!");
+});
+```
+
+For more detailed information on utilizing the Hono app instance, refer to the [Hono documentation](https://hono.dev/getting-started/basic).
+
+## Accessing Context in Service Functions
+
+Service functions in Pylon often require access to request-specific data or context information. Pylon provides mechanisms to access this context within your service functions, allowing you to implement custom logic based on request attributes.
+
+### `getContext` Function
+
+The `getContext` function from the `@getcronit/pylon` package enables service functions to access the request context. This includes request headers, parameters, and other relevant information necessary for processing incoming requests.
+
+```typescript
+import { app, getContext } from "@getcronit/pylon";
+
+export const graphql = {
+  Query: {
+    protected: () => {
+      const ctx = getContext();
+      const header = ctx.req.header("X-API-Key");
+
+      if (header !== "secret") {
+        return new Response("Unauthorized", { status: 401 });
+      }
+
+      return new Response("The secret is safe with me!");
+    },
+  },
+};
+
+export default app;
+```
+
+### `getEnv` Function
+
+Depending on your runtime enviroment, handling enviroment variables might differ. In Node.js or Bun, you can use the `process.env` object to access enviroment variables. In Cloudflare Workers, this is not possible.
+Pylon provides the `getEnv` function to access enviroment variables in a runtime-agnostic way.
+
+```typescript
+import { getEnv } from "@getcronit/pylon";
+
+export const graphql = {
+  Query: {
+    secret: () => {
+      const secret = getEnv().SECRET_KEY;
+
+      return new Response(`The secret key is: ${secret}`);
+    },
+  },
+};
+
+export default app;
+```
+
+### Handling Authorization Logic
+
+By accessing the request context within service functions, you can implement custom authorization logic based on incoming request attributes. This allows you to enforce access control policies and protect sensitive resources within your application.
+
+## Conclusion
+
+Understanding context management in Pylon is essential for building robust and secure web services. By leveraging the Hono framework and accessing context within service functions, developers can customize application behavior and implement sophisticated logic tailored to their specific use cases.
