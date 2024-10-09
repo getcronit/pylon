@@ -1,9 +1,9 @@
-import { DarkMode, Gradient, LightMode } from "../icon";
+import {DarkMode, Gradient, LightMode} from '../icon'
 
 export const InstallationIcon: React.FC<{
-  id: string;
-  color: "blue" | "amber";
-}> = ({ id, color }) => {
+  id: string
+  color: 'blue' | 'amber'
+}> = ({id, color}) => {
   return (
     <>
       <defs>
@@ -40,5 +40,5 @@ export const InstallationIcon: React.FC<{
         />
       </DarkMode>
     </>
-  );
-};
+  )
+}

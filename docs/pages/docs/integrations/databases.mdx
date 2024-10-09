@@ -1,4 +1,4 @@
-import { Callout } from "@components/callout";
+import {Callout} from '@components/callout'
 
 # Databases
 
@@ -15,31 +15,31 @@ Follow the setup instructions in the [Prisma documentation](https://www.prisma.i
 Here's an example of how to define a Pylon service using Prisma:
 
 ```typescript
-import { app } from "@getcronit/pylon";
-import { PrismaClient } from "@prisma/client";
+import {app} from '@getcronit/pylon'
+import {PrismaClient} from '@prisma/client'
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient()
 
 export const graphql = {
   Query: {
     // Example query using Prisma
     getUser: async (id: number) => {
       return await prisma.user.findUnique({
-        where: { id },
-      });
-    },
+        where: {id}
+      })
+    }
   },
   Mutation: {
     // Example mutation using Prisma
     createUser: async (data: any) => {
       return await prisma.user.create({
-        data,
-      });
-    },
-  },
-};
+        data
+      })
+    }
+  }
+}
 
-export default app;
+export default app
 ```
 
 <Callout type="note" title="Note">
@@ -97,32 +97,32 @@ The `Post`, `Author`, and `User` models are extended with additional fields and 
 Here's an example of how to use extended Prisma models in a Pylon service:
 
 ```typescript
-import { app } from "@getcronit/pylon";
-import { Post } from "../repository/models";
+import {app} from '@getcronit/pylon'
+import {Post} from '../repository/models'
 
 export const graphql = {
   Query: {
     // Example query using extended Prisma models
     getPost: async (id: number) => {
       return await Post.get({
-        id,
-      });
+        id
+      })
     },
     allPosts: async () => {
-      return await Post.paginate();
-    },
+      return await Post.paginate()
+    }
   },
   Mutation: {
     // Example mutation using extended Prisma models
     createPost: async (data: any) => {
       return await Post.create({
-        data,
-      });
-    },
-  },
-};
+        data
+      })
+    }
+  }
+}
 
-export default app;
+export default app
 ```
 
 Assuming the `Post` model has a relation to the `User` model, the extended Prisma model will automatically resolve the relation when fetching a post and create paginatable connections for the `User` model.
@@ -231,38 +231,38 @@ ENTRYPOINT [ "bun", "run", "./node_modules/.bin/pylon-server" ]
 For databases other than Prisma, such as MongoDB, developers need to define type interfaces separately and handle database operations accordingly. Here's an example of integrating MongoDB with Pylon:
 
 ```typescript
-import { app } from "@getcronit/pylon";
-import { MongoClient } from "mongodb";
+import {app} from '@getcronit/pylon'
+import {MongoClient} from 'mongodb'
 
-const uri = "mongodb://localhost:27017";
-const client = new MongoClient(uri);
+const uri = 'mongodb://localhost:27017'
+const client = new MongoClient(uri)
 
 // Define MongoDB collections
-let usersCollection: any;
+let usersCollection: any
 
-(async () => {
-  await client.connect();
-  const database = client.db("myDatabase");
-  usersCollection = database.collection("users");
-})();
+;(async () => {
+  await client.connect()
+  const database = client.db('myDatabase')
+  usersCollection = database.collection('users')
+})()
 
 export const graphql = {
   Query: {
     // Example query using MongoDB
     getUser: async (id: string) => {
-      return await usersCollection.findOne({ _id: id });
-    },
+      return await usersCollection.findOne({_id: id})
+    }
   },
   Mutation: {
     // Example mutation using MongoDB
     createUser: async (user: any) => {
-      await usersCollection.insertOne(user);
-      return user;
-    },
-  },
-};
+      await usersCollection.insertOne(user)
+      return user
+    }
+  }
+}
 
-export default app;
+export default app
 ```
 
 <Callout type="warning" title="Warning">

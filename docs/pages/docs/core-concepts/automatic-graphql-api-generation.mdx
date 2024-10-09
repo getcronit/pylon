@@ -13,18 +13,18 @@ You can define a Pylon service by specifying your logic inside the `graphql` exp
 Here is a basic example of how to define a Pylon service:
 
 ```typescript
-import { app } from "@getcronit/pylon";
+import {app} from '@getcronit/pylon'
 
 export const graphql = {
   Query: {
-    sum: (a: number, b: number) => a + b,
+    sum: (a: number, b: number) => a + b
   },
   Mutation: {
-    divide: (a: number, b: number) => a / b,
-  },
-};
+    divide: (a: number, b: number) => a / b
+  }
+}
 
-export default app;
+export default app
 ```
 
 ### Breakdown of the Example
@@ -32,7 +32,7 @@ export default app;
 - **Importing Pylon**: The first step is to import the `app` from the `@getcronit/pylon` package.
 
   ```typescript
-  import { app } from "@getcronit/pylon";
+  import {app} from '@getcronit/pylon'
   ```
 
 - **Defining GraphQL**: The `graphql` export is where you define your GraphQL operations. You can specify Query and Mutation resolvers as needed.
@@ -40,12 +40,12 @@ export default app;
   ```typescript
   export const graphql = {
     Query: {
-      sum: (a: number, b: number) => a + b,
+      sum: (a: number, b: number) => a + b
     },
     Mutation: {
-      divide: (a: number, b: number) => a / b,
-    },
-  };
+      divide: (a: number, b: number) => a / b
+    }
+  }
   ```
 
   In this example:

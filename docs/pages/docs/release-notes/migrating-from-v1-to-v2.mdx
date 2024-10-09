@@ -76,35 +76,35 @@ This allows for supporting multiple runtimes that depend on the default export.
 **Before**
 
 ```typescript
-import { defineService } from "@getcronit/pylon";
+import {defineService} from '@getcronit/pylon'
 
 export default defineService({
   graphql: {
     Query: {
-      sum: (a: number, b: number) => a + b,
+      sum: (a: number, b: number) => a + b
     },
     Mutation: {
-      divide: (a: number, b: number) => a / b,
-    },
-  },
-});
+      divide: (a: number, b: number) => a / b
+    }
+  }
+})
 ```
 
 **After**
 
 ```typescript
-import { app } from "@getcronit/pylon";
+import {app} from '@getcronit/pylon'
 
 export const graphql = {
   Query: {
-    sum: (a: number, b: number) => a + b,
+    sum: (a: number, b: number) => a + b
   },
   Mutation: {
-    divide: (a: number, b: number) => a / b,
-  },
-};
+    divide: (a: number, b: number) => a / b
+  }
+}
 
-export default app;
+export default app
 ```
 
 ### Custom routes and middleware
@@ -114,23 +114,23 @@ The `app` instance is now used to define custom routes and middleware. This chan
 **Before**
 
 ```typescript
-import { PylonAPI } from "@getcronit/pylon";
+import {PylonAPI} from '@getcronit/pylon'
 
-export const configureApp: PylonAPI["configureApp"] = (app) => {
-  app.get("/hello", (ctx, next) => {
-    return new Response("Hello, world!");
-  });
-};
+export const configureApp: PylonAPI['configureApp'] = app => {
+  app.get('/hello', (ctx, next) => {
+    return new Response('Hello, world!')
+  })
+}
 ```
 
 **After**
 
 ```typescript
-import { app } from "@getcronit/pylon";
+import {app} from '@getcronit/pylon'
 
-app.get("/hello", (ctx, next) => {
-  return new Response("Hello, world!");
-});
+app.get('/hello', (ctx, next) => {
+  return new Response('Hello, world!')
+})
 ```
 
 ### Logging

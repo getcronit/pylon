@@ -1,16 +1,15 @@
-import { cn } from "@lib/utils";
+import {cn} from '@lib/utils'
 
-const Logo: React.FC<{ className?: string }> = (props) => {
+const Logo: React.FC<{className?: string}> = props => {
   return (
     <svg
-      className={cn("h-12 w-auto", props.className)}
+      className={cn('h-12 w-auto', props.className)}
       xmlns="http://www.w3.org/2000/svg"
       xmlnsXlink="http://www.w3.org/1999/xlink"
       zoomAndPan="magnify"
       viewBox="0 0 286.5 121.500001"
       preserveAspectRatio="xMidYMid meet"
-      version="1.0"
-    >
+      version="1.0">
       <defs>
         <g />
         <clipPath id="38f6fcde47">
@@ -102,7 +101,7 @@ const Logo: React.FC<{ className?: string }> = (props) => {
         fillRule="nonzero"
       />
     </svg>
-  );
-};
+  )
+}
 
-export default Logo;
+export default Logo

@@ -1,12 +1,12 @@
-import { Icon, Icons } from "../icon";
-import { Link } from "nextra-theme-docs";
+import {Icon, Icons} from '../icon'
+import {Link} from 'nextra-theme-docs'
 
 export const QuickLink: React.FC<{
-  title: string;
-  description: string;
-  href: string;
-  icon: Icons;
-}> = ({ title, description, href, icon }) => {
+  title: string
+  description: string
+  href: string
+  icon: Icons
+}> = ({title, description, href, icon}) => {
   return (
     <div className="group relative rounded-xl border border-slate-200 dark:border-slate-800">
       <div className="absolute -inset-px rounded-xl border-2 border-transparent opacity-0 [background:linear-gradient(var(--quick-links-hover-bg,theme(colors.sky.50)),var(--quick-links-hover-bg,theme(colors.sky.50)))_padding-box,linear-gradient(to_top,theme(colors.indigo.400),theme(colors.cyan.400),theme(colors.sky.500))_border-box] group-hover:opacity-100 dark:[--quick-links-hover-bg:theme(colors.slate.800)]" />
@@ -23,15 +23,15 @@ export const QuickLink: React.FC<{
         </p>
       </div>
     </div>
-  );
-};
+  )
+}
 
 export const QuickLinks: React.FC<{
-  children: React.ReactNode;
-}> = ({ children }) => {
+  children: React.ReactNode
+}> = ({children}) => {
   return (
     <div className="not-prose my-12 grid grid-cols-1 gap-6 sm:grid-cols-2">
       {children}
     </div>
-  );
-};
+  )
+}

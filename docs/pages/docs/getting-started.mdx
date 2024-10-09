@@ -1,5 +1,5 @@
-import { QuickLinks, QuickLink } from "@components/quick-link";
-import { Callout } from "@components/callout";
+import {QuickLinks, QuickLink} from '@components/quick-link'
+import {Callout} from '@components/callout'
 
 # Code-First GraphQL API Development
 
@@ -85,18 +85,18 @@ All further examples in this guide will use the Bun runtime. If you are using a 
 Here's an example of a basic Pylon service:
 
 ```typescript copy
-import { app } from "@getcronit/pylon";
+import {app} from '@getcronit/pylon'
 
 export const graphql = {
   Query: {
-    sum: (a: number, b: number) => a + b,
+    sum: (a: number, b: number) => a + b
   },
   Mutation: {
-    divide: (a: number, b: number) => a / b,
-  },
-};
+    divide: (a: number, b: number) => a / b
+  }
+}
 
-export default app;
+export default app
 ```
 
 <Callout type="note" title="Info">
@@ -185,25 +185,25 @@ Pylon can be used to build a wide range of applications, from simple APIs to com
 The following example fetches a list of starships from the Star Wars API using the `fetch` function:
 
 ```typescript copy
-import { app } from "@getcronit/pylon";
+import {app} from '@getcronit/pylon'
 
 interface Starship {
-  name: string;
-  model: string;
-  manufacturer: string;
+  name: string
+  model: string
+  manufacturer: string
 }
 
 export const graphql = {
   Query: {
     starships: async () => {
-      const response = await fetch("https://swapi.dev/api/starships/");
-      const data = await response.json();
-      return data.results as Starship[];
-    },
-  },
-};
+      const response = await fetch('https://swapi.dev/api/starships/')
+      const data = await response.json()
+      return data.results as Starship[]
+    }
+  }
+}
 
-export default app;
+export default app
 ```
 
 Now you can query the `starships` field in your GraphQL client to fetch a list of starships from the Star Wars API.
@@ -214,15 +214,15 @@ Although the fetch returns a much larger object, Pylon will only return the data
 The following example defines a simple mutation that adds two numbers together:
 
 ```typescript copy
-import { app } from "@getcronit/pylon";
+import {app} from '@getcronit/pylon'
 
 export const graphql = {
   Mutation: {
-    add: (a: number, b: number) => a + b,
-  },
-};
+    add: (a: number, b: number) => a + b
+  }
+}
 
-export default app;
+export default app
 ```
 
 This example defines a simple `add` mutation that takes two numbers as arguments and returns their sum.
@@ -234,60 +234,60 @@ The following example defines a custom Star Wars API using a class to manage a
 list of characters:
 
 ```typescript copy
-import { app } from "@getcronit/pylon";
+import {app} from '@getcronit/pylon'
 
 class StarWarsStore {
   private characters = [
-    { id: 1, name: "Luke Skywalker", height: 172 },
-    { id: 2, name: "Darth Vader", height: 202 },
-  ];
+    {id: 1, name: 'Luke Skywalker', height: 172},
+    {id: 2, name: 'Darth Vader', height: 202}
+  ]
 
   constructor() {
     // Bind methods in order to access `this`
-    this.getCharacter = this.getCharacter.bind(this);
-    this.getCharacters = this.getCharacters.bind(this);
-    this.addCharacter = this.addCharacter.bind(this);
-    this.deleteCharacter = this.deleteCharacter.bind(this);
+    this.getCharacter = this.getCharacter.bind(this)
+    this.getCharacters = this.getCharacters.bind(this)
+    this.addCharacter = this.addCharacter.bind(this)
+    this.deleteCharacter = this.deleteCharacter.bind(this)
   }
 
   getCharacter(id: number) {
-    return this.characters.find((character) => character.id === id);
+    return this.characters.find(character => character.id === id)
   }
 
   getCharacters() {
-    return this.characters;
+    return this.characters
   }
 
   addCharacter(name: string, height: number) {
-    const id = this.characters.length + 1;
-    this.characters.push({ id, name, height });
-    return { id, name, height };
+    const id = this.characters.length + 1
+    this.characters.push({id, name, height})
+    return {id, name, height}
   }
 
   deleteCharacter(id: number) {
-    const character = this.getCharacter(id);
+    const character = this.getCharacter(id)
     if (character) {
-      this.characters = this.characters.filter((c) => c.id !== id);
-      return character;
+      this.characters = this.characters.filter(c => c.id !== id)
+      return character
     }
-    return null;
+    return null
   }
 }
 
-const store = new StarWarsStore();
+const store = new StarWarsStore()
 
 export const graphql = {
   Query: {
     character: store.getCharacter,
-    characters: store.getCharacters,
+    characters: store.getCharacters
   },
   Mutation: {
     addCharacter: store.addCharacter,
-    deleteCharacter: store.deleteCharacter,
-  },
-};
+    deleteCharacter: store.deleteCharacter
+  }
+}
 
-export default app;
+export default app
 ```
 
 This example defines a custom Star Wars API with a `StarWarsStore` class that manages a list of characters.
@@ -301,15 +301,15 @@ You can define custom classes and interfaces to manage your data and use them in
 To show the power of Pylon, the next example returns the `Math` class of the JavaScript standard library:
 
 ```typescript copy
-import { app } from "@getcronit/pylon";
+import {app} from '@getcronit/pylon'
 
 export const graphql = {
   Mutation: {
-    math: Math,
-  },
-};
+    math: Math
+  }
+}
 
-export default app;
+export default app
 ```
 
 Now the `math` mutation will return the `Math` class of the JavaScript standard library, which contains a variety of mathematical constants and functions.
@@ -324,42 +324,42 @@ By default, Pylon masks all errors to prevent leaking sensitive information to t
 When using the `ServiceError` class, you can define custom error messages and status codes:
 
 ```typescript copy
-import { app, ServiceError } from "@getcronit/pylon";
+import {app, ServiceError} from '@getcronit/pylon'
 
 export const graphql = {
   Query: {
     throwError: () => {
-      throw new ServiceError("This is a custom error message", {
+      throw new ServiceError('This is a custom error message', {
         statusCode: 400,
-        code: "CUSTOM_ERROR",
-      });
-    },
-  },
-};
+        code: 'CUSTOM_ERROR'
+      })
+    }
+  }
+}
 
-export default app;
+export default app
 ```
 
 You can also use the `details` property to provide additional information about the error:
 
 ```typescript copy
-import { app, ServiceError } from "@getcronit/pylon";
+import {app, ServiceError} from '@getcronit/pylon'
 
 export const graphql = {
   Query: {
     throwError: () => {
-      throw new ServiceError("This is a custom error message", {
+      throw new ServiceError('This is a custom error message', {
         statusCode: 400,
-        code: "CUSTOM_ERROR",
+        code: 'CUSTOM_ERROR',
         details: {
-          foo: "bar",
-        },
-      });
-    },
-  },
-};
+          foo: 'bar'
+        }
+      })
+    }
+  }
+}
 
-export default app;
+export default app
 ```
 
 ## Getting Help

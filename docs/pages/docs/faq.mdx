@@ -1,4 +1,4 @@
-import { Callout } from "@components/callout";
+import {Callout} from '@components/callout'
 
 # Frequently Asked Questions
 
@@ -45,17 +45,17 @@ builder.queryType({
 **Pylon**:
 
 ```typescript
-import { app } from "@getcronit/pylon";
+import {app} from '@getcronit/pylon'
 
 export const graphql = {
   Query: {
     hello: (name: string) => {
-      return `hello, ${name || "World"}`;
-    },
-  },
-};
+      return `hello, ${name || 'World'}`
+    }
+  }
+}
 
-export default app;
+export default app
 ```
 
 The key difference is that in Pothos, you define the schema using TypeScript, allowing you to directly utilize those types in the resolvers.

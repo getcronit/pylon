@@ -1,8 +1,8 @@
-import { ArrowRightIcon } from "lucide-react";
-import Link from "next/link";
-import { ClipboardButton } from "./clipboard-button";
-import Logo from "./logo";
-import { Button } from "./ui/button";
+import {ArrowRightIcon} from 'lucide-react'
+import Link from 'next/link'
+import {ClipboardButton} from './clipboard-button'
+import Logo from './logo'
+import {Button} from './ui/button'
 
 export const Landing: React.FC = () => {
   return (
@@ -32,5 +32,5 @@ export const Landing: React.FC = () => {
         <ClipboardButton text="npm create pylon@latest" />
       </div>
     </div>
-  );
-};
+  )
+}

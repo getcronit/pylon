@@ -11,20 +11,20 @@ Pylon provides a decorator factory `createDecorator` that allows you to create c
 To create a decorator, you can use the `createDecorator` function from the `@getcronit/pylon` package. This function takes a callback function as an argument, which will be executed when the decorator is applied to a service function.
 
 ```typescript
-import { app, createDecorator } from "@getcronit/pylon";
+import {app, createDecorator} from '@getcronit/pylon'
 
 const log = createDecorator(async () => {
-  console.log("Executing service function");
-});
+  console.log('Executing service function')
+})
 
 class Foo {
   @log
   foo = async () => {
-    return "foo";
-  };
+    return 'foo'
+  }
 }
 
-export default app;
+export default app
 ```
 
 In this example, the `log` decorator logs a message when the `foo` service function is executed.
@@ -34,46 +34,46 @@ In this example, the `log` decorator logs a message when the `foo` service funct
 To apply a decorator to a service function, you can use the decorator syntax provided by TypeScript. Decorators can be applied to class methods, static methods, or properties.
 
 ```typescript
-import { app, createDecorator } from "@getcronit/pylon";
+import {app, createDecorator} from '@getcronit/pylon'
 
 const log = createDecorator(async () => {
-  console.log("Executing service function");
-});
+  console.log('Executing service function')
+})
 
 class Foo {
   @log
   foo = async () => {
-    return "foo";
-  };
+    return 'foo'
+  }
 
   @log
-  static bar = "bar";
+  static bar = 'bar'
 
   @log
   static baz() {
-    return "baz";
+    return 'baz'
   }
 
   @log
   static qux = () => {
-    return "qux";
-  };
+    return 'qux'
+  }
 
   @log
-  bar = "bar";
+  bar = 'bar'
 
   @log
   baz() {
-    return "baz";
+    return 'baz'
   }
 
   @log
   qux = () => {
-    return "qux";
-  };
+    return 'qux'
+  }
 }
 
-const foo = new Foo();
+const foo = new Foo()
 
 export const graphql = {
   Query: {
@@ -83,29 +83,29 @@ export const graphql = {
     staticQux: Foo.qux,
     instanceBar: foo.bar,
     instanceBaz: foo.baz,
-    instanceQux: foo.qux,
-  },
-};
+    instanceQux: foo.qux
+  }
+}
 
-export default app;
+export default app
 ```
 
 You can also apply decorators by calling the decorator function directly.
 
 ```typescript
-import { app, createDecorator } from "@getcronit/pylon";
+import {app, createDecorator} from '@getcronit/pylon'
 
 const log = createDecorator(async () => {
-  console.log("Executing service function");
-});
+  console.log('Executing service function')
+})
 
 export const graphql = {
   Query: {
     welcome: log((firstName: string, lastName: string) => {
-      return `Hello ${firstName} ${lastName}`;
-    }),
-  },
-};
+      return `Hello ${firstName} ${lastName}`
+    })
+  }
+}
 ```
 
 ## Arguments Validation
@@ -113,31 +113,31 @@ export const graphql = {
 You can use decorators to validate the arguments of a service function. This can be useful for enforcing e.g. password requirements.
 
 ```typescript
-import { app, createDecorator, ServiceError } from "@getcronit/pylon";
+import {app, createDecorator, ServiceError} from '@getcronit/pylon'
 
 const validatePassword = createDecorator(
   async (username: string, password: string) => {
     if (password.length < 8) {
-      throw new ServiceError("Password must be at least 8 characters long", {
-        code: "INVALID_PASSWORD",
-        statusCode: 400,
-      });
+      throw new ServiceError('Password must be at least 8 characters long', {
+        code: 'INVALID_PASSWORD',
+        statusCode: 400
+      })
     }
   }
-);
+)
 
 export const graphql = {
   Query: {
-    hello: "Hello World!",
+    hello: 'Hello World!'
   },
   Mutation: {
     login: validatePassword((username: string, password: string) => {
-      return `Welcome, ${username}!`;
-    }),
-  },
-};
+      return `Welcome, ${username}!`
+    })
+  }
+}
 
-export default app;
+export default app
 ```
 
 In this example, the `validatePassword` decorator checks if the password provided to the `login` service function is at least 8 characters long. If the password is too short, a `ServiceError` is thrown with a status code of 400.
@@ -148,36 +148,36 @@ All Hono middleware functions can be used inside decorators. This allows you to 
 For example, you can use the `basicAuth` middleware to require authentication for a service function.
 
 ```typescript
-import { app, createDecorator, getContext } from "@getcronit/pylon";
-import { basicAuth } from "hono/basic-auth";
+import {app, createDecorator, getContext} from '@getcronit/pylon'
+import {basicAuth} from 'hono/basic-auth'
 
 const authMiddleware = basicAuth({
-  username: "admin",
-  password: "password",
-});
+  username: 'admin',
+  password: 'password'
+})
 
 const requireBasicAuth = createDecorator(async () => {
-  const ctx = getContext();
+  const ctx = getContext()
 
   await basicAuth({
-    username: "admin",
-    password: "password",
-  })(ctx, async () => {});
-});
+    username: 'admin',
+    password: 'password'
+  })(ctx, async () => {})
+})
 
 export const graphql = {
   Query: {
     secure: requireBasicAuth(() => {
-      return "You are authenticated!";
-    }),
-  },
-};
+      return 'You are authenticated!'
+    })
+  }
+}
 
-app.get("/", authMiddleware, (c) => {
-  return new Response("Hello World");
-});
+app.get('/', authMiddleware, c => {
+  return new Response('Hello World')
+})
 
-export default app;
+export default app
 ```
 
 In this example, the `requireBasicAuth` decorator applies the `basicAuth` middleware to the `secure` service function, requiring the user to provide a username and password to access the function.

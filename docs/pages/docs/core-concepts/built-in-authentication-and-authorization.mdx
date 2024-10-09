@@ -1,4 +1,4 @@
-import { Callout } from "@components/callout";
+import {Callout} from '@components/callout'
 
 # Built-in Authentication and Authorization
 
@@ -30,25 +30,25 @@ Before diving into authentication and authorization with Pylon, it's essential t
 Pylon makes authentication seamless by providing a straightforward integration with ZITADEL. Here's how you can set up authentication in your Pylon project:
 
 ```typescript
-import { app, PylonAPI, auth, requireAuth } from "@getcronit/pylon";
+import {app, PylonAPI, auth, requireAuth} from '@getcronit/pylon'
 
 // Define your sensitive data service
 class SensitiveData {
   @requireAuth()
   static async getData() {
-    return "Sensitive Data";
+    return 'Sensitive Data'
   }
 }
 
 export const graphql = {
   Query: {
-    sensitiveData: SensitiveData.getData,
-  },
-};
+    sensitiveData: SensitiveData.getData
+  }
+}
 
-app.use("*", auth.initialize());
+app.use('*', auth.initialize())
 
-export default app;
+export default app
 ```
 
 In this example, the `requireAuth()` decorator ensures that users are authenticated before accessing sensitive data. You can also specify roles to restrict access to certain data based on user permissions.
@@ -63,23 +63,23 @@ Authorization in Pylon allows you to control access to specific resources based 
 // Define your sensitive data service
 class SensitiveData {
   @requireAuth({
-    roles: ["admin"],
+    roles: ['admin']
   })
   static async getAdminData() {
-    return "Admin Data";
+    return 'Admin Data'
   }
 }
 
 // Define your GraphQL schema
 export const graphql = {
   Query: {
-    sensitiveAdminData: SensitiveData.getAdminData,
-  },
-};
+    sensitiveAdminData: SensitiveData.getAdminData
+  }
+}
 
-app.use("*", auth.initialize());
+app.use('*', auth.initialize())
 
-export default app;
+export default app
 ```
 
 In this example, the `requireAuth()` decorator ensures that only authenticated users with the "admin" role can access the `getAdminData()` function. You can customize roles and permissions according to your application's requirements.
@@ -92,36 +92,36 @@ For more information on setting up roles in ZITADEL, refer to the [ZITADEL Roles
 Securing routes in Pylon involves enforcing authentication and, optionally, authorization for specific endpoints or routes. Here's how you can secure a route in your Pylon project:
 
 ```typescript
-import { defineService, PylonAPI, auth, requireAuth } from "@getcronit/pylon";
+import {defineService, PylonAPI, auth, requireAuth} from '@getcronit/pylon'
 
 // Define your sensitive data service
 class SensitiveData {
   static async getData() {
-    return "Sensitive Data";
+    return 'Sensitive Data'
   }
 
   @requireAuth({
-    roles: ["admin"],
+    roles: ['admin']
   })
   static async getAdminData() {
-    return "Admin Data";
+    return 'Admin Data'
   }
 }
 
 export const graphql = {
   Query: {
     sensitiveData: SensitiveData.getData,
-    sensitiveAdminData: SensitiveData.getAdminData,
-  },
-};
+    sensitiveAdminData: SensitiveData.getAdminData
+  }
+}
 
 // Enforce authentication for all routes
-app.use("*", auth.initialize());
+app.use('*', auth.initialize())
 
 // Secure a specific route with authentication and authorization
-app.use("/admin", auth.requireAuth({ roles: ["admin"] }));
+app.use('/admin', auth.requireAuth({roles: ['admin']}))
 
-export default app;
+export default app
 ```
 
 In this example, we're securing the `/admin` route to ensure that only authenticated users with the "admin" role can access it. By using the `requireAuth()` middleware from Pylon's authentication module, we enforce both authentication and authorization for this specific route.

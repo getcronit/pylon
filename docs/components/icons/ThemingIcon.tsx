@@ -1,9 +1,9 @@
-import { DarkMode, Gradient, LightMode } from "../icon";
+import {DarkMode, Gradient, LightMode} from '../icon'
 
 export const ThemingIcon: React.FC<{
-  id: string;
-  color: "blue" | "amber";
-}> = ({ id, color }) => {
+  id: string
+  color: 'blue' | 'amber'
+}> = ({id, color}) => {
   return (
     <>
       <defs>
@@ -58,5 +58,5 @@ export const ThemingIcon: React.FC<{
         />
       </DarkMode>
     </>
-  );
-};
+  )
+}

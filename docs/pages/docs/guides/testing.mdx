@@ -13,11 +13,11 @@ If you use `bun run dev`, while making changes to your application, the `.pylon/
 First, let's modify the `src/index.ts` file to set up a basic Pylon application with an empty posts array.
 
 ```typescript project="Pylon App" file="src/index.ts"
-import { app } from "@getcronit/pylon";
+import {app} from '@getcronit/pylon'
 
-const posts: { id: number; title: string; content: string }[] = [];
+const posts: {id: number; title: string; content: string}[] = []
 
-export default app;
+export default app
 ```
 
 This sets up the foundation for our Pylon application. We've imported the `app` from Pylon and initialized an empty `posts` array to store our blog posts.
@@ -27,28 +27,28 @@ This sets up the foundation for our Pylon application. We've imported the `app` 
 Now, let's implement the GraphQL query to fetch posts. Modify your `src/index.ts` file as follows:
 
 ```typescript project="Pylon App" file="src/index.ts"
-import { app } from "@getcronit/pylon";
+import {app} from '@getcronit/pylon'
 
-const posts: { id: number; title: string; content: string }[] = [
+const posts: {id: number; title: string; content: string}[] = [
   {
     id: 1,
-    title: "Hello, world!",
-    content: "This is the first post",
+    title: 'Hello, world!',
+    content: 'This is the first post'
   },
   {
     id: 2,
-    title: "Hello, Pylon!",
-    content: "This is the second post",
-  },
-];
+    title: 'Hello, Pylon!',
+    content: 'This is the second post'
+  }
+]
 
 export const graphql = {
   Query: {
-    posts,
-  },
-};
+    posts
+  }
+}
 
-export default app;
+export default app
 ```
 
 After making these changes, run the build command:
@@ -62,41 +62,41 @@ bun run build
 Create a new file named `pylon.test.ts` in your project root and add the following test:
 
 ```typescript project="Pylon App" file="pylon.test.ts"
-import { describe, expect, test } from "bun:test";
+import {describe, expect, test} from 'bun:test'
 // Make sure to run `bun run build` before running the tests
-import app from "./.pylon/index";
+import app from './.pylon/index'
 
-describe("GraphQL API", () => {
-  test("Query.posts", async () => {
-    const res = await app.request("/graphql", {
-      method: "POST",
+describe('GraphQL API', () => {
+  test('Query.posts', async () => {
+    const res = await app.request('/graphql', {
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        query: "query { posts { id title content } }",
-      }),
-    });
-    expect(res.status).toBe(200);
-    const data = await res.json<any>();
+        query: 'query { posts { id title content } }'
+      })
+    })
+    expect(res.status).toBe(200)
+    const data = await res.json<any>()
     expect(data).toEqual({
       data: {
         posts: [
           {
             id: 1,
-            title: "Hello, world!",
-            content: "This is the first post",
+            title: 'Hello, world!',
+            content: 'This is the first post'
           },
           {
             id: 2,
-            title: "Hello, Pylon!",
-            content: "This is the second post",
-          },
-        ],
-      },
-    });
-  });
-});
+            title: 'Hello, Pylon!',
+            content: 'This is the second post'
+          }
+        ]
+      }
+    })
+  })
+})
 ```
 
 Now, run the tests:
@@ -110,39 +110,39 @@ bun test
 Let's implement the GraphQL mutation to create posts. Update your `src/index.ts` file:
 
 ```typescript project="Pylon App" file="src/index.ts"
-import { app } from "@getcronit/pylon";
+import {app} from '@getcronit/pylon'
 
-const posts: { id: number; title: string; content: string }[] = [
+const posts: {id: number; title: string; content: string}[] = [
   {
     id: 1,
-    title: "Hello, world!",
-    content: "This is the first post",
+    title: 'Hello, world!',
+    content: 'This is the first post'
   },
   {
     id: 2,
-    title: "Hello, Pylon!",
-    content: "This is the second post",
-  },
-];
+    title: 'Hello, Pylon!',
+    content: 'This is the second post'
+  }
+]
 
 export const graphql = {
   Query: {
-    posts,
+    posts
   },
   Mutation: {
     createPost: (title: string, content: string) => {
       const post = {
         id: posts.length + 1,
         title,
-        content,
-      };
-      posts.push(post);
-      return post;
-    },
-  },
-};
+        content
+      }
+      posts.push(post)
+      return post
+    }
+  }
+}
 
-export default app;
+export default app
 ```
 
 After making these changes, run the build command again:
@@ -156,46 +156,46 @@ bun run build
 Add the following test to your `pylon.test.ts` file:
 
 ```typescript project="Pylon App" file="pylon.test.ts"
-import { describe, expect, test } from "bun:test";
+import {describe, expect, test} from 'bun:test'
 // Make sure to run `bun run build` before running the tests
-import app from "./.pylon/index";
+import app from './.pylon/index'
 
-describe("GraphQL API", () => {
-  test("Query.posts", async () => {
-    const res = await app.request("/graphql", {
-      method: "POST",
+describe('GraphQL API', () => {
+  test('Query.posts', async () => {
+    const res = await app.request('/graphql', {
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        query: "query { posts { id title content } }",
-      }),
-    });
-    expect(res.status).toBe(200);
-    const data = await res.json<any>();
+        query: 'query { posts { id title content } }'
+      })
+    })
+    expect(res.status).toBe(200)
+    const data = await res.json<any>()
     expect(data).toEqual({
       data: {
         posts: [
           {
             id: 1,
-            title: "Hello, world!",
-            content: "This is the first post",
+            title: 'Hello, world!',
+            content: 'This is the first post'
           },
           {
             id: 2,
-            title: "Hello, Pylon!",
-            content: "This is the second post",
-          },
-        ],
-      },
-    });
-  });
+            title: 'Hello, Pylon!',
+            content: 'This is the second post'
+          }
+        ]
+      }
+    })
+  })
 
-  test("Mutation.createPost", async () => {
-    const res = await app.request("/graphql", {
-      method: "POST",
+  test('Mutation.createPost', async () => {
+    const res = await app.request('/graphql', {
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         query: `
@@ -206,22 +206,22 @@ describe("GraphQL API", () => {
               content
             }
           }
-        `,
-      }),
-    });
-    expect(res.status).toBe(200);
-    const data = await res.json<any>();
+        `
+      })
+    })
+    expect(res.status).toBe(200)
+    const data = await res.json<any>()
     expect(data).toEqual({
       data: {
         createPost: {
           id: 3,
-          title: "New Post",
-          content: "This is a new post",
-        },
-      },
-    });
-  });
-});
+          title: 'New Post',
+          content: 'This is a new post'
+        }
+      }
+    })
+  })
+})
 ```
 
 Run the tests:
@@ -235,30 +235,30 @@ bun test
 Now, let's implement the REST API endpoint to fetch posts. Update your `src/index.ts` file:
 
 ```typescript project="Pylon App" file="src/index.ts"
-import { app } from "@getcronit/pylon";
+import {app} from '@getcronit/pylon'
 
-const posts: { id: number; title: string; content: string }[] = [
+const posts: {id: number; title: string; content: string}[] = [
   {
     id: 1,
-    title: "Hello, world!",
-    content: "This is the first post",
+    title: 'Hello, world!',
+    content: 'This is the first post'
   },
   {
     id: 2,
-    title: "Hello, Pylon!",
-    content: "This is the second post",
-  },
-];
+    title: 'Hello, Pylon!',
+    content: 'This is the second post'
+  }
+]
 
 export const graphql = {
   // ... (previous code remains unchanged)
-};
+}
 
-app.get("/posts", (c) => {
-  return c.json(posts);
-});
+app.get('/posts', c => {
+  return c.json(posts)
+})
 
-export default app;
+export default app
 ```
 
 After making these changes, run the build command:
@@ -272,38 +272,38 @@ bun run build
 Add the following test to your `pylon.test.ts` file:
 
 ```typescript project="Pylon App" file="pylon.test.ts"
-import { describe, expect, test } from "bun:test";
+import {describe, expect, test} from 'bun:test'
 // Make sure to run `bun run build` before running the tests
-import app from "./.pylon/index";
+import app from './.pylon/index'
 
-describe("GraphQL API", () => {
+describe('GraphQL API', () => {
   // ... (previous tests remains unchanged)
-});
+})
 
-describe("REST API", () => {
-  test("GET /posts", async () => {
-    const res = await app.request("/posts");
-    expect(res.status).toBe(200);
-    const data = await res.json<any>();
+describe('REST API', () => {
+  test('GET /posts', async () => {
+    const res = await app.request('/posts')
+    expect(res.status).toBe(200)
+    const data = await res.json<any>()
     expect(data).toEqual([
       {
         id: 1,
-        title: "Hello, world!",
-        content: "This is the first post",
+        title: 'Hello, world!',
+        content: 'This is the first post'
       },
       {
         id: 2,
-        title: "Hello, Pylon!",
-        content: "This is the second post",
+        title: 'Hello, Pylon!',
+        content: 'This is the second post'
       },
       {
         id: 3,
-        title: "New Post",
-        content: "This is a new post",
-      },
-    ]);
-  });
-});
+        title: 'New Post',
+        content: 'This is a new post'
+      }
+    ])
+  })
+})
 ```
 
 Run the tests:
@@ -317,62 +317,62 @@ bun test
 Finally, let's implement the REST API endpoint to create posts. Update your `src/index.ts` file:
 
 ```typescript project="Pylon App" file="src/index.ts"
-import { app } from "@getcronit/pylon";
+import {app} from '@getcronit/pylon'
 
-const posts: { id: number; title: string; content: string }[] = [
+const posts: {id: number; title: string; content: string}[] = [
   {
     id: 1,
-    title: "Hello, world!",
-    content: "This is the first post",
+    title: 'Hello, world!',
+    content: 'This is the first post'
   },
   {
     id: 2,
-    title: "Hello, Pylon!",
-    content: "This is the second post",
-  },
-];
+    title: 'Hello, Pylon!',
+    content: 'This is the second post'
+  }
+]
 
 export const graphql = {
   // ... (previous code remains unchanged)
-};
+}
 
-app.get("/posts", (c) => {
-  return c.json(posts);
-});
+app.get('/posts', c => {
+  return c.json(posts)
+})
 
-app.post("/posts", async (c) => {
-  let body: FormData;
+app.post('/posts', async c => {
+  let body: FormData
   try {
-    body = await c.req.formData();
+    body = await c.req.formData()
   } catch (e) {
-    return new Response("Invalid form data", {
-      status: 400,
-    });
+    return new Response('Invalid form data', {
+      status: 400
+    })
   }
 
-  const title = body.get("title")?.toString();
-  const content = body.get("content")?.toString();
+  const title = body.get('title')?.toString()
+  const content = body.get('content')?.toString()
 
   if (!title || !content) {
-    return new Response("Title and content are required", {
-      status: 400,
-    });
+    return new Response('Title and content are required', {
+      status: 400
+    })
   }
 
   const post = {
     id: posts.length + 1,
     title,
-    content,
-  };
+    content
+  }
 
-  posts.push(post);
+  posts.push(post)
 
   return c.json(post, 201, {
-    "X-Custom": "Thanks for creating!",
-  });
-});
+    'X-Custom': 'Thanks for creating!'
+  })
+})
 
-export default app;
+export default app
 ```
 
 After making these changes, run the build command:
@@ -386,89 +386,89 @@ bun run build
 Add the following tests to your `pylon.test.ts` file:
 
 ```typescript project="Pylon App" file="pylon.test.ts"
-import { describe, expect, test } from "bun:test";
+import {describe, expect, test} from 'bun:test'
 // Make sure to run `bun run build` before running the tests
-import app from "./.pylon/index";
+import app from './.pylon/index'
 
-describe("GraphQL API", () => {
+describe('GraphQL API', () => {
   // ... (previous tests remains unchanged)
-});
+})
 
-describe("REST API", () => {
-  test("GET /posts", async () => {
-    const res = await app.request("/posts");
-    expect(res.status).toBe(200);
-    const data = await res.json<any>();
+describe('REST API', () => {
+  test('GET /posts', async () => {
+    const res = await app.request('/posts')
+    expect(res.status).toBe(200)
+    const data = await res.json<any>()
     expect(data).toEqual([
       {
         id: 1,
-        title: "Hello, world!",
-        content: "This is the first post",
+        title: 'Hello, world!',
+        content: 'This is the first post'
       },
       {
         id: 2,
-        title: "Hello, Pylon!",
-        content: "This is the second post",
+        title: 'Hello, Pylon!',
+        content: 'This is the second post'
       },
       {
         id: 3,
-        title: "New Post",
-        content: "This is a new post",
-      },
-    ]);
-  });
+        title: 'New Post',
+        content: 'This is a new post'
+      }
+    ])
+  })
 
-  test("POST /posts - successful creation", async () => {
-    const formData = new FormData();
-    formData.append("title", "REST Post");
-    formData.append("content", "This post was created via REST");
+  test('POST /posts - successful creation', async () => {
+    const formData = new FormData()
+    formData.append('title', 'REST Post')
+    formData.append('content', 'This post was created via REST')
 
-    const res = await app.request("/posts", {
-      method: "POST",
-      body: formData,
-    });
+    const res = await app.request('/posts', {
+      method: 'POST',
+      body: formData
+    })
 
-    expect(res.status).toBe(201);
-    const data = await res.json<any>();
+    expect(res.status).toBe(201)
+    const data = await res.json<any>()
     expect(data).toEqual({
       id: 4,
-      title: "REST Post",
-      content: "This post was created via REST",
-    });
-    expect(res.headers.get("X-Custom")).toBe("Thanks for creating!");
-  });
+      title: 'REST Post',
+      content: 'This post was created via REST'
+    })
+    expect(res.headers.get('X-Custom')).toBe('Thanks for creating!')
+  })
 
-  test("POST /posts - missing title", async () => {
-    const formData = new FormData();
-    formData.append("content", "This post has no title");
+  test('POST /posts - missing title', async () => {
+    const formData = new FormData()
+    formData.append('content', 'This post has no title')
 
-    const res = await app.request("/posts", {
-      method: "POST",
-      body: formData,
-    });
+    const res = await app.request('/posts', {
+      method: 'POST',
+      body: formData
+    })
 
-    expect(res.status).toBe(400);
-    const text = await res.text();
-    expect(text).toBe("Title and content are required");
-  });
+    expect(res.status).toBe(400)
+    const text = await res.text()
+    expect(text).toBe('Title and content are required')
+  })
 
-  test("POST /posts - invalid form data", async () => {
-    const res = await app.request("/posts", {
-      method: "POST",
+  test('POST /posts - invalid form data', async () => {
+    const res = await app.request('/posts', {
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        title: "Invalid Post",
-        content: "This post uses JSON instead of form data",
-      }),
-    });
+        title: 'Invalid Post',
+        content: 'This post uses JSON instead of form data'
+      })
+    })
 
-    expect(res.status).toBe(400);
-    const text = await res.text();
-    expect(text).toBe("Invalid form data");
-  });
-});
+    expect(res.status).toBe(400)
+    const text = await res.text()
+    expect(text).toBe('Invalid form data')
+  })
+})
 ```
 
 Run the tests:
