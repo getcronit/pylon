@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Generated with `npm create pylon`",
   "scripts": {
-    "dev": "pylon dev -c 'node --enable-source-maps .pylon/index.js'",
+    "dev": "pylon dev -c \"node --enable-source-maps .pylon/index.js\"",
     "build": "pylon build"
   },
   "dependencies": {
