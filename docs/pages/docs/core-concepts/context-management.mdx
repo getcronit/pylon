@@ -13,22 +13,22 @@ Pylon leverages [Hono](https://hono.dev/), a fast and lightweight web framework,
 The `app` instance in Pylon represents the Hono application and provides a central point for defining routes, middleware, and other application-specific configurations. By accessing the `app` instance, you can define custom logic and behavior tailored to your application's requirements.
 
 ```typescript
-import { app, PylonAPI } from "@getcronit/pylon";
+import {app, PylonAPI} from '@getcronit/pylon'
 
 export const graphql = {
   Query: {
-    sum: (a: number, b: number) => a + b,
+    sum: (a: number, b: number) => a + b
   },
   Mutation: {
-    divide: (a: number, b: number) => a / b,
-  },
-};
+    divide: (a: number, b: number) => a / b
+  }
+}
 
-app.get("/hello", (ctx, next) => {
-  return new Response("Hello, world!");
-});
+app.get('/hello', (ctx, next) => {
+  return new Response('Hello, world!')
+})
 
-export default app;
+export default app
 ```
 
 ### Custom Routes and Middleware
@@ -36,9 +36,9 @@ export default app;
 By utilizing the `app` instance, you can define custom routes and middleware to handle incoming requests and implement additional functionality. This allows you to customize your application's behavior and extend its capabilities as needed.
 
 ```typescript
-app.get("/hello", (ctx, next) => {
-  return new Response("Hello, world!");
-});
+app.get('/hello', (ctx, next) => {
+  return new Response('Hello, world!')
+})
 ```
 
 For more detailed information on utilizing the Hono app instance, refer to the [Hono documentation](https://hono.dev/getting-started/basic).
@@ -52,24 +52,24 @@ Service functions in Pylon often require access to request-specific data or cont
 The `getContext` function from the `@getcronit/pylon` package enables service functions to access the request context. This includes request headers, parameters, and other relevant information necessary for processing incoming requests.
 
 ```typescript
-import { app, getContext } from "@getcronit/pylon";
+import {app, getContext} from '@getcronit/pylon'
 
 export const graphql = {
   Query: {
     protected: () => {
-      const ctx = getContext();
-      const header = ctx.req.header("X-API-Key");
+      const ctx = getContext()
+      const header = ctx.req.header('X-API-Key')
 
-      if (header !== "secret") {
-        return new Response("Unauthorized", { status: 401 });
+      if (header !== 'secret') {
+        return new Response('Unauthorized', {status: 401})
       }
 
-      return new Response("The secret is safe with me!");
-    },
-  },
-};
+      return new Response('The secret is safe with me!')
+    }
+  }
+}
 
-export default app;
+export default app
 ```
 
 ### `getEnv` Function
@@ -78,20 +78,45 @@ Depending on your runtime enviroment, handling enviroment variables might differ
 Pylon provides the `getEnv` function to access enviroment variables in a runtime-agnostic way.
 
 ```typescript
-import { getEnv } from "@getcronit/pylon";
+import {getEnv} from '@getcronit/pylon'
 
 export const graphql = {
   Query: {
     secret: () => {
-      const secret = getEnv().SECRET_KEY;
+      const secret = getEnv().SECRET_KEY
 
-      return new Response(`The secret key is: ${secret}`);
-    },
-  },
-};
+      return new Response(`The secret key is: ${secret}`)
+    }
+  }
+}
 
-export default app;
+export default app
 ```
+
+### Custom Bindings & Variables
+
+Pylon allows you to define custom bindings and variables types to store sensitive data or request-specific information. By defining custom bindings and variables, you can securely store and access data within your application.
+
+```typescript
+// pylon.d.ts
+import '@getcronit/pylon'
+
+declare module '@getcronit/pylon' {
+  interface Bindings {
+    SECRET_KEY: string
+  }
+
+  interface Variables {
+    userId: string
+  }
+}
+```
+
+```env
+SECRET_KEY=supersecret
+```
+
+For more information on custom bindings and variables, refer to the [Pylon documentation](../guides/bindings-and-variables.mdx).
 
 ### Handling Authorization Logic
 

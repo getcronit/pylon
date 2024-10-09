@@ -1,0 +1,134 @@
+# Bindings & Variables
+
+In this guide, you will learn how to use bindings and variables in your Pylon project.
+
+## pylon.d.ts
+
+The `pylon.d.ts` file is a TypeScript declaration file that provides type definitions for the Pylon. It is automatically included in your project when you have created
+your project using `npm create pylon@latest`.
+If your project does not have the `pylon.d.ts` file yey, you can set it up manually by creating a new file in the root of your project and naming it `pylon.d.ts`.
+
+```typescript
+// pylon.d.ts
+import '@getcronit/pylon'
+
+declare module '@getcronit/pylon' {
+  interface Bindings {}
+
+  interface Variables {}
+}
+```
+
+You also need to add the `pylon.d.ts` file to the `include` array in your `tsconfig.json` file.
+
+```json
+{
+  "include": ["pylon.d.ts", "src/**/*.ts"]
+}
+```
+
+**Note:** The `Bindings` and `Variables` interfaces are empty by default. You can add your own bindings and variables to them.
+
+## Bindings
+
+You can think of bindings as a different term for environment variables that are used in your project. Bindings are used to store sensitive information like API keys, database URLs, etc.
+
+```typescript
+// src/index.ts
+import {app, getContext} from '@getcronit/pylon'
+
+export const graphql = {
+  hello: () => {
+    const ctx = getContext()
+
+    const secret = ctx.env.SECRET
+
+    const authHeader = ctx.req.header('Authorization')
+
+    if (authHeader !== secret) {
+      return 'You are not authorized'
+    }
+
+    return 'You are authorized'
+  }
+}
+```
+
+In the example above, we are using the `SECRET` binding to authenticate the user. If the `Authorization` header does not match the `SECRET` binding, we throw an error.
+
+In the `pylon.d.ts` file, you can add your bindings like this:
+
+```typescript
+// pylon.d.ts
+import '@getcronit/pylon'
+
+declare module '@getcronit/pylon' {
+  interface Bindings {
+    SECRET: string
+  }
+
+  interface Variables {}
+}
+```
+
+**Important:** Make sure to add the `SECRET` binding to your environment. This can differ depeding on your runtime environment. Most of the time, you can add the binding to your `.env` file.
+
+```env
+SECRET=your-secret
+```
+
+## Variables
+
+Variables are used to store date inside the request context. Set variables are then available everywhere during the request lifecycle.
+
+```typescript
+// src/index.ts
+
+import {app, getContext} from '@getcronit/pylon'
+
+export const graphql = {
+  hello: () => {
+    const ctx = getContext()
+
+    const user = ctx.get('user')
+
+    if (!user) {
+      return 'Hello Stranger'
+    }
+
+    return `Hello ${user}`
+  }
+}
+
+app.use(async (ctx, next) => {
+  // This middleware is executed before the `hello` resolver
+
+  const authHeader = ctx.req.header('Authorization')
+  const secret = ctx.env.SECRET
+
+  if (authHeader === secret) {
+    ctx.set('user', 'John Doe')
+  }
+
+  await next()
+})
+```
+
+In the example above, we are setting the `user` variable in the request context. The `user` variable is then available in the `hello` resolver.
+
+In the `pylon.d.ts` file, you can add your variables like this:
+
+```typescript
+// pylon.d.ts
+import '@getcronit/pylon'
+
+declare module '@getcronit/pylon' {
+  interface Bindings {
+    SECRET: string
+  }
+
+  interface Variables {
+    user?: string
+  }
+}
+```
