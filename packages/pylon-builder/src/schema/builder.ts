@@ -25,7 +25,7 @@ export class SchemaBuilder {
     const sourceFiles = this.program.getSourceFiles()
 
     const file = sourceFiles.find(
-      file => file.fileName === path.resolve(this.sfiFilePath)
+      file => path.resolve(file.fileName) === this.sfiFilePath
     )
 
     if (!file) {
