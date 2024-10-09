@@ -6,7 +6,6 @@ import esbuildPluginTsc from 'esbuild-plugin-tsc'
 
 import path from 'path'
 import consola from 'consola'
-import {rimrafSync} from 'rimraf'
 
 export interface BundlerBuildOptions {
   getTypeDefs: () => string
@@ -74,11 +73,6 @@ export class Bundler {
 
       const inputPath = path.join(process.cwd(), this.sfiFilePath)
       const dir = path.join(process.cwd(), this.outputDir)
-
-      // Delete the output directory if it exists
-      if (fs.existsSync(dir)) {
-        rimrafSync(dir)
-      }
 
       const output = await build({
         logLevel: 'silent',
