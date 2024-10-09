@@ -40,7 +40,7 @@ export class Bundler {
         name: 'inject-code',
         setup(build) {
           build.onLoad(
-            {filter: /\/src\/index\.ts$/, namespace: 'file'},
+            {filter: /(\/src\/index\.ts|\\src\\index\.ts)$/, namespace: 'file'},
             async args => {
               const contents = await fs.promises.readFile(args.path, 'utf-8')
 
