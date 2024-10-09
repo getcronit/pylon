@@ -23,7 +23,10 @@ export class SchemaBuilder {
 
   private loadSfi() {
     const sourceFiles = this.program.getSourceFiles()
-    const file = sourceFiles.find(file => file.fileName === this.sfiFilePath)
+
+    const file = sourceFiles.find(
+      file => file.fileName === path.resolve(this.sfiFilePath)
+    )
 
     if (!file) {
       throw new Error('Could not find index.ts (pylon entrypoint)')
