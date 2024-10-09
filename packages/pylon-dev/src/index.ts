@@ -83,7 +83,9 @@ async function main(options: ArgOptions, command: Command) {
       })
     }
 
-    currentProc = spawn(options.command, {
+    const [commandName, ...args] = options.command.split(' ')
+
+    currentProc = spawn(commandName, args, {
       shell: true,
       stdio: 'inherit',
       env: {
