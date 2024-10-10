@@ -1,11 +1,10 @@
 # vercel-pull-request.yml
 name: Create vercel preview URL on pull request
 on:
-  workflow_run:
-    workflows:
-      - acceptance
-    types:
-      - completed
+  pull_request_target:
+    types: [labeled]
+    branches:
+      - main
 jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
