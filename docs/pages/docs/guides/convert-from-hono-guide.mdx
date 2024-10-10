@@ -8,7 +8,7 @@ A guide on how to convert your existing Hono REST service into a GraphQL API, In
 </Authors>
 
 ### Prerequisites
- * Bun or NPM installed on your machine
+ * Bun or Node installed on your machine
  * An existing HonoJS application
 
 ### Step 1: Set Up Your HonoJS Service
@@ -21,7 +21,7 @@ const app = new Hono()
 const getUserById = async (id: string) => ({
   id,
   name: 'John Doe',
-  email: `@example.com">@example.com">john.doe${id}@example.com`,
+  email: `john.doe${id}@example.com`,
   age: 30,
   posts: ['1', '2']
 })
@@ -83,12 +83,12 @@ This service includes endpoints to:
  * An additional route you might want to keep (`POST /post`)
 
 ### Step 2: Install Pylon Dependencies
-#### Bun:
+**Bun:**
 ```sh
 bun add -D @getcronit/pylon-dev
 bun add @getcronit/pylon
 ```
-#### npm:
+**Node**:
 ```sh
 npm install --save-dev @getcronit/pylon-dev
 bun add @getcronit/pylon
@@ -96,14 +96,14 @@ bun add @getcronit/pylon
 
 ### Step 3: Update `package.json` Scripts
 Add the following scripts to your `package.json`:
-#### Bun:
+**Bun:**
 ```json
 "scripts": {
   "dev": "pylon dev -c 'bun run .pylon/index.js'",
   "build": "pylon build"
 }
 ```
-#### npm:
+**Node**:
 ```json
 "scripts": {
   "dev": "pylon dev -c \"node --enable-source-maps .pylon/index.js\"",
@@ -129,7 +129,7 @@ This declaration file provides type definitions for Pylon.
 
 ### Step 5: Update `tsconfig.json`
 Modify your `tsconfig.json` to extend Pylon's TypeScript configuration:
-#### Bun:
+**Bun:**
 ```json
 {
   "extends": "@getcronit/pylon/tsconfig.pylon.json",
@@ -139,7 +139,7 @@ Modify your `tsconfig.json` to extend Pylon's TypeScript configuration:
   "include": ["pylon.d.ts", "src/**/*.ts"]
 }
 ```
-#### npm:
+**Node**:
 ```json
 {
   "extends": "@getcronit/pylon/tsconfig.pylon.json",
@@ -152,8 +152,8 @@ Add `.pylon` to your `.gitignore` to exclude the Pylon build directory:
 
 ### Step 7: (Optional) Add a `Dockerfile`
 If you plan to containerize your application, you can add the following `Dockerfile`:
-#### Bun:
-```Dockerfile
+**Bun:**
+```docker
 # use the official Bun image
 # see all versions at https://hub.docker.com/r/oven/bun/tags
 FROM oven/bun:1 as base
@@ -201,8 +201,8 @@ USER bun
 EXPOSE 3000/tcp
 ENTRYPOINT [ "bun", "run", "/usr/src/pylon/.pylon/index.js" ]
 ```
-#### npm:
-```Dockerfile
+**Node**:
+```docker
 # Use the official Node.js 20 image as the base
 FROM node:20-alpine as base
 
@@ -350,11 +350,11 @@ app.post('/post', (c) => {
 
 ### Step 13: Run Your Application
 You're all set! Start your development server with:
-#### Bun:
+**Bun:**
 ```sh
 bun run dev
 ```
-#### npm:
+**Node**:
 ```sh
 npm run dev
 ```
