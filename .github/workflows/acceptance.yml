@@ -1,0 +1,12 @@
+# acceptance.yml
+name: acceptance
+on:
+  pull_request:
+    branches:
+      - main
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Display future acceptance tests message
+        run: echo "There will be acceptance tests in the future."
