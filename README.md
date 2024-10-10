@@ -84,7 +84,7 @@ export default app
 Pylon is fully compatible with Cloudflare Workers, allowing you to deploy your service to the edge in just one minute.
 Watch the video below to see how easy it is to deploy a Pylon.
 
-![Cloudflare Workers](https://github.com/user-attachments/assets/9630be4c-1d90-430b-8742-e97477dd25ee)
+![Cloudflare Workers](https://github.com/user-attachments/assets/8e9f96a7-47e3-4c66-8426-fe09329de598)
 
 
 
