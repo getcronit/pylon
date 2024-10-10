@@ -1,6 +1,6 @@
 import Authors, {Author} from '@components/authors'
 
-# Convert Your Hono REST Service to GraphQL Using Pylon
+# Convert Hono REST to GraphQL
 A guide on how to convert your existing Hono REST service into a GraphQL API, In this guide, we'll walk you through the process of transforming your HonoJS application into a GraphQL service using Pylon.
 
 <Authors date="October 10th, 2024">
@@ -11,7 +11,7 @@ A guide on how to convert your existing Hono REST service into a GraphQL API, In
  * Bun or Node installed on your machine
  * An existing HonoJS application
 
-### Step 1: Set Up Your HonoJS Service
+### Set Up Your HonoJS Service
 Let's start with a simple HonoJS service. Here's an example `index.ts` file (using Bun):
 
 ```typescript project="my-pylon" file="src/index.ts"
@@ -82,7 +82,7 @@ This service includes endpoints to:
  * Create a new blog (`POST /blogs`)
  * An additional route you might want to keep (`POST /post`)
 
-### Step 2: Install Pylon Dependencies
+### Install Pylon Dependencies
 **Bun:**
 ```sh
 bun add -D @getcronit/pylon-dev
@@ -94,7 +94,7 @@ npm install --save-dev @getcronit/pylon-dev
 bun add @getcronit/pylon
 ```
 
-### Step 3: Update `package.json` Scripts
+### Update `package.json` Scripts
 Add the following scripts to your `package.json`:
 **Bun:**
 ```json
@@ -113,7 +113,7 @@ Add the following scripts to your `package.json`:
  * `dev`: Runs the Pylon development server.
  * `build`: Builds the Pylon project.
 
-### Step 4: Create `pylon.d.ts`
+### Create `pylon.d.ts`
 Create a file named `pylon.d.ts` in your project root with the following content:
 ```typescript
 import '@getcronit/pylon'
@@ -127,7 +127,7 @@ declare module '@getcronit/pylon' {
 This declaration file provides type definitions for Pylon.
 > **Note:** For more information on using bindings and variables in Pylon, read [Bindings & Variables](https://pylon.cronit.io/docs/guides/bindings-and-variables).
 
-### Step 5: Update `tsconfig.json`
+### Update `tsconfig.json`
 Modify your `tsconfig.json` to extend Pylon's TypeScript configuration:
 **Bun:**
 ```json
@@ -147,10 +147,10 @@ Modify your `tsconfig.json` to extend Pylon's TypeScript configuration:
 }
 ```
 
-### Step 6: Update `.gitignore`
+### Update `.gitignore`
 Add `.pylon` to your `.gitignore` to exclude the Pylon build directory:
 
-### Step 7: (Optional) Add a `Dockerfile`
+### Add a `Dockerfile` (Optional)
 If you plan to containerize your application, you can add the following `Dockerfile`:
 **Bun:**
 ```docker
@@ -251,7 +251,7 @@ ENTRYPOINT [ "node", "/usr/src/pylon/.pylon/index.js" ]
 ```
 This Dockerfile builds your Pylon application and sets up the environment for production.
 
-### Step 8: Verify Your Directory Structure
+### Verify Your Directory Structure
 Your project directory should now look like this:
 ```
 my-pylon
@@ -269,19 +269,19 @@ my-pylon
 ```
 > **Important!** Index.ts must be directly under src!
 
-### Step 9: Replace Hono with Pylon
+### Replace Hono with Pylon
 In your `src/index.ts`, replace the Hono imports and initialization:
-#### Original Code
+**Original Code**
 ```typescript
 import { Hono } from 'hono'
 const app = new Hono()
 ```
-#### Updated Code
+**Updated Code**
 ```typescript
 import {app} from '@getcronit/pylon'
 ```
 
-### Step 10: Add Type Definitions
+### Add Type Definitions
 Define types for `User` and `Blog`:
 ```typescript
 type User = {
@@ -301,9 +301,9 @@ type Blog = {
 }
 ```
 
-### Step 11: Convert REST Endpoints to GraphQL Resolvers
+### Convert REST Endpoints to GraphQL Resolvers
 Replace your REST endpoints with GraphQL resolvers using Pylon.
-#### Original REST Endpoints
+**Original REST Endpoints**
 ```typescript
 app.get('/users', async (c) => {
   // ...existing code
@@ -317,7 +317,7 @@ app.post('/blogs', async (c) => {
   // ...existing code
 })
 ```
-#### New GraphQL Resolvers
+**New GraphQL Resolvers**
 ```typescript
 export const graphql = {
   Query: {
@@ -340,7 +340,7 @@ export const graphql = {
  * **Mutation Resolvers:** The `Mutation` object contains resolver functions for operations that modify data.
 By exporting `graphql`, Pylon automatically sets up the GraphQL schema based on the provided resolvers.
 
-### Step 12: Keep Existing REST Routes (Optional)
+### Keep Existing REST Routes (Optional)
 If you have existing REST routes that you want to retain, you can keep them unchanged:
 ```typescript
 app.post('/post', (c) => {
@@ -348,7 +348,7 @@ app.post('/post', (c) => {
 })
 ```
 
-### Step 13: Run Your Application
+### Run Your Application
 You're all set! Start your development server with:
 **Bun:**
 ```sh
