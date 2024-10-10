@@ -14,6 +14,8 @@ jobs:
       repository-projects: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
       - uses: amondnet/vercel-action@v20
         id: vercel-deploy
         with:
