@@ -86,10 +86,6 @@ Watch the video below to see how easy it is to deploy a Pylon.
 
 ![Cloudflare Workers](https://github.com/user-attachments/assets/8e9f96a7-47e3-4c66-8426-fe09329de598)
 
-
-
-
-
 If you prefer to deploy your service to a different platform, you can use the provided Dockerfile to build a Docker image and deploy it to your favorite cloud provider.
 
 ```bash
