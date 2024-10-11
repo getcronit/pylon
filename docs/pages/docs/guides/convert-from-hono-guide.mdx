@@ -1,0 +1,366 @@
+import Authors, {Author} from '@components/authors'
+
+# Convert Hono REST to GraphQL
+A guide on how to convert your existing Hono REST service into a GraphQL API, In this guide, we'll walk you through the process of transforming your HonoJS application into a GraphQL service using Pylon.
+
+<Authors date="October 10th, 2024">
+  <Author name="Orel Shriki" link="https://github.com/OrelStudio" />
+</Authors>
+
+### Prerequisites
+ * Bun or Node installed on your machine
+ * An existing HonoJS application
+
+### Set Up Your HonoJS Service
+Let's start with a simple HonoJS service. Here's an example `index.ts` file (using Bun):
+
+```typescript project="my-pylon" file="src/index.ts"
+import { Hono } from 'hono'
+const app = new Hono()
+
+const getUserById = async (id: string) => ({
+  id,
+  name: 'John Doe',
+  email: `john.doe${id}@example.com`,
+  age: 30,
+  posts: ['1', '2']
+})
+const getBlogById = async (id: string) => ({
+  id,
+  title: 'Hello World',
+  content: 'This is a blog post',
+  authorId: '1'
+})
+const createBlog = async (id: string, title: string, content: string, authorId: string) => ({
+  id,
+  title,
+  content,
+  authorId
+})
+
+app.get('/users', async(c) => {
+  const id = c.req.query('id')
+  if (!id) {
+    c.status(400)
+    return c.json({})
+  }
+  const user = await getUserById(id)
+  return c.json(user)
+})
+
+app.get('/blog', async(c) => {
+  const id = c.req.query('id')
+  if (!id) {
+    c.status(400)
+    return c.json({})
+  }
+  const blog = await getBlogById(id)
+  return c.json(blog)
+})
+
+app.post('/blogs', async(c) => {
+  const {title, content, authorId} = await c.req.json()
+  if (!title || !content || !authorId) {
+    c.status(400)
+    return c.json({})
+  }
+  const blog = await createBlog('1', title, content, authorId)
+  c.status(201)
+  return c.json(blog)
+})
+
+app.post('/post', (c) => {
+  return c.json({message: 'a route that you want to keep'})
+})
+
+export default app
+```
+
+This service includes endpoints to:
+ * Fetch a user by ID (`GET /users`)
+ * Fetch a blog by ID (`GET /blog`)
+ * Create a new blog (`POST /blogs`)
+ * An additional route you might want to keep (`POST /post`)
+
+### Install Pylon Dependencies
+**Bun:**
+```sh
+bun add -D @getcronit/pylon-dev
+bun add @getcronit/pylon
+```
+**Node**:
+```sh
+npm install --save-dev @getcronit/pylon-dev
+bun add @getcronit/pylon
+```
+
+### Update `package.json` Scripts
+Add the following scripts to your `package.json`:
+**Bun:**
+```json
+"scripts": {
+  "dev": "pylon dev -c 'bun run .pylon/index.js'",
+  "build": "pylon build"
+}
+```
+**Node**:
+```json
+"scripts": {
+  "dev": "pylon dev -c \"node --enable-source-maps .pylon/index.js\"",
+  "build": "pylon build"
+}
+```
+ * `dev`: Runs the Pylon development server.
+ * `build`: Builds the Pylon project.
+
+### Create `pylon.d.ts`
+Create a file named `pylon.d.ts` in your project root with the following content:
+```typescript
+import '@getcronit/pylon'
+
+declare module '@getcronit/pylon' {
+  interface Bindings {}
+
+  interface Variables {}
+}
+```
+This declaration file provides type definitions for Pylon.
+> **Note:** For more information on using bindings and variables in Pylon, read [Bindings & Variables](./bindings-and-variables.mdx).
+
+### Update `tsconfig.json`
+Modify your `tsconfig.json` to extend Pylon's TypeScript configuration:
+**Bun:**
+```json
+{
+  "extends": "@getcronit/pylon/tsconfig.pylon.json",
+  "compilerOptions": {
+    "types": ["bun-types"]
+  },
+  "include": ["pylon.d.ts", "src/**/*.ts"]
+}
+```
+**Node**:
+```json
+{
+  "extends": "@getcronit/pylon/tsconfig.pylon.json",
+  "include": ["pylon.d.ts", "src/**/*.ts"]
+}
+```
+
+### Update `.gitignore`
+Add `.pylon` to your `.gitignore` to exclude the Pylon build directory:
+
+### Add a `Dockerfile` (Optional)
+If you plan to containerize your application, you can add the following `Dockerfile`:
+**Bun:**
+```docker
+# use the official Bun image
+# see all versions at https://hub.docker.com/r/oven/bun/tags
+FROM oven/bun:1 as base
+
+LABEL description="Offical docker image for Pylon services (Bun)"
+LABEL org.opencontainers.image.source="https://github.com/getcronit/pylon"
+LABEL maintainer="office@cronit.io"
+
+WORKDIR /usr/src/pylon
+
+# install dependencies into temp directory
+# this will cache them and speed up future builds
+FROM base AS install
+RUN mkdir -p /temp/dev
+COPY package.json bun.lockb /temp/dev/
+RUN cd /temp/dev && bun install --frozen-lockfile
+
+# install with --production (exclude devDependencies)
+RUN mkdir -p /temp/prod
+COPY package.json bun.lockb /temp/prod/
+RUN cd /temp/prod && bun install --frozen-lockfile --production
+
+# copy node_modules from temp directory
+# then copy all (non-ignored) project files into the image
+FROM install AS prerelease
+COPY --from=install /temp/dev/node_modules node_modules
+COPY . .
+
+# [optional] tests & build
+ENV NODE_ENV=production
+
+# Create .pylon folder (mkdir)
+RUN mkdir -p .pylon
+# RUN bun test
+RUN bun run pylon build
+
+# copy production dependencies and source code into final image
+FROM base AS release
+COPY --from=install /temp/prod/node_modules node_modules
+COPY --from=prerelease /usr/src/pylon/.pylon .pylon
+COPY --from=prerelease /usr/src/pylon/package.json .
+
+# run the app
+USER bun
+EXPOSE 3000/tcp
+ENTRYPOINT [ "bun", "run", "/usr/src/pylon/.pylon/index.js" ]
+```
+**Node**:
+```docker
+# Use the official Node.js 20 image as the base
+FROM node:20-alpine as base
+
+LABEL description="Offical docker image for Pylon services (Node.js)"
+LABEL org.opencontainers.image.source="https://github.com/getcronit/pylon"
+LABEL maintainer="office@cronit.io"
+
+WORKDIR /usr/src/pylon
+
+# install dependencies into a temp directory
+# this will cache them and speed up future builds
+FROM base AS install
+RUN mkdir -p /temp/dev
+COPY package.json package-lock.json /temp/dev/
+RUN cd /temp/dev && npm ci
+
+# install with --production (exclude devDependencies)
+RUN mkdir -p /temp/prod
+COPY package.json package-lock.json /temp/prod/
+RUN cd /temp/prod && npm ci --only=production
+
+# copy node_modules from temp directory
+# then copy all (non-ignored) project files into the image
+FROM install AS prerelease
+COPY --from=install /temp/dev/node_modules node_modules
+COPY . .
+
+# [optional] tests & build
+ENV NODE_ENV=production
+
+# Create .pylon folder (mkdir)
+RUN mkdir -p .pylon
+# RUN npm test
+RUN npm run pylon build
+
+# copy production dependencies and source code into final image
+FROM base AS release
+COPY --from=install /temp/prod/node_modules node_modules
+COPY --from=prerelease /usr/src/pylon/.pylon .pylon
+COPY --from=prerelease /usr/src/pylon/package.json .
+
+# run the app
+USER node
+EXPOSE 3000/tcp
+ENTRYPOINT [ "node", "/usr/src/pylon/.pylon/index.js" ]
+```
+This Dockerfile builds your Pylon application and sets up the environment for production.
+
+### Verify Your Directory Structure
+Your project directory should now look like this:
+```
+my-pylon
+│
+├── .dockerignore
+├── .gitignore
+├── bun.lockb
+├── Dockerfile
+├── package.json
+├── pylon.d.ts
+├── tsconfig.json
+│
+└───src
+    └──index.ts
+```
+> **Important!** Index.ts must be directly under src!
+
+### Replace Hono with Pylon
+In your `src/index.ts`, replace the Hono imports and initialization:
+**Original Code**
+```typescript
+import { Hono } from 'hono'
+const app = new Hono()
+```
+**Updated Code**
+```typescript
+import {app} from '@getcronit/pylon'
+```
+
+### Add Type Definitions
+Define types for `User` and `Blog`:
+```typescript
+type User = {
+  id: string
+  name: string
+  email: string
+  age: number
+  posts: string[]
+  blogs: () => Promise<Blog[]>
+}
+
+type Blog = {
+  id: string
+  title: string
+  content: string
+  authorId: string
+}
+```
+
+### Convert REST Endpoints to GraphQL Resolvers
+Replace your REST endpoints with GraphQL resolvers using Pylon.
+**Original REST Endpoints**
+```typescript
+app.get('/users', async (c) => {
+  // ...existing code
+})
+
+app.get('/blog', async (c) => {
+  // ...existing code
+})
+
+app.post('/blogs', async (c) => {
+  // ...existing code
+})
+```
+**New GraphQL Resolvers**
+```typescript
+export const graphql = {
+  Query: {
+    users: async (id: string): Promise<User> => {
+      const user = await getUserById(id)
+      return {
+        ...user,
+        blogs: async () => await Promise.all(user.posts.map(getBlogById))
+      }
+    },
+  },
+  Mutation: {
+    createBlog: async (title: string, content: string, authorId: string): Promise<Blog> => {
+      return await createBlog('1', title, content, authorId)
+    }
+  }
+}
+```
+ * **Query Resolvers:** The `Query` object contains resolver functions for read-only operations.
+ * **Mutation Resolvers:** The `Mutation` object contains resolver functions for operations that modify data.
+ 
+By exporting `graphql`, Pylon automatically sets up the GraphQL schema based on the provided resolvers.
+
+### Keep Existing REST Routes (Optional)
+If you have existing REST routes that you want to retain, you can keep them unchanged:
+```typescript
+app.post('/post', (c) => {
+  return c.json({message: 'a route that you want to keep'})
+})
+```
+
+### Run Your Application
+You're all set! Start your development server with:
+**Bun:**
+```sh
+bun run dev
+```
+**Node**:
+```sh
+npm run dev
+```
+
+### Conclusion
+By following this guide, you've successfully converted your Hono REST service into a GraphQL API using Pylon. This approach allows you to enjoy the benefits of GraphQL, such as efficient data fetching and strong typing, while still retaining your existing REST endpoints.
+
+**Happy Coding!**
