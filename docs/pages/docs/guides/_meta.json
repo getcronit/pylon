@@ -1,5 +1,6 @@
 {
   "testing": "Testing",
   "bindings-and-variables": "Bindings & Variables",
-  "convert-from-hono-guide": "Convert Hono REST to GraphQL"
+  "convert-from-hono-guide": "Convert Hono REST to GraphQL",
+  "building-with-pylon": "Building With Pylon"
 }
