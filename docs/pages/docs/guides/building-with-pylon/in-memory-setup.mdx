@@ -46,7 +46,7 @@ my-pylon/
 Before we start implementing the class, it's a good idea to think about what our data structure should look like.
 Therefore, we will create a simple interface `Booking` that represents a booking:
 
-```typescript
+```typescript copy
 interface Booking {
   id: number
   firstname: string
@@ -67,7 +67,7 @@ Each `Booking` object represents a booking of a guest, including the guest's nam
 
 Now that we have defined our data structure, we can start implementing the `BookingStore` class. This class will hold the static data and provide methods to interact with it.
 
-```typescript
+```typescript copy
 class BookingStore {
   private bookings: Booking[] = [
     {
@@ -116,7 +116,7 @@ Currently, the class only holds the static data. In the next step, we will add m
 
 To interact with the data, we will add methods to the `BookingStore` class. For this example, we will implement two methods: `getBookings` and `getBookingById`.
 
-```typescript
+```typescript copy
 getBookings(): Booking[] {
     return this.bookings;
 }
@@ -126,9 +126,18 @@ getBookingById(bookingId: number): Booking | null {
 }
 ```
 
+Note that we accept a `bookingId` as an argument for the `getBookingById` method. Pylon recognizes this argument, provides it in the GraphQL interface, and reliably passes it to the method when it is called. This allows us to fetch a specific booking based on the provided ID.
+
+<Callout type="note" title="Info">
+  Defining arguments in the method signature will be automatically added to the
+  GraphQL schema and can be used in the respective queries or mutations. Pylon
+  takes care of passing the arguments to the method when it is called and
+  returning the correct data.
+</Callout>
+
 Great! We are missing one last step inside our class implementation: Binding `this` to the class methods so that we can access the class properties inside the methods.
 
-```typescript
+```typescript copy
 constructor() {
   this.getBookings = this.getBookings.bind(this)
   this.getBookingById = this.getBookingById.bind(this)
@@ -147,7 +156,7 @@ Now, we can use the `BookingStore` class to get all bookings or a specific booki
 
 Though we have implemented the `BookingStore` class, Pylon doesn't know about it yet. To make it available in our service, we first need to export an instance from our newly created class. Since we need to access the same instance for every request, we will export a singleton instance.
 
-```typescript
+```typescript copy
 const bookingStore = new BookingStore()
 
 export default bookingStore
@@ -155,7 +164,7 @@ export default bookingStore
 
 Now, the only thing left to do is to notify Pylon about our new class methods. For this, the `index.ts` file is the place to go. Currently, the file should look like this:
 
-```typescript
+```typescript copy
 import {app} from '@getcronit/pylon'
 
 export const graphql = {
@@ -170,7 +179,7 @@ export default app
 
 Since we dont need the `hello` resolver anymore, we can remove it and import the `bookingStore` instance. We can then add the `getBookings` and `getBookingById` methods to the `Query` object:
 
-```typescript
+```typescript copy
 import {app} from '@getcronit/pylon'
 import bookingStore from './lib/bookingStore'
 
@@ -193,7 +202,7 @@ And that's it! We have successfully implemented a simple class that holds static
 
 Modifying the data works the same way as reading it. Let's say we want to add a new booking to our data store. We can simply add a new method to the `BookingStore` class:
 
-```typescript
+```typescript copy
 addBooking(booking: Omit<Booking, "id">): Booking {
     const newBooking = { ...booking, id: this.bookings.length + 1 };
     this.bookings.push(newBooking);
@@ -205,7 +214,7 @@ This method is pretty straightforward. It takes a new booking object, assigns a 
 
 To make the new method available in our service, we need to add it to the `index.ts` file (dont forget to bind `this` to the method):
 
-```typescript
+```typescript copy
 export const graphql = {
   Query: {
     bookings: bookingStore.getBookings,
