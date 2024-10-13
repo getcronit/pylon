@@ -1,0 +1,235 @@
+import Authors, {Author} from '@components/authors'
+import {Callout} from '@components/callout'
+
+# Integrating Prisma
+
+In the last two chapters we have looked at synchronous and asynchronous data sources and learned that we can structure and build our code however we want without being limited by Pylon.
+In the last step, we will look at how we can use Prism to bring communication with databases into our Pylon service.
+
+<Authors date="October 13th, 2024">
+  <Author name="Jan Emig" link="https://github.com/jaemig" />
+</Authors>
+
+<Callout type="warning" title="Prisma">
+  This guide assumes a basic knowledge of Prisma. If you have never used Prisma
+  before, we recommend that you read the [Prisma Quickstart
+  Guide](https://www.prisma.io/docs/getting-started/quickstart) to familiarize
+  yourself with the basics.
+
+Pylon also provides it's own [prisma-extended-models](http://localhost:3001/docs/integrations/databases#using-prisma-extended-models-recommended) package to make the integration of Prisma and its schema even easier.
+
+</Callout>
+
+## Preparing the Project
+
+After installing and configuring Prisma, the project structure should look like this:
+
+```
+my-pylon/
+├── .pylon/
+├── prisma/
+│   ├── migrations/
+│   ├── schema.prisma
+├── src/
+│   ├── index.ts
+├── package.json
+├── tsconfig.json
+```
+
+### Providing the Prisma Client
+
+If you are already familiar with how to integrate the Prisma client, you can skip the following step. Otherwise we need an instance of the client. For this we create a new `lib` directory under `src/` with a file `db.ts` where we make our Prisma client available, but you can place the file wherever you want. The code in it looks like this:
+
+```typescript copy
+import {PrismaClient} from '@prisma/client'
+
+declare global {
+  var prisma: PrismaClient | undefined
+}
+
+export const db = globalThis.prisma || new PrismaClient()
+
+if (process.env.NODE_ENV !== 'production') globalThis.prisma = db
+```
+
+With this code we provide a singleton instance of our Prisma client and ensure sufficient type safety. That's all we need to start creating our Prisma schema.
+
+### Creating the Prisma Schema
+
+We take our booking type from the previous chapter [External APIs](./external-apis) and make it compatible for our Prisma Schema file:
+
+```prisma copy
+model Booking {
+  id              Int          @id @default(autoincrement())
+  firstname       String
+  lastname        String
+  totalprice      Float
+  depositpaid     Boolean
+  bookingdates    BookingDates? @relation(fields: [bookingDatesId], references: [id])
+  additionalneeds String?
+
+  bookingDatesId Int
+}
+
+model BookingDates {
+  id       Int    @id @default(autoincrement())
+  checkin  String
+  checkout String
+
+  booking Booking[]
+}
+```
+
+After successfully migrating this scheme, we are ready to build our service.
+
+### The Database
+
+Pylon aims to give developers as much freedom as possible in the realization of their own application. Therefore, there are no requirements as to what an exact database connection should look like or how to communicate with any kinds of data sources.
+
+For this reason, this guide does not cover the creation of a database. You can use any DBMS you want and are not dependent on using Prisma as long as sufficient Type Safety is ensured.
+We are using Prisma in this guide due to its TypeScript type generation. The DBMS we have chosen for this guide is Postgres.
+
+## Implementing the Service
+
+A class with all methods to manage a specific data structure is one possibility. However, since Pylon places no restrictions on how our code ultimately looks, we can use practically any programming style. Instead of a class, we can also simply outsource all class methods to individual independent functions, which we will then introduce into Pylon. We will look at this simpler approach in this chapter.
+
+### Get All Bookings
+
+First, we want our service to allow querying all bookings from the database and sending them to the client. If you’re already familiar with Prisma, the code should be pretty straightforward:
+
+```typescript copy
+export async function getBookings(): Promise<Booking[]> {
+  return await db.booking.findMany()
+}
+```
+
+You can of course skip providing a type for the return value, we just do it here for better readability.
+
+The only thing left to do is to register this function in Pylon. We will do it just like we did in the previous chapters:
+
+```typescript copy
+import {app} from '@getcronit/pylon'
+import {getBookings} from './lib/bookingStore'
+
+export const graphql = {
+  Query: {
+    bookings: getBookings
+  },
+  Mutation: {}
+}
+
+export default app
+```
+
+And that's it! After running the service, we can now query all bookings from the database using the built-in GraphQL playground:
+
+![Pylon GraphQL Query](/images/guides/building-with-pylon/prisma-bookings.png)
+
+Note how Pylon does not care that we now used normal functions instead of a class. This is the flexibility that Pylon offers.
+
+### Filter All Bookings
+
+Now that we have a function to retrieve all bookings, we want to extend it to make it possible to filter bookings. We achieve this by adding parameters. For now, we only want to filter by the `firstname` and `lastname` fields:
+
+```typescript copy
+import {Booking} from '@prisma/client'
+import {db} from './db'
+
+export async function getBookings(
+  firstname?: string,
+  lastname?: string
+): Promise<Booking[]> {
+  return await db.booking.findMany({
+    where: {
+      firstname: {
+        contains: firstname,
+        mode: 'insensitive'
+      },
+      lastname: {
+        contains: lastname,
+        mode: 'insensitive'
+      }
+    }
+  })
+}
+```
+
+Pylon detects the change in the function signature and adapts our GraphQL interface accordingly. Note that both parameters are optional, allowing us to still query all bookings without having to specify filters.
+
+Great! We have now successfully implemented a service that allows us to query bookings from a database and filter them by `firstname` and `lastname`. Now we can start modifying and extending our service as needed.
+
+### Adding a Booking
+
+Our next function acts as a mutation and allows us to add a new booking to the database. We will use the `firstname`, `lastname`, `totalprice`, `depositpaid`, `checkin`, `checkout`, and `additionalneeds` fields for this purpose:
+
+```typescript copy
+export async function addBooking(
+  firstname: string,
+  lastname: string,
+  totalprice: number,
+  depositpaid: boolean,
+  checkin: string,
+  checkout: string,
+  additionalNeeds?: string
+): Promise<Booking | null> {
+  try {
+    const res = await db.booking.create({
+      data: {
+        firstname,
+        lastname,
+        totalprice,
+        depositpaid,
+        additionalneeds: additionalNeeds,
+        bookingdates: {
+          create: {
+            checkin: checkin,
+            checkout: checkout
+          }
+        }
+      }
+    })
+    return res
+  } catch (e) {
+    return null
+  }
+}
+```
+
+We have added a `try-catch` block to catch any errors that may occur during the creation of a new booking. If an error occurs, we simply return `null`.
+
+Regardless of the schema, we currently expect the client to send us the checkin and checkout dates even though they are optional in the schema. We will ignore this for now and assume that both dates are already present during the creation of a new booking for the sake of simplicity.
+
+The last step we need to do is to register this function in Pylon:
+
+```typescript copy
+import {app} from '@getcronit/pylon'
+import {addBooking, getBookings} from './lib/bookingStore'
+
+export const graphql = {
+  Query: {
+    bookings: getBookings
+  },
+  Mutation: {
+    addBooking: addBooking
+  }
+}
+
+export default app
+```
+
+<Callout type="warning" title="Mutation">
+  Since our new function modifies our data, we have to register it as a mutation
+  in our GraphQL interface. Pylon won't check if a function is a query or a
+  mutation by itself, so we as developers have to make sure to register it
+  correctly.
+</Callout>
+
+The mutation now shows up in the GraphQL playground, and we can use it to add new bookings to the database:
+
+![Pylon GraphQL Mutation](/images/guides/building-with-pylon/prisma-add-booking.png)
+
+## Conclusion
+
+In this chapter, we have learned how to integrate Prisma into our Pylon service. We have created a Prisma schema, implemented a service that allows us to query bookings from a database, and extended it to filter bookings and add new bookings. We have also seen how easy it is to modify and extend our service as needed.
+
+Pylon gives us the freedom to structure and build our code however we want without being limited by any restrictions. This guide serves as an illustration of how we can use Prisma to bring communication with databases into our Pylon service. At the end it is your decision how you want to structure your code and what tools you want to use. Pylon is here to support you in your decisions and to help you build your application the way you want it.
