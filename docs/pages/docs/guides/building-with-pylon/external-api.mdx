@@ -1,9 +1,9 @@
 import Authors, {Author} from '@components/authors'
 import {Callout} from '@components/callout'
 
-# External APIs
+# External API
 
-With the first chapter of this guide ([In-Memory Setup](/docs/guides/building-with-pylon/in-memory-setup)), we learned how to set up a simple in-memory data store. To make our small application more realistic, we will now connect to an external API to fetch some data asynchronously.
+With the first chapter of this guide ([Hardcoded Data](/docs/guides/building-with-pylon/hardcoded-data)), we learned how to set up a simple in-memory data store. To make our small application more realistic, we will now connect to an external API to fetch some data asynchronously.
 
 <Authors date="October 12th, 2024">
   <Author name="Jan Emig" link="https://github.com/jaemig" />
@@ -11,7 +11,7 @@ With the first chapter of this guide ([In-Memory Setup](/docs/guides/building-wi
 
 ## Project Structure
 
-After setting up the [in-memory project](/docs/guides/building-with-pylon/in-memory-setup) correctly, you should see a project structure similar to this:
+After setting up the [hardcoded data project](/docs/guides/building-with-pylon/hardcoded-data) correctly, you should see a project structure similar to this:
 
 ```
 my-pylon/
@@ -126,7 +126,7 @@ export default app
 
 ## Fetch Data from an External API
 
-For this guide, we will use the [Restful-Booker](https://restful-booker.herokuapp.com/) API, created by [Mark Winteringham](http://mwtestconsultancy.co.uk/), to fetch booking data. For the simplicity of this guide, we will only fetch the bookings and not create new ones. Therefore, we're getting rid of all of the methods in the `BookingStore` class, the data, and remove our introduction of the methods in the `index.ts` file.
+For this guide, we will use the [Restful-Booker](https://restful-booker.herokuapp.com/) API created by [Mark Winteringham](http://mwtestconsultancy.co.uk/) to fetch booking data. For the simplicity of this guide, we will only fetch the bookings and not create new ones. Therefore, we're getting rid of all of the methods in the `BookingStore` class, the data, and remove our introduction of the methods in the `index.ts` file.
 
 The API provides two endpoints to fetch bookings: `GET /booking` and `GET /booking/{id}`. We will implement respective methods in the `BookingStore` class to fetch all bookings and a single booking by its ID. Our interface can stay the same since the API luckily provides the same data structure as our in-memory data store.
 
@@ -188,7 +188,7 @@ export default app
 
 Now we can test the new query in the built-in GraphQL playground:
 
-![Pylon GraphQL Query](/images/guides/building-with-pylon/api-playground-bookings.png)
+![Pylon GraphQL Query](/images/guides/building-with-pylon/api-bookings.png)
 
 ## Accept Parameters
 
@@ -212,8 +212,8 @@ And it's as simple as that! We have successfully implemented a method that fetch
 
 Of course, in a real-world scenario, we would add some error handling to the method and checking the parameters for valid values. But for the simplicity of this guide, we will keep it as it is.
 
-If we test the new query in the built-in GraphQL playground, we see that we can now filter the bookings by `firstname`, `lastname`, `checkin`, and `checkout`. For example, we can fetch all bookings with the `firstname` "Sally":
-![Pylon GraphQL Query](/images/guides/building-with-pylon/api-playground-fname.png)
+If we test the new query in the built-in GraphQL playground, we see that we can now filter the bookings by `firstname`, `lastname`, `checkin`, and `checkout`. For example, we can fetch all bookings with the `firstname` _Sally_:
+![Pylon GraphQL Query](/images/guides/building-with-pylon/api-fname.png)
 
 ## Fetch a booking by ID
 
@@ -244,7 +244,7 @@ async getBookingById(bookingId: number): Promise<Booking> {
 
 After adding the method to the `Query` object in the `index.ts` file, we can test the new query in the built-in GraphQL playground:
 
-![Pylon GraphQL Query](/images/guides/building-with-pylon/api-playground-booking.png)
+![Pylon GraphQL Query](/images/guides/building-with-pylon/api-booking.png)
 
 And within a few lines of code, we have successfully implemented a method that fetches a booking by its ID from the external API.
 

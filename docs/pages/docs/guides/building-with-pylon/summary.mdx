@@ -1,0 +1,18 @@
+import Authors, {Author} from '@components/authors'
+import {Callout} from '@components/callout'
+
+# Summary
+
+Let's end our journey with Pylon by summarizing what we have learned so far.
+
+<Authors date="October 14th, 2024">
+  <Author name="Jan Emig" link="https://github.com/jaemig" />
+</Authors>
+
+First, we implemented our logic through a class, whose methods we passed to Pylon as a singleton instance. Then we looked at a simpler approach, where we placed independent functions into a `.ts` file and passed them to Pylon afterward.
+
+In addition, we looked at how we can incorporate different types of data sources ([hardcoded](./hardcoded-data), [external API](./external-api), and [Prisma/database](./integrating-prisma)).
+
+All these points have shown that Pylon does not impose any restrictions on how we structure our code, and we can tap into different data sources in any way we want.
+
+In the end, Pylon allows us to build our project like any other. We only need to inform Pylon which functions should be available as queries or mutations in our GraphQL interface. Pylon does not require us to follow any particular code principles. The only important thing is to have enough **type safety**, as Pylon requires this to automatically build a GraphQL schema from the provided types.

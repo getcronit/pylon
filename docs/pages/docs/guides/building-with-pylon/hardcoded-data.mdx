@@ -1,9 +1,9 @@
 import Authors, {Author} from '@components/authors'
 import {Callout} from '@components/callout'
 
-# In-Memory Setup
+# Hardcoded Data Setup
 
-The easiest way to get started with Pylon is to use in-memory data. For this, we will create a simple class that holds the data and performs all the necessary operations on it.
+The easiest way to get started with Pylon is to use in-memory (hardcoded) data. For this, we will create a simple class that holds the data and performs all the necessary operations on it.
 
 <Authors date="October 11th, 2024">
   <Author name="Jan Emig" link="https://github.com/jaemig" />
@@ -31,7 +31,7 @@ The directory we are interested in is the `src/` directory. This is where we wil
 
 ## Create a Data Structure
 
-Since Pylon let's us freely implement our logic, independent of the structure and its location, we can simply create a new file directly in the `src/` directory:
+Since Pylon let's us freely implement our logic, independent of the structure and its location, we can simply create a new file `bookingStore.ts` directly in the `src/` directory:
 
 ```
 my-pylon/
@@ -110,7 +110,7 @@ class BookingStore {
 }
 ```
 
-Currently, the class only holds the static data. In the next step, we will add methods to interact with the data.
+Currently, the class only holds the data. In the next step, we will add methods to interact with the data.
 
 ## Add Methods to Interact with the Data
 
@@ -132,8 +132,11 @@ Note that we accept a `bookingId` as an argument for the `getBookingById` method
   Defining arguments in the method signature will be automatically added to the
   GraphQL schema and can be used in the respective queries or mutations. Pylon
   takes care of passing the arguments to the method when it is called and
-  returning the correct data.
+  returning the correct data. We only need to assure that enough type safety is
+  given.
 </Callout>
+
+### Bind `this` to the Class Methods
 
 Great! We are missing one last step inside our class implementation: Binding `this` to the class methods so that we can access the class properties inside the methods.
 
@@ -194,9 +197,19 @@ export const graphql = {
 export default app
 ```
 
-And that's it! We have successfully implemented a simple class that holds static data and provides methods to interact with it. To test the implementation, Pylon provides a built-in [GraphQL playground](/docs/getting-started#built-in-graphql-playground) where we can execute our new queries:
+The property names `bookings` and `booking` are the names of the queries that we can use in the GraphQL interface. The values are the methods that we want to call when the queries are executed.
 
-![Pylon GraphQL Query](/images/guides/building-with-pylon/static-playground-query.png)
+And that's it! We have successfully implemented a simple class that holds hardcoded data and provides methods to interact with it. To test the implementation, Pylon provides a built-in [GraphQL playground](/docs/getting-started#built-in-graphql-playground) where we can execute our new queries after running `bun dev`:
+
+![Pylon GraphQL Query](/images/guides/building-with-pylon/hardcoded-playground-query.png)
+
+### How Does It Work?
+
+When we start the service, Pylon automatically creates a GraphQL schema based on the methods we registered in the `graphql` object. This schema is then used to validate incoming queries and mutations. When a query or mutation is executed, Pylon calls the corresponding method and returns the result to the client.
+
+You can think of Pylon as a kind of “mapper” with regard to GraphQL. When we introduce new functions to Pylon, it checks the signature of the function and builds a GraphQL schema from the TypeScript types. This automatically converts our functions into GraphQL endpoints. This means that we don't have to write GraphQL schemas manually, Pylon does it for us and we can just focus on implementing the functions.
+
+Furthermore, Pylon does not care how we write and build our functions. We can rely on complex classes, whose methods we then introduce into Pylon, or we can rely on simple functions, which we then include in Pylon. We can also rely on a mixture of both. Pylon is very flexible in this respect and allows us to find the solution that suits us best. Pylon only expects us to annotate our code type so that Pylon can generate the correct GraphQL schema.
 
 ## Modify the Data
 
@@ -210,9 +223,9 @@ addBooking(booking: Omit<Booking, "id">): Booking {
 }
 ```
 
-This method is pretty straightforward. It takes a new booking object, assigns a new ID to it, and adds it to the `bookings` array. Since we dont want the client to set the ID, we use `Omit<Booking, "id">` to exclude the `id` property from the `booking` object.
+This method is pretty straightforward. It takes a new booking object, assigns a new ID to it, and adds it to the `bookings` array. Since we dont want the client to set the ID, we use `Omit<Booking, "id">` to exclude the `id` property from the `booking` object. You can of course put each type field into a separate parameter if you prefer. We use this approach to keep the method signature simple.
 
-To make the new method available in our service, we need to add it to the `index.ts` file (dont forget to bind `this` to the method):
+To make the new method available in our service, we need to add it to the `index.ts` file (dont forget to bind `this` to the method too):
 
 ```typescript copy
 export const graphql = {
@@ -228,7 +241,7 @@ export const graphql = {
 
 Since this method changes our data, we place it in the `Mutation` object. Now, we can start using this new mutation. To test it, we can use the built-in GraphQL playground:
 
-![Pylon GraphQL Mutation](/images/guides/building-with-pylon/static-playground-add.png)
+![Pylon GraphQL Mutation](/images/guides/building-with-pylon/hardcoded-playground-add.png)
 
 Perfect! We have successfully implemented a simple class that holds in-memory data and provides methods to interact with it.
 
@@ -236,6 +249,6 @@ You can go ahead and implement more methods to interact with the data, like upda
 
 ## Conclusion
 
-This guide showed how easy it is to get started with Pylon. We created a simple class that holds in-memory data and provides methods to interact with it. We then registered the class methods in Pylon and tested them using the built-in GraphQL playground.
+This guide showed how easy it is to get started with Pylon. We created a simple class that holds hardcoded data and provides methods to interact with it. We then registered the class methods in Pylon and tested them using the built-in GraphQL playground.
 
-In the next guide, we will take a look at how we can use external data sources to fetch and modify data in our service.
+In the next guide, we will take a look at how we can use external data sources to fetch data in our service.

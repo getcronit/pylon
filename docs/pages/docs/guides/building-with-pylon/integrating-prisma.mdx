@@ -56,7 +56,7 @@ With this code we provide a singleton instance of our Prisma client and ensure s
 
 ### Creating the Prisma Schema
 
-We take our booking type from the previous chapter [External APIs](./external-apis) and make it compatible for our Prisma Schema file:
+We take our booking type from the previous chapter [External API](./external-api) and make it compatible for our Prisma Schema file:
 
 ```prisma copy
 model Booking {
@@ -87,7 +87,7 @@ After successfully migrating this scheme, we are ready to build our service.
 Pylon aims to give developers as much freedom as possible in the realization of their own application. Therefore, there are no requirements as to what an exact database connection should look like or how to communicate with any kinds of data sources.
 
 For this reason, this guide does not cover the creation of a database. You can use any DBMS you want and are not dependent on using Prisma as long as sufficient Type Safety is ensured.
-We are using Prisma in this guide due to its TypeScript type generation. The DBMS we have chosen for this guide is Postgres.
+We are using Prisma in this guide due to its TypeScript type generation. The DBMS we have chosen for this guide is _Postgres_.
 
 ## Implementing the Service
 
@@ -102,6 +102,8 @@ export async function getBookings(): Promise<Booking[]> {
   return await db.booking.findMany()
 }
 ```
+
+We place this function in a new file `bookingStore.ts` in a `lib` directory under `src/`.
 
 You can of course skip providing a type for the return value, we just do it here for better readability.
 

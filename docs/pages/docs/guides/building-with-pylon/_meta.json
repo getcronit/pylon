@@ -1,6 +1,7 @@
 {
     "introduction": "Introduction",
-    "in-memory-setup": "In-Memory Setup",
-    "external-apis": "External Apis",
-    "integrating-prisma": "Integrating Prisma"
+    "hardcoded-data": "Hardcoded Data",
+    "external-api": "External API",
+    "integrating-prisma": "Integrating Prisma",
+    "summary": "Summary"
 }
