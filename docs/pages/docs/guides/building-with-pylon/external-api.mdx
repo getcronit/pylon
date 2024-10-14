@@ -132,7 +132,7 @@ The API provides two endpoints to fetch bookings: `GET /booking` and `GET /booki
 
 ### Fetch bookings
 
-Before we start implementing the method, we should make us familiar with the API endpoint:
+Before we start implementing the method, we should make us familiar with the API endpoint `GET /booking`:
 
 #### Parameter
 
@@ -195,16 +195,20 @@ Now we can test the new query in the built-in GraphQL playground:
 The API provides parameters to filter the bookings by `firstname`, `lastname`, `checkin`, and `checkout`. We can implement these parameters in our method to fetch the bookings. We will extend the method to accept these parameters and add them to the query string:
 
 ```typescript copy
-async getBookingIds(firstname?: string, lastname?: string, checkin?: string, checkout?: string): Promise<{ bookingid: number }[]> {
-    const url = new URL('https://restful-booker.herokuapp.com/booking');
-    if (firstname) url.searchParams.append('firstname', firstname);
-    if (lastname) url.searchParams.append('lastname', lastname);
-    if (checkin) url.searchParams.append('checkin', checkin);
-    if (checkout) url.searchParams.append('checkout', checkout);
+async getBookingIds(firstname?: string, lastname?: string, checkin?: string, checkout?: string): Promise<{ bookingid: number }[] | null> {
+    try {
+        const url = new URL('https://restful-booker.herokuapp.com/booking');
+        if (firstname) url.searchParams.append('firstname', firstname);
+        if (lastname) url.searchParams.append('lastname', lastname);
+        if (checkin) url.searchParams.append('checkin', checkin);
+        if (checkout) url.searchParams.append('checkout', checkout);
 
-    const response = await fetch(url.toString());
-    const data = await response.json();
-    return data;
+        const response = await fetch(url.toString());
+        const data = await response.json();
+        return data;
+    } catch {
+        return null;
+    }
 }
 ```
 
