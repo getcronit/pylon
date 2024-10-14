@@ -1,0 +1,266 @@
+import Authors, {Author} from '@components/authors'
+import {Callout} from '@components/callout'
+
+# External API
+
+With the first chapter of this guide ([Hardcoded Data](/docs/guides/building-with-pylon/hardcoded-data)), we learned how to set up a simple in-memory data store. To make our small application more realistic, we will now connect to an external API to fetch some data asynchronously.
+
+<Authors date="October 12th, 2024">
+  <Author name="Jan Emig" link="https://github.com/jaemig" />
+</Authors>
+
+## Project Structure
+
+After setting up the [hardcoded data project](/docs/guides/building-with-pylon/hardcoded-data) correctly, you should see a project structure similar to this:
+
+```
+my-pylon/
+├── .pylon/
+├── src/
+│   ├── bookingStore.ts
+│   ├── index.ts
+├── package.json
+├── tsconfig.json
+```
+
+The `bookingStore.ts` file is where we implemented our in-memory data store:
+
+```typescript copy
+interface Booking {
+  id: number
+  firstname: string
+  lastname: string
+  totalPrice?: number
+  depositpaid: boolean
+  bookingdates: {
+    checkin: string
+    checkout: string
+  }
+  additionalneeds?: string
+}
+
+class BookingStore {
+  private bookings: Booking[] = [
+    {
+      id: 1,
+      firstname: 'Sally',
+      lastname: 'Brown',
+      totalPrice: 111,
+      depositpaid: true,
+      bookingdates: {
+        checkin: '2013-02-23',
+        checkout: '2014-10-23'
+      },
+      additionalneeds: 'Breakfast'
+    },
+    {
+      id: 2,
+      firstname: 'John',
+      lastname: 'Doe',
+      totalPrice: 222,
+      depositpaid: false,
+      bookingdates: {
+        checkin: '2013-02-23',
+        checkout: '2014-10-23'
+      },
+      additionalneeds: 'Breakfast'
+    },
+    {
+      id: 3,
+      firstname: 'Jane',
+      lastname: 'Smith',
+      totalPrice: 333,
+      depositpaid: true,
+      bookingdates: {
+        checkin: '2013-02-23',
+        checkout: '2014-10-23'
+      },
+      additionalneeds: 'Breakfast'
+    }
+  ]
+
+  constructor() {
+    this.getBookings = this.getBookings.bind(this)
+    this.getBookingById = this.getBookingById.bind(this)
+    this.addBooking = this.addBooking.bind(this)
+  }
+
+  getBookings(): Booking[] {
+    return this.bookings
+  }
+
+  getBookingById(bookingId: number): Booking | null {
+    return this.bookings.find(booking => booking.id === bookingId) ?? null
+  }
+
+  addBooking(booking: Omit<Booking, 'id'>): Booking {
+    const newBooking = {...booking, id: this.bookings.length + 1}
+    this.bookings.push(newBooking)
+    return newBooking
+  }
+}
+
+const bookingStore = new BookingStore()
+
+export default bookingStore
+```
+
+Within the `index.ts` file, we introduced the class methods to our Pylon service:
+
+```typescript copy
+import {app} from '@getcronit/pylon'
+import bookingStore from './lib/bookingStore'
+
+export const graphql = {
+  Query: {
+    bookings: bookingStore.getBookings,
+    booking: bookingStore.getBookingById
+  },
+  Mutation: {
+    addBooking: bookingStore.addBooking
+  }
+}
+
+export default app
+```
+
+## Fetch Data from an External API
+
+For this guide, we will use the [Restful-Booker](https://restful-booker.herokuapp.com/) API created by [Mark Winteringham](http://mwtestconsultancy.co.uk/) to fetch booking data. For the simplicity of this guide, we will only fetch the bookings and not create new ones. Therefore, we're getting rid of all of the methods in the `BookingStore` class, the data, and remove our introduction of the methods in the `index.ts` file.
+
+The API provides two endpoints to fetch bookings: `GET /booking` and `GET /booking/{id}`. We will implement respective methods in the `BookingStore` class to fetch all bookings and a single booking by its ID. Our interface can stay the same since the API luckily provides the same data structure as our in-memory data store.
+
+### Fetch bookings
+
+Before we start implementing the method, we should make us familiar with the API endpoint `GET /booking`:
+
+#### Parameter
+
+| Field     | Type   | Description                                                                                                       |
+| --------- | ------ | ----------------------------------------------------------------------------------------------------------------- |
+| firstname | Stirng | Return bookings with a specific firstname                                                                         |
+| lastname  | String | Return bookings with a specific lastname                                                                          |
+| checkin   | Date   | Return bookings that have a checkin date greater than or equal to the set checkin date. Format must be CCYY-MM-DD |
+| checkout  | Date   | Return bookings that have a checkout date less than or equal to the set checkout date. Format must be CCYY-MM-DD  |
+
+#### Response
+
+| Field                       | Type     | Description                                      |
+| --------------------------- | -------- | ------------------------------------------------ |
+| object                      | Object[] | Array of objects than contain unique booking IDs |
+| &nbsp;&nbsp;&nbsp;bookingId | String   | Return bookings with a specific lastname         |
+
+All parameters above are optional, and the API will return all bookings if no parameter is set. For now, we will only fetch all bookings without any parameters. We should keep in mind that the endpoint only returns the booking IDs, so we need to fetch each booking individually if we want to display more details.
+
+Thanks to Pylon's behavior, we have no restrictions on how we get the data from any source. No matter if it's a REST API, a database, or a file, we can implement it the way we like it with any library we prefer.
+
+For this guide, we will stick to the built-in `fetch` method to fetch the data from the API. We will request the bookings from the API and simply return the result:
+
+```typescript copy
+async getBookingIds(): Promise<{ bookingid: number }[]> {
+    const response = await fetch('https://restful-booker.herokuapp.com/booking');
+    const data = await response.json();
+    return data;
+}
+```
+
+<Callout type="warning" title="Binding">
+  Don't forget to bind `this` to any of the class methods that you want to use
+  in your service. Otherwise, you will get a runtime error when calling a class
+  method that uses `this`.
+</Callout>
+
+And that's just it! We have successfully implemented a method that fetches booking IDs from the external API. Introducing the method to our service is as simple as adding it to the `Query` object in the `index.ts` file:
+
+```typescript copy
+import {app} from '@getcronit/pylon'
+import bookingStore from './lib/bookingStore'
+
+export const graphql = {
+  Query: {
+    bookingIds: bookingStore.getBookingIds
+  },
+  Mutation: {}
+}
+
+export default app
+```
+
+Now we can test the new query in the built-in GraphQL playground:
+
+![Pylon GraphQL Query](/images/guides/building-with-pylon/api-bookings.png)
+
+## Accept Parameters
+
+The API provides parameters to filter the bookings by `firstname`, `lastname`, `checkin`, and `checkout`. We can implement these parameters in our method to fetch the bookings. We will extend the method to accept these parameters and add them to the query string:
+
+```typescript copy
+async getBookingIds(firstname?: string, lastname?: string, checkin?: string, checkout?: string): Promise<{ bookingid: number }[] | null> {
+    try {
+        const url = new URL('https://restful-booker.herokuapp.com/booking');
+        if (firstname) url.searchParams.append('firstname', firstname);
+        if (lastname) url.searchParams.append('lastname', lastname);
+        if (checkin) url.searchParams.append('checkin', checkin);
+        if (checkout) url.searchParams.append('checkout', checkout);
+
+        const response = await fetch(url.toString());
+        const data = await response.json();
+        return data;
+    } catch {
+        return null;
+    }
+}
+```
+
+And it's as simple as that! We have successfully implemented a method that fetches booking IDs from the external API with optional parameters. We don't need to change anything in the `index.ts` file since we already introduced the method to our service and Pylon automatically handles the parameters for us.
+
+Of course, in a real-world scenario, we would add some error handling to the method and checking the parameters for valid values. But for the simplicity of this guide, we will keep it as it is.
+
+If we test the new query in the built-in GraphQL playground, we see that we can now filter the bookings by `firstname`, `lastname`, `checkin`, and `checkout`. For example, we can fetch all bookings with the `firstname` _Sally_:
+![Pylon GraphQL Query](/images/guides/building-with-pylon/api-fname.png)
+
+## Fetch a booking by ID
+
+Implementing this method is as easy as the previous one. The endpoint `GET /booking/{id}` expects a booking ID and returns the booking with the following structure:
+
+| Field                                        | Type     | Description                                             |
+| -------------------------------------------- | -------- | ------------------------------------------------------- |
+| firstname                                    | Stirng   | Return bookings with a specific firstname               |
+| lastname                                     | String   | Return bookings with a specific lastname                |
+| totalprice                                   | String   | The total price for the booking                         |
+| depositpaid                                  | Boolean  | Whether the deposit has been paid or not                |
+| bookingdates                                 | Object[] | Sub-object that contains the checkin and checkout dates |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;checkin  | Date     | Date the guest is checking in                           |
+| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;checkout | Date     | Date the guest is checking out                          |
+| checkout                                     | String   | Any other needs the guest has                           |
+
+We will implement the method to fetch a booking by its ID and add it to the `Query` object in the `index.ts` file:
+
+```typescript copy
+async getBookingById(bookingId: number): Promise<Booking> {
+    const url = `https://restful-booker.herokuapp.com/booking/${bookingId}`;
+
+    const response = await fetch(url);
+    const data = await response.json();
+    return data;
+}
+```
+
+After adding the method to the `Query` object in the `index.ts` file, we can test the new query in the built-in GraphQL playground:
+
+![Pylon GraphQL Query](/images/guides/building-with-pylon/api-booking.png)
+
+And within a few lines of code, we have successfully implemented a method that fetches a booking by its ID from the external API.
+
+## Conclusion
+
+This guide showed how easy it is to fetch data from an external API with Pylon. Pylon does not mind how we fetch the data and what we are doing with it. All it requires from us is type safety. No matter how messed up our code is, Pylon will always provide a clean and easy-to-use and realiable GraphQL interface for our clients.
+
+<Callout type="warning" title="Type Safety">
+  Always make sure that your methods are type-safe. Pylon will automatically
+  generate the GraphQL schema based on the types you provide. If you provide
+  wrong types, the schema will be wrong, and your developers and clients will
+  have a hard time working with your service.
+</Callout>
+
+In the final chapter of this guide, we will take a look at how we can use Prisma to fetch and modify data in our service.
