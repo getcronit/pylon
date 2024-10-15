@@ -12,9 +12,18 @@ import {
   Union as _Union,
   Enum as _Enum
 } from './type-definition-builder.js'
+import consola from 'consola'
 
 type Union = _Union & {
   description: string
+  __resolveType?: (obj: any) => string
+}
+
+type Interface = {
+  name: string
+  description: string
+  fields: Array<Field>
+  __resolveType?: (obj: any) => string
 }
 
 type Enum = _Enum & {
@@ -53,11 +62,14 @@ interface Type {
       }>
     }
   >
+  implements?: Array<string>
+  rawType: ts.Type
 }
 
 export interface Schema {
   types: Array<Type>
   inputs: Array<Input>
+  interfaces: Array<Interface>
   unions: Array<Union>
   enums: Array<Enum>
   scalars: Array<string>
@@ -81,6 +93,7 @@ interface ReferenceSchema {
       [key: string]: ReferenceSchemaType
     }
   >
+  classImplementsMap: Map<ts.Type, ts.Type[]>
   inputs: ReferenceSchema['types']
 }
 
@@ -92,13 +105,19 @@ interface Index {
 export class SchemaParser {
   private schema: Schema
   private checker: ts.TypeChecker
+  private program: ts.Program
   private sfiFile: ts.SourceFile
   private typeDefinitionBuilder: TypeDefinitionBuilder
 
-  constructor(checker: ts.TypeChecker, sfiFile: ts.SourceFile) {
+  constructor(
+    checker: ts.TypeChecker,
+    sfiFile: ts.SourceFile,
+    program: ts.Program
+  ) {
     this.schema = {
       types: [],
       inputs: [],
+      interfaces: [],
       unions: [],
       enums: [],
       scalars: [
@@ -118,6 +137,7 @@ export class SchemaParser {
 
     this.checker = checker
     this.sfiFile = sfiFile
+    this.program = program
 
     this.typeDefinitionBuilder = new TypeDefinitionBuilder(checker, this.schema)
   }
@@ -160,6 +180,192 @@ export class SchemaParser {
           description: this.getTypeDocumentation(enumType.rawType)
         }
       })
+
+    // Go through all unions and check if it could be an interface
+
+    this.schema.unions.forEach(union => {
+      const interfaceUnion = this.checkIfInterfaceIsPossibleForUnion(
+        union,
+        this.schema.types
+      )
+
+      if (interfaceUnion) {
+        this.schema.interfaces.push(interfaceUnion)
+
+        // Remove the union from the types
+        this.schema.unions = this.schema.unions.filter(
+          type => type.name !== union.name
+        )
+
+        // Add the `implements` field to the types that implement the interface
+        this.schema.types.map(type => {
+          if (union.types.includes(type.name)) {
+            if (!type.implements) {
+              type.implements = []
+            }
+
+            type.implements.push(interfaceUnion.name)
+
+            return type
+          }
+        })
+      }
+    })
+
+    // // Go through all types and check if a type is an interface
+
+    for (const [
+      classType,
+      implementingTypes
+    ] of referenceSchema.classImplementsMap) {
+      this.schema.types.map(type => {
+        const schemaType = this.schema.types.find(t => t.rawType === classType)
+
+        if (schemaType) {
+          schemaType.implements = Array.from(
+            new Set([
+              ...(schemaType.implements || []),
+              ...implementingTypes.map(t => this.checker.typeToString(t))
+            ])
+          )
+        }
+
+        return type
+      })
+
+      // Add the implementing types to the interfaces
+      for (const implementingType of implementingTypes) {
+        const schemaType = this.schema.types.find(
+          t => t.rawType === implementingType
+        )
+
+        // Remove the implementing type from the types and add it to the interfaces
+
+        if (schemaType) {
+          this.schema.interfaces.push({
+            name: this.checker.typeToString(implementingType),
+            description: this.getTypeDocumentation(implementingType),
+            fields: schemaType.fields
+          })
+
+          this.schema.types = this.schema.types.filter(
+            type => type.rawType !== implementingType
+          )
+        }
+      }
+    }
+
+    // Generate the __resolveType function for the unions
+    this.schema.unions = this.schema.unions.map(union => {
+      return {
+        ...union,
+        __resolveType: this.getResolveTypeForUnionOrInterface(
+          union,
+          this.schema.types
+        )
+      }
+    })
+
+    // Generate the __resolveType function for the interfaces
+    this.schema.interfaces = this.schema.interfaces.map(intf => {
+      return {
+        ...intf,
+        __resolveType: this.getResolveTypeForUnionOrInterface(
+          intf,
+          this.schema.types
+        )
+      }
+    })
+  }
+
+  private checkIfInterfaceIsPossibleForUnion(
+    union: Union,
+    types: Array<Type>
+  ): Interface | null {
+    const unionTypes = union.types.map(t => {
+      const type = types.find(type => type.name === t)
+
+      if (!type) {
+        throw new Error(`Type ${t} not found`)
+      }
+
+      return type
+    })
+
+    const baseType = unionTypes[0]
+
+    // Check which fields are common in all types
+
+    const commonFields = baseType.fields.filter(field => {
+      return unionTypes.every(type => {
+        return type.fields.some(
+          f => JSON.stringify(f) === JSON.stringify(field)
+        )
+      })
+    })
+
+    if (commonFields.length > 0) {
+      return {
+        name: union.name,
+        description: union.description,
+        fields: commonFields
+      }
+    }
+
+    return null
+  }
+
+  private getResolveTypeForUnionOrInterface(
+    entity: Union | Interface,
+    types: Array<Type>
+  ) {
+    const entityTypes =
+      'types' in entity
+        ? types.filter(t => entity.types.includes(t.name))
+        : types.filter(t => t.implements?.includes(entity.name))
+
+    // Sort fieldTypes by the number of fields in descending order.
+    // This prioritizes types with more properties, which are more likely
+    // to match a given node, thus reducing ambiguity in type resolution.
+    entityTypes.sort((a, b) => b.fields.length - a.fields.length)
+
+    // Check for unions with the exact same fields
+    const fieldSignatures = new Map<string, Type>()
+
+    entityTypes.forEach(type => {
+      // Create a signature based on sorted field names
+      const fieldNames = type.fields
+        .map(field => field.name)
+        .sort()
+        .join(', ')
+
+      if (fieldSignatures.has(fieldNames)) {
+        const existingType = fieldSignatures.get(fieldNames)
+        consola.warn(
+          `Warning: Union types "${type.name}" and "${existingType?.name}" have the same fields: [${fieldNames}]. ` +
+            `\nConsider differentiating these types by adding unique fields or using different type names.` +
+            `\nThis may cause ambiguity in type resolution.`
+        )
+      } else {
+        fieldSignatures.set(fieldNames, type)
+      }
+    })
+
+    const checks = entityTypes.map(type => {
+      const fields = type.fields
+
+      const fieldChecks = fields
+        .map(field => `"${field.name}" in node`)
+        .join(' && ')
+
+      return `if (${fieldChecks}) {return '${type.name}'};`
+    })
+
+    const str = `function resolveType(node) { if (node && typeof node === 'object') { ${checks.join(
+      ' '
+    )} } }`
+
+    return new Function('return ' + str)()
   }
 
   public toString() {
@@ -204,7 +410,11 @@ export class SchemaParser {
 
       // add the type object to the schema string
       schemaString += addDescription(type.description)
-      schemaString += `type ${type.name} {\n`
+      schemaString += `type ${type.name}`
+      if (type.implements) {
+        schemaString += ` implements ${type.implements.join(' & ')}`
+      }
+      schemaString += ` {\n`
 
       // loop over the fields in the type object
       for (const field of type.fields) {
@@ -239,6 +449,24 @@ export class SchemaParser {
       schemaString += `union ${union.name} = ${union.types.join(' | ')}\n`
     }
 
+    // loop over the interface objects in the schema
+    for (const intf of this.schema.interfaces) {
+      // add the interface object to the schema string
+      schemaString += addDescription(intf.description)
+      schemaString += `interface ${intf.name} {\n`
+
+      // loop over the fields in the interface object
+      for (const field of intf.fields) {
+        // add the field to the interface object in the schema string
+        schemaString += `${addDescription(field.type.description)}`
+        schemaString += `${field.name}: ${typeDefinitionToGraphQLType(
+          field.type
+        )}\n`
+      }
+
+      schemaString += `}\n`
+    }
+
     // loop over the scalar objects in the schema
     for (const scalar of this.schema.scalars) {
       // add the scalar object to the schema string
@@ -268,6 +496,33 @@ export class SchemaParser {
     return this.schema
   }
 
+  public getResolvers() {
+    // Get union and interface resolvers
+
+    const resolvers: Record<
+      string,
+      {
+        __resolveType?: (obj: any) => string
+      }
+    > = {}
+
+    // loop over the union objects in the schema
+    for (const union of this.schema.unions) {
+      resolvers[union.name] = {
+        __resolveType: union.__resolveType
+      }
+    }
+
+    // loop over the interface objects in the schema
+    for (const intf of this.schema.interfaces) {
+      resolvers[intf.name] = {
+        __resolveType: intf.__resolveType
+      }
+    }
+
+    return resolvers
+  }
+
   private processSchemaReference(
     type: ts.Type,
     properties: {[key: string]: ReferenceSchemaType},
@@ -291,7 +546,10 @@ export class SchemaParser {
         this.schema[processing].push({
           name,
           description: this.getTypeDocumentation(type),
-          fields: []
+          fields: [],
+          rawType: isList(this.checker, type)
+            ? type.getNumberIndexType() || type.getStringIndexType() || type
+            : type
         })
 
         root = this.schema[processing][this.schema[processing].length - 1]!
@@ -438,7 +696,8 @@ export class SchemaParser {
   private makeReferenceSchema(index: Index): ReferenceSchema {
     const referenceSchema: ReferenceSchema = {
       types: new Map(),
-      inputs: new Map()
+      inputs: new Map(),
+      classImplementsMap: new Map()
     }
 
     const recLoop = (
@@ -483,6 +742,18 @@ export class SchemaParser {
         }
 
         return
+      }
+
+      if (type.isClass()) {
+        const baseTypes = type.getBaseTypes()
+        if (baseTypes) {
+          baseTypes.forEach(baseType => {
+            if (!referenceSchema.classImplementsMap.has(baseType)) {
+              referenceSchema.classImplementsMap.set(baseType, [])
+            }
+            referenceSchema.classImplementsMap.get(baseType)!.push(type)
+          })
+        }
       }
 
       if (type.isUnion()) {
@@ -663,6 +934,40 @@ export class SchemaParser {
 
     if (index.Mutation) {
       recLoop(index.Mutation)
+    }
+
+    // Handle classes that implement interfaces of the schema
+    const sourceFiles = this.program.getSourceFiles()
+
+    for (const sourceFile of sourceFiles) {
+      ts.forEachChild(sourceFile, node => {
+        if (ts.isClassDeclaration(node)) {
+          const baseTypes =
+            node.heritageClauses?.flatMap(heritage =>
+              heritage.types.map(type => {
+                return type
+              })
+            ) || []
+
+          // Check if the class implements an interface
+          if (baseTypes.length > 0) {
+            for (const baseType of baseTypes) {
+              if (
+                referenceSchema.types.has(
+                  this.checker.getTypeAtLocation(baseType)
+                )
+              ) {
+                referenceSchema.classImplementsMap.set(
+                  this.checker.getTypeAtLocation(node),
+                  [this.checker.getTypeAtLocation(baseType)]
+                )
+
+                recLoop(this.checker.getTypeAtLocation(node))
+              }
+            }
+          }
+        }
+      })
     }
 
     return referenceSchema
