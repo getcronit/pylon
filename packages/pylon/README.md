@@ -59,24 +59,78 @@ import {app} from '@getcronit/pylon'
 
 export const graphql = {
   Query: {
-    sum: (a: number, b: number) => {
-      console.log(`Calculating sum of ${a} and ${b}`)
-      return a + b
-    }
+    user: (id: string) => {
+      return {
+        id,
+        name: 'John Doe',
+        email: 'johndoe@example.com'
+      }
+    },
+    products: () => [
+      {id: '1', name: 'Laptop', price: 999.99},
+      {id: '2', name: 'Smartphone', price: 499.99},
+      {id: '3', name: 'Tablet', price: 299.99}
+    ]
   },
   Mutation: {
-    divide: (a: number, b: number) => {
-      if (b === 0) {
-        console.error('Attempt to divide by zero')
-        throw new Error('Division by zero is not allowed')
+    updateUserEmail: (id: string, newEmail: string) => {
+      return {
+        id,
+        email: newEmail
       }
-      console.log(`Dividing ${a} by ${b}`)
-      return a / b
+    },
+    createOrder: (userId: string, productIds: string[]) => {
+      return {
+        id: 'order-123',
+        userId,
+        productIds,
+        status: 'PENDING'
+      }
     }
   }
 }
 
 export default app
+```
+
+**Query:**
+
+```graphql
+query GetUser {
+  userById(id: "1") {
+    id
+    name
+    email
+  }
+}
+
+query GetProducts {
+  allProducts {
+    id
+    name
+    price
+  }
+}
+```
+
+**Mutation:**
+
+```graphql
+mutation UpdateUserEmail {
+  updateUserEmail(id: "1", newEmail: "johndoe2@example.com") {
+    id
+    email
+  }
+}
+
+mutation CreateOrder {
+  createOrder(userId: "1", productIds: ["1", "2"]) {
+    id
+    userId
+    productIds
+    status
+  }
+}
 ```
 
 ## Deploy
