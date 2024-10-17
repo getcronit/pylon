@@ -36,7 +36,7 @@ With Pylon, you can build APIs faster, with fewer errors, and with less code.
 To create a new Pylon project, run the following command:
 
 ```bash
-npm create pylon
+npm create pylon@latest
 ```
 
 Afterwards, you can navigate to the newly created project and start the development server:
