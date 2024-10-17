@@ -97,7 +97,7 @@ export default app
 
 ```graphql
 query GetUser {
-  userById(id: "1") {
+  user(id: "1") {
     id
     name
     email
@@ -105,7 +105,7 @@ query GetUser {
 }
 
 query GetProducts {
-  allProducts {
+  products {
     id
     name
     price
