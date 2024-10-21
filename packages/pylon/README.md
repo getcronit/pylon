@@ -15,6 +15,7 @@
 
 [![Documentation](https://img.shields.io/badge/documentation-documentation?color=000000)](https://pylon.cronit.io/docs)
 [![NPM](https://img.shields.io/npm/v/%40getcronit%2Fpylon)](https://www.npmjs.com/package/@getcronit/pylon)
+![Discord](https://img.shields.io/discord/1270327745662029854)
 
 </div>
 
