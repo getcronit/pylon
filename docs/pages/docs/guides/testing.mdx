@@ -1,3 +1,5 @@
+import {Callout} from '@components/callout'
+
 # Testing
 
 **Note:** This guide assumes you have already created a Pylon project using `npm create pylon@latest` or have an existing Pylon project. We will be modifying the existing `src/index.ts` file in your project.
@@ -489,3 +491,41 @@ You've also written tests for each of these features, ensuring that your applica
 As you continue to develop your Pylon application, you can follow this pattern of implementing a feature, building the application, and then testing it. This approach helps maintain high code quality and ensures that your application remains reliable as it grows in complexity.
 
 Take a look at our testing example in the [Pylon repository](https://github.com/getcronit/pylon/tree/main/examples/bun-testing) for a complete working example of testing a Pylon application with Bun.
+
+### Optional: Environment Variables
+
+By default, `getEnv` returns `process.env` during testing. If you need to set additional environment variables for your tests, you have to pass your mocked env as the 3rd argument to `app.request`:
+
+```typescript
+const MOCKED_ENV = {
+  MY_ENV_VAR: 'my-value'
+}
+
+const res = await app.request(
+  '/graphql',
+  {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      query: 'query { posts { id title content } }'
+    })
+  },
+  MOCKED_ENV
+)
+```
+
+<Callout type="note" title="Note">
+  If you have [disabled telemetry](../telemetry.mdx) in your project, this will
+  be reverted when overwriting the environment with a mocked one. Make sure to
+  also disable telemetry in the mock environment.
+
+```typescript
+const MOCKED_ENV = {
+  MY_ENV_VAR: 'my-value',
+  PYLON_DISABLE_TELEMETRY: true
+}
+```
+
+</Callout>

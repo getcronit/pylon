@@ -7,7 +7,11 @@ export function getEnv() {
 
   try {
     const context = asyncContext.getStore() as Context
-    return context.env
+
+    // Fall back to process.env or an empty object if no context is available
+    // This is useful for testing
+    // ref: https://hono.dev/docs/guides/testing#env
+    return context.env || process.env || {}
   } catch {
     return process.env
   } finally {
