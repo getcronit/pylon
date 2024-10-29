@@ -8,7 +8,7 @@ For testing, we'll be using the Bun test runner, which is recommended for Pylon 
 Always run this build command after making changes to your Pylon application and before running your tests.
 If you use `bun run dev`, while making changes to your application, the `.pylon/index.js` file will be updated automatically.
 
-### Step 1: Set Up the Basic Pylon Application
+### Set Up the Basic Pylon Application
 
 First, let's modify the `src/index.ts` file to set up a basic Pylon application with an empty posts array.
 
@@ -22,7 +22,7 @@ export default app
 
 This sets up the foundation for our Pylon application. We've imported the `app` from Pylon and initialized an empty `posts` array to store our blog posts.
 
-### Step 2: Implement GraphQL Query for Fetching Posts
+### Implement GraphQL Query for Fetching Posts
 
 Now, let's implement the GraphQL query to fetch posts. Modify your `src/index.ts` file as follows:
 
@@ -57,7 +57,7 @@ After making these changes, run the build command:
 bun run build
 ```
 
-### Step 3: Test GraphQL Query for Fetching Posts
+### Test GraphQL Query for Fetching Posts
 
 Create a new file named `pylon.test.ts` in your project root and add the following test:
 
@@ -105,7 +105,7 @@ Now, run the tests:
 bun test
 ```
 
-### Step 4: Implement GraphQL Mutation for Creating Posts
+### Implement GraphQL Mutation for Creating Posts
 
 Let's implement the GraphQL mutation to create posts. Update your `src/index.ts` file:
 
@@ -151,7 +151,7 @@ After making these changes, run the build command again:
 bun run build
 ```
 
-### Step 5: Test GraphQL Mutation for Creating Posts
+### Test GraphQL Mutation for Creating Posts
 
 Add the following test to your `pylon.test.ts` file:
 
@@ -230,7 +230,7 @@ Run the tests:
 bun test
 ```
 
-### Step 6: Implement REST API GET /posts Endpoint
+### Implement REST API GET /posts Endpoint
 
 Now, let's implement the REST API endpoint to fetch posts. Update your `src/index.ts` file:
 
@@ -267,7 +267,7 @@ After making these changes, run the build command:
 bun run build
 ```
 
-### Step 7: Test REST API GET /posts Endpoint
+### Test REST API GET /posts Endpoint
 
 Add the following test to your `pylon.test.ts` file:
 
@@ -312,7 +312,7 @@ Run the tests:
 bun test
 ```
 
-### Step 8: Implement REST API POST /posts Endpoint
+### Implement REST API POST /posts Endpoint
 
 Finally, let's implement the REST API endpoint to create posts. Update your `src/index.ts` file:
 
@@ -381,7 +381,7 @@ After making these changes, run the build command:
 bun run build
 ```
 
-### Step 9: Test REST API POST /posts Endpoint
+### Test REST API POST /posts Endpoint
 
 Add the following tests to your `pylon.test.ts` file:
 
