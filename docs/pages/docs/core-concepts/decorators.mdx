@@ -181,3 +181,36 @@ In this example, the `requireBasicAuth` decorator applies the `basicAuth` middle
 Now you can navigate to `http://localhost:3000` and you will be prompted to enter a username and password. Afterwards you can access the `secure` service function.
 
 Take a look at the [Hono documentation](https://hono.dev/docs/middleware/builtin/basic-auth) for more information on available middleware functions.
+
+## Decorators as Middleware
+
+You can also use decorators as middleware functions for routes. This allows you to apply the same middleware to multiple routes.
+
+```typescript
+import {app, createDecorator, getContext} from '@getcronit/pylon'
+import {basicAuth} from 'hono/basic-auth'
+
+const requireBasicAuth = createDecorator(async () => {
+  const ctx = getContext()
+
+  await basicAuth({
+    username: 'admin',
+    password: 'password'
+  })(ctx, async () => {})
+})
+
+export const graphql = {
+  Query: {
+    hello: 'Hello World!'
+  }
+}
+
+app.get(
+  '/',
+  requireBasicAuth(async (c, next) => {
+    return new Response('Hello World')
+  })
+)
+```
+
+In this example, the `requireBasicAuth` decorator is used as middleware for the `/` route, requiring the user to provide a username and password to access the route.
