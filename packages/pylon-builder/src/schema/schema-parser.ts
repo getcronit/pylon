@@ -69,6 +69,7 @@ type ReferenceSchemaType = {
     // value needs to be inputs type
     [key: string]: {
       type: ts.Type
+      isRequired: boolean
       documentation: string
     }
   }
@@ -322,7 +323,8 @@ export class SchemaParser {
 
             const fieldDef = getTypeDefinition(argType.type, {
               isInputType: true,
-              propertyName: argName
+              propertyName: argName,
+              isRequired: arg.isRequired
             })
 
             if (
@@ -583,10 +585,14 @@ export class SchemaParser {
               this.sfiFile
             )
 
+            const valueDeclaration =
+              arg.valueDeclaration as ts.ParameterDeclaration
+
             // set args to empty object if not set
             if (schemaType.args) {
               schemaType.args[arg.escapedName as string] = {
                 type: argType,
+                isRequired: valueDeclaration.initializer === undefined,
                 documentation: this.getSymbolDocumentation(arg)
               }
 
