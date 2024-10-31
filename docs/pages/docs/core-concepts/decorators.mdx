@@ -159,10 +159,7 @@ const authMiddleware = basicAuth({
 const requireBasicAuth = createDecorator(async () => {
   const ctx = getContext()
 
-  await basicAuth({
-    username: 'admin',
-    password: 'password'
-  })(ctx, async () => {})
+  await authMiddleware(ctx, async () => {})
 })
 
 export const graphql = {
