@@ -1,0 +1,312 @@
+# Interfaces and Unions in Pylon
+
+Pylon fully supports TypeScript interfaces and unions, providing a seamless way to define complex types and relationships in your GraphQL API. This feature automatically translates TypeScript interfaces and unions into corresponding GraphQL schemas, simplifying the development process and enhancing type safety.
+
+## Interfaces
+
+In Pylon, TypeScript interfaces are automatically translated into GraphQL interfaces. This allows you to define common fields that a set of types must include.
+
+### Basic Interface Example
+
+```typescript
+import {app, ID} from '@getcronit/pylon'
+
+interface Node {
+  id: ID
+}
+
+interface User extends Node {
+  name: string
+}
+
+interface Post extends Node {
+  title: string
+}
+
+export const graphql = {
+  Query: {
+    user: (id: ID): User => {
+      // Implementation
+    },
+    post: (id: ID): Post => {
+      // Implementation
+    },
+    node: (id: ID): Node => {
+      // Implementation
+    }
+  }
+}
+
+export default app
+```
+
+This TypeScript code generates the following GraphQL schema:
+
+```graphql
+interface Node {
+  id: ID!
+}
+
+type User implements Node {
+  id: ID!
+  name: String!
+}
+
+type Post implements Node {
+  id: ID!
+  title: String!
+}
+
+type Query {
+  user(id: ID!): User
+  post(id: ID!): Post
+  node(id: ID!): Node
+}
+```
+
+### Using Interfaces
+
+Interfaces are particularly useful when you have a set of types that share common fields. For example, you might have different types of content (posts, comments, pages) that all have an ID and a creation date:
+
+```typescript
+interface Content {
+  id: ID
+  createdAt: Date
+}
+
+interface Post extends Content {
+  title: string
+  body: string
+}
+
+interface Comment extends Content {
+  text: string
+  author: string
+}
+
+interface Page extends Content {
+  title: string
+  slug: string
+}
+```
+
+This structure allows you to create queries that can return any type of content:
+
+```typescript
+export const graphql = {
+  Query: {
+    getContent: (id: ID): Content => {
+      // Implementation to fetch any type of content
+    }
+  }
+}
+```
+
+## Unions
+
+Unions in TypeScript are translated into GraphQL union types. They allow you to define a type that could be one of several types.
+
+### Basic Union Example
+
+```typescript
+type SearchResult = User | Post
+
+export const graphql = {
+  Query: {
+    search: (query: string): SearchResult[] => {
+      // Implementation to search users and posts
+    }
+  }
+}
+```
+
+This generates the following GraphQL schema:
+
+```graphql
+union SearchResult = User | Post
+
+type Query {
+  search(query: String!): [SearchResult!]
+}
+```
+
+### Using Unions
+
+Unions are great for representing results that could be of different types. For example, a newsfeed that contains different types of items:
+
+```typescript
+type Status = {
+  id: ID
+  text: string
+  author: User
+}
+
+type Photo = {
+  id: ID
+  url: string
+  caption: string
+}
+
+type NewsfeedItem = Status | Photo
+
+export const graphql = {
+  Query: {
+    newsfeed: (): NewsfeedItem[] => {
+      // Implementation to fetch newsfeed items
+    }
+  }
+}
+```
+
+## Automatic Type Resolution
+
+One of the key features of Pylon's interface and union support is automatic type resolution. Unlike other GraphQL servers that require manual implementation of a `__resolveType` function, Pylon automatically resolves the correct type based on the shape of your data.
+
+This means you don't need to write code like this:
+
+```typescript
+// This is NOT needed in Pylon
+const resolveType = {
+  SearchResult: {
+    __resolveType(obj) {
+      if (obj.name) return 'User'
+      if (obj.title) return 'Post'
+      return null
+    }
+  }
+}
+```
+
+Pylon handles this automatically, simplifying your code and reducing the potential for errors.
+
+## Shared Properties
+
+When you define a union type where the member types have shared properties, Pylon automatically creates an interface for these shared properties.
+
+### Example
+
+```typescript
+type Bar = {
+  id: ID
+  title: string
+}
+
+type Foo = {
+  id: ID
+  name: string
+}
+
+type Example = Foo | Bar
+```
+
+This generates the following GraphQL schema:
+
+```graphql
+interface Example {
+  id: ID!
+}
+
+type Foo implements Example {
+  id: ID!
+  name: String!
+}
+
+type Bar implements Example {
+  id: ID!
+  title: String!
+}
+```
+
+This feature helps to maintain type safety and allows for more efficient querying of common properties.
+
+## Multiple Interfaces
+
+Pylon supports implementing multiple interfaces, mirroring the GraphQL specification. This allows for complex type hierarchies and flexible schema design.
+
+### Example
+
+```typescript
+interface Timestamped {
+  createdAt: Date
+  updatedAt: Date
+}
+
+interface Authored {
+  author: User
+}
+
+class BlogPost implements Node, Timestamped, Authored {
+  constructor(
+    public id: ID,
+    public title: string,
+    public createdAt: Date,
+    public updatedAt: Date,
+    public author: User
+  ) {}
+}
+```
+
+This will generate a GraphQL type that implements all three interfaces:
+
+```graphql
+type BlogPost implements Node & Timestamped & Authored {
+  id: ID!
+  title: String!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  author: User!
+}
+```
+
+## Type Inference
+
+Pylon's type inference capabilities allow it to generate appropriate GraphQL schemas even from simple object structures. This means you can often define your types implicitly through your data structures.
+
+### Example
+
+```typescript
+const nodes = [
+  {
+    id: '1',
+    name: 'John Doe'
+  },
+  {
+    id: '4',
+    title: 'Hello, Pylon!'
+  }
+]
+
+export const graphql = {
+  Query: {
+    node: (id: ID) => {
+      return nodes.find(node => node.id === id)
+    }
+  }
+}
+```
+
+Pylon will automatically generate an interface and two types with generated names based on the structure of the `nodes` array. This can be particularly useful for rapid prototyping or when working with existing data structures.
+
+## Best Practices
+
+When working with interfaces and unions in Pylon, consider the following best practices:
+
+1. **Use interfaces for shared fields**: If you have types that share common fields, define an interface to represent these shared fields. This makes your schema more maintainable and allows for more efficient querying.
+2. **Use unions for heterogeneous collections**: When you have fields that can return different types of objects, use unions to represent this. This provides clear type information to API consumers.
+3. **Leverage automatic type resolution**: Trust Pylon's automatic type resolution instead of manually implementing `__resolveType` functions. This reduces boilerplate and potential errors.
+4. **Be consistent with naming**: Use clear and consistent naming conventions for your interfaces and unions. This makes your schema more understandable and self-documenting.
+5. **Use type inference judiciously**: While Pylon's type inference is powerful, explicitly defining your types can often lead to clearer, more maintainable code, especially in larger projects.
+6. **Consider performance**: Remember that using interfaces and unions can sometimes lead to less efficient queries if not used carefully. Monitor your API's performance and optimize as necessary.
+
+## Conclusion
+
+Pylon's support for interfaces and unions brings the full power of TypeScript's type system to your GraphQL API. By automatically translating TypeScript interfaces and unions into GraphQL schemas, Pylon simplifies the process of defining complex types and relationships.
+
+Key benefits include:
+
+- Seamless integration between TypeScript and GraphQL types
+- Automatic type resolution, reducing boilerplate code
+- Support for complex type hierarchies through multiple interface implementation
+- Powerful type inference capabilities for rapid development
+
+With these features, Pylon empowers developers to create robust, type-safe GraphQL APIs with less effort and greater flexibility. Whether you're building a simple API or a complex system with intricate type relationships, Pylon's interface and union support provides the tools you need to model your data effectively.
