@@ -55,6 +55,12 @@ const runtimes: {
     name: 'Cloudflare Workers',
     website: 'https://workers.cloudflare.com',
     templates: ['default']
+  },
+  {
+    key: 'deno',
+    name: 'Deno',
+    website: 'https://deno.land',
+    templates: ['default']
   }
 ]
 
@@ -217,30 +223,15 @@ const createTemplate = async (options: {
   consola.success(`Pylon created`)
 }
 
-import {detect} from 'detect-package-manager'
 import {spawnSync} from 'child_process'
+import {detectPackageManager, getRunScript, PackageManager} from './detect-pm'
 
 const installDependencies = async (args: {
   target: string
-  packageManager?: string
+  packageManager: PackageManager
 }) => {
   const target = path.resolve(args.target)
-
-  console.log('target', target)
-
-  if (!args.packageManager) {
-    args.packageManager = await detect({
-      cwd: target,
-      includeGlobalBun: true
-    })
-  }
-
-  if (!args.packageManager) {
-    throw new Error('No package manager found')
-  }
-
-  // yarn', 'npm', or 'pnpm', 'bun'
-  const {packageManager} = args
+  const packageManager = args.packageManager
 
   let command = ''
 
@@ -256,6 +247,9 @@ const installDependencies = async (args: {
       break
     case 'bun':
       command = 'bun install'
+      break
+    case 'deno':
+      command = 'deno install'
       break
     default:
       throw new Error(`Invalid package manager: ${packageManager}`)
@@ -304,10 +298,20 @@ type ArgOptions = {
   install: boolean
   runtime: string
   template: string
-  packageManager?: string
+  packageManager?: PackageManager
   client?: boolean
   clientPath?: string
   clientPort?: string
+}
+
+const getPreferredPmByRuntime = (
+  runtime: string
+): PackageManager | undefined => {
+  if (runtime === 'bun') {
+    return 'bun'
+  } else if (runtime === 'deno') {
+    return 'deno'
+  }
 }
 
 async function main(
@@ -413,11 +417,10 @@ async function main(
       target
     })
 
-    let packageManager = packageManagerArg
-
-    if (runtimeName === 'bun' && !packageManager) {
-      packageManager = 'bun'
-    }
+    const packageManager = detectPackageManager({
+      preferredPm: getPreferredPmByRuntime(runtime.key),
+      cwd: target
+    })
 
     if (install) {
       await installDependencies({target, packageManager})
@@ -465,29 +468,39 @@ async function main(
 
       consola.start(`Updating pylon dev script to generate client`)
 
-      const devScriptPath = path.join(target, 'package.json')
+      let packagePath: string
+      let scriptKey: string
+      if (runtime.key === 'deno') {
+        packagePath = path.join(target, 'deno.json')
+        scriptKey = 'tasks'
+      } else {
+        packagePath = path.join(target, 'package.json')
+        scriptKey = 'scripts'
+      }
 
-      const devScript = JSON.parse(fs.readFileSync(devScriptPath, 'utf-8'))
+      const devScript = JSON.parse(fs.readFileSync(packagePath, 'utf-8'))
 
-      devScript.scripts = {
-        ...devScript.scripts,
+      devScript[scriptKey] = {
+        ...devScript[scriptKey],
         dev:
-          devScript.scripts.dev +
+          devScript[scriptKey].dev +
           ` --client --client-port ${clientPort} --client-path ${clientPath}`
       }
 
-      fs.writeFileSync(devScriptPath, JSON.stringify(devScript, null, 2))
+      fs.writeFileSync(packagePath, JSON.stringify(devScript, null, 2))
 
       consola.success(`Pylon dev script updated`)
     }
+
+    const runScript = getRunScript(packageManager)
 
     const message = `
 🎉 ${chalk.green.bold('Pylon created successfully.')}
 
 💻 ${chalk.cyan.bold('Continue Developing')}
     ${chalk.yellow('Change directories:')} cd ${chalk.blue(target)}
-    ${chalk.yellow('Start dev server:')} npm run start
-    ${chalk.yellow('Deploy:')} npm run deploy
+    ${chalk.yellow('Start dev server:')} ${runScript} dev
+    ${chalk.yellow('Deploy:')} ${runScript} deploy
 
 📖 ${chalk.cyan.bold('Explore Documentation')}
     ${chalk.underline.blue('https://pylon.cronit.io/docs')}
