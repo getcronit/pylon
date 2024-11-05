@@ -1,4 +1,4 @@
-This is a example of a service build with Pylon that uses Interfaces and Unions.
+This is an example of a service built with Pylon that uses Interfaces and Unions.
 
 Take a look at the `src/index.ts` file to see how the service is built.
 
