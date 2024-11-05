@@ -272,6 +272,17 @@ export class TypeDefinitionBuilder {
 
       typeName = safeTypeName(typeName || typeNames.join('Or'))
 
+      // check if typeName is a duplicate
+      if (typeName) {
+        let i = 1
+        let originalTypeName = typeName
+        while (duplicateName(typeName as string)) {
+          typeName = `${originalTypeName}_${i}`
+
+          i++
+        }
+      }
+
       if (
         unionTypeDefs.length > 1 &&
         !options.isInputType &&

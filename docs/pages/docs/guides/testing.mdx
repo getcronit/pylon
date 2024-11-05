@@ -1,3 +1,5 @@
+import {Callout} from '@components/callout'
+
 # Testing
 
 **Note:** This guide assumes you have already created a Pylon project using `npm create pylon@latest` or have an existing Pylon project. We will be modifying the existing `src/index.ts` file in your project.
@@ -8,7 +10,7 @@ For testing, we'll be using the Bun test runner, which is recommended for Pylon 
 Always run this build command after making changes to your Pylon application and before running your tests.
 If you use `bun run dev`, while making changes to your application, the `.pylon/index.js` file will be updated automatically.
 
-### Step 1: Set Up the Basic Pylon Application
+### Set Up the Basic Pylon Application
 
 First, let's modify the `src/index.ts` file to set up a basic Pylon application with an empty posts array.
 
@@ -22,7 +24,7 @@ export default app
 
 This sets up the foundation for our Pylon application. We've imported the `app` from Pylon and initialized an empty `posts` array to store our blog posts.
 
-### Step 2: Implement GraphQL Query for Fetching Posts
+### Implement GraphQL Query for Fetching Posts
 
 Now, let's implement the GraphQL query to fetch posts. Modify your `src/index.ts` file as follows:
 
@@ -57,7 +59,7 @@ After making these changes, run the build command:
 bun run build
 ```
 
-### Step 3: Test GraphQL Query for Fetching Posts
+### Test GraphQL Query for Fetching Posts
 
 Create a new file named `pylon.test.ts` in your project root and add the following test:
 
@@ -105,7 +107,7 @@ Now, run the tests:
 bun test
 ```
 
-### Step 4: Implement GraphQL Mutation for Creating Posts
+### Implement GraphQL Mutation for Creating Posts
 
 Let's implement the GraphQL mutation to create posts. Update your `src/index.ts` file:
 
@@ -151,7 +153,7 @@ After making these changes, run the build command again:
 bun run build
 ```
 
-### Step 5: Test GraphQL Mutation for Creating Posts
+### Test GraphQL Mutation for Creating Posts
 
 Add the following test to your `pylon.test.ts` file:
 
@@ -230,7 +232,7 @@ Run the tests:
 bun test
 ```
 
-### Step 6: Implement REST API GET /posts Endpoint
+### Implement REST API GET /posts Endpoint
 
 Now, let's implement the REST API endpoint to fetch posts. Update your `src/index.ts` file:
 
@@ -267,7 +269,7 @@ After making these changes, run the build command:
 bun run build
 ```
 
-### Step 7: Test REST API GET /posts Endpoint
+### Test REST API GET /posts Endpoint
 
 Add the following test to your `pylon.test.ts` file:
 
@@ -312,7 +314,7 @@ Run the tests:
 bun test
 ```
 
-### Step 8: Implement REST API POST /posts Endpoint
+### Implement REST API POST /posts Endpoint
 
 Finally, let's implement the REST API endpoint to create posts. Update your `src/index.ts` file:
 
@@ -381,7 +383,7 @@ After making these changes, run the build command:
 bun run build
 ```
 
-### Step 9: Test REST API POST /posts Endpoint
+### Test REST API POST /posts Endpoint
 
 Add the following tests to your `pylon.test.ts` file:
 
@@ -489,3 +491,41 @@ You've also written tests for each of these features, ensuring that your applica
 As you continue to develop your Pylon application, you can follow this pattern of implementing a feature, building the application, and then testing it. This approach helps maintain high code quality and ensures that your application remains reliable as it grows in complexity.
 
 Take a look at our testing example in the [Pylon repository](https://github.com/getcronit/pylon/tree/main/examples/bun-testing) for a complete working example of testing a Pylon application with Bun.
+
+### Optional: Environment Variables
+
+By default, `getEnv` returns `process.env` during testing. If you need to set additional environment variables for your tests, you have to pass your mocked env as the 3rd argument to `app.request`:
+
+```typescript
+const MOCKED_ENV = {
+  MY_ENV_VAR: 'my-value'
+}
+
+const res = await app.request(
+  '/graphql',
+  {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      query: 'query { posts { id title content } }'
+    })
+  },
+  MOCKED_ENV
+)
+```
+
+<Callout type="note" title="Note">
+  If you have [disabled telemetry](../telemetry.mdx) in your project, this will
+  be reverted when overwriting the environment with a mocked one. Make sure to
+  also disable telemetry in the mock environment.
+
+```typescript
+const MOCKED_ENV = {
+  MY_ENV_VAR: 'my-value',
+  PYLON_DISABLE_TELEMETRY: true
+}
+```
+
+</Callout>
