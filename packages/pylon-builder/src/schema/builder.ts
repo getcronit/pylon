@@ -14,7 +14,13 @@ export class SchemaBuilder {
 
     const tsConfigOptions = this.loadTsConfigOptions()
 
-    this.program = ts.createProgram([this.sfiFilePath], tsConfigOptions)
+    const filesInSfiDir = ts.sys.readDirectory(
+      path.dirname(this.sfiFilePath),
+      ['.ts'],
+      ['.d.ts']
+    )
+
+    this.program = ts.createProgram(filesInSfiDir, tsConfigOptions)
 
     this.checker = this.program.getTypeChecker()
 
@@ -116,7 +122,7 @@ export class SchemaBuilder {
       ? this.checker.getTypeOfSymbolAtLocation(mutationProperty, this.sfiFile)
       : undefined
 
-    const parser = new SchemaParser(this.checker, this.sfiFile)
+    const parser = new SchemaParser(this.checker, this.sfiFile, this.program)
 
     parser.parse({
       Query: queryType,
@@ -125,7 +131,8 @@ export class SchemaBuilder {
 
     return {
       typeDefs: parser.toString(),
-      schema: parser.getSchema()
+      schema: parser.getSchema(),
+      resolvers: parser.getResolvers()
     }
   }
 }

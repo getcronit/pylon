@@ -8,7 +8,15 @@ import path from 'path'
 import consola from 'consola'
 
 export interface BundlerBuildOptions {
-  getTypeDefs: () => string
+  getBuildDefs: () => {
+    typeDefs: string
+    resolvers: Record<
+      string,
+      {
+        __resolveType?: (obj: any) => string
+      }
+    >
+  }
   watch?: boolean
   onWatch?: (output: {
     totalFiles: number
@@ -33,7 +41,7 @@ export class Bundler {
     const buildOnce = async () => {
       const startTime = Date.now()
 
-      const typeDefs = options.getTypeDefs()
+      const {typeDefs, resolvers: baseResolvers} = options.getBuildDefs()
 
       const injectCodePlugin: Plugin = {
         name: 'inject-code',
@@ -51,7 +59,12 @@ export class Bundler {
       import {graphqlHandler} from "@getcronit/pylon"        
       app.use('/graphql', async c => {
         const typeDefs = ${JSON.stringify(typeDefs)}
-        const resolvers = graphql
+        const resolvers = {
+                ...graphql,
+                ...${prepareObjectInjection(baseResolvers)}
+        }
+
+        console.log('resolvers', resolvers)
       
         let exCtx = undefined
       
@@ -91,6 +104,8 @@ export class Bundler {
           })
         ]
       })
+
+      fs.writeFileSync(path.join(dir, 'schema.graphql'), typeDefs, 'utf-8')
 
       if (output.errors.length > 0) {
         for (const error of output.errors) {
@@ -144,4 +159,22 @@ export class Bundler {
 
     return await buildOnce()
   }
+}
+
+function prepareObjectInjection(obj: object) {
+  const entries = Object.entries(obj).map(([key, value]) => {
+    if (value === undefined) {
+      return undefined
+    } else if (typeof value === 'string') {
+      return `${key}:${value}`
+    } else if (typeof value === 'function') {
+      return `${key}:${value.toString()}`
+    } else if (typeof value === 'object' && !Array.isArray(value)) {
+      return `${key}:${prepareObjectInjection(value)}`
+    } else {
+      return `${key}:${JSON.stringify(value)}`
+    }
+  })
+
+  return `{${entries.join(',')}}`
 }
