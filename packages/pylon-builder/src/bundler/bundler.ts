@@ -63,6 +63,14 @@ export class Bundler {
                 ...graphql,
                 ...${prepareObjectInjection(baseResolvers)}
         }
+
+        let pylonConfig = undefined
+
+        try {
+          pylonConfig = config
+        } catch {
+         // config is not declared, pylonConfig remains undefined
+        }
       
         let exCtx = undefined
       
@@ -72,7 +80,8 @@ export class Bundler {
   
         return graphqlHandler(c)({
           typeDefs,
-          resolvers
+          resolvers,
+          config: pylonConfig
         }).fetch(c.req.raw, c.env, exCtx || {})
       })
       `
