@@ -1,0 +1,67 @@
+# v2.4 Release Notes
+
+Welcome to `@getcronit/pylon@2.4.0` release (November 2024)!
+
+Pylon v2.4 introduces full support for [Envelop plugins](https://the-guild.dev/graphql/envelop/plugins), significantly enhancing the extensibility and customization options for your GraphQL server.
+
+## Envelop Plugin Support
+
+- **Full Integration**: Pylon now supports all plugins from the Envelop ecosystem, developed by [The Guild](https://the-guild.dev/).
+- **Easy Configuration**: Seamlessly add Envelop plugins to your Pylon application using the `plugins` array in your configuration.
+- **Enhanced Functionality**: Easily extend your GraphQL server with features like custom error handling, caching, and more.
+
+# Usage Example
+
+Here's a quick example of how you can use an Envelop plugin in your Pylon application:
+
+```ts
+import {app, PylonConfig, ServiceError} from '@getcronit/pylon'
+import {useErrorHandler} from '@envelop/core'
+
+export const graphql = {
+  Query: {
+    hello: () => {
+      throw new ServiceError('Hello, world!', {
+        code: 'HELLO_WORLD',
+        statusCode: 400
+      })
+    }
+  },
+  Mutation: {}
+}
+
+export const config: PylonConfig = {
+  plugins: [
+    useErrorHandler(({errors, context, phase}) => {
+      console.error(errors)
+    })
+  ]
+}
+
+export default app
+```
+
+In this example, we're using the `useErrorHandler` plugin from Envelop to customize error handling in our GraphQL server.
+
+## Benefits
+
+By leveraging Envelop plugins, you can now:
+
+1. Extend your GraphQL server's functionality without writing complex custom code.
+2. Take advantage of battle-tested plugins maintained by the GraphQL community.
+3. Easily add features like error handling, caching, authentication, and more.
+4. Keep your Pylon application modular and easy to maintain.
+
+## Documentation
+
+For more detailed information on how to use Envelop plugins with Pylon, please refer to our new [Plugins documentation](../core-concepts/plugins.mdx).
+
+We're excited to see what you'll build with these new capabilities! As always, we welcome your feedback and contributions.
+
+## Example Project
+
+To help you get started, we've created an [example project](https://github.com/getcronit/tree/main/examples/envelop-plugins) that demonstrates how to use Envelop plugins with Pylon. Feel free to explore the code and experiment with different plugins.
+
+## Acknowledgements
+
+- [@shoma-mano](https://github.com/shoma-mano) for his question about global error handling, which inspired us to add Envelop plugin support.
