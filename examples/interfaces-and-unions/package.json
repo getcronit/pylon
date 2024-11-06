@@ -1,0 +1,23 @@
+{
+  "name": "interfaces-and-unions",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Generated with `npm create pylon`",
+  "scripts": {
+    "dev": "pylon dev -c \"bun run .pylon/index.js\"",
+    "build": "pylon build"
+  },
+  "dependencies": {
+    "@getcronit/pylon": "^2.0.0",
+    "bun-types": "^1.1.18"
+  },
+  "devDependencies": {
+    "@getcronit/pylon-dev": "^1.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/getcronit/pylon.git"
+  },
+  "homepage": "https://pylon.cronit.io"
+}

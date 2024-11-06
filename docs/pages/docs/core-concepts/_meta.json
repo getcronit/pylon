@@ -1,6 +1,7 @@
 {
   "automatic-graphql-api-generation": "Automatic GraphQL-API Generation",
   "type-safety-and-type-integration": "Type Safety and Type Integration",
+  "interfaces-and-unions": "Interfaces and Unions",
   "built-in-authentication-and-authorization": "Built-in Authentication and Authorization",
   "logging-and-monitoring": "Logging and Monitoring",
   "context-management": "Context Management",

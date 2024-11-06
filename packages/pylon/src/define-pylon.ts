@@ -17,6 +17,27 @@ export interface Resolvers {
 
 type FunctionWrapper = (fn: (...args: any[]) => any) => (...args: any[]) => any
 
+function getAllPropertyNames(instance: any): string[] {
+  const allProps = new Set<string>()
+
+  // Traverse the prototype chain
+  let currentObj: any = instance
+
+  while (currentObj && currentObj !== Object.prototype) {
+    // Get all own property names of the current object
+    const ownProps = Object.getOwnPropertyNames(currentObj)
+
+    // Add each property to the Set
+    ownProps.forEach(prop => allProps.add(prop))
+
+    // Move up the prototype chain
+    currentObj = Object.getPrototypeOf(currentObj)
+  }
+
+  // Convert Set to array and filter out the constructor if desired
+  return Array.from(allProps).filter(prop => prop !== 'constructor')
+}
+
 async function wrapFunctionsRecursively(
   obj: any,
   wrapper: FunctionWrapper,
@@ -62,52 +83,11 @@ async function wrapFunctionsRecursively(
       info
     )
   } else if (typeof obj === 'object') {
-    const result: any = {}
-
-    const fields: {
-      key: string
-      selectionSet: SelectionSetNode['selections']
-    }[] = []
-
     that = obj
 
-    const resolveFragmentSpreadFields = (fragment: FragmentDefinitionNode) => {
-      const fragmentFields: typeof fields = []
+    const result: Record<string, any> = {}
 
-      for (const fragmentSelection of fragment.selectionSet.selections) {
-        if (fragmentSelection.kind === 'Field') {
-          fragmentFields.push({
-            key: fragmentSelection.name.value,
-            selectionSet: fragmentSelection.selectionSet?.selections || []
-          })
-        } else if (fragmentSelection.kind === 'InlineFragment') {
-          consola.warn(`Inline fragments are not supported yet.`)
-        } else if (fragmentSelection.kind === 'FragmentSpread') {
-          const fragment = info.fragments[fragmentSelection.name.value]
-
-          fragmentFields.push(...resolveFragmentSpreadFields(fragment))
-        }
-      }
-
-      return fragmentFields
-    }
-
-    for (const selection of selectionSet) {
-      if (selection.kind === 'Field') {
-        fields.push({
-          key: selection.name.value,
-          selectionSet: selection.selectionSet?.selections || []
-        })
-      } else if (selection.kind === 'InlineFragment') {
-        consola.warn(`Inline fragments are not supported yet.`)
-      } else if (selection.kind === 'FragmentSpread') {
-        const fragment = info.fragments[selection.name.value]
-
-        fields.push(...resolveFragmentSpreadFields(fragment))
-      }
-    }
-
-    for (const {key, selectionSet} of Object.values(fields)) {
+    for (const key of getAllPropertyNames(obj)) {
       result[key] = await wrapFunctionsRecursively(
         obj[key],
         wrapper,
@@ -115,11 +95,6 @@ async function wrapFunctionsRecursively(
         selectionSet,
         info
       )
-    }
-
-    // If no fields were selected, return the original object.
-    if (Object.keys(result).length === 0) {
-      return obj
     }
 
     return result
@@ -325,6 +300,13 @@ export const graphql = {
   }
 }
 `)
+  }
+
+  // Add extra resolvers (e.g. custom scalars) to the GraphQL resolvers.
+  for (const key of Object.keys(resolvers)) {
+    if (key !== 'Query' && key !== 'Mutation') {
+      graphqlResolvers[key] = resolvers[key]
+    }
   }
 
   return graphqlResolvers

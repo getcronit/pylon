@@ -1,0 +1,165 @@
+# v2.3 Release Notes
+
+Welcome to `@getcronit/pylon@2.3.0` release (November 2024)!
+
+Pylon v2.3 introduces full support for TypeScript interfaces and unions, making it easier to define complex type hierarchies in your GraphQL schemas.
+
+Key highlights of this release:
+
+- **Full TypeScript Interface Support**: Pylon now fully supports TypeScript interfaces, automatically generating the corresponding GraphQL interfaces.
+- **Union Type Handling**: Pylon creates GraphQL interfaces or unions based on the structure of your TypeScript union types.
+- **Automatic Type Resolution**: Pylon automatically handles type resolution, eliminating the need for manual `__resolveType` functions.
+- **Implicit Types**: Pylon intelligently creates interfaces and unions without the need for explicit type annotations.
+- **Improved Type Safety**: Your GraphQL schema now more closely mirrors your TypeScript types, reducing the risk of type mismatches.
+
+### Unions
+
+When you use a TypeScript union, Pylon will create a GraphQL interface or union, depending on the structure of the types involved.
+
+For shared properties, Pylon generates an interface:
+
+```typescript
+type Bar = {
+  id: ID
+  title: string
+}
+
+type Foo = {
+  id: ID
+  name: string
+}
+
+type Example = Foo | Bar
+```
+
+This produces the following GraphQL schema:
+
+```graphql
+interface Example {
+  id: ID!
+}
+
+type Foo implements Example {
+  id: ID!
+  name: String!
+}
+
+type Bar implements Example {
+  id: ID!
+  title: String!
+}
+```
+
+For types without shared properties, Pylon creates a union:
+
+```typescript
+type Foo = {
+  birthday: Date
+}
+
+type Bar = {
+  age: number
+}
+
+type Example = Foo | Bar
+```
+
+Resulting in:
+
+```graphql
+type Foo {
+  birthday: Date
+}
+
+type Bar {
+  age: Int
+}
+
+union Example = Foo | Bar
+```
+
+### Interfaces
+
+Pylon now fully supports TypeScript interfaces, automatically generating the corresponding GraphQL interfaces:
+
+```typescript
+interface NodeInterface {
+  id: string
+}
+
+class NodeC1lass implements NodeInterface {
+  constructor(public id: string) {}
+}
+
+class NodeC2lass implements NodeInterface {
+  constructor(public id: string) {}
+  public extra = 'extra'
+}
+```
+
+### Automatic Type Resolution
+
+One of the most exciting aspects of this update is that Pylon automatically handles type resolution. You no longer need to manually implement a `__resolveType` function as you would with other GraphQL servers. Pylon intelligently determines the correct type for you.
+
+## Why This Matters
+
+This enhancement brings several benefits:
+
+1. **Improved Type Safety**: Your GraphQL schema now more closely mirrors your TypeScript types, reducing the risk of type mismatches.
+2. **Enhanced Code Reusability**: Interfaces allow you to define common fields across multiple types, promoting DRY (Don't Repeat Yourself) principles.
+3. **More Flexible Queries**: Unions and interfaces enable more dynamic and flexible GraphQL queries, allowing clients to request data from multiple types in a single query.
+4. **Simplified Development**: Automatic type resolution means less boilerplate code and fewer opportunities for errors.
+
+## Getting Started
+
+To take advantage of these new features, simply update to the latest version of Pylon. Your existing TypeScript interfaces and unions will automatically be reflected in your GraphQL schema.
+
+Here's a quick example of how you might use these new features:
+
+```typescript
+import {app, ID} from '@getcronit/pylon'
+
+type Node = User | Post
+
+interface User {
+  id: ID
+  name: string
+}
+
+interface Post {
+  id: ID
+  title: string
+}
+
+const nodes: Node[] = [
+  {id: '1', name: 'John Doe'},
+  {id: '2', name: 'Jane Doe'},
+  {id: '3', title: 'Hello, World!'},
+  {id: '4', title: 'Hello, Pylon!'}
+]
+
+export const graphql = {
+  Query: {
+    node: (id: ID): Node => {
+      const node = nodes.find(node => node.id === id)
+      if (!node) throw new Error('Node not found')
+      return node
+    }
+  }
+}
+
+export default app
+```
+
+This will generate a GraphQL schema that includes a `Node` interface implemented by both `User` and `Post` types, allowing for flexible querying of these types.
+
+## Example Project
+
+To give you a deeper insight, we have built an [example project](https://github.com/getcronit/pylon/tree/main/examples/interfaces-and-unions) in which the new interface and union types are used. Feel free to check it out and experiment with the new features.
+
+## Acknowledgements
+
+A big **thank you** to all who helped with this release 💛
+
+- [@kleberbaum](https://github.com/kleberbaum) for his annoyed face when he saw that we didn't support TypeScript interfaces and unions.
+- [@yavuzselim8](https://github.com/yavuzselim8) for testing the new features and providing valuable feedback.

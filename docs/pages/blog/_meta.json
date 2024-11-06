@@ -1,4 +1,10 @@
 {
+  "pylon-2.3": {
+    "title": "Pylon 2.3: Full Support for TypeScript Interfaces and Unions in Pylon",
+    "theme": {
+      "breadcrumb": true
+    }
+  },
   "pylon-2.0": {
     "title": "Pylon 2.0: Multiple Runtime Support",
     "theme": {
