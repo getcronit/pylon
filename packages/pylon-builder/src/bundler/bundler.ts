@@ -63,8 +63,6 @@ export class Bundler {
                 ...graphql,
                 ...${prepareObjectInjection(baseResolvers)}
         }
-
-        console.log('resolvers', resolvers)
       
         let exCtx = undefined
       
@@ -103,8 +101,6 @@ export class Bundler {
           })
         ]
       })
-
-      fs.writeFileSync(path.join(dir, 'schema.graphql'), typeDefs, 'utf-8')
 
       if (output.errors.length > 0) {
         for (const error of output.errors) {
