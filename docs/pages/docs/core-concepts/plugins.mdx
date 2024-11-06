@@ -1,0 +1,105 @@
+# Plugins
+
+## Envelop Plugin Support
+
+Pylon's plugin system is designed to be extensible and powerful, allowing developers to enhance and customize their applications easily. One of the key features of this system is full support for all plugins from the Envelop ecosystem, developed by The Guild.
+
+### What is Envelop?
+
+Envelop is a plugin system for GraphQL servers that allows developers to extend and customize their GraphQL execution layer. By supporting Envelop plugins, Pylon opens up a vast ecosystem of ready-to-use extensions for your GraphQL server.
+
+For more information about Envelop and its plugins, visit [The Guild's Envelop documentation](https://www.envelop.dev/).
+
+## Using Envelop Plugins in Pylon
+
+To use Envelop plugins in your Pylon application, follow these steps:
+
+1. Install the desired Envelop plugin from npm.
+2. Import the plugin in your Pylon configuration file.
+3. Add the plugin to the `plugins` array in your Pylon configuration.
+
+For practical examples of using Envelop plugins with Pylon, check out our [examples directory](https://github.com/getcronit/pylon/tree/main/examples/envelop-plugins).
+
+Here's an example of how to use an Envelop plugin in a Pylon application:
+
+```ts
+import {app, PylonConfig, ServiceError} from '@getcronit/pylon'
+import {useErrorHandler} from '@envelop/core'
+
+export const graphql = {
+  Query: {
+    hello: () => {
+      throw new ServiceError('Hello, world!', {
+        code: 'HELLO_WORLD',
+        statusCode: 400
+      })
+    }
+  },
+  Mutation: {}
+}
+
+export const config: PylonConfig = {
+  plugins: [
+    useErrorHandler(({errors, context, phase}) => {
+      console.error(errors)
+    })
+  ]
+}
+
+export default app
+```
+
+Let's break down this code and explain how it integrates an Envelop plugin:
+
+1. **Importing the Plugin**:
+   We import the `useErrorHandler` plugin from `@envelop/core`. This is an Envelop plugin that allows us to customize error handling in our GraphQL server.
+
+   ```ts
+   import {useErrorHandler} from '@envelop/core'
+   ```
+
+2. **Configuring Pylon**:
+   In the `config` object, we add the `useErrorHandler` plugin to the `plugins` array. This tells Pylon to use this Envelop plugin in our application.
+
+   ```ts
+   export const config: PylonConfig = {
+     plugins: [
+       useErrorHandler(({errors, context, phase}) => {
+         console.error(errors)
+       })
+     ]
+   }
+   ```
+
+3. **Plugin Functionality**:
+   In this example, the `useErrorHandler` plugin is configured to log all GraphQL errors to the console. You can customize this behavior to suit your needs, such as sending errors to a monitoring service or formatting them in a specific way.
+
+4. **Integration with GraphQL Schema**:
+   The plugin will automatically intercept any errors thrown in your GraphQL resolvers. In the example, we have a `hello` query that deliberately throws a `ServiceError`:
+
+   ```ts
+   export const graphql = {
+     Query: {
+       hello: () => {
+         throw new ServiceError('Hello, world!', {
+           code: 'HELLO_WORLD',
+           statusCode: 400
+         })
+       }
+     },
+     Mutation: {}
+   }
+   ```
+
+   When this error is thrown, it will be caught by the `useErrorHandler` plugin and logged to the console.
+
+## Benefits of Using Envelop Plugins
+
+By leveraging Envelop plugins in your Pylon application, you can:
+
+1. Extend your GraphQL server's functionality without writing complex custom code.
+2. Take advantage of battle-tested plugins maintained by the GraphQL community.
+3. Easily add features like error handling, caching, authentication, and more.
+4. Keep your Pylon application modular and easy to maintain.
+
+Remember, you can use any Envelop plugin in a similar manner, allowing you to tailor your Pylon application to your specific needs while benefiting from the wider GraphQL ecosystem.

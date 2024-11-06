@@ -4,6 +4,7 @@ import {GraphQLScalarType, Kind} from 'graphql'
 import {useSentry} from '../envelop/use-sentry'
 import {Context} from '../../context'
 import {resolversToGraphQLResolvers} from '../../define-pylon'
+import {PylonConfig} from '../..'
 
 export interface SchemaOptions {
   typeDefs: string
@@ -11,14 +12,15 @@ export interface SchemaOptions {
     Query: Record<string, any>
     Mutation: Record<string, any>
   }
+  config?: PylonConfig
 }
 
 export const graphqlHandler =
   (c: Context) =>
-  ({typeDefs, resolvers}: SchemaOptions) => {
+  ({typeDefs, resolvers, config}: SchemaOptions) => {
     resolvers = resolversToGraphQLResolvers(resolvers)
 
-    const schema = createSchema({
+    const schema = createSchema<Context>({
       typeDefs,
       resolvers: {
         ...resolvers,
@@ -94,9 +96,7 @@ export const graphqlHandler =
     })
 
     const yoga = createYoga({
-      schema: schema as any,
       landingPage: false,
-      plugins: [useSentry()],
       graphiql: req => {
         return {
           shouldPersistHeaders: true,
@@ -104,6 +104,10 @@ export const graphqlHandler =
           defaultQuery: `# Welcome to the Pylon Playground!`
         }
       },
+
+      ...config,
+      plugins: [useSentry(), ...(config?.plugins || [])],
+      schema,
       context: c
     })
 

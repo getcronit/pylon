@@ -61,7 +61,8 @@ export class Bundler {
   
         return graphqlHandler(c)({
           typeDefs,
-          resolvers
+          resolvers,
+          config
         }).fetch(c.req.raw, c.env, exCtx || {})
       })
       `
