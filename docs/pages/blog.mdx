@@ -2,21 +2,12 @@
 searchable: false
 ---
 
-import {Link} from 'nextra-theme-docs'
 import {useRouter} from 'next/router'
+import {Link} from 'nextra-theme-docs'
 import {getPagesUnderRoute} from 'nextra/context'
 import filterRouteLocale from 'nextra/filter-route-locale'
 
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle
-} from '@components/ui/card'
-import { Button } from '@components/ui/button'
-import { Badge } from '@components/ui/badge'
+import { PagePreviewCard } from '@components/page-preview-card'
 
 export function Page() {
   const {locale, defaultLocale} = useRouter()
@@ -25,42 +16,8 @@ return (
 
 <div className="space-y-8">
   {filterRouteLocale(getPagesUnderRoute('/blog'), locale, defaultLocale).map(
-    page => {
-      return (
-        <Card key={page.route} className="bg-transparent">
-          {page.frontMatter?.new && (
-            <Badge
-              variant="secondary"
-              className="absolute top-0 left-1/2 -translate-y-1/2 -translate-x-1/2 px-4 font-bold bg-background dark:bg-[#111111] group-hover:bg-[#0ea6e9] group-hover:text-white transition-none">
-              🔥 New
-            </Badge>
-          )}
-          <CardHeader>
-            <Link
-              href={page.route}
-              className="text-2xl text-black hover:!no-underline dark:text-gray-100">
-              {page.meta.title || page.frontMatter?.title || page.name}
-            </Link>
-            <span className="text-sm text-muted-foreground dark:text-gray-400">
-              {page.frontMatter?.date}
-            </span>
-          </CardHeader>
-          <CardContent>
-            <CardDescription>{page.frontMatter?.description}</CardDescription>
-          </CardContent>
-          <CardFooter className="flex justify-end">
-            <Link
-              href={page.route}
-              className="relative block nx-text-primary-600 group/link hover:!no-underline">
-              Read more
-              <span className="relative left-1 group-hover/link:left-2 transition-all">
-                →
-              </span>
-            </Link>
-          </CardFooter>
-          <p>{page.date}</p>
-        </Card>
-      )
+    (page, i) => {
+      return <PagePreviewCard key={i} page={page} />
     }
   )}
 </div>
