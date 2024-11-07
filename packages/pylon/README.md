@@ -152,9 +152,9 @@ docker run -p 3000:3000 my-pylon
 
 Designed to be flexible, Pylon can be run on various platforms, including:
 
-| <img src="https://bun.sh/logo.svg" width="48px" height="48px" alt="Bun.js logo"> | <img src="https://nodejs.org/static/logos/jsIconWhite.svg" width="48px" height="48px" alt="Node.JS"> | <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQgW7cAlhYN23JXGKy9Uji4Ae2mnHOR9eXX9g&s" width="48px" height="48px" alt="Gmail logo"> |
-| :------------------------------------------------------------------------------: | :--------------------------------------------------------------------------------------------------: | :--------------------------------------------------------------------------------------------------------------------------------------------------: |
-|                                      Bun.js                                      |                                               Node.js                                                |                                                                  Cloudflare Workers                                                                  |
+| <img src="https://bun.sh/logo.svg" width="48px" height="48px" alt="Bun.js logo"> | <img src="https://nodejs.org/static/logos/jsIconWhite.svg" width="48px" height="48px" alt="Node.JS"> | <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQgW7cAlhYN23JXGKy9Uji4Ae2mnHOR9eXX9g&s" width="48px" height="48px" alt="Gmail logo"> | <img src="https://deno.land/logo.svg" width="48px" height="48px" alt="Deno logo"> |
+| :------------------------------------------------------------------------------: | :--------------------------------------------------------------------------------------------------: | :--------------------------------------------------------------------------------------------------------------------------------------------------: | --------------------------------------------------------------------------------- |
+|                                      Bun.js                                      |                                               Node.js                                                |                                                                  Cloudflare Workers                                                                  | Deno                                                                              |
 
 ## Features
 
