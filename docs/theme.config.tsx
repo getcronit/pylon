@@ -23,13 +23,23 @@ const config: DocsThemeConfig = {
   docsRepositoryBase: 'https://github.com/getcronit/pylon/tree/main/docs',
   footer: {
     text: (
-      <span>
-        {new Date().getFullYear()} ©{' '}
-        <a href="https://cronit.io" target="_blank">
-          cronit
-        </a>
-        . <Link href="/imprint">Imprint</Link>
-      </span>
+      <div className="container flex flex-col items-center justify-between gap-4 md:flex-row">
+        <p className="w-full text-center text-sm leading-loose text-gray-400 md:!text-left">
+          Built by{' '}
+          <a
+            href="https://cronit.io"
+            className="font-medium underline underline-offset-4 hover:text-white">
+            Cronit
+          </a>
+          . The source code is available on{' '}
+          <a
+            href="https://github.com/getcronit/pylon"
+            className="font-medium underline underline-offset-4 hover:text-white">
+            GitHub
+          </a>
+          .
+        </p>
+      </div>
     )
   },
   nextThemes: {

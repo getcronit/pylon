@@ -3,14 +3,14 @@
 import {useState} from 'react'
 import {Copy, Check} from 'lucide-react'
 import {useCopyToClipboard} from 'usehooks-ts'
-import {Button} from '@/components/ui/button'
+import {Button, ButtonProps} from '@/components/ui/button'
 
-interface ClipboardButtonProps {
+interface ClipboardButtonProps extends ButtonProps {
   text: string
 }
 
 export function ClipboardButton(
-  {text}: ClipboardButtonProps = {text: 'Copy me!'}
+  {text, ...rest}: ClipboardButtonProps = {text: 'Copy me!'}
 ) {
   const [isCopied, setIsCopied] = useState(false)
   const [_, copy] = useCopyToClipboard()
@@ -24,14 +24,15 @@ export function ClipboardButton(
   return (
     <Button
       variant="outline"
+      size="icon"
       className="font-mono text-sm"
       onClick={handleCopy}
-      aria-label={isCopied ? 'Copied!' : 'Copy to clipboard'}>
-      {text}
+      aria-label={isCopied ? 'Copied!' : 'Copy to clipboard'}
+      {...rest}>
       {isCopied ? (
-        <Check className="ml-2 h-4 w-4 text-green-500" />
+        <Check className="h-4 w-4 text-green-500" />
       ) : (
-        <Copy className="ml-2 h-4 w-4" />
+        <Copy className="h-4 w-4" />
       )}
     </Button>
   )
