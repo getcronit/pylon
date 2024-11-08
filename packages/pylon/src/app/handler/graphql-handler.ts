@@ -11,6 +11,7 @@ export interface SchemaOptions {
   resolvers: {
     Query: Record<string, any>
     Mutation: Record<string, any>
+    Subscription: Record<string, any>
   }
   config?: PylonConfig
 }

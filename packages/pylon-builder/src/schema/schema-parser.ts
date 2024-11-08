@@ -5,7 +5,8 @@ import {
   isFunction,
   isList,
   isPrimitive,
-  isPromise
+  isPromise,
+  isSubscriptionRepeater
 } from './types-helper.js'
 import {
   TypeDefinitionBuilder,
@@ -101,6 +102,7 @@ interface ReferenceSchema {
 interface Index {
   Query?: ts.Type
   Mutation?: ts.Type
+  Subscription?: ts.Type
 }
 
 export class SchemaParser {
@@ -153,6 +155,8 @@ export class SchemaParser {
         typeName = 'Query'
       } else if (index.Mutation === type) {
         typeName = 'Mutation'
+      } else if (index.Subscription === type) {
+        typeName = 'Subscription'
       }
 
       this.processSchemaReference(type, properties, typeName, 'types')
@@ -715,6 +719,16 @@ export class SchemaParser {
         return
       }
 
+      if (isSubscriptionRepeater(type)) {
+        // type: Repeater<{ id: number; title: string; content: string; }, any, unknown>
+
+        const repeaterItemType = this.checker.getTypeArguments(type as any)[0]
+
+        recLoop(repeaterItemType, info, processing, [...path, 'REPEATER_ITEM'])
+
+        return
+      }
+
       // check if argType is a real type to ignore '[]'
       const wrongType = this.checker.typeToString(type) === '[]'
 
@@ -940,6 +954,10 @@ export class SchemaParser {
 
     if (index.Mutation) {
       recLoop(index.Mutation)
+    }
+
+    if (index.Subscription) {
+      recLoop(index.Subscription)
     }
 
     // Handle classes that implement interfaces of the schema

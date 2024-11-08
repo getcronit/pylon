@@ -179,3 +179,14 @@ export function getPublicPropertiesOfType(
 export const safeTypeName = (name: string) => {
   return name.replace(/[^0-9a-zA-Z_]/g, '_')
 }
+
+export const isSubscriptionRepeater = (type: ts.Type) => {
+  return !!type
+    .getSymbol()
+    ?.getDeclarations()
+    ?.some(d => {
+      const sourceFile = d.getSourceFile().fileName
+
+      return sourceFile.includes('@repeaterjs')
+    })
+}

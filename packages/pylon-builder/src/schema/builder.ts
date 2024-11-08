@@ -114,6 +114,7 @@ export class SchemaBuilder {
 
     const queryProperty = sfiType.getProperty('Query')
     const mutationProperty = sfiType.getProperty('Mutation')
+    const subscriptionProperty = sfiType.getProperty('Subscription')
 
     const queryType = queryProperty
       ? this.checker.getTypeOfSymbolAtLocation(queryProperty, this.sfiFile)
@@ -121,12 +122,19 @@ export class SchemaBuilder {
     const mutationType = mutationProperty
       ? this.checker.getTypeOfSymbolAtLocation(mutationProperty, this.sfiFile)
       : undefined
+    const subscriptionType = subscriptionProperty
+      ? this.checker.getTypeOfSymbolAtLocation(
+          subscriptionProperty,
+          this.sfiFile
+        )
+      : undefined
 
     const parser = new SchemaParser(this.checker, this.sfiFile, this.program)
 
     parser.parse({
       Query: queryType,
-      Mutation: mutationType
+      Mutation: mutationType,
+      Subscription: subscriptionType
     })
 
     return {

@@ -4,15 +4,18 @@ import {
   FragmentDefinitionNode,
   GraphQLError,
   GraphQLErrorExtensions,
+  GraphQLObjectType,
   GraphQLResolveInfo,
   SelectionSetNode
 } from 'graphql'
 
 import {Context, asyncContext} from './context'
+import {isAsyncIterable, Maybe} from 'graphql-yoga'
 
 export interface Resolvers {
   Query: Record<string, any>
   Mutation: Record<string, any>
+  Subscription: Record<string, any>
 }
 
 type FunctionWrapper = (fn: (...args: any[]) => any) => (...args: any[]) => any
@@ -82,6 +85,8 @@ async function wrapFunctionsRecursively(
       selectionSet,
       info
     )
+  } else if (isAsyncIterable(obj)) {
+    return obj
   } else if (typeof obj === 'object') {
     that = obj
 
@@ -164,7 +169,12 @@ export const resolversToGraphQLResolvers = (
   // Define a root resolver function that maps a given resolver function or object to a GraphQL resolver.
   const rootGraphqlResolver =
     (fn: Function | object | Promise<Function> | Promise<object>) =>
-    async (_: object, args: Record<string, any>, ctx: Context, info: any) => {
+    async (
+      _: object,
+      args: Record<string, any>,
+      ctx: Context,
+      info: GraphQLResolveInfo
+    ) => {
       return Sentry.withScope(async scope => {
         const ctx = asyncContext.getStore()
 
@@ -187,17 +197,21 @@ export const resolversToGraphQLResolvers = (
 
         // get query or mutation field
 
-        const isQuery = info.operation.operation === 'query'
-        const isMutation = info.operation.operation === 'mutation'
+        let type: Maybe<GraphQLObjectType> | null = null
 
-        if (!isQuery && !isMutation) {
-          throw new Error('Only queries and mutations are supported.')
+        switch (info.operation.operation) {
+          case 'query':
+            type = info.schema.getQueryType()
+            break
+          case 'mutation':
+            type = info.schema.getMutationType()
+            break
+          case 'subscription':
+            type = info.schema.getSubscriptionType()
+            break
+          default:
+            throw new Error('Unknown operation')
         }
-
-        // Get the field metadata for the current query or mutation.
-        const type = isQuery
-          ? info.schema.getQueryType()
-          : info.schema.getMutationType()
 
         const field = type?.getFields()[info.fieldName]
 
@@ -247,7 +261,9 @@ export const resolversToGraphQLResolvers = (
           return wrappedFn
         }
 
-        return await wrappedFn(preparedArguments)
+        const res = await wrappedFn(preparedArguments)
+
+        return res
       })
     }
 
@@ -285,6 +301,22 @@ export const resolversToGraphQLResolvers = (
     }
   }
 
+  if (
+    resolvers.Subscription &&
+    Object.keys(resolvers.Subscription).length > 0
+  ) {
+    if (!graphqlResolvers.Subscription) {
+      graphqlResolvers.Subscription = {}
+    }
+
+    for (const [key, value] of Object.entries(resolvers.Subscription)) {
+      graphqlResolvers.Subscription[key] = {
+        subscribe: rootGraphqlResolver(value as Function | object),
+        resolve: (payload: any) => payload
+      }
+    }
+  }
+
   // Query root type must be provided.
   if (!graphqlResolvers.Query) {
     // Custom Error for Query root type must be provided.
@@ -304,7 +336,7 @@ export const graphql = {
 
   // Add extra resolvers (e.g. custom scalars) to the GraphQL resolvers.
   for (const key of Object.keys(resolvers)) {
-    if (key !== 'Query' && key !== 'Mutation') {
+    if (key !== 'Query' && key !== 'Mutation' && key !== 'Subscription') {
       graphqlResolvers[key] = resolvers[key]
     }
   }
