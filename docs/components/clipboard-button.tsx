@@ -30,9 +30,9 @@ export function ClipboardButton(
       aria-label={isCopied ? 'Copied!' : 'Copy to clipboard'}
       {...rest}>
       {isCopied ? (
-        <Check className="h-4 w-4 text-green-500" />
+        <Check className="size-4 text-green-500" />
       ) : (
-        <Copy className="h-4 w-4" />
+        <Copy className="size-4" />
       )}
     </Button>
   )
