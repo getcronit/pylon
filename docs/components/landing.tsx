@@ -27,18 +27,19 @@ import {
   GlowingStarsTitle
 } from './ui/glowing-stars-card'
 import {cn} from '@lib/utils'
+import { useTheme } from 'nextra-theme-docs'
 
 const GradientBackground = ({children, className = ''}) => (
-  <div className={`relative overflow-hidden ${className}`}>
-    <div className="absolute inset-0 bg-gradient-to-br from-primary/20 to-secondary/20 opacity-50 rounded-lg" />
+  <div className={cn('relative overflow-hidden', className)}>
+  <div className="absolute inset-0 bg-gradient-to-br from-neutral-200 to-neutral-100 dark:from-primary/20 dark:to-secondary/20 opacity-50 rounded-l" />
     {children}
   </div>
 )
 
 const PatternBackground = ({pattern, className = ''}) => (
   <div
-    className={`absolute inset-0 opacity-10 ${className}`}
-    style={{
+  className={cn('absolute inset-0 opacity-5 dark:opacity-10', className)}
+  style={{
       backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(
         pattern
       )}")`
@@ -47,27 +48,27 @@ const PatternBackground = ({pattern, className = ''}) => (
 )
 
 const FeatureCard = ({title, description, icon, pattern}) => (
-  <Card className="group relative overflow-hidden rounded-lg border border-gray-800 bg-[#111111] p-6 transition-colors hover:bg-[#151515]">
+  <Card className="group relative overflow-hidden rounded-lg border border-border dark:border-gray-800 bg-gray-100/30 dark:bg-[#111111] p-6 transition-colors hover:bg-gray-100/80 dark:hover:bg-[#151515]" showGradient={false}>
     <GradientBackground>
       <PatternBackground pattern={pattern} />
       <div className="relative z-10 h-[180px] flex items-center justify-center">
-        <div className="text-white size-fit">{icon}</div>
+        <div className="text-primary size-fit">{icon}</div>
       </div>
     </GradientBackground>
     <div className="relative space-y-3 mt-8">
-      <h3 className="text-xl font-bold text-white">{title}</h3>
-      <p className="text-sm text-gray-400">{description}</p>
+      <h3 className="text-xl font-bold text-primary">{title}</h3>
+      <p className="text-sm text-muted-foreground">{description}</p>
     </div>
   </Card>
 )
 
 const TechnologyCard = ({title, description, logo, link}) => (
-  <div className="group relative overflow-hidden rounded-lg border border-gray-800 bg-[#111111] p-6 hover:bg-[#151515] transition-colors">
+  <div className="group relative overflow-hidden rounded-lg border border-border bg-gray-100/30 dark:bg-[#111111] p-6 hover:bg-gray-100/80 dark:hover:bg-[#151515] transition-colors">
     <div className="h-12 w-12 mb-4 relative">
       <Image src={logo} alt={`${title} logo`} fill className="object-contain" />
     </div>
     <div className="flex items-center gap-2 mb-2">
-      <h3 className="text-lg font-semibold text-white">
+      <h3 className="text-lg font-semibold text-primary">
         <Link href={link}>
           <span className="absolute -inset-px rounded-lg"></span>
           {title}
@@ -75,14 +76,14 @@ const TechnologyCard = ({title, description, logo, link}) => (
       </h3>
       {/* <ArrowUpRight className="h-4 w-4 text-gray-400 group-hover:text-white transition-colors" /> */}
     </div>
-    <p className="text-sm text-gray-400">{description}</p>
+    <p className="text-sm text-muted-foreground">{description}</p>
   </div>
 )
 
 const RuntimeCard = ({title, description, logo, link, logoClassName = ''}) => (
-  <Card className="group relative overflow-hidden rounded-lg border border-gray-800 bg-[#111111] hover:bg-[#151515] transition-colors">
+  <Card className="group relative overflow-hidden rounded-lg border border-border dark:border-gray-800 bg-gray-100/30 dark:bg-[#111111] hover:bg-gray-100/80 dark:hover:bg-[#151515] transition-colors" showGradient={false}>
     <CardHeader>
-      <CardTitle className="text-white flex items-center gap-3">
+      <CardTitle className="text-primary flex items-center gap-3">
         <div className="w-12 h-12 relative">
           <Image
             src={logo}
@@ -95,7 +96,7 @@ const RuntimeCard = ({title, description, logo, link, logoClassName = ''}) => (
       </CardTitle>
     </CardHeader>
     <CardContent>
-      <p className="text-sm text-gray-400 mb-4">{description}</p>
+      <p className="text-sm text-muted-foreground mb-4">{description}</p>
       <Link
         href={link}
         className="text-primary hover:underline inline-flex items-center">
@@ -118,6 +119,7 @@ const patterns = {
 }
 
 export function Landing() {
+  const {resolvedTheme} = useTheme();
   const [animationData, setAnimationData] = useState(null)
 
   useEffect(() => {
@@ -200,75 +202,64 @@ export function Landing() {
             <FeatureCard
               title="Zero Schema Definition"
               description="Automatic schema generation from your TypeScript types. Focus on your service logic, not schema definitions."
-              icon={<Code2 className="size-[50px] text-white" />}
+              icon={<Code2 className="size-[50px] text-primary" />}
               pattern={patterns.dots}
             />
             <FeatureCard
               title="Type Safety"
               description="End-to-end type safety from your resolvers to your clients. Catch errors before they reach production."
-              icon={<Terminal className="size-[50px] text-white" />}
+              icon={<Terminal className="size-[50px] text-primary" />}
               pattern={patterns.lines}
             />
             <FeatureCard
               title="Built-in Auth"
               description="Authentication and authorization built right in. Secure your API endpoints with minimal configuration."
-              icon={<Lock className="size-[50px] text-white" />}
+              icon={<Lock className="size-[50px] text-primary" />}
               pattern={patterns.squares}
             />
             <FeatureCard
               title="Edge Ready"
               description="Deploy to the edge with multiple runtime support. Run your API closer to your users."
-              icon={<Cloud className="size-[50px] text-white" />}
+              icon={<Cloud className="size-[50px] text-primary" />}
               pattern={patterns.circles}
             />
             <FeatureCard
               title="Developer Experience"
               description="Built-in playground and comprehensive documentation. Start building immediately with intuitive tools."
-              icon={<Zap className="size-[50px] text-white" />}
+              icon={<Zap className="size-[50px] text-primary" />}
               pattern={patterns.zigzag}
             />
             <FeatureCard
               title="GraphQL Types Support"
               description="Full support for Types, Interfaces, and Unions. Build complex schemas with ease."
-              icon={<Box className="size-[50px] text-white" />}
+              icon={<Box className="size-[50px] text-primary" />}
               pattern={patterns.waves}
             />
             <FeatureCard
               title="Hono Integration"
               description="Leverage Hono's powerful middleware and routing capabilities for enhanced API functionality."
-              icon={<Puzzle className="size-[50px] text-white" />}
+              icon={<Puzzle className="size-[50px] text-primary" />}
               pattern={patterns.triangles}
             />
             <FeatureCard
               title="Multiple Runtimes"
               description="Deploy to NodeJS, Bun, Cloudflare Workers, or Deno. Choose the runtime that fits your needs."
-              icon={<Layers className="size-[50px] text-white" />}
+              icon={<Layers className="size-[50px] text-primary" />}
               pattern={patterns.hexagons}
             />
-            <GlowingStarsCard className="h-full rounded-lg bg-[#111111] hover:bg-[#151515]">
-              <GlowingStarsTitle className="mt-8 text-xl">
-                Pylon 2.3
-              </GlowingStarsTitle>
-              <div className="flex justify-between items-end">
-                <GlowingStarsDescription className="text-gray-400 mt-3">
-                  Full Support for TypeScript Interfaces and Unions in Pylon
-                </GlowingStarsDescription>
-                <ArrowRight className="h-6 w-6 text-gray-400 group-hover:text-white transition-colors" />
-              </div>
-            </GlowingStarsCard>
-            {/* <Card className="group relative overflow-hidden border-gray-800 bg-[#111111] hover:bg-[#151515] transition-colors">
-              <a href="/blog/pylon-2.3" className="block p-6">
-                <CardHeader>
-                  <CardTitle className="text-white">Pylon 2.3</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-gray-400 mb-4">
-                    Full Support for TypeScript Interfaces and Unions in Pylon
-                  </p>
-                  <ArrowRight className="h-6 w-6 text-gray-400 group-hover:text-white transition-colors" />
-                </CardContent>
-              </a>
-            </Card> */}
+            <Link href="/blog/pylon-2.3">
+              <GlowingStarsCard className="h-full rounded-lg bg-gray-100/30 dark:bg-[#111111] hover:bg-gray-100/80 dark:hover:bg-[#151515]">
+                  <GlowingStarsTitle className="mt-8 text-xl text-primary">
+                    Pylon 2.3
+                  </GlowingStarsTitle>
+                  <div className="flex justify-between items-end">
+                    <GlowingStarsDescription className="text-muted-foreground mt-3">
+                      Full Support for TypeScript Interfaces and Unions in Pylon
+                    </GlowingStarsDescription>
+                    <ArrowRight className="h-6 w-6 text-muted-foreground group-hover:text-white transition-colors" />
+                  </div>
+              </GlowingStarsCard>
+            </Link>
           </div>
         </div>
       </section>
@@ -326,7 +317,7 @@ export function Landing() {
                 <RuntimeCard
                   title="Node.js"
                   description="Deploy your Pylon API on Node.js for a robust and widely-supported runtime environment. Leverage the vast npm ecosystem and benefit from long-term support versions."
-                  logo="https://nodejs.org/static/images/logo.svg"
+                  logo={resolvedTheme === "dark" ? "https://nodejs.org/static/images/logo.svg" : "https://nodejs.org/static/logos/nodejsDark.svg"}
                   link="https://nodejs.org/"
                 />
                 <RuntimeCard
@@ -375,9 +366,9 @@ export function Landing() {
             </div>
 
             <div className="grid md:grid-cols-2 gap-8 mb-12">
-              <Card className="group relative overflow-hidden rounded-lg border border-gray-800 bg-[#111111] hover:bg-[#151515] transition-colors0">
+              <Card className="group relative overflow-hidden rounded-lg border border-border dark:border-gray-800 bg-gray-100/30 dark:bg-[#111111] hover:bg-gray-100/80 dark:hover:bg-[#151515] transition-colors" showGradient={false}>
                 <CardHeader>
-                  <CardTitle className="text-2xl font-bold text-white">
+                  <CardTitle className="text-2xl font-bold text-primary">
                     Documentation
                   </CardTitle>
                 </CardHeader>
@@ -391,9 +382,9 @@ export function Landing() {
                   </Button>
                 </CardContent>
               </Card>
-              <Card className="group relative overflow-hidden rounded-lg border border-gray-800 bg-[#111111] hover:bg-[#151515] transition-colors">
+              <Card className="group relative overflow-hidden rounded-lg border border-border dark:border-gray-800 bg-gray-100/30 dark:bg-[#111111] hover:bg-gray-100/80 dark:hover:bg-[#151515] transition-colors" showGradient={false}>
                 <CardHeader>
-                  <CardTitle className="text-2xl font-bold text-white">
+                  <CardTitle className="text-2xl font-bold text-primary">
                     Open Source
                   </CardTitle>
                 </CardHeader>

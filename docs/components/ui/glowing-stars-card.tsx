@@ -3,6 +3,7 @@
 import React, {useEffect, useRef, useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
 import {cn} from '@/lib/utils'
+import { useTheme } from 'nextra-theme-docs'
 
 export const GlowingStarsCard = ({
   className,
@@ -112,6 +113,8 @@ export const Illustration = ({mouseEnter}: {mouseEnter: boolean}) => {
 }
 
 const Star = ({isGlowing, delay}: {isGlowing: boolean; delay: number}) => {
+  const {resolvedTheme} = useTheme();
+  const isDarkTheme = resolvedTheme === 'dark'
   return (
     <motion.div
       key={delay}
@@ -120,7 +123,7 @@ const Star = ({isGlowing, delay}: {isGlowing: boolean; delay: number}) => {
       }}
       animate={{
         scale: isGlowing ? [1, 1.2, 2.5, 2.2, 1.5] : 1,
-        background: isGlowing ? '#fff' : '#666'
+        background: isGlowing ? (isDarkTheme ? '#fff' : '#f3f3f3') : (isDarkTheme ?'#666' : '#4f4f4f')
       }}
       transition={{
         duration: 2,
@@ -128,7 +131,7 @@ const Star = ({isGlowing, delay}: {isGlowing: boolean; delay: number}) => {
         delay: delay
       }}
       className={cn(
-        'bg-[#666] h-[1px] w-[1px] rounded-full relative z-20'
+        'bg-[#4f4f4f] dark:bg-[#666] size-[2px] dark:size-[1px] rounded-full relative z-20'
       )}></motion.div>
   )
 }
