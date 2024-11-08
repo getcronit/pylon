@@ -20,10 +20,17 @@ import Lottie from 'lottie-react'
 import {Button} from '@/components/ui/button'
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card'
 import {ClipboardButton} from './clipboard-button'
+import {HoverBorderGradient} from './ui/hover-border-gradient'
+import {
+  GlowingStarsCard,
+  GlowingStarsDescription,
+  GlowingStarsTitle
+} from './ui/glowing-stars-card'
+import {cn} from '@lib/utils'
 
 const GradientBackground = ({children, className = ''}) => (
   <div className={`relative overflow-hidden ${className}`}>
-    <div className="absolute inset-0 bg-gradient-to-br from-primary/20 to-secondary/20 opacity-50" />
+    <div className="absolute inset-0 bg-gradient-to-br from-primary/20 to-secondary/20 opacity-50 rounded-lg" />
     {children}
   </div>
 )
@@ -44,7 +51,7 @@ const FeatureCard = ({title, description, icon, pattern}) => (
     <GradientBackground>
       <PatternBackground pattern={pattern} />
       <div className="relative z-10 h-[180px] flex items-center justify-center">
-        <div className="text-white w-24 h-24">{icon}</div>
+        <div className="text-white size-fit">{icon}</div>
       </div>
     </GradientBackground>
     <div className="relative space-y-3 mt-8">
@@ -54,20 +61,25 @@ const FeatureCard = ({title, description, icon, pattern}) => (
   </Card>
 )
 
-const TechnologyCard = ({title, description, logo}) => (
+const TechnologyCard = ({title, description, logo, link}) => (
   <div className="group relative overflow-hidden rounded-lg border border-gray-800 bg-[#111111] p-6 hover:bg-[#151515] transition-colors">
     <div className="h-12 w-12 mb-4 relative">
       <Image src={logo} alt={`${title} logo`} fill className="object-contain" />
     </div>
     <div className="flex items-center gap-2 mb-2">
-      <h3 className="text-lg font-semibold text-white">{title}</h3>
+      <h3 className="text-lg font-semibold text-white">
+        <Link href={link}>
+          <span className="absolute -inset-px rounded-lg"></span>
+          {title}
+        </Link>
+      </h3>
       {/* <ArrowUpRight className="h-4 w-4 text-gray-400 group-hover:text-white transition-colors" /> */}
     </div>
     <p className="text-sm text-gray-400">{description}</p>
   </div>
 )
 
-const RuntimeCard = ({title, description, logo, link}) => (
+const RuntimeCard = ({title, description, logo, link, logoClassName = ''}) => (
   <Card className="group relative overflow-hidden rounded-lg border border-gray-800 bg-[#111111] hover:bg-[#151515] transition-colors">
     <CardHeader>
       <CardTitle className="text-white flex items-center gap-3">
@@ -76,7 +88,7 @@ const RuntimeCard = ({title, description, logo, link}) => (
             src={logo}
             alt={`${title} logo`}
             fill
-            className="object-contain"
+            className={cn('object-contain', logoClassName)}
           />
         </div>
         {title}
@@ -118,7 +130,7 @@ export function Landing() {
   }, [])
 
   return (
-    <div className="flex min-h-screen flex-col mx-auto text-white">
+    <div className="flex min-h-screen flex-col mx-auto text-primary">
       {/* Hero */}
       <section className="mx-auto flex max-w-[980px] flex-col items-center gap-2 py-8 md:py-12 md:pb-8 lg:py-24 lg:pb-20 px-4">
         <h1 className="text-center text-4xl font-bold leading-tight tracking-tighter md:text-6xl lg:leading-[1.1]">
@@ -126,21 +138,26 @@ export function Landing() {
           <br />
           Building APIs
         </h1>
-        <p className="max-w-[750px] text-center text-lg text-gray-400 sm:text-xl mt-4">
+        <p className="max-w-[750px] text-center text-lg text-muted-foreground sm:text-xl mt-4">
           Used by innovative teams worldwide, Pylon enables you to create
-          <span className="font-semibold text-white">
+          <span className="font-semibold text-primary">
             {' '}
             high-quality GraphQL APIs{' '}
           </span>
           without defining any schema.
         </p>
-        <Button
+        <HoverBorderGradient
+          containerClassName="rounded-lg mt-6 border-border"
+          as="button">
+          <span>Get started</span>
+        </HoverBorderGradient>
+        {/* <Button
           size="lg"
           className="mt-6 bg-white text-black hover:bg-gray-200">
           Get started
-        </Button>
+        </Button> */}
         <div className="w-full max-w-3xl mt-8">
-          <div className="relative overflow-hidden rounded-lg border border-gray-800 bg-[#111111]">
+          <div className="relative overflow-hidden rounded-lg border border-border bg-gray-100/30 dark:bg-[#111111]">
             <div className="flex items-center justify-between p-4">
               <div className="flex items-center space-x-2">
                 <div className="h-3 w-3 rounded-full bg-red-500"></div>
@@ -151,14 +168,14 @@ export function Landing() {
                 text="npm create pylon@latest"
                 variant="ghost"
                 size="icon"
-                className="text-gray-400 hover:text-white">
+                className="text-muted-foreground/80 hover:text-muted-foreground">
                 <Copy className="h-4 w-4" />
                 <span className="sr-only">Copy code</span>
               </ClipboardButton>
             </div>
             <div className="py-4 pt-0">
               <pre className="overflow-x-auto">
-                <code className="flex text-sm text-white">
+                <code className="flex text-sm">
                   <span className="text-blue-400">npm</span>&nbsp;create
                   pylon@latest
                 </code>
@@ -169,9 +186,9 @@ export function Landing() {
       </section>
 
       {/* Features */}
-      <section className="w-full py-20">
+      <section className="w-full max-w-7xl py-20 mx-auto">
         <div className="container mx-auto px-4 md:px-6">
-          <div className="flex items-baseline mb-10">
+          <div className="space-y-3 mb-10">
             <h2 className="text-3xl font-bold tracking-tight mr-2">
               What&apos;s in Pylon?
             </h2>
@@ -183,52 +200,63 @@ export function Landing() {
             <FeatureCard
               title="Zero Schema Definition"
               description="Automatic schema generation from your TypeScript types. Focus on your service logic, not schema definitions."
-              icon={<Code2 className="w-full h-full text-white" />}
+              icon={<Code2 className="size-[50px] text-white" />}
               pattern={patterns.dots}
             />
             <FeatureCard
               title="Type Safety"
               description="End-to-end type safety from your resolvers to your clients. Catch errors before they reach production."
-              icon={<Terminal className="w-full h-full text-white" />}
+              icon={<Terminal className="size-[50px] text-white" />}
               pattern={patterns.lines}
             />
             <FeatureCard
               title="Built-in Auth"
               description="Authentication and authorization built right in. Secure your API endpoints with minimal configuration."
-              icon={<Lock className="w-full h-full text-white" />}
+              icon={<Lock className="size-[50px] text-white" />}
               pattern={patterns.squares}
             />
             <FeatureCard
               title="Edge Ready"
               description="Deploy to the edge with multiple runtime support. Run your API closer to your users."
-              icon={<Cloud className="w-full h-full text-white" />}
+              icon={<Cloud className="size-[50px] text-white" />}
               pattern={patterns.circles}
             />
             <FeatureCard
               title="Developer Experience"
               description="Built-in playground and comprehensive documentation. Start building immediately with intuitive tools."
-              icon={<Zap className="w-full h-full text-white" />}
+              icon={<Zap className="size-[50px] text-white" />}
               pattern={patterns.zigzag}
             />
             <FeatureCard
               title="GraphQL Types Support"
               description="Full support for Types, Interfaces, and Unions. Build complex schemas with ease."
-              icon={<Box className="w-full h-full text-white" />}
+              icon={<Box className="size-[50px] text-white" />}
               pattern={patterns.waves}
             />
             <FeatureCard
               title="Hono Integration"
               description="Leverage Hono's powerful middleware and routing capabilities for enhanced API functionality."
-              icon={<Puzzle className="w-full h-full text-white" />}
+              icon={<Puzzle className="size-[50px] text-white" />}
               pattern={patterns.triangles}
             />
             <FeatureCard
               title="Multiple Runtimes"
               description="Deploy to NodeJS, Bun, Cloudflare Workers, or Deno. Choose the runtime that fits your needs."
-              icon={<Layers className="w-full h-full text-white" />}
+              icon={<Layers className="size-[50px] text-white" />}
               pattern={patterns.hexagons}
             />
-            <Card className="group relative overflow-hidden border-gray-800 bg-[#111111] hover:bg-[#151515] transition-colors">
+            <GlowingStarsCard className="h-full rounded-lg bg-[#111111] hover:bg-[#151515]">
+              <GlowingStarsTitle className="mt-8 text-xl">
+                Pylon 2.3
+              </GlowingStarsTitle>
+              <div className="flex justify-between items-end">
+                <GlowingStarsDescription className="text-gray-400 mt-3">
+                  Full Support for TypeScript Interfaces and Unions in Pylon
+                </GlowingStarsDescription>
+                <ArrowRight className="h-6 w-6 text-gray-400 group-hover:text-white transition-colors" />
+              </div>
+            </GlowingStarsCard>
+            {/* <Card className="group relative overflow-hidden border-gray-800 bg-[#111111] hover:bg-[#151515] transition-colors">
               <a href="/blog/pylon-2.3" className="block p-6">
                 <CardHeader>
                   <CardTitle className="text-white">Pylon 2.3</CardTitle>
@@ -240,13 +268,13 @@ export function Landing() {
                   <ArrowRight className="h-6 w-6 text-gray-400 group-hover:text-white transition-colors" />
                 </CardContent>
               </a>
-            </Card>
+            </Card> */}
           </div>
         </div>
       </section>
 
       {/* Foundation / Powered By */}
-      <section className="w-full py-24 px-8 md:px-12 overflow-hidden bg-gradient-to-b from-transparent to-gray-900">
+      <section className="w-full py-24 px-8 md:px-12 overflow-hidden bg-gradient-to-b from-transparent to-muted dark:to-gray-900 border-b dark:border-b-transparent border-b-border">
         <div className="container mx-auto px-4 md:px-6">
           <h2 className="text-3xl md:text-4xl font-bold text-center mb-8 max-w-[800px] mx-auto">
             Built on a Foundation of Fast, Production-Grade Tooling
@@ -273,16 +301,19 @@ export function Landing() {
                 title="TypeScript"
                 description="End-to-end type safety with automatic schema generation from your TypeScript types."
                 logo="https://raw.githubusercontent.com/github/explore/80688e429a7d4ef2fca1e82350fe8e3517d3494d/topics/typescript/typescript.png"
+                link="https://www.typescriptlang.org/"
               />
               <TechnologyCard
                 title="Hono"
                 description="A small, simple, and ultrafast web framework for the Edges. Perfect for building high-performance APIs."
                 logo="https://raw.githubusercontent.com/honojs/hono/main/docs/images/hono-logo.png"
+                link="https://hono.dev/"
               />
               <TechnologyCard
                 title="GraphQL Yoga"
                 description="A fully-featured GraphQL server with focus on easy setup, performance and great developer experience."
                 logo="https://raw.githubusercontent.com/dotansimha/graphql-yoga/main/website/public/assets/logo.svg"
+                link="https://the-guild.dev/graphql/yoga-server"
               />
             </div>
 
@@ -315,9 +346,10 @@ export function Landing() {
                   description="Utilize Deno's modern features and built-in security for your Pylon-powered GraphQL API. Enjoy TypeScript support out of the box, secure defaults, and a rich standard library."
                   logo="https://upload.wikimedia.org/wikipedia/commons/8/84/Deno.svg"
                   link="https://deno.land/"
+                  logoClassName="dark:invert"
                 />
               </div>
-              <p className="text-gray-400 max-w-2xl mx-auto mt-12 text-center">
+              <p className="text-muted-foreground max-w-2xl mx-auto mt-12 text-center">
                 Pylon is designed to be runtime-agnostic, allowing you to deploy
                 your GraphQL API to various environments. Choose the runtime
                 that best fits your project's needs and infrastructure
@@ -336,7 +368,7 @@ export function Landing() {
               <h2 className="text-3xl font-bold leading-tight tracking-tighter md:text-5xl lg:leading-[1.1] mb-4">
                 Start Building Powerful APIs Today
               </h2>
-              <p className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
+              <p className="text-xl text-muted-foreground mb-8 max-w-2xl mx-auto">
                 Join hundreds of developers who are revolutionizing API
                 development with Pylon.
               </p>
@@ -350,7 +382,7 @@ export function Landing() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-gray-300 mb-4">
+                  <p className="text-muted-foreground mb-4">
                     Explore our comprehensive documentation to get started with
                     Pylon and learn about all its features.
                   </p>
@@ -366,7 +398,7 @@ export function Landing() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-gray-300 mb-4">
+                  <p className="text-muted-foreground mb-4">
                     Pylon is open source. Contribute, report issues, or star our
                     GitHub repository to support the project.
                   </p>
@@ -380,7 +412,7 @@ export function Landing() {
             </div>
 
             <div className="text-center">
-              <blockquote className="italic text-xl text-gray-300 mb-4">
+              <blockquote className="italic text-xl text-muted-foreground mb-4">
                 "Pylon is the foundation of our greater vision to make backend
                 development easier and faster. It's revolutionizing how we build
                 and scale APIs."
@@ -395,7 +427,7 @@ export function Landing() {
                 />
                 <div className="text-left">
                   <p className="font-semibold">Nico Schett</p>
-                  <p className="text-sm text-gray-400">CEO, Cronit</p>
+                  <p className="text-sm text-muted-foreground">CEO, Cronit</p>
                 </div>
               </div>
             </div>
