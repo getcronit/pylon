@@ -8,6 +8,7 @@ import {
   isList,
   isPrimitive,
   isPromise,
+  isSubscriptionRepeater,
   safeTypeName
 } from './types-helper.js'
 import {Schema} from './schema-parser.js'
@@ -57,6 +58,14 @@ export class TypeDefinitionBuilder {
     }
   ): FieldDefinition => {
     const {type, wasOptional} = excludeNullUndefinedFromType(rawType)
+
+    if (isSubscriptionRepeater(type)) {
+      const repeaterItemType = this.checker.getTypeArguments(type as any)[0]
+
+      if (repeaterItemType) {
+        return this.getTypeDefinition(repeaterItemType, options)
+      }
+    }
 
     if (isPromise(type)) {
       const promiseType = getPromiseType(type)
