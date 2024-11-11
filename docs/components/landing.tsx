@@ -27,19 +27,19 @@ import {
   GlowingStarsTitle
 } from './ui/glowing-stars-card'
 import {cn} from '@lib/utils'
-import { useTheme } from 'nextra-theme-docs'
+import {useTheme} from 'nextra-theme-docs'
 
 const GradientBackground = ({children, className = ''}) => (
   <div className={cn('relative overflow-hidden', className)}>
-  <div className="absolute inset-0 bg-gradient-to-br from-neutral-200 to-neutral-100 dark:from-primary/20 dark:to-secondary/20 opacity-50 rounded-l" />
+    <div className="absolute inset-0 bg-gradient-to-br from-neutral-200 to-neutral-100 dark:from-primary/20 dark:to-secondary/20 opacity-50 rounded-l" />
     {children}
   </div>
 )
 
 const PatternBackground = ({pattern, className = ''}) => (
   <div
-  className={cn('absolute inset-0 opacity-5 dark:opacity-10', className)}
-  style={{
+    className={cn('absolute inset-0 opacity-5 dark:opacity-10', className)}
+    style={{
       backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(
         pattern
       )}")`
@@ -48,7 +48,9 @@ const PatternBackground = ({pattern, className = ''}) => (
 )
 
 const FeatureCard = ({title, description, icon, pattern}) => (
-  <Card className="group relative overflow-hidden rounded-lg border border-border dark:border-gray-800 bg-gray-100/30 dark:bg-[#111111] p-6 transition-colors hover:bg-gray-100/80 dark:hover:bg-[#151515]" showGradient={false}>
+  <Card
+    className="group relative overflow-hidden rounded-lg border border-border dark:border-gray-800 bg-gray-100/30 dark:bg-[#111111] p-6 transition-colors hover:bg-gray-100/80 dark:hover:bg-[#151515]"
+    showGradient={false}>
     <GradientBackground>
       <PatternBackground pattern={pattern} />
       <div className="relative z-10 h-[180px] flex items-center justify-center">
@@ -68,20 +70,23 @@ const TechnologyCard = ({title, description, logo, link}) => (
       <Image src={logo} alt={`${title} logo`} fill className="object-contain" />
     </div>
     <div className="flex items-center gap-2 mb-2">
-      <h3 className="text-lg font-semibold text-primary">
-        <Link href={link}>
-          <span className="absolute -inset-px rounded-lg"></span>
-          {title}
-        </Link>
-      </h3>
+      <h3 className="text-lg font-semibold text-primary">{title}</h3>
       {/* <ArrowUpRight className="h-4 w-4 text-gray-400 group-hover:text-white transition-colors" /> */}
     </div>
-    <p className="text-sm text-muted-foreground">{description}</p>
+    <p className="text-sm text-muted-foreground mb-4">{description}</p>
+    <Link
+      href={link}
+      className="text-primary hover:underline inline-flex items-center">
+      Learn more
+      <ArrowRight className="ml-2 size-4" />
+    </Link>
   </div>
 )
 
 const RuntimeCard = ({title, description, logo, link, logoClassName = ''}) => (
-  <Card className="group relative overflow-hidden rounded-lg border border-border dark:border-gray-800 bg-gray-100/30 dark:bg-[#111111] hover:bg-gray-100/80 dark:hover:bg-[#151515] transition-colors" showGradient={false}>
+  <Card
+    className="group relative overflow-hidden rounded-lg border border-border dark:border-gray-800 bg-gray-100/30 dark:bg-[#111111] hover:bg-gray-100/80 dark:hover:bg-[#151515] transition-colors"
+    showGradient={false}>
     <CardHeader>
       <CardTitle className="text-primary flex items-center gap-3">
         <div className="w-12 h-12 relative">
@@ -119,7 +124,7 @@ const patterns = {
 }
 
 export function Landing() {
-  const {resolvedTheme} = useTheme();
+  const {resolvedTheme} = useTheme()
   const [animationData, setAnimationData] = useState(null)
 
   useEffect(() => {
@@ -248,16 +253,18 @@ export function Landing() {
               pattern={patterns.hexagons}
             />
             <Link href="/blog/pylon-2.3">
-              <GlowingStarsCard className="h-full rounded-lg bg-gray-100/30 dark:bg-[#111111] hover:bg-gray-100/80 dark:hover:bg-[#151515]">
-                  <GlowingStarsTitle className="mt-8 text-xl text-primary">
-                    Pylon 2.3
-                  </GlowingStarsTitle>
-                  <div className="flex justify-between items-end">
-                    <GlowingStarsDescription className="text-muted-foreground mt-3">
-                      Full Support for TypeScript Interfaces and Unions in Pylon
-                    </GlowingStarsDescription>
-                    <ArrowRight className="h-6 w-6 text-muted-foreground group-hover:text-white transition-colors" />
-                  </div>
+              <GlowingStarsCard
+                className="h-full rounded-lg bg-gray-100/30 dark:bg-[#111111] hover:bg-gray-100/80 dark:hover:bg-[#151515]"
+                hoverEfect={false}>
+                <GlowingStarsTitle className="mt-8 text-xl text-primary">
+                  Pylon 2.3
+                </GlowingStarsTitle>
+                <div className="flex justify-between items-end">
+                  <GlowingStarsDescription className="text-muted-foreground mt-3">
+                    Full Support for TypeScript Interfaces and Unions in Pylon
+                  </GlowingStarsDescription>
+                  <ArrowRight className="h-6 w-6 text-muted-foreground group-hover:text-white transition-colors" />
+                </div>
               </GlowingStarsCard>
             </Link>
           </div>
@@ -317,7 +324,11 @@ export function Landing() {
                 <RuntimeCard
                   title="Node.js"
                   description="Deploy your Pylon API on Node.js for a robust and widely-supported runtime environment. Leverage the vast npm ecosystem and benefit from long-term support versions."
-                  logo={resolvedTheme === "dark" ? "https://nodejs.org/static/images/logo.svg" : "https://nodejs.org/static/logos/nodejsDark.svg"}
+                  logo={
+                    resolvedTheme === 'dark'
+                      ? 'https://nodejs.org/static/images/logo.svg'
+                      : 'https://nodejs.org/static/logos/nodejsDark.svg'
+                  }
                   link="https://nodejs.org/"
                 />
                 <RuntimeCard
@@ -366,7 +377,9 @@ export function Landing() {
             </div>
 
             <div className="grid md:grid-cols-2 gap-8 mb-12">
-              <Card className="group relative overflow-hidden rounded-lg border border-border dark:border-gray-800 bg-gray-100/30 dark:bg-[#111111] hover:bg-gray-100/80 dark:hover:bg-[#151515] transition-colors" showGradient={false}>
+              <Card
+                className="group relative overflow-hidden rounded-lg border border-border dark:border-gray-800 bg-gray-100/30 dark:bg-[#111111] hover:bg-gray-100/80 dark:hover:bg-[#151515] transition-colors"
+                showGradient={false}>
                 <CardHeader>
                   <CardTitle className="text-2xl font-bold text-primary">
                     Documentation
@@ -382,7 +395,9 @@ export function Landing() {
                   </Button>
                 </CardContent>
               </Card>
-              <Card className="group relative overflow-hidden rounded-lg border border-border dark:border-gray-800 bg-gray-100/30 dark:bg-[#111111] hover:bg-gray-100/80 dark:hover:bg-[#151515] transition-colors" showGradient={false}>
+              <Card
+                className="group relative overflow-hidden rounded-lg border border-border dark:border-gray-800 bg-gray-100/30 dark:bg-[#111111] hover:bg-gray-100/80 dark:hover:bg-[#151515] transition-colors"
+                showGradient={false}>
                 <CardHeader>
                   <CardTitle className="text-2xl font-bold text-primary">
                     Open Source

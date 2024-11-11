@@ -3,23 +3,27 @@
 import React, {useEffect, useRef, useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
 import {cn} from '@/lib/utils'
-import { useTheme } from 'nextra-theme-docs'
+import {useTheme} from 'nextra-theme-docs'
 
 export const GlowingStarsCard = ({
   className,
-  children
+  children,
+  hoverEfect = true
 }: {
   className?: string
   children?: React.ReactNode
+  hoverEfect?: boolean
 }) => {
   const [mouseEnter, setMouseEnter] = useState(false)
 
   return (
     <div
       onMouseEnter={() => {
+        if (!hoverEfect) return
         setMouseEnter(true)
       }}
       onMouseLeave={() => {
+        if (!hoverEfect) return
         setMouseEnter(false)
       }}
       className={cn(
@@ -113,7 +117,7 @@ export const Illustration = ({mouseEnter}: {mouseEnter: boolean}) => {
 }
 
 const Star = ({isGlowing, delay}: {isGlowing: boolean; delay: number}) => {
-  const {resolvedTheme} = useTheme();
+  const {resolvedTheme} = useTheme()
   const isDarkTheme = resolvedTheme === 'dark'
   return (
     <motion.div
@@ -123,7 +127,13 @@ const Star = ({isGlowing, delay}: {isGlowing: boolean; delay: number}) => {
       }}
       animate={{
         scale: isGlowing ? [1, 1.2, 2.5, 2.2, 1.5] : 1,
-        background: isGlowing ? (isDarkTheme ? '#fff' : '#f3f3f3') : (isDarkTheme ?'#666' : '#4f4f4f')
+        background: isGlowing
+          ? isDarkTheme
+            ? '#fff'
+            : '#f3f3f3'
+          : isDarkTheme
+          ? '#666'
+          : '#4f4f4f'
       }}
       transition={{
         duration: 2,
