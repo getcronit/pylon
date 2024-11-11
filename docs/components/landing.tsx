@@ -153,11 +153,14 @@ export function Landing() {
           </span>
           without defining any schema.
         </p>
-        <HoverBorderGradient
-          containerClassName="rounded-lg mt-6 border-border"
-          as="button">
-          <span>Get started</span>
-        </HoverBorderGradient>
+        <Link href="/docs/getting-started#quick-start">
+          <HoverBorderGradient
+            containerClassName="rounded-lg mt-6 border-border"
+            as="button">
+            <span>Get started</span>
+          </HoverBorderGradient>
+        </Link>
+
         {/* <Button
           size="lg"
           className="mt-6 bg-white text-black hover:bg-gray-200">
