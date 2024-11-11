@@ -348,7 +348,7 @@ export function Landing() {
                 />
                 <RuntimeCard
                   title="Deno"
-                  description="Utilize Deno's modern features and built-in security for your Pylon-powered GraphQL API. Enjoy TypeScript support out of the box, secure defaults, and a rich standard library."
+                  description="Utilize Deno's modern features and built-in security for your Pylon-powered GraphQL API. Enjoy secure defaults, a rich standard library, and a fresh approach to server-side TypeScript."
                   logo="https://upload.wikimedia.org/wikipedia/commons/8/84/Deno.svg"
                   link="https://deno.land/"
                   logoClassName="dark:invert"
