@@ -70,15 +70,16 @@ const TechnologyCard = ({title, description, logo, link}) => (
       <Image src={logo} alt={`${title} logo`} fill className="object-contain" />
     </div>
     <div className="flex items-center gap-2 mb-2">
-      <h3 className="text-lg font-semibold text-primary">
-        <Link href={link}>
-          <span className="absolute -inset-px rounded-lg"></span>
-          {title}
-        </Link>
-      </h3>
+      <h3 className="text-lg font-semibold text-primary">{title}</h3>
       {/* <ArrowUpRight className="h-4 w-4 text-gray-400 group-hover:text-white transition-colors" /> */}
     </div>
-    <p className="text-sm text-muted-foreground">{description}</p>
+    <p className="text-sm text-muted-foreground mb-4">{description}</p>
+    <Link
+      href={link}
+      className="text-primary hover:underline inline-flex items-center">
+      Learn more
+      <ArrowRight className="ml-2 size-4" />
+    </Link>
   </div>
 )
 
