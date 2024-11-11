@@ -8,8 +8,8 @@ const config: DocsThemeConfig = {
   banner: {
     key: '2.0-release',
     text: (
-      <a href="/blog/pylon-2.0" target="_blank">
-        🎉 Pylon 2.0 is released. Read more →
+      <a href="/blog/pylon-2.3" target="_blank">
+        🎉 Pylon 2.3 is released. Read more →
       </a>
     )
   },
