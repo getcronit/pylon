@@ -82,7 +82,7 @@ type ReferenceSchemaType = {
     // value needs to be inputs type
     [key: string]: {
       type: ts.Type
-      isRequired: boolean
+      isRequired?: boolean
       documentation: string
     }
   }
@@ -877,7 +877,10 @@ export class SchemaParser {
             if (schemaType.args) {
               schemaType.args[arg.escapedName as string] = {
                 type: argType,
-                isRequired: valueDeclaration.initializer === undefined,
+                isRequired:
+                  valueDeclaration.initializer === undefined
+                    ? undefined
+                    : false,
                 documentation: this.getSymbolDocumentation(arg)
               }
 
