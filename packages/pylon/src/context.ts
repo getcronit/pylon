@@ -3,6 +3,7 @@ import type {Toucan} from 'toucan-js'
 import {AuthState} from './auth'
 import {AsyncLocalStorage} from 'async_hooks'
 import {sendFunctionEvent} from '@getcronit/pylon-telemetry'
+import {env} from 'hono/adapter'
 
 export interface Bindings {
   NODE_ENV: string
@@ -37,6 +38,8 @@ export const getContext = () => {
   if (!ctx) {
     throw new Error('Context not defined')
   }
+
+  ctx.env = env(ctx)
 
   return ctx
 }
