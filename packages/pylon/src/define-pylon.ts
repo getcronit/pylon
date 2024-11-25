@@ -14,8 +14,8 @@ import {isAsyncIterable, Maybe} from 'graphql-yoga'
 
 export interface Resolvers {
   Query: Record<string, any>
-  Mutation: Record<string, any>
-  Subscription: Record<string, any>
+  Mutation?: Record<string, any>
+  Subscription?: Record<string, any>
 }
 
 type FunctionWrapper = (fn: (...args: any[]) => any) => (...args: any[]) => any

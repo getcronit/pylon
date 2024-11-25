@@ -529,3 +529,33 @@ const MOCKED_ENV = {
 ```
 
 </Callout>
+
+### Optional: Mocking Dependencies
+
+In some cases, you might want to mock certain files or modules during testing. This cannot be done with the `.pylon/index.js` file because it is a bundled output. Instead, you can directly import and use the `./src/index.ts` file. This approach allows you to mock dependencies and have more control over your tests.
+
+However, when using `./src/index.ts` directly, you need to manually set up the `handler` to handle GraphQL requests.
+
+```typescript
+import {handler} from '@getcronit/pylon'
+
+import app, {graphql} from './src/index'
+
+app.use(handler({graphql}))
+
+... your tests here ...
+```
+
+This setup allows you to directly import and use the `./src/index.ts` file in your tests, giving you more flexibility and control over your test environment.
+
+If you use the `config` export in your `./src/index.ts` file, you can also pass it to the `handler` function:
+
+```typescript
+import {handler} from '@getcronit/pylon'
+
+import app, {graphql, config} from './src/index'
+
+app.use(handler({graphql, config}))
+
+... your tests here ...
+```

@@ -41,7 +41,9 @@ export class Bundler {
     const buildOnce = async () => {
       const startTime = Date.now()
 
-      const {typeDefs, resolvers: baseResolvers} = options.getBuildDefs()
+      const {typeDefs, resolvers} = options.getBuildDefs()
+
+      const preparedResolvers = prepareObjectInjection(resolvers)
 
       const injectCodePlugin: Plugin = {
         name: 'inject-code',
@@ -56,34 +58,22 @@ export class Bundler {
                 contents:
                   contents +
                   `
-      import {graphqlHandler} from "@getcronit/pylon"        
-      app.use('/graphql', async c => {
-        const typeDefs = ${JSON.stringify(typeDefs)}
-        const resolvers = {
-                ...graphql,
-                ...${prepareObjectInjection(baseResolvers)}
-        }
+      import {handler as __internalPylonHandler} from "@getcronit/pylon"
 
-        let pylonConfig = undefined
+      let __internalPylonConfig = undefined
 
-        try {
-          pylonConfig = config
-        } catch {
-         // config is not declared, pylonConfig remains undefined
-        }
-      
-        let exCtx = undefined
-      
-        try {
-          exCtx = c.executionCtx
-        } catch (e) {}
-  
-        return graphqlHandler(c)({
-          typeDefs,
-          resolvers,
-          config: pylonConfig
-        }).fetch(c.req.raw, c.env, exCtx || {})
-      })
+      try {
+        __internalPylonConfig = config
+      } catch {
+        // config is not declared, pylonConfig remains undefined
+      }
+
+      app.use(__internalPylonHandler({
+        typeDefs: ${JSON.stringify(typeDefs)},
+        graphql,
+        resolvers: ${preparedResolvers},
+        config: __internalPylonConfig
+      }))
       `
               }
             }
@@ -135,6 +125,28 @@ export class Bundler {
       const totalSize = Object.values(output.metafile.outputs).reduce(
         (acc, output) => acc + output.bytes,
         0
+      )
+
+      // Write the typeDefs to a file
+      const typeDefsPath = path.join(
+        process.cwd(),
+        this.outputDir,
+        'schema.graphql'
+      )
+
+      await fs.promises.writeFile(typeDefsPath, typeDefs)
+
+      // Write base resolvers to a file
+
+      const resolversPath = path.join(
+        process.cwd(),
+        this.outputDir,
+        'resolvers.js'
+      )
+
+      await fs.promises.writeFile(
+        resolversPath,
+        `export const resolvers = ${preparedResolvers}`
       )
 
       return {

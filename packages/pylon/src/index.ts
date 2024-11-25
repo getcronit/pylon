@@ -13,7 +13,7 @@ export {
   setContext
 } from './context.js'
 export {app} from './app/index.js'
-export {graphqlHandler} from './app/handler/graphql-handler.js'
+export {handler} from './app/handler/pylon-handler.js'
 export {getEnv} from './get-env.js'
 export {createDecorator} from './create-decorator.js'
 export {createPubSub as experimentalCreatePubSub} from 'graphql-yoga'
