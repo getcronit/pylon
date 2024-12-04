@@ -803,51 +803,18 @@ export class SchemaParser {
             ])
           })
         } else {
-          let properties = getPublicPropertiesOfType(
-            this.checker,
-            type.getNonNullableType()
+          const firstType = type.types[0]
+
+          consola.warn(
+            `Warning: Union types in input fields are not supported yet. Defaulting to the first type (${this.checker.typeToString(
+              firstType
+            )}) at path: ${path.join(' > ')}`
           )
 
-          if (properties.length === 0) {
-            //get first union type of non nullable type
-            const nt = type.getNonNullableType()
-            if (nt.isUnion()) {
-              properties = getPublicPropertiesOfType(this.checker, nt.types[0]!)
-            }
-          }
-
-          if (properties.length > 0) {
-            if (!referenceSchema[processing].has(type)) {
-              referenceSchema[processing].set(type, {})
-            }
-
-            // Go through all properties of the union type and add them to the reference schema
-            properties.forEach(property => {
-              const propertyType = this.checker.getTypeOfSymbolAtLocation(
-                property,
-                this.sfiFile
-              )
-
-              if (!isFunction(propertyType)) {
-                referenceSchema[processing].get(type)![
-                  property.escapedName as string
-                ] = {
-                  returnType: propertyType,
-                  args: {}
-                }
-
-                recLoop(
-                  propertyType,
-                  {
-                    propetyName: property.escapedName as string,
-                    parentType: type
-                  },
-                  processing,
-                  [...path, property.escapedName as string]
-                )
-              }
-            })
-          }
+          recLoop(firstType.getNonNullableType(), info, processing, [
+            ...path,
+            'NON_NULLABLE'
+          ])
         }
       } else if (isFunction(type)) {
         // skip fn for inputs
