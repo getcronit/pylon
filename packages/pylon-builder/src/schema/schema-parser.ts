@@ -823,18 +823,19 @@ export class SchemaParser {
               ])
             })
           } else {
-            const firstType = type.types[0]
+            let firstType = type.getNonNullableType()
 
-            consola.warn(
-              `Warning: Union types in input fields are not supported yet. Defaulting to the first type (${this.checker.typeToString(
-                firstType
-              )}) at path: ${path.join(' > ')}`
-            )
+            if (firstType.isUnion() && !isPrimitive(firstType)) {
+              consola.warn(
+                `Warning: Union types in input fields are not supported yet. Defaulting to the first type (${this.checker.typeToString(
+                  firstType
+                )}) at path: ${path.join(' > ')}`
+              )
 
-            recLoop(firstType.getNonNullableType(), info, processing, [
-              ...path,
-              'NON_NULLABLE'
-            ])
+              firstType = firstType.types[0]
+            }
+
+            recLoop(firstType, info, processing, [...path, 'NON_NULLABLE'])
           }
         }
       } else if (isFunction(type)) {

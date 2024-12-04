@@ -17,6 +17,15 @@ export const isList = (checker: ts.TypeChecker, type: ts.Type) => {
       typeNode.kind === ts.SyntaxKind.TupleType)
   )
 
+  if (!is) {
+    // Check if type references an array
+    const isArray = type.getSymbol()?.getName() === 'Array'
+
+    if (isArray) {
+      return true
+    }
+  }
+
   return is
 }
 
