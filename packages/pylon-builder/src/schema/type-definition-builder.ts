@@ -59,6 +59,18 @@ export class TypeDefinitionBuilder {
   ): FieldDefinition => {
     const {type, wasOptional} = excludeNullUndefinedFromType(rawType)
 
+    if (
+      type.flags & ts.TypeFlags.Void ||
+      type.flags & ts.TypeFlags.Undefined ||
+      type.flags & ts.TypeFlags.Null
+    ) {
+      return {
+        name: 'Void',
+        isList: false,
+        isRequired: true
+      }
+    }
+
     if (isSubscriptionRepeater(type)) {
       const repeaterItemType = this.checker.getTypeArguments(type as any)[0]
 

@@ -129,6 +129,7 @@ export class SchemaParser {
         'Float',
         'Number',
         'Any',
+        'Void',
         'Object',
         'File',
         'Date',
