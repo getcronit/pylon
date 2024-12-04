@@ -3,7 +3,7 @@ import {
   excludeNullUndefinedFromType,
   getPromiseType,
   isEmptyObject,
-  isEnum,
+  isPrimitiveUnion,
   isFunction,
   isList,
   isPrimitive,
@@ -172,16 +172,14 @@ export class TypeDefinitionBuilder {
           isListRequired: isRequired
         }
       }
-    } else if (isEnum(type)) {
+    } else if (isPrimitiveUnion(type)) {
       const typeNode = this.checker.typeToTypeNode(
         type,
         undefined,
         undefined
       ) as any | undefined
 
-      const types = (type as ts.UnionType).types.filter(
-        t => t.flags & ts.TypeFlags.StringLiteral
-      )
+      const types = (type as ts.UnionType).types
 
       // enumerate all members of the enum
       const members = types.map((t: ts.Type) => {
@@ -262,7 +260,7 @@ export class TypeDefinitionBuilder {
           return true
         }
 
-        return isPrimitive(type) || isEnum(type)
+        return isPrimitive(type) || isPrimitiveUnion(type)
       })
 
       const unionTypeDefs = [

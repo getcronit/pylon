@@ -49,7 +49,7 @@ export const isFunction = (type: ts.Type) => {
   return type.getCallSignatures().length > 0
 }
 
-export const isEnum = (type: ts.Type) => {
+export const isPrimitiveUnion = (type: ts.Type) => {
   if (isPrimitive(type)) return false
 
   const isUnion = (type as ts.UnionType).types?.length > 1
@@ -149,7 +149,7 @@ export function getPublicPropertiesOfType(
   const properties: ts.Symbol[] = []
 
   // if type is a primitive, return empty array
-  if (isList(checker, type) || isPrimitive(type) || isEnum(type))
+  if (isList(checker, type) || isPrimitive(type) || isPrimitiveUnion(type))
     return properties
 
   let typeProperties: ts.Symbol[] = []

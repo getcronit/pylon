@@ -2,6 +2,7 @@ import ts from 'typescript'
 import {
   getPromiseType,
   getPublicPropertiesOfType,
+  isPrimitiveUnion,
   isFunction,
   isList,
   isPrimitive,
@@ -186,6 +187,15 @@ export class SchemaParser {
           description: this.getTypeDocumentation(enumType.rawType)
         }
       })
+
+    // Remove `types` and `inputs` that are represented as enums
+    this.schema.types = this.schema.types.filter(type => {
+      return !this.schema.enums.find(e => e.name === type.name)
+    })
+
+    this.schema.inputs = this.schema.inputs.filter(input => {
+      return !this.schema.enums.find(e => e.name === input.name)
+    })
 
     // Go through all unions and check if it could be an interface
 
@@ -789,35 +799,43 @@ export class SchemaParser {
       }
 
       if (type.isUnion()) {
-        if (processing === 'types') {
-          type.types.forEach(t => {
-            // if null or undefined, skip
-            if (
-              t.flags & ts.TypeFlags.Null ||
-              t.flags & ts.TypeFlags.Undefined ||
-              isPrimitive(t)
-            ) {
-              return
-            }
+        if (isPrimitiveUnion(type)) {
+          if (!referenceSchema[processing].has(type)) {
+            referenceSchema[processing].set(type, {})
+          }
 
-            recLoop(t, info, processing, [
-              ...path,
-              t.symbol?.getName() || `N/A ${this.checker.typeToString(t)}`
-            ])
-          })
+          recLoop(type, info, processing, [...path, 'ENUM'])
         } else {
-          const firstType = type.types[0]
+          if (processing === 'types') {
+            type.types.forEach(t => {
+              // if null or undefined, skip
+              if (
+                t.flags & ts.TypeFlags.Null ||
+                t.flags & ts.TypeFlags.Undefined ||
+                isPrimitive(t)
+              ) {
+                return
+              }
 
-          consola.warn(
-            `Warning: Union types in input fields are not supported yet. Defaulting to the first type (${this.checker.typeToString(
-              firstType
-            )}) at path: ${path.join(' > ')}`
-          )
+              recLoop(t, info, processing, [
+                ...path,
+                t.symbol?.getName() || `N/A ${this.checker.typeToString(t)}`
+              ])
+            })
+          } else {
+            const firstType = type.types[0]
 
-          recLoop(firstType.getNonNullableType(), info, processing, [
-            ...path,
-            'NON_NULLABLE'
-          ])
+            consola.warn(
+              `Warning: Union types in input fields are not supported yet. Defaulting to the first type (${this.checker.typeToString(
+                firstType
+              )}) at path: ${path.join(' > ')}`
+            )
+
+            recLoop(firstType.getNonNullableType(), info, processing, [
+              ...path,
+              'NON_NULLABLE'
+            ])
+          }
         }
       } else if (isFunction(type)) {
         // skip fn for inputs
