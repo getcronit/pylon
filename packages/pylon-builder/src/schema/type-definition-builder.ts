@@ -134,7 +134,7 @@ export class TypeDefinitionBuilder {
       return Array.from(nameMap.values()).includes(name)
     }
 
-    if (typeName) {
+    if (typeName && !this.schema.scalars.includes(typeName)) {
       if (options.isInputType) {
         typeName = `${typeName}Input`
       }
