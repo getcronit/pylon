@@ -261,6 +261,18 @@ export class SchemaParser {
       }
     }
 
+    // Remove `Void` fields from types when they have a implementation
+    this.schema.types = this.schema.types.map(type => {
+      if (type.implements) {
+        // Remove Void fields
+        type.fields = type.fields.filter(field => {
+          return field.type.name !== 'Void'
+        })
+      }
+
+      return type
+    })
+
     // Generate the __resolveType function for the unions
     this.schema.unions = this.schema.unions.map(union => {
       return {
