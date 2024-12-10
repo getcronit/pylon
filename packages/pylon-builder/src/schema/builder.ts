@@ -14,11 +14,9 @@ export class SchemaBuilder {
 
     const tsConfigOptions = this.loadTsConfigOptions()
 
-    const filesInSfiDir = ts.sys.readDirectory(
-      path.dirname(this.sfiFilePath),
-      ['.ts'],
-      ['.d.ts']
-    )
+    const filesInSfiDir = ts.sys
+      .readDirectory(path.dirname(this.sfiFilePath), ['.ts'], ['.d.ts'])
+      .concat([path.join(path.dirname(this.sfiFilePath), '..', 'pylon.d.ts')])
 
     this.program = ts.createProgram(filesInSfiDir, tsConfigOptions)
 
