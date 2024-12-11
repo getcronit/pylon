@@ -857,21 +857,57 @@ export class SchemaParser {
         ]!
 
         args.forEach(arg => {
-          if (
+          const argType = this.checker.getTypeOfSymbolAtLocation(
+            arg,
+            this.sfiFile
+          )
+
+          if (this.checker.isTupleType(argType)) {
+            // Iterate over the rest of the arguments
+            const tupleType = argType as ts.TupleType
+
+            const elements = (tupleType.target as any)
+              .labeledElementDeclarations
+
+            elements.forEach((element, idx: number) => {
+              const elementType = this.checker.getTypeAtLocation(element)
+
+              const elementName = element.name.text
+              const elementSymbol = this.checker.getSymbolAtLocation(element)
+
+              const elementDocumentation = this.getSymbolDocumentation(
+                elementSymbol || arg
+              )
+
+              schemaType.args[elementName] = {
+                type: elementType,
+                isRequired:
+                  element.initializer === undefined ? undefined : false,
+                documentation: elementDocumentation
+              }
+
+              recLoop(
+                elementType,
+                {
+                  parentType: type
+                },
+                'inputs',
+                [...path, elementName]
+              )
+            })
+          } else if (
             arg.valueDeclaration &&
             ts.isParameter(arg.valueDeclaration) &&
             arg.valueDeclaration.dotDotDotToken
           ) {
-            console.warn(
-              'Cannot handle rest parameters yet, skipping',
-              arg.escapedName
+            consola.warn(
+              `Warning: Rest parameters without explicit names are not supported. ` +
+                `Skipping rest parameter at path: ${path.join(' > ')}.\n\n` +
+                `Unsupported: \`function example(...args: any[]) { }\`.\n` +
+                `Supported: \`function example(...namedArgs: [first: string, second: number]) { }\`.\n` +
+                `Please provide named rest parameters to ensure proper type resolution.`
             )
           } else {
-            const argType = this.checker.getTypeOfSymbolAtLocation(
-              arg,
-              this.sfiFile
-            )
-
             const valueDeclaration =
               arg.valueDeclaration as ts.ParameterDeclaration
 
