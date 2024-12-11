@@ -67,7 +67,7 @@ export class TypeDefinitionBuilder {
       return {
         name: 'Void',
         isList: false,
-        isRequired: true
+        isRequired: false
       }
     }
 
