@@ -4,6 +4,7 @@ import {AuthState} from './auth'
 import {AsyncLocalStorage} from 'async_hooks'
 import {sendFunctionEvent} from '@getcronit/pylon-telemetry'
 import {env} from 'hono/adapter'
+import type { GraphQLResolveInfo } from 'graphql'
 
 export interface Bindings {
   NODE_ENV: string
@@ -15,6 +16,7 @@ export interface Bindings {
 export interface Variables {
   auth: AuthState
   sentry: Toucan
+  graphqlResolveInfo?: GraphQLResolveInfo
 }
 
 export type Env = {

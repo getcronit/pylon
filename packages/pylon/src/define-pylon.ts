@@ -178,11 +178,14 @@ export const resolversToGraphQLResolvers = (
       return Sentry.withScope(async scope => {
         const ctx = asyncContext.getStore()
 
+
         if (!ctx) {
           consola.warn(
             'Context is not defined. Make sure AsyncLocalStorage is supported in your environment.'
           )
         }
+
+        ctx?.set("graphqlResolveInfo", info)
 
         const auth = ctx?.get('auth')
 
