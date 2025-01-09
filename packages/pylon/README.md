@@ -32,6 +32,22 @@ Pylon also provides a set of tools to help you build, test, and deploy your APIs
 
 With Pylon, you can build APIs faster, with fewer errors, and with less code.
 
+## Roadmap
+
+We would love to hear your feedback and suggestions for new features. Please open an issue or join our Discord server to share your thoughts.
+
+- [ ] **Documentation:** Improve the documentation and provide more examples.
+- [ ] **Testing:** Add a test suite to ensure the stability of the framework. [#7](https://github.com/getcronit/pylon/issues/7)
+- [ ] **Breaking Change Detection:** Implement a mechanism to detect breaking changes in the generated schema. [#8](https://github.com/getcronit/pylon/issues/8)
+- [ ] **Date-Based Versioning:** Automatically version the service when backward-incompatible changes are made. This will ensure that clients are aware of the changes and can adapt accordingly. This should be similar to the way Shopify handles API versioning. [#9](https://github.com/getcronit/pylon/issues/9)
+- [ ] **GraphQL Directives:** Allow users to define custom directives that can be used to modify the generated schema. These directives should then be applied to the service logic (schema) to provide additional functionality. More information can be found in the [GraphQL spec](https://spec.graphql.org/June2018/#sec-Type-System.Directives).
+- [ ] **Support Custom Authentication:** Currently, Pylon only supports OIDC for ZITADEL for authentication. We would like to add support for different authentication methods, such as JWT, OAuth, and others. This will then be used by the ´requireAuth´ function to authenticate / authorize users. [#21](https://github.com/getcronit/pylon/issues/21)
+- [ ] **Better Prisma Integration:** Improve the integration with Prisma to provide a more seamless experience when working with databases. This includes better support for relations, pagination, and other features provided by Prisma. The main pain point is that prisma does not include relations by default, so a lot of manual work is required to add them. To solve this, we would like to leverage the prisma client extensions to automatically resolve relations and provide paginatable connections.
+- [ ] **Find Edge Cases:** Find edge cases where the generated schema does not match the service logic, or build errors occur. This will help to improve the overall stability of the framework and provide a better developer experience.
+- [ ] **Fix the Sentry Integration:** Currently, the Sentry integration is not working as expected. We would like to fix this and provide better error tracking capabilities for Pylon users.
+- [ ] **Integrate @getcronit/pylon-builder into @getcronit/pylon-dev:** The pylon-builder package is used to generate the schema from the service logic. Currently, this is a separate package that gets installed alongside the pylon-dev package. This means that there could be version mismatches between the two packages. To solve this, we would like to integrate the builder into the dev package so that they are always in sync. This will also make it easier to maintain and update the packages.
+- [ ] **Spread the Word:** Spread the word about Pylon and get more people involved in the project. This includes writing blog posts, creating videos, and sharing the project on social media.
+
 ## Create
 
 To create a new Pylon project, run the following command:
