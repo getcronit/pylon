@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken'
 import type {IdTokenClaims, IntrospectionResponse} from 'openid-client'
 import path from 'path'
 import {HTTPException} from 'hono/http-exception'
-import {StatusCode} from 'hono/utils/http-status'
+import {ContentfulStatusCode} from 'hono/utils/http-status'
 import {env} from 'hono/adapter'
 import * as Sentry from '@sentry/bun'
 import {existsSync, readFileSync} from 'fs'
@@ -283,7 +283,7 @@ const authRequire = (checks: AuthRequireChecks = {}) => {
           }
         })
 
-        throw new HTTPException(resError.status as StatusCode, {res: resError})
+        throw new HTTPException(resError.status as ContentfulStatusCode, {res: resError})
       }
     }
 
