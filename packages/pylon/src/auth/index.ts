@@ -65,7 +65,7 @@ const authInitialize = () => {
 
         if (!API_PRIVATE_KEY_FILE) {
           throw new Error(
-            'You have initialized the auth middleware without a private key file'
+            'You have initialized the auth middleware without a private key file. Please provide a `key.json` file or set the AUTH_KEY environment variable'
           )
         }
 
@@ -283,7 +283,9 @@ const authRequire = (checks: AuthRequireChecks = {}) => {
           }
         })
 
-        throw new HTTPException(resError.status as ContentfulStatusCode, {res: resError})
+        throw new HTTPException(resError.status as ContentfulStatusCode, {
+          res: resError
+        })
       }
     }
 
