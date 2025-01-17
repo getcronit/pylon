@@ -30,7 +30,7 @@ Before diving into authentication and authorization with Pylon, it's essential t
 Pylon makes authentication seamless by providing a straightforward integration with ZITADEL. Here's how you can set up authentication in your Pylon project:
 
 ```typescript
-import {app, PylonAPI, auth, requireAuth} from '@getcronit/pylon'
+import {app, auth, requireAuth} from '@getcronit/pylon'
 
 // Define your sensitive data service
 class SensitiveData {
@@ -92,7 +92,7 @@ For more information on setting up roles in ZITADEL, refer to the [ZITADEL Roles
 Securing routes in Pylon involves enforcing authentication and, optionally, authorization for specific endpoints or routes. Here's how you can secure a route in your Pylon project:
 
 ```typescript
-import {defineService, PylonAPI, auth, requireAuth} from '@getcronit/pylon'
+import {auth, requireAuth} from '@getcronit/pylon'
 
 // Define your sensitive data service
 class SensitiveData {
