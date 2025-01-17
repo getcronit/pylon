@@ -1,6 +1,6 @@
 import {MiddlewareHandler} from 'hono'
-import jwt from 'jsonwebtoken'
-import type {IdTokenClaims, IntrospectionResponse} from 'openid-client'
+import {getCookie, setCookie, deleteCookie} from 'hono/cookie'
+import * as openid from 'openid-client'
 import path from 'path'
 import {HTTPException} from 'hono/http-exception'
 import {ContentfulStatusCode} from 'hono/utils/http-status'
@@ -8,11 +8,14 @@ import {env} from 'hono/adapter'
 import * as Sentry from '@sentry/bun'
 import {existsSync, readFileSync} from 'fs'
 import {sendFunctionEvent} from '@getcronit/pylon-telemetry'
+import {getEnv} from '../get-env'
+import {Env, getContext} from '../context'
+import * as crypto from 'crypto'
+import {importPrivateKey} from './import-private-key'
 
-export type AuthState = IntrospectionResponse &
-  IdTokenClaims & {
-    roles: string[]
-  }
+export type AuthState = openid.UserInfoResponse & {
+  roles: string[]
+}
 
 const authInitialize = () => {
   // Load private key file from cwd
@@ -39,18 +42,16 @@ const authInitialize = () => {
     }
   }
 
-  const middleware: MiddlewareHandler<{
-    Variables: {
-      auth: AuthState
-    }
-  }> = Sentry.startSpan(
+  const middleware: MiddlewareHandler<Env> = Sentry.startSpan(
     {
       name: 'AuthMiddleware',
       op: 'auth'
     },
     () =>
       async function (ctx, next) {
-        const AUTH_ISSUER = env(ctx).AUTH_ISSUER
+        const env = getContext().env
+
+        const AUTH_ISSUER = env.AUTH_ISSUER
 
         if (!AUTH_ISSUER) {
           throw new Error('AUTH_ISSUER is not set')
@@ -58,7 +59,7 @@ const authInitialize = () => {
 
         if (!API_PRIVATE_KEY_FILE) {
           // If the private key file is not loaded, try to load it from the environment
-          const AUTH_KEY = env(ctx).AUTH_KEY as string | undefined
+          const AUTH_KEY = env.AUTH_KEY as string | undefined
 
           API_PRIVATE_KEY_FILE = AUTH_KEY ? JSON.parse(AUTH_KEY) : undefined
         }
@@ -69,127 +70,19 @@ const authInitialize = () => {
           )
         }
 
-        const AUTH_PROJECT_ID = env(ctx).AUTH_PROJECT_ID
-
-        const ZITADEL_INTROSPECTION_URL = `${AUTH_ISSUER}/oauth/v2/introspect`
-
-        async function getRolesFromToken(tokenString: string) {
-          const response = await fetch(
-            `${AUTH_ISSUER}/auth/v1/usergrants/me/_search`,
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${tokenString}`
-              }
-            }
-          )
-
-          const data = (await response.json()) as any
-
-          const userRoles = (data.result?.map((grant: any) => {
-            return (grant.roles || []).map((role: any) => {
-              return `${grant.projectId}:${role}`
-            })
-          }) || []) as string[][]
-
-          const projectScopedRoles = userRoles.flat()
-
-          const rolesSet = new Set(projectScopedRoles)
-
-          // Add unscoped roles based on project id
-          // This is useful so that it is not necessary to specify the project id for every role check
-          if (AUTH_PROJECT_ID) {
-            for (const role of projectScopedRoles) {
-              const [projectId, ...roleNameParts] = role.split(':')
-
-              const roleName = roleNameParts.join(':')
-
-              if (projectId === AUTH_PROJECT_ID) {
-                rolesSet.add(roleName)
-              }
-            }
-          }
-
-          return Array.from(rolesSet)
-        }
-
-        async function introspectToken(
-          tokenString: string
-        ): Promise<AuthState> {
-          if (!API_PRIVATE_KEY_FILE) {
-            throw new Error('Internal error: API_PRIVATE_KEY_FILE is not set')
-          }
-
-          // Create JWT for client assertion
-          const payload = {
-            iss: API_PRIVATE_KEY_FILE.clientId,
-            sub: API_PRIVATE_KEY_FILE.clientId,
-            aud: AUTH_ISSUER,
-            exp: Math.floor(Date.now() / 1000) + 60 * 60, // Expires in 1 hour
-            iat: Math.floor(Date.now() / 1000)
-          }
-
-          const headers = {
-            alg: 'RS256',
+        const openidConfig = await openid.discovery(
+          new URL(AUTH_ISSUER),
+          API_PRIVATE_KEY_FILE.clientId,
+          undefined,
+          openid.PrivateKeyJwt({
+            key: await importPrivateKey(API_PRIVATE_KEY_FILE.key),
             kid: API_PRIVATE_KEY_FILE.keyId
-          }
-          const jwtToken = jwt.sign(payload, API_PRIVATE_KEY_FILE.key, {
-            algorithm: 'RS256',
-            header: headers
           })
-
-          const scopeSet = new Set<string>()
-
-          scopeSet.add('openid')
-          scopeSet.add('profile')
-          scopeSet.add('email')
-
-          if (AUTH_PROJECT_ID) {
-            scopeSet.add(
-              `urn:zitadel:iam:org:project:id:${AUTH_PROJECT_ID}:aud`
-            )
-          }
-
-          const scope = Array.from(scopeSet).join(' ')
-
-          // Send introspection request
-          const body = new URLSearchParams({
-            client_assertion_type:
-              'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
-            client_assertion: jwtToken,
-            token: tokenString,
-            scope
-          }).toString()
-
-          try {
-            const response = await fetch(ZITADEL_INTROSPECTION_URL, {
-              method: 'POST',
-              headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-              body
-            })
-
-            if (!response.ok) {
-              throw new Error('Network response was not ok')
-            }
-
-            const tokenData = (await response.json()) as IntrospectionResponse
-
-            const roles = await getRolesFromToken(tokenString)
-
-            const state = {
-              ...tokenData,
-              roles
-            } as AuthState
-
-            return state
-          } catch (error) {
-            console.error('Error while introspecting token', error)
-            throw new Error('Token introspection failed')
-          }
-        }
+        )
 
         let token: string | undefined = undefined
+
+        const authCookie = getCookie(ctx, 'pylon-auth')
 
         if (ctx.req.header('Authorization')) {
           const authHeader = ctx.req.header('Authorization')
@@ -201,6 +94,8 @@ const authInitialize = () => {
               token = parts[1]
             }
           }
+        } else if (authCookie) {
+          token = authCookie
         }
 
         if (!token) {
@@ -212,17 +107,123 @@ const authInitialize = () => {
         }
 
         if (token) {
-          const auth = await introspectToken(token)
+          const introspection = await openid.tokenIntrospection(
+            openidConfig,
+            token,
+            {
+              scope: 'openid email profile'
+            }
+          )
 
-          if (auth.active) {
-            ctx.set('auth', auth)
+          console.log(
+            'introspection',
+            introspection,
+            introspection.authorization_details
+          )
 
-            Sentry.setUser({
-              id: auth.sub,
-              username: auth.preferred_username,
-              email: auth.email,
-              details: auth
+          if (introspection.active) {
+            if (introspection.sub) {
+              const auth = await openid.fetchUserInfo(
+                openidConfig,
+                token,
+                introspection.sub
+              )
+
+              console.log('Auth:', auth)
+
+              const rolesClaim =
+                introspection['urn:zitadel:iam:org:project:roles']
+
+              console.log('urn:zitadel:iam:org:project:roles', rolesClaim)
+
+              const roles: string[] = rolesClaim
+                ? Object.keys(rolesClaim.valueOf())
+                : []
+
+              ctx.set('auth', {
+                user: {
+                  active: true,
+                  ...auth,
+                  roles
+                },
+                openidConfig
+              })
+            }
+          }
+        } else {
+          // Remove auth state
+          // ctx.set('auth', {active: false})
+
+          // Remove auth cookie
+          deleteCookie(ctx, 'pylon-auth')
+        }
+
+        if (ctx.req.path === '/auth') {
+          const codeVerifier = openid.randomPKCECodeVerifier() // PKCE code verifier
+          const codeChallenge = await openid.calculatePKCECodeChallenge(
+            codeVerifier
+          )
+
+          // Store the code verifier in a secure cookie (not accessible to JavaScript)
+          setCookie(ctx, 'pylon_code_verifier', codeVerifier, {
+            httpOnly: true,
+            maxAge: 300 // 5 minutes
+          })
+
+          let scope =
+            'openid profile email urn:zitadel:iam:user:resourceowner urn:zitadel:iam:org:projects:roles'
+
+          const parameters: Record<string, string> = {
+            scope,
+            code_challenge: codeChallenge,
+            code_challenge_method: 'S256',
+            redirect_uri: new URL(ctx.req.url).origin + '/auth/callback',
+            state: openid.randomState()
+          }
+
+          const authorizationUrl = openid.buildAuthorizationUrl(
+            openidConfig,
+            parameters
+          )
+
+          return ctx.redirect(authorizationUrl)
+        } else if (ctx.req.path === '/auth/callback') {
+          const params = ctx.req.query()
+          const code = params.code
+          const state = params.state
+
+          if (!code || !state) {
+            return ctx.text('Missing authorization code or state', 400)
+          }
+
+          const codeVerifier = getCookie(ctx, 'pylon_code_verifier')
+          if (!codeVerifier) {
+            return ctx.text('Missing code verifier', 400)
+          }
+
+          try {
+            const cbUrl = new URL(ctx.req.url)
+            // Exchange the authorization code for tokens
+            let tokenSet = await openid.authorizationCodeGrant(
+              openidConfig,
+              cbUrl,
+              {
+                pkceCodeVerifier: codeVerifier,
+                expectedState: state
+              },
+              cbUrl.searchParams
+            )
+
+            // Store tokens in secure cookies
+            setCookie(ctx, `pylon-auth`, tokenSet.access_token, {
+              httpOnly: true,
+              maxAge: tokenSet.expires_in || 3600 // Default to 1 hour if not specified
             })
+
+            return ctx.redirect('/')
+          } catch (error) {
+            console.error('Error during token exchange:', error)
+            return ctx.text('Authentication failed!', 500)
           }
         }
 
@@ -264,7 +265,7 @@ const authRequire = (checks: AuthRequireChecks = {}) => {
       })
     }
 
-    if (checks.roles) {
+    if (checks.roles && auth.active) {
       const roles = auth.roles
 
       const hasRole = checks.roles.some(role => {

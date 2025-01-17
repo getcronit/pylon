@@ -1,9 +1,9 @@
-import {Hono} from 'hono'
+import {Hono, MiddlewareHandler} from 'hono'
 import {logger} from 'hono/logger'
+import {poweredBy} from 'hono/powered-by'
 import {sentry} from '@hono/sentry'
 
 import {asyncContext, Env} from '../context'
-import {graphqlViewerHandler} from './handler/graphql-viewer-handler'
 
 export const app = new Hono<Env>()
 
@@ -29,4 +29,25 @@ app.use((c, next) => {
   return next()
 })
 
-app.get('/viewer', graphqlViewerHandler)
+app.use(
+  poweredBy({
+    serverName: 'pylon'
+  })
+)
+
+export const pluginsMiddleware: MiddlewareHandler[] = []
+
+const pluginsMiddlewareLoader: MiddlewareHandler = async (c, next) => {
+  console.log('Loading plugins middleware', pluginsMiddleware)
+  for (const middleware of pluginsMiddleware) {
+    const response = await middleware(c, async () => {})
+
+    if (response) {
+      return response
+    }
+  }
+
+  return next()
+}
+
+app.use(pluginsMiddlewareLoader)

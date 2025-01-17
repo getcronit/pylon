@@ -1,4 +1,4 @@
-import {createSchema, createYoga} from 'graphql-yoga'
+import {createSchema, createYoga, YogaServerInstance} from 'graphql-yoga'
 import {GraphQLScalarType, Kind} from 'graphql'
 import {
   DateTimeISOResolver,
@@ -7,28 +7,70 @@ import {
   JSONResolver
 } from 'graphql-scalars'
 
-import {useSentry} from '../envelop/use-sentry'
-import {Context} from '../../context'
-import {resolversToGraphQLResolvers} from '../../define-pylon'
-import {PylonConfig} from '../..'
+import {useSentry} from '../plugins/use-sentry'
+import {Context} from '../context'
+import {resolversToGraphQLResolvers} from '../define-pylon'
+import {app, Plugin, PylonConfig} from '..'
 import {readFileSync} from 'fs'
 import path from 'path'
+import {useUnhandledRoute} from '../plugins/use-unhandled-route'
+import {useViewer} from '../plugins/use-viewer'
+import {Next} from 'hono'
+import {pluginsMiddleware} from '.'
+
+type MaybeLazyObject<T> = T | (() => T)
+
+const resolveLazyObject = <T>(obj: MaybeLazyObject<T>): T => {
+  return typeof obj === 'function' ? (obj as () => T)() : obj
+}
 
 interface PylonHandlerOptions {
-  graphql: {
+  graphql: MaybeLazyObject<{
     Query: Record<string, any>
     Mutation?: Record<string, any>
     Subscription?: Record<string, any>
-  }
-  config?: PylonConfig
+  }>
+  config?: MaybeLazyObject<PylonConfig>
 }
 
 export const handler = (options: PylonHandlerOptions) => {
-  let {typeDefs, resolvers, graphql, config} =
-    options as PylonHandlerOptions & {
-      typeDefs?: string
-      resolvers?: Record<string, any>
+  let {
+    typeDefs,
+    resolvers,
+    graphql: graphql$,
+    config: config$
+  } = options as PylonHandlerOptions & {
+    typeDefs?: string
+    resolvers?: Record<string, any>
+  }
+
+  console.log('config', config$)
+
+  const loadPluginsMiddleware = (plugins: Plugin[]) => {
+    for (const plugin of plugins) {
+      plugin.app?.(app)
+
+      if (plugin.middleware) {
+        pluginsMiddleware.push(plugin.middleware)
+      }
     }
+  }
+
+  const graphql = resolveLazyObject(graphql$)
+
+  const config = resolveLazyObject(config$)
+
+  const plugins = [useSentry(), useViewer(), ...(config?.plugins || [])]
+
+  if (config?.landingPage ?? true) {
+    plugins.push(
+      useUnhandledRoute({
+        graphqlEndpoint: '/graphql'
+      })
+    )
+  }
+
+  loadPluginsMiddleware(plugins)
 
   if (!typeDefs) {
     // Try to read the schema from the default location
@@ -102,7 +144,7 @@ export const handler = (options: PylonHandlerOptions) => {
     }
   })
 
-  const yoga = createYoga({
+  const pylonGraphql = createYoga({
     landingPage: false,
     graphiql: req => {
       return {
@@ -111,20 +153,21 @@ export const handler = (options: PylonHandlerOptions) => {
         defaultQuery: `# Welcome to the Pylon Playground!`
       }
     },
+
     graphqlEndpoint: '/graphql',
     ...config,
-    plugins: [useSentry(), ...(config?.plugins || [])],
+    plugins,
     schema
   })
 
-  const handler = async (c: Context): Promise<Response> => {
+  const handler = async (c: Context, next: Next): Promise<Response> => {
     let executionContext: Context['executionCtx'] | {} = {}
 
     try {
       executionContext = c.executionCtx
     } catch (e) {}
 
-    return yoga.fetch(c.req.raw, c.env, executionContext)
+    return pylonGraphql.fetch(c.req.raw, c.env, executionContext)
   }
 
   return handler
