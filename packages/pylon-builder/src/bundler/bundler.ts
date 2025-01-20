@@ -49,8 +49,15 @@ export class Bundler {
         name: 'inject-code',
         setup(build) {
           build.onLoad(
-            {filter: /(\/src\/index\.ts|\\src\\index\.ts)$/, namespace: 'file'},
+            {filter: /src[\/\\]index\.ts$/, namespace: 'file'},
             async args => {
+              // Convert to relative path to ensure we match `src/index.ts` at root
+              const relativePath = path.relative(process.cwd(), args.path)
+
+              if (relativePath !== path.join('src', 'index.ts')) {
+                return
+              }
+
               const contents = await fs.promises.readFile(args.path, 'utf-8')
 
               return {
