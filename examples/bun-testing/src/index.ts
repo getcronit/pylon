@@ -1,4 +1,4 @@
-import {app} from '@getcronit/pylon'
+import {app, auth, PylonConfig, useAuth, usePages} from '@getcronit/pylon'
 
 const posts = [
   {
@@ -13,9 +13,20 @@ const posts = [
   }
 ]
 
+app.get('/test', c => {
+  console.log('test')
+
+  return c.json(c.get('auth'))
+})
+
 export const graphql = {
   Query: {
-    posts
+    posts,
+    lazy: async () => {
+      await new Promise(resolve => setTimeout(resolve, 2000))
+
+      return 'lazy'
+    }
   },
   Mutation: {
     createPost: (title: string, content: string) => {
@@ -32,40 +43,13 @@ export const graphql = {
   }
 }
 
-app.get('/posts', c => {
-  return c.json(posts)
-})
-
-app.post('/posts', async c => {
-  let body: FormData
-  try {
-    body = await c.req.formData()
-  } catch (e) {
-    return new Response('Invalid form data', {
-      status: 400
-    })
-  }
-
-  const title = body.get('title')?.toString()
-  const content = body.get('content')?.toString()
-
-  if (!title || !content) {
-    return new Response('Title and content are required', {
-      status: 400
-    })
-  }
-
-  const post = {
-    id: posts.length + 1,
-    title,
-    content
-  }
-
-  posts.push(post)
-
-  return c.json(post, 201, {
-    'X-Custom': 'Thanks for creating!'
-  })
-})
+export const config: PylonConfig = {
+  plugins: [
+    useAuth({
+      issuer: 'https://accounts2.cronit.io'
+    }),
+    usePages({})
+  ]
+}
 
 export default app

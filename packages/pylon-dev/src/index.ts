@@ -10,6 +10,10 @@ import {ChildProcess, spawn} from 'child_process'
 import kill from 'treekill'
 import * as telemetry from '@getcronit/pylon-telemetry'
 import dotenv from 'dotenv'
+import {buildFrontend} from './frontend'
+import {buildSchema} from 'graphql'
+
+import fs from 'fs'
 
 dotenv.config()
 
@@ -212,6 +216,12 @@ async function main(options: ArgOptions, command: Command) {
         }
       }
     })
+
+    console.log('Building frontend...')
+
+    await buildFrontend()
+
+    console.log('Frontend built')
 
     await telemetry.sendBuildEvent({
       duration,

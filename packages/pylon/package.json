@@ -3,7 +3,7 @@
   "version": "2.0.0",
   "type": "module",
   "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "types": "dist/src/index.d.ts",
   "scripts": {
     "build": "rimraf ./dist && bun build ./src/index.ts --target=bun --outdir=./dist --sourcemap=external --packages external && bun run build:declarations",
     "build:declarations": "tsc --declaration --emitDeclarationOnly --outDir ./dist"
@@ -22,6 +22,8 @@
   "homepage": "https://pylon.cronit.io",
   "dependencies": {
     "@getcronit/pylon-telemetry": "^1.0.0",
+    "@gqty/cli": "^4.2.1",
+    "@gqty/react": "3.1.0-canary-20250121102238.6f9b39fe2a1f8cca3d72c40cc62285062d96ec9e",
     "@hono/sentry": "^1.2.0",
     "@sentry/bun": "^8.17.0",
     "consola": "^3.2.3",
@@ -32,6 +34,10 @@
     "jsonwebtoken": "^9.0.2",
     "openid-client": "^6.1.2",
     "winston": "^3.8.2"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "resolutions": {
     "graphql": "^16.9.0"

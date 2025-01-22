@@ -42,3 +42,4 @@ import {MiddlewareHandler} from 'hono'
 import {app} from './app/index.js'
 
 export {useAuth} from './plugins/use-auth.js'
+export {usePages, PageProps, PageData} from './plugins/use-pages.js'
