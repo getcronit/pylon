@@ -1,11 +1,12 @@
 // bundler.ts
 import fs from 'fs'
 import chokidar from 'chokidar'
-import {Plugin, build} from 'esbuild'
+import { Plugin, build } from 'esbuild'
 import esbuildPluginTsc from 'esbuild-plugin-tsc'
 
 import path from 'path'
 import consola from 'consola'
+import type { PylonConfig } from '@getcronit/pylon'
 
 export interface BundlerBuildOptions {
   getBuildDefs: () => {
@@ -24,6 +25,7 @@ export interface BundlerBuildOptions {
     schemaChanged: boolean
     duration: number
   }) => void
+  config?: PylonConfig
 }
 
 export class Bundler {
@@ -37,11 +39,36 @@ export class Bundler {
     this.outputDir = outputDir
   }
 
+  private async loadAndExecuteConfig() {
+    const configPath = path.join(process.cwd(), this.outputDir, "index.js")
+
+    console.log('configPath', configPath)
+
+    let config: PylonConfig | undefined
+    try {
+      let configModule = await import(configPath)
+
+      config = configModule.config
+    } catch (e) {
+      console.error('Error loading config', e)
+    }
+
+    const plugins = config?.plugins || []
+
+    console.log('plugins', plugins)
+
+    for (const plugin of plugins) {
+      if (plugin.onBuild) {
+        await plugin.onBuild()
+      }
+    }
+  }
+
   public async build(options: BundlerBuildOptions) {
     const buildOnce = async () => {
       const startTime = Date.now()
 
-      const {typeDefs, resolvers} = options.getBuildDefs()
+      const { typeDefs, resolvers } = options.getBuildDefs()
 
       const preparedResolvers = prepareObjectInjection(resolvers)
 
@@ -49,7 +76,7 @@ export class Bundler {
         name: 'inject-code',
         setup(build) {
           build.onLoad(
-            {filter: /src[\/\\]index\.ts$/, namespace: 'file'},
+            { filter: /src[\/\\]index\.ts$/, namespace: 'file' },
             async args => {
               // Convert to relative path to ensure we match `src/index.ts` at root
               const relativePath = path.relative(process.cwd(), args.path)
@@ -156,6 +183,8 @@ export class Bundler {
         `export const resolvers = ${preparedResolvers}`
       )
 
+      await this.loadAndExecuteConfig()
+
       return {
         totalFiles,
         totalSize,
@@ -165,9 +194,13 @@ export class Bundler {
     }
 
     if (options.watch) {
-      const folder = path.dirname(this.sfiFilePath)
+       
 
-      chokidar.watch(folder).on('change', async () => {
+
+      chokidar.watch(process.cwd(), {
+        // Node modules and output directory should be ignored
+        ignored: /node_modules|\.pylon/,
+      }).on('change', async () => {
         try {
           const output = await buildOnce()
 

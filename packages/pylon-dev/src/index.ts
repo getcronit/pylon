@@ -1,19 +1,16 @@
 #!/usr/bin/env node
 
-import {build} from './builder'
-import {fetchSchema, generateClient} from '@gqty/cli'
-import {program, type Command} from 'commander'
+import { build } from './builder'
+import { fetchSchema, generateClient } from '@gqty/cli'
+import { program, type Command } from 'commander'
 import consola from 'consola'
 import path from 'path'
-import {version} from '../package.json'
-import {ChildProcess, spawn} from 'child_process'
+import { version } from '../package.json'
+import { ChildProcess, spawn } from 'child_process'
 import kill from 'treekill'
 import * as telemetry from '@getcronit/pylon-telemetry'
 import dotenv from 'dotenv'
-import {buildFrontend} from './frontend'
-import {buildSchema} from 'graphql'
 
-import fs from 'fs'
 
 dotenv.config()
 
@@ -25,7 +22,7 @@ program
   .action(async () => {
     consola.start('[Pylon]: Building schema')
 
-    const {totalFiles, totalSize, duration} = await build({
+    const { totalFiles, totalSize, duration } = await build({
       sfiFilePath: './src/index.ts',
       outputFilePath: './.pylon'
     })
@@ -172,11 +169,11 @@ async function main(options: ArgOptions, command: Command) {
   consola.start('[Pylon]: Building schema')
 
   try {
-    const {duration, totalFiles, totalSize} = await build({
+    const { duration, totalFiles, totalSize } = await build({
       sfiFilePath: './src/index.ts',
       outputFilePath: `./.pylon`,
       watch: true,
-      onWatch: async ({schemaChanged, totalFiles, totalSize, duration}) => {
+      onWatch: async ({ schemaChanged, totalFiles, totalSize, duration }) => {
         const isServerRunning = currentProc !== null
 
         if (isServerRunning) {
@@ -214,14 +211,11 @@ async function main(options: ArgOptions, command: Command) {
             isDevelopment: true
           })
         }
-      }
+      },
+
     })
 
-    console.log('Building frontend...')
 
-    await buildFrontend()
-
-    console.log('Frontend built')
 
     await telemetry.sendBuildEvent({
       duration,
@@ -286,5 +280,7 @@ async function main(options: ArgOptions, command: Command) {
     }
   })
 }
+
+
 
 program.parse()

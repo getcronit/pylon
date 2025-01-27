@@ -26,7 +26,8 @@ export type Plugin<
   TUserContext = {}
 > = YogaPlugin<PluginContext, TServerContext, TUserContext> & {
   middleware?: MiddlewareHandler<Env>
-  app?: (app: typeof pylonApp) => void
+  onApp?: (app: typeof pylonApp) => void
+  onBuild?: () => Promise<void>
 }
 
 export type PylonConfig = {
@@ -39,7 +40,6 @@ export type Int = number & {readonly brand?: unique symbol}
 export type Float = number & {readonly brand?: unique symbol}
 
 import {MiddlewareHandler} from 'hono'
-import {app} from './app/index.js'
 
 export {useAuth} from './plugins/use-auth.js'
-export {usePages, PageProps, PageData} from './plugins/use-pages.js'
+export {usePages, PageProps, PageData} from './plugins/use-pages/index.js'

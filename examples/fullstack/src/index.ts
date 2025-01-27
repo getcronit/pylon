@@ -43,13 +43,15 @@ const posts = [
 ];
 
 
+const users = [new User(1, "Alice", "alice@example.com", posts.filter((p) => p.author.id === 1)),
+  new User(2, "Bob", "bob@test.com", posts.filter((p) => p.author.id === 2)),
+]
+
 // GraphQL schema
 export const graphql = {
   Query: {
     posts,
-    users:  [new User(1, "Alice", "alice@example.com", posts.filter((p) => p.author.id === 1)),
-      new User(2, "Bob", "bob@test.com", posts.filter((p) => p.author.id === 2)),
-    ],
+    users: (take: number) => users.slice(0, take),
   },
 };
 

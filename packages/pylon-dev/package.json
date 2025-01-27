@@ -32,6 +32,9 @@
     "treekill": "^1.0.0",
     "typescript": "^5.7.3"
   },
+  "peerDependencies": {
+    "@getcronit/pylon": "^2.0.0"
+  },
   "publishConfig": {
     "access": "public"
   },

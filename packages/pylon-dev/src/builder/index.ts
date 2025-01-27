@@ -38,3 +38,4 @@ export const build = async (options: BuildOptions) => {
     onWatch: options.onWatch
   })
 }
+

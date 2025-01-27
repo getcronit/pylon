@@ -48,7 +48,7 @@ export const handler = (options: PylonHandlerOptions) => {
 
   const loadPluginsMiddleware = (plugins: Plugin[]) => {
     for (const plugin of plugins) {
-      plugin.app?.(app)
+      plugin.onApp?.(app)
 
       if (plugin.middleware) {
         pluginsMiddleware.push(plugin.middleware)

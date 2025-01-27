@@ -24,7 +24,7 @@ export function useUnhandledRoute(args: {graphqlEndpoint: string}): Plugin {
   const versions = getVersions()
 
   return {
-    app: app => {
+    onApp: app => {
       app.use(async (c, next) => {
         if (c.req.method === 'GET' && c.req.path !== args.graphqlEndpoint) {
           return c.html(

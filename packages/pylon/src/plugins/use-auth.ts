@@ -171,7 +171,7 @@ export function useAuth(args: {
         return next()
       }
     },
-    app(app) {
+    onApp(app) {
       app.get(loginPath, async ctx => {
         const openidConfig = ctx.get('auth').openidConfig
 
