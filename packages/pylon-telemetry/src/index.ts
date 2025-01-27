@@ -146,7 +146,6 @@ export const sendVersionEvent = async () => {
     telemetryVersion: versions.telemetryVersion,
     pylonVersion: versions.pylonVersion,
     pylonDevVersion: versions.pylonDevVersion,
-    pylonBuilderVersion: versions.pylonBuilderVersion
   })
 }
 
@@ -161,7 +160,6 @@ export const sendDevEvent = async (payload: {
     telemetryVersion: versions.telemetryVersion,
     pylonVersion: versions.pylonVersion,
     pylonDevVersion: versions.pylonDevVersion,
-    pylonBuilderVersion: versions.pylonBuilderVersion,
     isDevelopment: true,
     ...payload
   })
@@ -178,7 +176,6 @@ export const sendBuildEvent = async (payload: {
   await sendEvent('PYLON_BUILD', {
     telemetryVersion: versions.telemetryVersion,
     pylonVersion: versions.pylonVersion,
-    pylonBuilderVersion: versions.pylonBuilderVersion,
     ...payload
   })
 }
@@ -208,7 +205,6 @@ export const sendFunctionEvent = async (payload: {
   await sendEvent('PYLON_FUNCTION', {
     telemetryVersion: versions.telemetryVersion,
     pylonVersion: versions.pylonVersion,
-    pylonBuilderVersion: versions.pylonBuilderVersion,
     ...payload
   })
 }
