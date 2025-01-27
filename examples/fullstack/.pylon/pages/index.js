@@ -28,7 +28,7 @@ var Page = ({ data }) => {
     ] }, id))
   ] });
 };
-var pages_default = Page;
+var index_default = Page;
 if (typeof window !== "undefined") {
   const { PylonPageLoader } = await import("./page-loader-2OPOLWZT.js");
   const client = await import("./client-ZJRS4PLI.js");
@@ -50,5 +50,5 @@ if (typeof window !== "undefined") {
   }
 }
 export {
-  pages_default as default
+  index_default as default
 };

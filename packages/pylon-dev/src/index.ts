@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import {build} from '@getcronit/pylon-builder'
+import {build} from './builder'
 import {fetchSchema, generateClient} from '@gqty/cli'
 import {program, type Command} from 'commander'
 import consola from 'consola'

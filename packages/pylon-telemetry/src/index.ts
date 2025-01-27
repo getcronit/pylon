@@ -60,13 +60,11 @@ export const getVersions = () => {
   const pylonDevVersion = versionOrUndefined('@getcronit/pylon-dev')
 
   const pylonVersion = versionOrUndefined('@getcronit/pylon')
-  const pylonBuilderVersion = versionOrUndefined('@getcronit/pylon-builder')
 
   return {
     telemetryVersion,
     pylonDevVersion,
     pylonVersion,
-    pylonBuilderVersion
   }
 }
 
