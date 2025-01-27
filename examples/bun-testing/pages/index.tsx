@@ -23,6 +23,16 @@ const Page: React.FC<PageProps> = ({ data }) => {
     <div>
       Index Page
 
+      <div>
+
+        <h1>
+          Corina
+        </h1>
+        {data.corina.properties.ass ? "has ass" : "no ass"}
+        {data.corina.properties.boobies ? "has boobies": "no boobies"}
+        Nose is: {data.corina.properties.nose}
+      </div>
+
 
       {data.$state.isLoading && <div>Loading...</div>}
 

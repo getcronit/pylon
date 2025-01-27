@@ -40,11 +40,12 @@ export const PylonPageLoader = (props: {
   client: any,
   cacheSnapshot?: any,
   Page: React.FC<PageProps>
+  pageProps: Omit<PageProps, 'data'>
 }) => {
   props.client.useHydrateCache({ cacheSnapshot: props.cacheSnapshot })
 
   const data = props.client.useQuery()
 
-  return <props.Page data={data} />
+  return <props.Page data={data} {...props.pageProps}  />
 }
 

@@ -4,7 +4,7 @@ import { renderToString, renderToReadableStream, version } from 'react-dom/serve
 
 console.log('Version', version)
 
-import { type Plugin } from '../index'
+import { Context, type Plugin } from '../index'
 import { Readable } from 'stream'
 import { UseHydrateCacheOptions } from '@gqty/react'
 import { PylonPageLoader } from '../../page-loader'
@@ -13,19 +13,25 @@ export interface PageData { }
 
 export type PageProps = {
   data: PageData
+  params: Record<string, string>
+  searchParams: Record<string, string>
+  path: string
 }
 
 const Document: React.FC<{
   pagePath: string
+  pageProps: Omit<PageProps, 'data'>
   cacheSnapshot?: UseHydrateCacheOptions['cacheSnapshot']
   children: React.ReactNode
 }> = props => {
   return (
     <html>
       <head>
-        <script>
-          {'window.__pylon_cache_snapshot = ' +
-            JSON.stringify(props.cacheSnapshot)}
+        <script id="__PYLON_DATA__" type="application/json">
+            {JSON.stringify({
+              pageProps: props.pageProps,
+              cacheSnapshot: props.cacheSnapshot
+            })}
         </script>
         <script type="module" defer src={`/static/${props.pagePath}`}></script>
         <link rel="stylesheet" href="/static/output.css" />
@@ -117,12 +123,19 @@ export function usePages(args: {}): Plugin {
             `${process.cwd()}/${relativePath.replace(/\.js$/, '.tsx')}`
           )
 
+          const pageProps = {
+            params: c.req.param(),
+            searchParams: c.req.query(),
+            path: c.req.path,
+          }
+
           const { cacheSnapshot } = await client.prepareReactRender(
-            <Document pagePath={relativePath}>
+            <Document pagePath={relativePath} pageProps={pageProps}>
               <PylonPageLoader
                 client={client}
                 Page={Page2}
                 cacheSnapshot={undefined}
+                pageProps={pageProps}
               />
             </Document>
           )
@@ -131,11 +144,12 @@ export function usePages(args: {}): Plugin {
 
           return c.body(
             await renderToReadableStream(
-              <Document pagePath={relativePath} cacheSnapshot={cacheSnapshot}>
+              <Document pagePath={relativePath} cacheSnapshot={cacheSnapshot} pageProps={pageProps}>
                 <PylonPageLoader
                   client={client}
                   Page={Page2}
                   cacheSnapshot={cacheSnapshot}
+                  pageProps={pageProps}
                 />
               </Document>
             )

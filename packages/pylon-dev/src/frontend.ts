@@ -171,14 +171,26 @@ const buildFilesWithEsbuild = async (sourceDir: string) => {
 
                 console.log("reactDom", reactDom)
 
-                const cacheSnapshot = window.__pylon_cache_snapshot
+                const scriptElement = document.getElementById("__PYLON_DATA__")
 
-                console.log('cacheSnapshot', cacheSnapshot)
+                if(!scriptElement) {
+                  throw new Error('Pylon data script not found')
+                }
 
-                reactDom.hydrateRoot(
+                try {
+                  const pylonData = JSON.parse(scriptElement.textContent)
+
+                  console.log('pylonData', pylonData)
+
+                  reactDom.hydrateRoot(
                 document.getElementById('root'),
-                <PylonPageLoader client={client} Page={${defaultExport}} cacheSnapshot={cacheSnapshot}/>
+                <PylonPageLoader client={client} Page={${defaultExport}} pageProps={pylonData.pageProps} cacheSnapshot={pylonData.cacheSnapshot}/>
                 )
+                }
+                catch(error) {
+                  console.error('Error hydrating root', error)
+                }
+                
 
             }
                         `

@@ -1,0 +1,74 @@
+[
+  {
+    "filePath": "/workspaces/pylon/examples/fullstack/.pylon/pages/chunk-B5GXU7YJ.js",
+    "routePath": "/chunk-B5GXU7YJ"
+  },
+  {
+    "filePath": "/workspaces/pylon/examples/fullstack/.pylon/pages/chunk-ORROUJIO.js",
+    "routePath": "/chunk-ORROUJIO"
+  },
+  {
+    "filePath": "/workspaces/pylon/examples/fullstack/.pylon/pages/chunk-VN5JDORZ.js",
+    "routePath": "/chunk-VN5JDORZ"
+  },
+  {
+    "filePath": "/workspaces/pylon/examples/fullstack/.pylon/pages/chunk-WMCGM574.js",
+    "routePath": "/chunk-WMCGM574"
+  },
+  {
+    "filePath": "/workspaces/pylon/examples/fullstack/.pylon/pages/client-5LEOG23I.js",
+    "routePath": "/client-5LEOG23I"
+  },
+  {
+    "filePath": "/workspaces/pylon/examples/fullstack/.pylon/pages/client-CRGGT5HC.js",
+    "routePath": "/client-CRGGT5HC"
+  },
+  {
+    "filePath": "/workspaces/pylon/examples/fullstack/.pylon/pages/client-FSAJY3QC.js",
+    "routePath": "/client-FSAJY3QC"
+  },
+  {
+    "filePath": "/workspaces/pylon/examples/fullstack/.pylon/pages/client-LY44PAOA.js",
+    "routePath": "/client-LY44PAOA"
+  },
+  {
+    "filePath": "/workspaces/pylon/examples/fullstack/.pylon/pages/client-ZJRS4PLI.js",
+    "routePath": "/client-ZJRS4PLI"
+  },
+  {
+    "filePath": "/workspaces/pylon/examples/fullstack/.pylon/pages/index.js",
+    "routePath": "/"
+  },
+  {
+    "filePath": "/workspaces/pylon/examples/fullstack/.pylon/pages/page-loader-2EC2EZ2C.js",
+    "routePath": "/page-loader-2EC2EZ2C"
+  },
+  {
+    "filePath": "/workspaces/pylon/examples/fullstack/.pylon/pages/page-loader-2OPOLWZT.js",
+    "routePath": "/page-loader-2OPOLWZT"
+  },
+  {
+    "filePath": "/workspaces/pylon/examples/fullstack/.pylon/pages/posts/[id]/index.js",
+    "routePath": "/posts/:id"
+  },
+  {
+    "filePath": "/workspaces/pylon/examples/fullstack/.pylon/pages/posts/index.js",
+    "routePath": "/posts"
+  },
+  {
+    "filePath": "/workspaces/pylon/examples/fullstack/.pylon/pages/react-ssr-prepass.es-SGNTLSJH.js",
+    "routePath": "/react-ssr-prepass.es-SGNTLSJH"
+  },
+  {
+    "filePath": "/workspaces/pylon/examples/fullstack/.pylon/pages/server.browser-BXI3O2NF.js",
+    "routePath": "/server.browser-BXI3O2NF"
+  },
+  {
+    "filePath": "/workspaces/pylon/examples/fullstack/.pylon/pages/tests/[id].js",
+    "routePath": "/tests/:id"
+  },
+  {
+    "filePath": "/workspaces/pylon/examples/fullstack/.pylon/pages/users/[id].js",
+    "routePath": "/users/:id"
+  }
+]

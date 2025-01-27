@@ -22,6 +22,16 @@ app.get('/test', c => {
 export const graphql = {
   Query: {
     posts,
+    corina: () => {
+      return {
+        properties: {
+          boobies: true,
+          ass: true,
+          nose: "long",
+
+        }
+      }
+    },
     lazy: async () => {
       await new Promise(resolve => setTimeout(resolve, 2000))
 
@@ -45,9 +55,9 @@ export const graphql = {
 
 export const config: PylonConfig = {
   plugins: [
-    useAuth({
-      issuer: 'https://accounts2.cronit.io'
-    }),
+    // useAuth({
+    //   issuer: 'https://accounts2.cronit.io'
+    // }),
     usePages({})
   ]
 }

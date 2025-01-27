@@ -1,0 +1,34 @@
+type Query {
+posts: [Post!]!
+users: [User!]!
+}
+type Post {
+id: Number!
+title: String!
+content: String!
+author: Author!
+tags: [String!]!
+}
+type Author {
+id: Number!
+name: String!
+email: String!
+}
+type User {
+id: Number!
+name: String!
+email: String!
+posts: [Post!]!
+}
+scalar ID
+scalar Int
+scalar Float
+scalar Number
+scalar Any
+scalar Void
+scalar Object
+scalar File
+scalar Date
+scalar JSON
+scalar String
+scalar Boolean
