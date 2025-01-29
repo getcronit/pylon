@@ -33,6 +33,7 @@
     "hono": "^4.6.8",
     "jsonwebtoken": "^9.0.2",
     "openid-client": "^6.1.2",
+    "tiny-glob": "^0.2.9",
     "winston": "^3.8.2"
   },
   "peerDependencies": {

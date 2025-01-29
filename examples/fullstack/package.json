@@ -12,10 +12,12 @@
     "dependencies": {
         "@getcronit/pylon": "^2.0.0",
         "@radix-ui/react-slot": "^1.1.1",
+        "@radix-ui/react-tabs": "^1.1.2",
         "autoprefixer": "^10.4.20",
         "bun-types": "^1.1.18",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
+        "framer-motion": "^12.0.6",
         "lucide-react": "^0.473.0",
         "react": "^19.0.0",
         "tailwind-merge": "^2.6.0",

@@ -192,8 +192,8 @@ export function useUnhandledRoute(args: {graphqlEndpoint: string}): Plugin {
   </section>
   </main>
   </body>
-  </html>`
-          )
+  </html>`,
+          404)
         }
 
         return next()

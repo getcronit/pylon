@@ -1,139 +1,91 @@
-import fs from 'fs'
-import path from 'path'
-import esbuild, {Plugin} from 'esbuild'
-import {generateClient} from '@gqty/cli'
-import {buildSchema} from 'graphql'
+
+import path from 'path';
+import fs from 'fs';
+import { generateClient } from '@gqty/cli';
+import { buildSchema } from 'graphql';
+import consola from 'consola';
+import esbuild, { Plugin } from 'esbuild';
+import glob from 'tiny-glob';
 import tailwindcss from 'tailwindcss'
 import autoprefixer from 'autoprefixer'
 import postcss from 'postcss'
-import consola from "consola"
 
-// Function to recursively scan the pages directory and generate file paths and Hono route paths
-const getFilePathsAndRoutes = (
-  dir: string,
-  baseDir: string = path.resolve(process.cwd(), dir)
-): {filePath: string; routePath: string}[] => {
-  const filePathsAndRoutes: {filePath: string; routePath: string}[] = []
 
-  // Resolve the absolute path of the current directory
-  const currentDir = path.resolve(process.cwd(), dir)
 
-  // Read the contents of the directory
-  const files = fs.readdirSync(currentDir)
+// Root directory for your app
+const APP_DIR = path.join(process.cwd(), 'pages');
 
-  files.forEach(file => {
-    const fullPath = path.join(currentDir, file)
-    const stat = fs.statSync(fullPath)
+const DIST_PUBLIC_DIR = path.join(process.cwd(), '.pylon/public')
+const DIST_PAGES_DIR = path.join(process.cwd(), '.pylon/pages')
 
-    if (stat.isDirectory()) {
-      // Recursively scan subdirectories, passing the same baseDir
-      filePathsAndRoutes.push(
-        ...getFilePathsAndRoutes(path.join(dir, file), baseDir)
-      )
-    } else if (stat.isFile() && fullPath.endsWith('.js')) {
-      // Calculate the relative path from the original base directory
-      const relativePath = path.relative(baseDir, fullPath).replace(/\.js$/, '')
 
-      // Convert the relative path to Hono route path format
-      let routePath = `/${relativePath.replace(/\\/g, '/')}`
-
-      // Handle dynamic parameters like `[slug]`
-      routePath = routePath.replace(/\[(.*?)\]/g, ':$1')
-
-      // Remove '/index' from the route path if it's an index file
-      if (routePath.endsWith('/index')) {
-        routePath = routePath.slice(0, -6) // Remove the '/index' part
-      }
-
-      if (!routePath) {
-        routePath = '/'
-      }
-
-      filePathsAndRoutes.push({
-        filePath: fullPath,
-        routePath
-      })
-    }
-  })
-
-  return filePathsAndRoutes
+export type PageRoute = {
+  pagePath: string;
+  slug: string;
+  layouts: string[]
 }
 
-// Helper function to recursively scan a directory for .tsx files
-const getAllFiles = (dirPath: string, ext: string): string[] => {
-  let files: string[] = []
-  const entries = fs.readdirSync(dirPath, {withFileTypes: true})
+// Helper function to get page routes with layouts
+async function getPageRoutes(dir = APP_DIR) {
+  const routes: PageRoute[] = [];
 
-  for (const entry of entries) {
-    const fullPath = path.join(dirPath, entry.name)
-    if (entry.isDirectory()) {
-      files = files.concat(getAllFiles(fullPath, ext))
-    } else if (entry.isFile() && fullPath.endsWith(ext)) {
-      files.push(fullPath)
-    }
+  // Glob pattern for `page.tsx` and `page.js` files
+  const pagePattern = path.join(dir, '**/page.{ts,tsx,js}');  // Matches page.tsx, page.js, page.ts
+
+  // Glob pattern for layout files
+  const layoutPattern = path.join(dir, '**/layout.tsx');  // Matches layout.tsx files
+
+  // Get all page files
+  const pageFiles = await glob(pagePattern);
+
+  // Get all layout files
+  const layoutFiles = await glob(layoutPattern);
+
+  for (const pagePath of pageFiles) {
+    const relativePagePath = path.relative(APP_DIR, pagePath); // Get the relative path from the app folder
+    let slug = '/' + relativePagePath.replace(/page\.(ts|tsx|js)$/, '').replace(/\[([\w-]+)\]/g, ':$1');
+
+    // Make sure there is no trailing slash
+    slug = slug.replace(/\/$/, '');
+
+    // Find layouts relevant to this page
+    const layouts = layoutFiles.filter(layout => {
+      return pagePath.startsWith(layout.replace('layout.tsx', ''));
+    });
+
+    routes.push({
+      pagePath: pagePath,
+      slug: slug || '/',
+      layouts: layouts,
+    });
   }
 
-  return files
+  return routes;
 }
 
-// Function to build files with esbuild from a folder
-const buildFilesWithEsbuild = async (sourceDir: string) => {
-  console.log('Building files with esbuild...')
-  const sourcePath = path.resolve(sourceDir) // Resolve absolute path
-  const distPath = path.resolve(process.cwd(), '.pylon/pages')
+async function buildPages(pageRoutes: PageRoute[]) {
+  // Includes page.tsx and layout.tsx files
+  const entryPoints: string[] = []
 
-  // Get all .tsx files in the source directory
-  const filePaths = getAllFiles(sourcePath, '.tsx')
-
-  if (filePaths.length === 0) {
-    console.log(`No .tsx files found in ${sourcePath}`)
-    return []
+  for (const page of pageRoutes) {
+    entryPoints.push(page.pagePath)
+    entryPoints.push(...page.layouts)
   }
-
-  const buildResults: {filePath: string; success: boolean}[] = []
-
-  // for (const filePath of filePaths) {
-  //   try {
-  //     // Determine relative path and output file path
-  //     const relativePath = path.relative(sourcePath, filePath)
-  //     const outFile = path.join(distPath, relativePath.replace(/\.tsx$/, '.js'))
-
-  //     // Ensure the output directory exists
-  //     fs.mkdirSync(path.dirname(outFile), {recursive: true})
-
-  //     // Run esbuild to transpile the TypeScript file
-  //     await esbuild.build({
-  //       format: 'esm',
-  //       entryPoints: [filePath],
-  //       outfile: outFile,
-  //       bundle: false,
-  //       minify: true,
-  //       sourcemap: true,
-
-  //       loader: {
-  //         '.tsx': 'tsx'
-  //       },
-
-  //       jsx: 'automatic',
-  //       tsconfigRaw: {}
-  //     })
-
-  //     buildResults.push({filePath, success: true})
-  //     console.log(`Built: ${filePath} -> ${outFile}`)
-  //   } catch (error) {
-  //     buildResults.push({filePath, success: false})
-  //     console.error(`Error building: ${filePath}`, error)
-  //   }
-  // }
 
   const injectHydrationPlugin: Plugin = {
     name: 'inject-hydration',
     async setup(build) {
-      build.onLoad({filter: /.*/, namespace: 'file'}, async args => {
-        const isEntryPoint = filePaths.includes(args.path)
+      build.onLoad({ filter: /.*/, namespace: 'file' }, async args => {
+        const isEntryPoint = pageRoutes.find(route => {
+          // args.path is the absolute path to the file, route.pagePath is relative to the cwd
+
+          const relativePath = path.relative(process.cwd(), args.path)
+
+          return route.pagePath === relativePath
+        })
 
         if (isEntryPoint) {
-          const contents = await fs.promises.readFile(args.path, 'utf-8')
+          let contents = await fs.promises.readFile(args.path, 'utf-8')
 
           // Find default export name
           const defaultExportMatch = contents.match(
@@ -145,145 +97,266 @@ const buildFilesWithEsbuild = async (sourceDir: string) => {
 
           const clientPath = path.resolve(process.cwd(), '.pylon/client')
 
-          console.log('clientPath', clientPath)
 
           const pathToClient = path.relative(
             path.dirname(args.path),
             clientPath
           )
 
-          // replace .tsx with .js
-          const buildPath = path
-            .relative(path.resolve(process.cwd()), args.path)
-            .replace(/\.tsx$/, '.js')
+          const layouts = (pageRoutes.find(route => {
+            return route.pagePath === path.relative(process.cwd(), args.path)
+          })?.layouts || []).map(layout => {
+            const pathToLayout = path.relative(
+              path.dirname(args.path),
+              layout
+            )
 
-          console.log('pathToClient', pathToClient)
+            return pathToLayout.replace('.tsx', '.js')
+          })
+
+          if (defaultExport) {
+
+
+            const layoutImports = layouts.map(layout => {
+              return `import Layout${layouts.indexOf(layout)} from './${layout}';`
+            }).join('\n')
+
+
+            function wrapWithLayouts(defaultExport: string, layouts: string[], propsName: string = "props"): string {
+              // Generate JSX code for the nested layouts
+              const nestedLayouts = layouts.reduceRight((child, layout) => {
+                return `<${layout}>${child}</${layout}>`;
+              }, `<${defaultExport} {...${propsName}} />`);
+            
+              // Return the full JSX string
+              return nestedLayouts;
+            }
+
+
+
+            const wrapped = wrapWithLayouts(defaultExport, layouts.map((_, index) => `Layout${index}`))
+
+
+            contents = contents.replace(
+              `export default ${defaultExport}`,
+              `${layoutImports}
+              const PylonPage = (props) => {
+                return (
+                  ${wrapped}
+                )
+              }
+
+              import { hydrateRoot } from 'react-dom/client'
+              import {pageLoader} from '@getcronit/pylon/page-loader.js'
+              import * as client from '${pathToClient}'
+
+
+             if(typeof window !== 'undefined') {
+               const pylonScript = document.getElementById('__PYLON_DATA__')
+
+               if(!pylonScript) {
+                  throw new Error('Pylon script not found')
+               }
+
+               
+               
+
+                try {
+                  const pylonData = JSON.parse(pylonScript.textContent)
+
+                   const clientBundlePaths = {
+                    js: pylonData.pageProps.path === '/' ? '/public/page.js' : '/public' + pylonData.pageProps.path + '/page.js',
+                    css: pylonData.pageProps.path === '/' ? '/public/page.css' : '/public' + pylonData.pageProps.path + '/page.css'
+                  }
+
+                  console.log("Starting page loader")
+
+
+                   const page = await pageLoader({
+                  client,
+                  clientBundlePaths,
+                  Page: PylonPage,
+                  pageProps: pylonData.pageProps,
+                  cacheSnapshot: pylonData.cacheSnapshot,
+                })
+
+                console.log('hydrating page', page)
+
+                  hydrateRoot(document, page)
+
+
+                } catch (error) {
+                  console.error('Error hydrating page', error) 
+                }
+             }
+
+              export default PylonPage;
+              `
+            )
+
+
+
+
+          }
+
+          console.log('contents', contents)
+
+
+
 
           return {
             loader: 'tsx',
             contents:
-              contents +
-              `
-            if(typeof window !== 'undefined') {
-               const {PylonPageLoader} = await import("@getcronit/pylon/page-loader.js")
-               const client = await import("${pathToClient}")
-
-                const {default: reactDom} = await import('react-dom/client')
-
-                console.log("reactDom", reactDom)
-
-                const scriptElement = document.getElementById("__PYLON_DATA__")
-
-                if(!scriptElement) {
-                  throw new Error('Pylon data script not found')
-                }
-
-                try {
-                  const pylonData = JSON.parse(scriptElement.textContent)
-
-                  console.log('pylonData', pylonData)
-
-                  reactDom.hydrateRoot(
-                document.getElementById('root'),
-                <PylonPageLoader client={client} Page={${defaultExport}} pageProps={pylonData.pageProps} cacheSnapshot={pylonData.cacheSnapshot}/>
-                )
-                }
-                catch(error) {
-                  console.error('Error hydrating root', error)
-                }
-                
-
-            }
-                        `
+              contents
           }
         }
       })
     }
   }
 
-  console.log('filePaths', filePaths)
+  const meta = await esbuild.build({
+    metafile: true,
+    absWorkingDir: process.cwd(),
+    plugins: [injectHydrationPlugin],
+    publicPath: '/public',
+    assetNames: "[dir]/[name]-[hash]",
+    format: 'esm',
+    platform: 'browser',
+    entryPoints,
+    outdir: DIST_PUBLIC_DIR,
+    bundle: true,
+    splitting: true,
+    minify: true,
+    loader: {
+      // Map file extensions to the file loader
+      '.png': 'file',
+      '.jpg': 'file',
+      '.svg': 'file',
+      '.woff': 'file',
+      '.woff2': 'file',
+    },
+    define: {
+      'process.env.NODE_ENV': '"production"'
+    },
+    mainFields: ["browser", "module", "main"],
+  })
 
+  fs.writeFileSync(
+    path.resolve(process.cwd(), '.pylon', 'meta.json'),
+    JSON.stringify(meta.metafile, null, 2)
+  )
+
+  // Also build for server
   await esbuild.build({
     absWorkingDir: process.cwd(),
     plugins: [injectHydrationPlugin],
+    publicPath: '/public',
+    assetNames: "[dir]/[name]-[hash]",
     format: 'esm',
-    platform: 'browser',
-    entryPoints: filePaths,
-    outdir: distPath,
+    platform: 'node',
+    entryPoints,
+    outdir: DIST_PAGES_DIR,
     bundle: true,
-    splitting: true,
-    minify: false
+    packages: "external",
+    splitting: false,
+    minify: true,
+    loader: {
+      // Map file extensions to the file loader
+      '.png': 'file',
+      '.jpg': 'file',
+      '.svg': 'file',
+      '.woff': 'file',
+      '.woff2': 'file',
+    },
   })
 
+}
+
+async function buildTailwind() {
   const tailwindConfigPath = path.resolve(process.cwd(), 'tailwind.config.js')
   const inputCss = fs.readFileSync('./globals.css', 'utf-8')
 
-  // Process Tailwind CSS with PostCSS
-  async function generateTailwindCss() {
-    try {
-      const {default: tailwindConfig} = await import(tailwindConfigPath)
+  try {
+    const { default: tailwindConfig } = await import(tailwindConfigPath)
 
-      console.log('tailwindConfig', tailwindConfig)
+    console.log('tailwindConfig', tailwindConfig)
 
-      const result = await postcss([
-        tailwindcss(tailwindConfig), // Use your Tailwind config
-        autoprefixer
-      ]).process(inputCss, {
-        from: undefined // Prevent source map generation
-      })
+    const result = await postcss([
+      tailwindcss(tailwindConfig), // Use your Tailwind config
+      autoprefixer
+    ]).process(inputCss, {
+      from: undefined // Prevent source map generation
+    })
 
-      // Write the generated CSS to a file
-      fs.writeFileSync('.pylon/output.css', result.css)
+    // Write the generated CSS to a file
+    fs.writeFileSync('.pylon/public/output.css', result.css)
 
-      console.log('Tailwind CSS generated successfully!')
-    } catch (error) {
-      console.error('Error generating Tailwind CSS:', error)
-    }
+    console.log('Tailwind CSS generated successfully!')
+  } catch (error) {
+    console.error('Error generating Tailwind CSS:', error)
   }
 
-  await generateTailwindCss()
-
-  console.log('Built files with esbuild')
-
-  return buildResults
 }
 
-// Main function to build frontend
- const buildFrontend = async () => {
+
+async function buildClient() {
   const schema = fs.readFileSync(
     path.resolve(process.cwd(), '.pylon', 'schema.graphql'),
     'utf-8'
   )
 
-  generateClient(buildSchema(schema), {
+  await generateClient(buildSchema(schema), {
     destination: path.resolve(process.cwd(), '.pylon', 'client/index.ts')
-  }).then(() => {
-    console.log('Client generated')
   })
-
-  const results = await buildFilesWithEsbuild(
-    path.resolve(process.cwd(), './pages')
-  )
-
-  console.log('Results:', results)
-
-  const pages = getFilePathsAndRoutes('.pylon/pages')
-
-  console.log('Pages:', pages)
-
-  // Write the pages to a JSON file
-  fs.writeFileSync(
-    path.resolve(process.cwd(), '.pylon/pages.json'),
-    JSON.stringify(pages, null, 2)
-  )
-
-  return pages
 }
+
+// // Main function to build frontend
+//  const buildFrontend = async () => {
+//   const schema = fs.readFileSync(
+//     path.resolve(process.cwd(), '.pylon', 'schema.graphql'),
+//     'utf-8'
+//   )
+
+//   generateClient(buildSchema(schema), {
+//     destination: path.resolve(process.cwd(), '.pylon', 'client/index.ts')
+//   }).then(() => {
+//     console.log('Client generated')
+//   })
+
+//   await buildFilesWithEsbuild(
+//     path.resolve(process.cwd(), './pages')
+//   )
+
+//   const pages = getPageRoutes()
+
+//   console.log('Pages:', pages)
+
+//   // Write the pages to a JSON file
+//   fs.writeFileSync(
+//     path.resolve(process.cwd(), '.pylon/pages.json'),
+//     JSON.stringify(pages, null, 2)
+//   )
+
+//   return pages
+// }
 
 export const onBuild = async () => {
   consola.start("Building Frontend")
 
-  await buildFrontend()
+  const routes = await getPageRoutes()
+
+  // Save the routes to a JSON file
+  fs.writeFileSync(
+    path.resolve(process.cwd(), '.pylon', 'pages.json'),
+    JSON.stringify(routes, null, 2)
+  )
+
+  await buildPages(routes)
+
+  await buildTailwind()
+  await buildClient()
 
   consola.success("Frontend Built")
 }
+
+

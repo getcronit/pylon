@@ -2,12 +2,14 @@ import fs from 'fs'
 import path from 'path'
 import reactServer from 'react-dom/server'
 
-console.log('Version', reactServer.version)
-
-import { Context, type Plugin } from '../../index'
-import { Readable } from 'stream'
 import { UseHydrateCacheOptions } from '@gqty/react'
-import { PylonPageLoader } from '../../../page-loader'
+import { Readable } from 'stream'
+import { pageLoader, PylonPageLoader } from '../../../page-loader'
+import { type Plugin } from '../../index'
+import { PageRoute } from './on-build'
+import { cloneElement, createElement } from 'react'
+import { trimTrailingSlash } from 'hono/trailing-slash'
+
 
 export interface PageData { }
 
@@ -18,132 +20,131 @@ export type PageProps = {
   path: string
 }
 
-const Document: React.FC<{
-  pagePath: string
-  pageProps: Omit<PageProps, 'data'>
-  cacheSnapshot?: UseHydrateCacheOptions['cacheSnapshot']
-  children: React.ReactNode
-}> = props => {
-  return (
-    <html>
-      <head>
-        <script id="__PYLON_DATA__" type="application/json">
-            {JSON.stringify({
-              pageProps: props.pageProps,
-              cacheSnapshot: props.cacheSnapshot
-            })}
-        </script>
-        <script type="module" defer src={`/static/${props.pagePath}`}></script>
-        <link rel="stylesheet" href="/static/output.css" />
-      </head>
-      <body>
-        <div id="root">{props.children}</div>
-      </body>
-    </html>
-  )
-}
-
 
 export const onApp: Plugin["onApp"] = app => {
 
 
-    const pagesFilePath = path.resolve(process.cwd(), '.pylon', 'pages.json')
+  const pagesFilePath = path.resolve(process.cwd(), '.pylon', 'pages.json')
 
-    // Read the pages file
-    const pages = JSON.parse(fs.readFileSync(pagesFilePath, 'utf-8')) as {
-      filePath: string
-      routePath: string
-    }[]
+  let pageRoutes: PageRoute[] = []
+  try {
+    pageRoutes = JSON.parse(fs.readFileSync(pagesFilePath, 'utf-8'))
+  } catch (error) {
+    console.error('Error reading pages.json', error)
+  }
 
-    // Generate the routes
-    for (const page of pages) {
-      const { filePath, routePath } = page
+  console.log('pages', pageRoutes)
 
-      app.get(routePath, async c => {
-        const client = await import(`${process.cwd()}/.pylon/client`)
+  app.use(trimTrailingSlash())
 
-       
-        const relativePath = path.relative(
-          path.resolve(process.cwd(), '.pylon'),
-          filePath
-        )
+  // Generate the routes
+  for (const pageRoute of pageRoutes) {
 
-        const { default: Page2 } = await import(
-          `${process.cwd()}/${relativePath.replace(/\.js$/, '.tsx')}`
-        )
+    app.get(pageRoute.slug, async c => {
+      const client = await import(`${process.cwd()}/.pylon/client`)
 
-        const pageProps = {
-          params: c.req.param(),
-          searchParams: c.req.query(),
-          path: c.req.path,
-        }
 
-        const { cacheSnapshot } = await client.prepareReactRender(
-          <Document pagePath={relativePath} pageProps={pageProps}>
-            <PylonPageLoader
-              client={client}
-              Page={Page2}
-              cacheSnapshot={undefined}
-              pageProps={pageProps}
-            />
-          </Document>
-        )
+      const relativeBundlePath = path.relative(path.join(process.cwd(), "pages"), pageRoute.pagePath);
+      const clientBundlePaths = {
+        js: `/public/${relativeBundlePath.replace('.tsx', '.js')}`,
+        css: `/public/${relativeBundlePath.replace('.tsx', '.css')}`,
+      }
 
-        console.log('cacheSnapshot', cacheSnapshot)
+      console.log(pageRoute.pagePath, relativeBundlePath)
 
-        return c.body(
-          await reactServer.renderToReadableStream(
-            <Document pagePath={relativePath} cacheSnapshot={cacheSnapshot} pageProps={pageProps}>
-              <PylonPageLoader
-                client={client}
-                Page={Page2}
-                cacheSnapshot={cacheSnapshot}
-                pageProps={pageProps}
-              />
-            </Document>
-          )
-        )
-      })
-    }
-
-    app.get('/static/pages/*', async c => {
-      const filePath = path.resolve(
+      const serverBundlePath = path.resolve(
         process.cwd(),
         '.pylon',
         'pages',
-        c.req.path.replace('/static/pages/', '')
+        relativeBundlePath.replace('.tsx', '.js')
       )
 
-      console.log('Static file', filePath)
 
-      if (!fs.existsSync(filePath)) {
-        throw new Error('File not found')
+      let time = Date.now()
+
+      console.time('Page Import Time')
+      const { default: Page2 } = await import(
+        serverBundlePath
+      )
+      console.timeEnd('Page Import Time')
+
+      const pageProps = {
+        params: c.req.param(),
+        searchParams: c.req.query(),
+        path: c.req.path,
       }
 
+      let cacheSnapshot: UseHydrateCacheOptions | undefined = undefined
+
+
+
+
+
+
+      console.time('Prepare React Render Time')
+      const prepeare = await client.prepareReactRender(
+        await pageLoader({
+          cacheSnapshot,
+          client,
+          clientBundlePaths,
+          Page: Page2,
+          pageProps,
+        })
+      )
+      console.timeEnd('Prepare React Render Time')
+
+      cacheSnapshot = prepeare.cacheSnapshot
+
+      return c.body(
+        await reactServer.renderToReadableStream(
+          await pageLoader({
+            cacheSnapshot,
+            client,
+            clientBundlePaths,
+            Page: Page2,
+            pageProps,
+          })
+        )
+      )
+    })
+  }
+
+  app.get('/public/*', async c => {
+    const filePath = path.resolve(
+      process.cwd(),
+      '.pylon',
+      'public',
+      c.req.path.replace('/public/', '')
+    )
+
+    if (!fs.existsSync(filePath)) {
+      throw new Error('File not found')
+    }
+
+    if (filePath.endsWith('.js')) {
       c.res.headers.set('Content-Type', 'text/javascript')
-
-      const stream = fs.createReadStream(filePath)
-
-      const a = Readable.toWeb(stream) as ReadableStream
-
-      return c.body(a)
-    })
-
-    app.get('/static/output.css', async c => {
-      const filePath = path.resolve(process.cwd(), '.pylon', 'output.css')
-
-      console.log('Static file', filePath)
-
-      if (!fs.existsSync(filePath as string)) {
-        throw new Error('File not found')
-      }
-
+    } else if (filePath.endsWith('.css')) {
       c.res.headers.set('Content-Type', 'text/css')
+    } else if (filePath.endsWith('.html')) {
+      c.res.headers.set('Content-Type', 'text/html')
+    } else if (filePath.endsWith('.json')) {
+      c.res.headers.set('Content-Type', 'application/json')
+    } else if (filePath.endsWith('.png')) {
+      c.res.headers.set('Content-Type', 'image/png')
+    } else if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
+      c.res.headers.set('Content-Type', 'image/jpeg')
+    } else if (filePath.endsWith('.gif')) {
+      c.res.headers.set('Content-Type', 'image/gif')
+    } else if (filePath.endsWith('.svg')) {
+      c.res.headers.set('Content-Type', 'image/svg+xml')
+    } else if (filePath.endsWith('.ico')) {
+      c.res.headers.set('Content-Type', 'image/x-icon')
+    }
 
-      const stream = fs.createReadStream(filePath)
+    const stream = fs.createReadStream(filePath)
 
-      const a = Readable.toWeb(stream) as ReadableStream
+    const a = Readable.toWeb(stream) as ReadableStream
 
-      return c.body(a)
-    })
+    return c.body(a)
+  })
 }
