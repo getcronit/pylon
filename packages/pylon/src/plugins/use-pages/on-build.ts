@@ -53,10 +53,12 @@ async function getPageRoutes(dir = APP_DIR) {
       return pagePath.startsWith(layout.replace('layout.tsx', ''));
     });
 
+    const layoutsWithoutRootLayout = layouts.slice(1)
+
     routes.push({
       pagePath: pagePath,
       slug: slug || '/',
-      layouts: layouts,
+      layouts: layoutsWithoutRootLayout,
     });
   }
 
@@ -72,8 +74,51 @@ async function buildPages(pageRoutes: PageRoute[]) {
     entryPoints.push(...page.layouts)
   }
 
-  const injectHydrationPlugin: Plugin = {
+  const injectAppHydrationPlugin: Plugin = {
     name: 'inject-hydration',
+    setup(build) {
+      build.onLoad({ filter: /.*/, namespace: 'file' }, async args => {
+        // check if the file is the app.tsx file
+        if (args.path === path.resolve(process.cwd(), '.pylon', 'app.tsx')) {
+          console.log("args.path", args.path)
+          let contents = await fs.promises.readFile(args.path, 'utf-8')
+
+          const clientPath = path.resolve(process.cwd(), '.pylon/client')
+
+
+          const pathToClient = path.relative(
+            path.dirname(args.path),
+            clientPath
+          )
+
+          
+          contents += `
+          import {hydrateRoot} from 'react-dom/client'
+          import * as client from './${pathToClient}'
+          import {AppLoader} from '@getcronit/pylon/page-loader.js'
+          import {BrowserRouter} from 'react-router'
+
+          const pylonData = window.__PYLON_DATA__
+
+          console.log('pylonData', pylonData)
+
+          hydrateRoot(
+          document,
+            <AppLoader Router={BrowserRouter} client={client} pylonData={pylonData} App={App} />
+          )
+          `
+
+          return {
+            loader: 'tsx',
+            contents
+          }
+        }
+      })
+    }
+  }
+
+  const injectPageLayoutPlugin: Plugin = {
+    name: 'inject-layouts',
     async setup(build) {
       build.onLoad({ filter: /.*/, namespace: 'file' }, async args => {
         const isEntryPoint = pageRoutes.find(route => {
@@ -145,51 +190,7 @@ async function buildPages(pageRoutes: PageRoute[]) {
                   ${wrapped}
                 )
               }
-
-              import { hydrateRoot } from 'react-dom/client'
-              import {pageLoader} from '@getcronit/pylon/page-loader.js'
-              import * as client from '${pathToClient}'
-
-
-             if(typeof window !== 'undefined') {
-               const pylonScript = document.getElementById('__PYLON_DATA__')
-
-               if(!pylonScript) {
-                  throw new Error('Pylon script not found')
-               }
-
-               
-               
-
-                try {
-                  const pylonData = JSON.parse(pylonScript.textContent)
-
-                   const clientBundlePaths = {
-                    js: pylonData.pageProps.path === '/' ? '/public/page.js' : '/public' + pylonData.pageProps.path + '/page.js',
-                    css: pylonData.pageProps.path === '/' ? '/public/page.css' : '/public' + pylonData.pageProps.path + '/page.css'
-                  }
-
-                  console.log("Starting page loader")
-
-
-                   const page = await pageLoader({
-                  client,
-                  clientBundlePaths,
-                  Page: PylonPage,
-                  pageProps: pylonData.pageProps,
-                  cacheSnapshot: pylonData.cacheSnapshot,
-                })
-
-                console.log('hydrating page', page)
-
-                  hydrateRoot(document, page)
-
-
-                } catch (error) {
-                  console.error('Error hydrating page', error) 
-                }
-             }
-
+                
               export default PylonPage;
               `
             )
@@ -198,10 +199,6 @@ async function buildPages(pageRoutes: PageRoute[]) {
 
 
           }
-
-          console.log('contents', contents)
-
-
 
 
           return {
@@ -214,19 +211,111 @@ async function buildPages(pageRoutes: PageRoute[]) {
     }
   }
 
+  const generateAppComponent = (pageRoutes: PageRoute[]): string => {
+  
+    const makePageMap = (routes: PageRoute[]) => {
+      const pageMap: Record<string, string> = {}
+      for (const route of routes) {
+        pageMap[route.pagePath] = `Page${fnv1aHash(route.pagePath)}`
+      }
+      return pageMap
+    }
+  
+  
+  
+  const makeLayoutMap = (routes: PageRoute[]) => {
+      const layoutMap: Record<string, string> = {}
+      for (const route of routes) {
+        for (const layout of route.layouts) {
+          layoutMap[layout] = `Layout${fnv1aHash(layout)}`
+        }
+      }
+      return layoutMap
+    }
+
+    const pageMap = makePageMap(pageRoutes)
+    const layoutMap = makeLayoutMap(pageRoutes)
+
+    const importPages = Object.keys(pageMap).map((pagePath, index) => {
+      const importLocation = `../${pagePath}`.replace('.tsx', '.js');
+      const componentName = pageMap[pagePath];
+
+      return `const ${componentName} = lazy(() => import('${importLocation}'))
+      `;
+    }).join('\n');
+
+    const importLayouts = Object.keys(layoutMap).map((layoutPath, index) => {
+      const importLocation = `../${layoutPath}`.replace('.tsx', '.js');
+      const componentName = layoutMap[layoutPath];
+
+      return `const ${componentName} = lazy(() => import('${importLocation}'))
+      `;
+    }).join('\n');
+
+  
+    // Dynamically build the App component with React Router Routes
+    const appComponent = `"use client";
+  import {lazy, Suspense} from 'react'
+  import { Routes, Route } from 'react-router';
+  ${importPages}
+  const RootLayout = lazy(() => import('../pages/layout.js'))
+  ${importLayouts}
+  
+  const App: React.FC<{pageProps: any}> = ({pageProps}) => (
+  <RootLayout>
+      <meta charSet="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>App</title>
+      <link rel="stylesheet" href="/public/output.css" />
+         <Routes>
+        ${pageRoutes.map((route, index) => {
+      return `<Route key={${index}} index={${
+        index === 0 ? 'true' : 'false'
+        }} path="${route.slug}" element={
+         <Suspense fallback={<div>...</div>}>
+            ${route.layouts.reduceRight((child, layoutPath, layoutIndex) => {
+            const layoutName = layoutMap[layoutPath]
+
+            return `<${layoutName}>${child}</${layoutName}>`
+          }, `<${pageMap[route.pagePath]} {...pageProps} />`)}
+
+         </Suspense>} />`
+
+    }).join('\n')}
+    </Routes>
+    </RootLayout>
+  );
+  
+  export default App;
+    `;
+  
+    return appComponent;
+  };
+
+  const appFile = generateAppComponent(pageRoutes)
+
+  console.log('appFile', appFile)
+  
+  fs.writeFileSync(
+    path.resolve(process.cwd(), ".pylon", 'app.tsx'),
+    appFile
+  )
+
+  console.log("entryPoints", [...entryPoints, "app.tsx"])
+
   const meta = await esbuild.build({
     metafile: true,
     absWorkingDir: process.cwd(),
-    plugins: [injectHydrationPlugin],
+    plugins: [injectAppHydrationPlugin],
     publicPath: '/public',
     assetNames: "[dir]/[name]-[hash]",
     format: 'esm',
     platform: 'browser',
-    entryPoints,
+    entryPoints: [".pylon/app.tsx"],
     outdir: DIST_PUBLIC_DIR,
     bundle: true,
     splitting: true,
-    minify: true,
+    minify: false,
     loader: {
       // Map file extensions to the file loader
       '.png': 'file',
@@ -235,9 +324,9 @@ async function buildPages(pageRoutes: PageRoute[]) {
       '.woff': 'file',
       '.woff2': 'file',
     },
-    define: {
-      'process.env.NODE_ENV': '"production"'
-    },
+    // define: {
+    //   'process.env.NODE_ENV': '"production"'
+    // },
     mainFields: ["browser", "module", "main"],
   })
 
@@ -249,17 +338,17 @@ async function buildPages(pageRoutes: PageRoute[]) {
   // Also build for server
   await esbuild.build({
     absWorkingDir: process.cwd(),
-    plugins: [injectHydrationPlugin],
+    plugins: [],
     publicPath: '/public',
     assetNames: "[dir]/[name]-[hash]",
     format: 'esm',
     platform: 'node',
-    entryPoints,
+    entryPoints: [".pylon/app.tsx"],
     outdir: DIST_PAGES_DIR,
     bundle: true,
     packages: "external",
     splitting: false,
-    minify: true,
+    minify: false,
     loader: {
       // Map file extensions to the file loader
       '.png': 'file',
@@ -360,3 +449,12 @@ export const onBuild = async () => {
 }
 
 
+
+function fnv1aHash(str: string) {
+  let hash = 0x811c9dc5; // FNV offset basis
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+  }
+  return (hash >>> 0).toString(16);
+}

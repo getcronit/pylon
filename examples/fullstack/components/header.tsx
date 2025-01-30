@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { Button } from "@/components/ui/button"
 import { Menu, X, Phone, MapPin, Clock } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import {Link} from 'react-router'
 
 export default function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
@@ -17,7 +18,7 @@ export default function Header() {
   }, [])
 
   const navItems = [
-    { href: '/partyshop', label: 'Partyshop' },
+    { href: '/test', label: 'Partyshop' },
     { href: '/deko-design', label: 'Deko & Design' },
     { href: '/grosshandel', label: 'Großhandel' },
     { href: '/ballongas', label: 'Ballongas' },
@@ -52,9 +53,9 @@ export default function Header() {
               ))}
             </div>
             <div className="flex items-center space-x-4">
-              <a href="/my-ballons" className="hover:text-red-600 transition-colors">
+              <Link to="/my-ballons" className="hover:text-red-600 transition-colors">
                 My Ballons & Ballons
-              </a>
+              </Link>
             </div>
           </div>
         </div>
@@ -83,14 +84,14 @@ export default function Header() {
             {/* Desktop Navigation */}
             <nav className="hidden lg:flex items-center space-x-1">
               {navItems.map((item) => (
-                <a
+                <Link
                   key={item.href}
-                  href={item.href}
+                  to={item.href}
                   className="px-3 py-2 text-sm font-medium text-gray-600 hover:text-red-500 transition-colors relative group"
                 >
                   {item.label}
                   <span className="absolute bottom-1.5 left-3 w-0 h-0.5 bg-red-500 transition-all duration-300 group-hover:w-[calc(100%-24px)]" />
-                </a>
+                </Link>
               ))}
               <Button className="ml-4 bg-red-600 hover:bg-red-700 text-white text-sm" asChild>
                 <a href="/shop">Onlineshop</a>

@@ -4,11 +4,12 @@ import reactServer from 'react-dom/server'
 
 import { UseHydrateCacheOptions } from '@gqty/react'
 import { Readable } from 'stream'
-import { pageLoader, PylonPageLoader } from '../../../page-loader'
+import { AppLoader, pageLoader, PylonPageLoader } from '../../../page-loader'
 import { type Plugin } from '../../index'
 import { PageRoute } from './on-build'
 import { cloneElement, createElement } from 'react'
 import { trimTrailingSlash } from 'hono/trailing-slash'
+import { StaticRouter } from 'react-router'
 
 
 export interface PageData { }
@@ -37,77 +38,128 @@ export const onApp: Plugin["onApp"] = app => {
 
   app.use(trimTrailingSlash())
 
+ 
+
+
+  app.on("GET", pageRoutes.map(pageRoute => pageRoute.slug), async c => {
+
+    const { default: App } = await import(`${process.cwd()}/.pylon/pages/app.js`)
+    const client = await import(`${process.cwd()}/.pylon/client`)
+
+
+    const pageProps = {
+      params: c.req.param(),
+      searchParams: c.req.query(),
+      path: c.req.path,
+    }
+
+
+    let cacheSnapshot: UseHydrateCacheOptions | undefined = undefined
+
+    console.log('pageProps', pageProps)
+
+
+    const prepared = await client.prepareReactRender(
+      <AppLoader Router={StaticRouter} routerProps={{
+        location: c.req.path
+      }} App={App} client={client} pylonData={{
+        pageProps: pageProps,
+        cacheSnapshot: undefined
+      }} />
+    )
+
+    cacheSnapshot = prepared.cacheSnapshot
+
+    console.log('cacheSnapshot', cacheSnapshot)
+
+    return c.body(
+      await reactServer.renderToReadableStream(<AppLoader Router={StaticRouter} routerProps={{
+        location: c.req.path
+      }} App={App} client={client} pylonData={{
+        pageProps: pageProps,
+        cacheSnapshot: prepared.cacheSnapshot
+      }} />, {
+        bootstrapModules: ["/public/app.js"],
+        bootstrapScriptContent: `window.__PYLON_DATA__ = ${JSON.stringify({
+          pageProps: pageProps,
+          cacheSnapshot: cacheSnapshot,
+        })}`
+      }
+      )
+    )
+  })
+
   // Generate the routes
-  for (const pageRoute of pageRoutes) {
+  // for (const pageRoute of pageRoutes) {
 
-    app.get(pageRoute.slug, async c => {
-      const client = await import(`${process.cwd()}/.pylon/client`)
-
-
-      const relativeBundlePath = path.relative(path.join(process.cwd(), "pages"), pageRoute.pagePath);
-      const clientBundlePaths = {
-        js: `/public/${relativeBundlePath.replace('.tsx', '.js')}`,
-        css: `/public/${relativeBundlePath.replace('.tsx', '.css')}`,
-      }
-
-      console.log(pageRoute.pagePath, relativeBundlePath)
-
-      const serverBundlePath = path.resolve(
-        process.cwd(),
-        '.pylon',
-        'pages',
-        relativeBundlePath.replace('.tsx', '.js')
-      )
+  //   app.get(pageRoute.slug, async c => {
+  //     const client = await import(`${process.cwd()}/.pylon/client`)
 
 
-      let time = Date.now()
+  //     const relativeBundlePath = path.relative(path.join(process.cwd(), "pages"), pageRoute.pagePath);
+  //     const clientBundlePaths = {
+  //       js: `/public/${relativeBundlePath.replace('.tsx', '.js')}`,
+  //       css: `/public/${relativeBundlePath.replace('.tsx', '.css')}`,
+  //     }
 
-      console.time('Page Import Time')
-      const { default: Page2 } = await import(
-        serverBundlePath
-      )
-      console.timeEnd('Page Import Time')
+  //     console.log(pageRoute.pagePath, relativeBundlePath)
 
-      const pageProps = {
-        params: c.req.param(),
-        searchParams: c.req.query(),
-        path: c.req.path,
-      }
-
-      let cacheSnapshot: UseHydrateCacheOptions | undefined = undefined
+  //     const serverBundlePath = path.resolve(
+  //       process.cwd(),
+  //       '.pylon',
+  //       'pages',
+  //       relativeBundlePath.replace('.tsx', '.js')
+  //     )
 
 
+  //     let time = Date.now()
+
+  //     console.time('Page Import Time')
+  //     const { default: Page2 } = await import(
+  //       serverBundlePath
+  //     )
+  //     console.timeEnd('Page Import Time')
+
+  //     const pageProps = {
+  //       params: c.req.param(),
+  //       searchParams: c.req.query(),
+  //       path: c.req.path,
+  //     }
+
+  //     let cacheSnapshot: UseHydrateCacheOptions | undefined = undefined
 
 
 
 
-      console.time('Prepare React Render Time')
-      const prepeare = await client.prepareReactRender(
-        await pageLoader({
-          cacheSnapshot,
-          client,
-          clientBundlePaths,
-          Page: Page2,
-          pageProps,
-        })
-      )
-      console.timeEnd('Prepare React Render Time')
 
-      cacheSnapshot = prepeare.cacheSnapshot
 
-      return c.body(
-        await reactServer.renderToReadableStream(
-          await pageLoader({
-            cacheSnapshot,
-            client,
-            clientBundlePaths,
-            Page: Page2,
-            pageProps,
-          })
-        )
-      )
-    })
-  }
+  //     console.time('Prepare React Render Time')
+  //     const prepeare = await client.prepareReactRender(
+  //       await pageLoader({
+  //         cacheSnapshot,
+  //         client,
+  //         clientBundlePaths,
+  //         Page: Page2,
+  //         pageProps,
+  //       })
+  //     )
+  //     console.timeEnd('Prepare React Render Time')
+
+  //     cacheSnapshot = prepeare.cacheSnapshot
+
+  //     return c.body(
+  //       await reactServer.renderToReadableStream(
+  //         await pageLoader({
+  //           cacheSnapshot,
+  //           client,
+  //           clientBundlePaths,
+  //           Page: Page2,
+  //           pageProps,
+  //         })
+  //       )
+  //     )
+  //   })
+  // }
 
   app.get('/public/*', async c => {
     const filePath = path.resolve(

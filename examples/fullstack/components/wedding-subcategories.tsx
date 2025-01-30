@@ -69,7 +69,7 @@ export default function WeddingSubcategories() {
                 </div>
               </div>
               <div className="relative aspect-video">
-                <Image
+                <img
                   src={subcat.fullImage || "/placeholder.svg"}
                   alt={`${subcat.title} Vollbild`}
                   layout="fill"

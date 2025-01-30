@@ -70,6 +70,8 @@ const injectHead = (page: JSX.Element, head: JSX.Element) => {
   return Object.assign({}, page, {
     type: (props) => {
       const pageElement = page.type(props);
+
+      console.log('pageElement', pageElement)
       
       return Object.assign({}, pageElement, {
         type: (props) => {
@@ -192,3 +194,37 @@ export async function pageLoader (props: {
   
 }
 
+
+
+export const AppLoader = (props: {
+  client: any,
+  pylonData: {
+    pageProps: Omit<PageProps, 'data'>,
+    cacheSnapshot?: any,
+  }
+  App: React.FC<{
+    pageProps: PageProps
+  }>,
+  Router: React.FC<any>,
+  routerProps: any
+}) => {
+  console.log('props', props)
+  props.client.useHydrateCache({ cacheSnapshot: props.pylonData.cacheSnapshot })
+
+  const data = props.client.useQuery()
+
+  console.log('data', data.$state)
+
+  const page = useMemo(() => {
+    const page = <props.App pageProps={{
+      ...props.pylonData.pageProps,
+      data,
+    }} />
+
+    return page
+  }, [props])
+
+  return <props.Router {...props.routerProps}>
+    {page}
+  </props.Router>
+}
