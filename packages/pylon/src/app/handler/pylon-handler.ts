@@ -124,7 +124,9 @@ export const handler = (options: PylonHandlerOptions) => {
       executionContext = c.executionCtx
     } catch (e) {}
 
-    return yoga.fetch(c.req.raw, c.env, executionContext)
+    const response = await yoga.fetch(c.req.raw, c.env, executionContext)
+
+    return c.newResponse(response.body, response)
   }
 
   return handler
