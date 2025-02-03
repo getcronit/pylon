@@ -5,6 +5,8 @@ on:
     branches:
       - main
       - beta
+    paths:
+      - 'packages/**'
       
 jobs:
   release:
