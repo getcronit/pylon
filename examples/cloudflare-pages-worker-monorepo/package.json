@@ -1,5 +1,5 @@
 {
-  "name": "cloudflare-pages-worker-monorepo",
+  "name": "example-cloudflare-pages-worker-monorepo",
   "private": true,
   "workspaces": [
     "apps/*",
