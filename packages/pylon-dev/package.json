@@ -1,11 +1,11 @@
 {
   "name": "@getcronit/pylon-dev",
   "type": "module",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "CLI for creating a Pylon",
   "scripts": {
-    "build": "bun build ./src/index.ts --target=bun --outdir=./dist --sourcemap=inline --packages external"
-  },
+    "build": "rimraf ./dist && esbuild ./src/index.ts --bundle --platform=node --target=node18 --format=esm --minify --outdir=./dist --sourcemap=inline --packages=external"
+   },
   "bin": {
     "pylon": "./dist/index.js"
   },
@@ -21,8 +21,8 @@
   },
   "homepage": "https://pylon.cronit.io",
   "dependencies": {
-    "@getcronit/pylon-builder": "^2.0.0",
-    "@getcronit/pylon-telemetry": "^1.0.0",
+    "@getcronit/pylon-builder": "workspace:^",
+    "@getcronit/pylon-telemetry": "workspace:^",
     "@gqty/cli": "^4.2.0",
     "commander": "^12.1.0",
     "consola": "^3.2.3",
