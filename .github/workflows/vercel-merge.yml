@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-     paths:
+    paths:
       - 'docs/**'
 jobs:
   build_and_deploy:
