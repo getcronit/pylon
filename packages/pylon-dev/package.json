@@ -1,7 +1,7 @@
 {
   "name": "@getcronit/pylon-dev",
   "type": "module",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "CLI for creating a Pylon",
   "scripts": {
     "build": "rimraf ./dist && esbuild ./src/index.ts --bundle --platform=node --target=node18 --format=esm --minify --outdir=./dist --sourcemap=linked --packages=external"
