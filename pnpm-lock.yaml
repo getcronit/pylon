@@ -48,21 +48,21 @@ importers:
   examples/bun-testing:
     dependencies:
       '@getcronit/pylon':
-        specifier: ^2.0.0
-        version: 2.9.2(@opentelemetry/api@1.9.0)
+        specifier: workspace:^
+        version: link:../../packages/pylon
       bun-types:
         specifier: ^1.1.18
         version: 1.2.2
     devDependencies:
       '@getcronit/pylon-dev':
-        specifier: ^1.0.0
-        version: 1.0.1(hono@4.6.20)(typescript@5.7.3)
+        specifier: workspace:^
+        version: link:../../packages/pylon-dev
 
   examples/cloudflare-drizzle-d1:
     dependencies:
       '@getcronit/pylon':
-        specifier: ^2.0.0
-        version: 2.9.2(@opentelemetry/api@1.9.0)
+        specifier: workspace:^
+        version: link:../../packages/pylon
       drizzle-orm:
         specifier: ^0.33.0
         version: 0.33.0(@cloudflare/workers-types@4.20250129.0)(@opentelemetry/api@1.9.0)(@types/pg@8.6.1)(bun-types@1.2.2)
@@ -74,8 +74,8 @@ importers:
         specifier: ^4.20240903.0
         version: 4.20250129.0
       '@getcronit/pylon-dev':
-        specifier: ^1.0.0
-        version: 1.0.1(hono@4.6.20)(typescript@5.7.3)
+        specifier: workspace:^
+        version: link:../../packages/pylon-dev
       drizzle-kit:
         specifier: ^0.24.2
         version: 0.24.2
@@ -91,21 +91,21 @@ importers:
   examples/envelop-plugins:
     dependencies:
       '@getcronit/pylon':
-        specifier: ^2.0.0
-        version: 2.9.2(@opentelemetry/api@1.9.0)
+        specifier: workspace:^
+        version: link:../../packages/pylon
       bun-types:
         specifier: ^1.1.18
         version: 1.2.2
     devDependencies:
       '@getcronit/pylon-dev':
-        specifier: ^1.0.0
-        version: 1.0.1(hono@4.6.20)(typescript@5.7.3)
+        specifier: workspace:^
+        version: link:../../packages/pylon-dev
 
   examples/graphql-resolve-info:
     dependencies:
       '@getcronit/pylon':
-        specifier: ^2.0.0
-        version: 2.9.2(@opentelemetry/api@1.9.0)
+        specifier: workspace:^
+        version: link:../../packages/pylon
       bun-types:
         specifier: ^1.1.18
         version: 1.2.2
@@ -114,34 +114,34 @@ importers:
         version: 4.13.0(graphql@16.10.0)
     devDependencies:
       '@getcronit/pylon-dev':
-        specifier: ^1.0.0
-        version: 1.0.1(hono@4.6.20)(typescript@5.7.3)
+        specifier: workspace:^
+        version: link:../../packages/pylon-dev
 
   examples/interfaces-and-unions:
     dependencies:
       '@getcronit/pylon':
-        specifier: ^2.0.0
-        version: 2.9.2(@opentelemetry/api@1.9.0)
+        specifier: workspace:^
+        version: link:../../packages/pylon
       bun-types:
         specifier: ^1.1.18
         version: 1.2.2
     devDependencies:
       '@getcronit/pylon-dev':
-        specifier: ^1.0.0
-        version: 1.0.1(hono@4.6.20)(typescript@5.7.3)
+        specifier: workspace:^
+        version: link:../../packages/pylon-dev
 
   examples/nodejs-subscriptions:
     dependencies:
       '@getcronit/pylon':
-        specifier: ^2.0.0
-        version: 2.9.2(@opentelemetry/api@1.9.0)
+        specifier: workspace:^
+        version: link:../../packages/pylon
       '@hono/node-server':
         specifier: ^1.12.2
         version: 1.13.8(hono@4.6.20)
     devDependencies:
       '@getcronit/pylon-dev':
-        specifier: ^1.0.0
-        version: 1.0.1(hono@4.6.20)(typescript@5.7.3)
+        specifier: workspace:^
+        version: link:../../packages/pylon-dev
 
   packages/create-pylon:
     dependencies:
@@ -1406,25 +1406,6 @@ packages:
   '@fastify/busboy@2.1.1':
     resolution: {integrity: sha512-vBZP4NlzfOlerQTnba4aqZoMhE/a9HY7HRqoOPaETQcSQuWEIyZMHGfVu6w9wGtGK5fED5qRs2DteVCjOH60sA==}
     engines: {node: '>=14'}
-
-  '@getcronit/pylon-builder@2.6.5':
-    resolution: {integrity: sha512-yG6ULXwLeUXFFaRO6D/wiAkI+Uzoeo7IOR1Fiju3WqyHJI1BYOl2e14lHeTlCxJ6hzKYU9ELeN9D3B7ti5cPuQ==}
-    engines: {node: '>=18.0.0'}
-
-  '@getcronit/pylon-dev@1.0.1':
-    resolution: {integrity: sha512-kLvLDfR3pGP3GNK2u3GDz2oiK7djuKHjo3vE667wgw43e5UvHiN457rN0LC8Bbdsgvgfei5cHxcwGIO5Ep+yow==}
-    engines: {node: '>=18.0.0'}
-    hasBin: true
-
-  '@getcronit/pylon-telemetry@1.0.1':
-    resolution: {integrity: sha512-uLYF9YkZM7qkAdTcz85vyTWz695CN8ShlKJ5jHmReU2g536Rh9zdNjaMFblzhTlMUhO/JOR1WgoVMRILTwZyLg==}
-    engines: {node: '>=18.0.0'}
-    peerDependencies:
-      hono: ^4
-
-  '@getcronit/pylon@2.9.2':
-    resolution: {integrity: sha512-qJk5Df6OL2wfByEOTSUl8FRaPynXdd40AK4Jp8o3kcl6ClEkomuRj/4UwJOSiV4SUoXKVPHT+ohxFpFkXQd9hA==}
-    engines: {node: '>=18.0.0'}
 
   '@gqty/cli@4.2.2':
     resolution: {integrity: sha512-fpNvl8GZ82oTLYcvc6UmhnsKQvKLxLy79RGzhDePkTFMFYFUMnmc5bvuMCsP9M/gn4Z0WfTuMxOwMgMRkanrzQ==}
@@ -5737,60 +5718,6 @@ snapshots:
     optional: true
 
   '@fastify/busboy@2.1.1': {}
-
-  '@getcronit/pylon-builder@2.6.5':
-    dependencies:
-      chokidar: 3.6.0
-      consola: 3.4.0
-      esbuild: 0.23.1
-      esbuild-plugin-tsc: 0.4.0(typescript@5.7.3)
-      source-map-support: 0.5.21
-      typescript: 5.7.3
-
-  '@getcronit/pylon-dev@1.0.1(hono@4.6.20)(typescript@5.7.3)':
-    dependencies:
-      '@getcronit/pylon-builder': 2.6.5
-      '@getcronit/pylon-telemetry': 1.0.1(hono@4.6.20)
-      '@gqty/cli': 4.2.2(@babel/core@7.26.7)(typescript@5.7.3)
-      commander: 12.1.0
-      consola: 3.4.0
-      dotenv: 16.4.7
-      treekill: 1.0.0
-    transitivePeerDependencies:
-      - '@babel/core'
-      - encoding
-      - graphql-sse
-      - graphql-ws
-      - hono
-      - supports-color
-      - trading-signals
-      - typescript
-
-  '@getcronit/pylon-telemetry@1.0.1(hono@4.6.20)':
-    dependencies:
-      hono: 4.6.20
-
-  '@getcronit/pylon@2.9.2(@opentelemetry/api@1.9.0)':
-    dependencies:
-      '@getcronit/pylon-telemetry': 1.0.1(hono@4.6.20)
-      '@hono/sentry': 1.2.0(hono@4.6.20)
-      '@sentry/bun': 8.54.0(@opentelemetry/api@1.9.0)(@opentelemetry/context-async-hooks@1.30.1(@opentelemetry/api@1.9.0))(@opentelemetry/core@1.30.1(@opentelemetry/api@1.9.0))(@opentelemetry/instrumentation@0.57.1(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.30.1(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.28.0)
-      consola: 3.4.0
-      graphql: 16.10.0
-      graphql-scalars: 1.24.1(graphql@16.10.0)
-      graphql-yoga: 5.10.11(graphql@16.10.0)
-      hono: 4.6.20
-      jsonwebtoken: 9.0.2
-      openid-client: 5.7.1
-      winston: 3.17.0
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
-      - '@opentelemetry/context-async-hooks'
-      - '@opentelemetry/core'
-      - '@opentelemetry/instrumentation'
-      - '@opentelemetry/sdk-trace-base'
-      - '@opentelemetry/semantic-conventions'
-      - supports-color
 
   '@gqty/cli@4.2.2(@babel/core@7.26.7)(typescript@5.7.3)':
     dependencies:
