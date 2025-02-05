@@ -6,9 +6,9 @@
   "types": "dist/index.d.ts",
   "description": "Telemetry for Pylon",
   "scripts": {
-    "build": "rimraf ./dist && esbuild ./src/index.ts --bundle --platform=node --target=node18 --format=esm --minify --outdir=./dist --sourcemap=inline --packages=external && pnpm run build:declarations",
+    "build": "rimraf ./dist && esbuild ./src/index.ts --bundle --platform=node --target=node18 --format=esm --minify --outdir=./dist --sourcemap=linked --packages=external && pnpm run build:declarations",
     "build:declarations": "tsc --declaration --emitDeclarationOnly --outDir ./dist"
-   },
+  },
   "files": [
     "dist"
   ],
