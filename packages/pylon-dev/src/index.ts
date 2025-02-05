@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import {build} from '@getcronit/pylon-builder'
 import {fetchSchema, generateClient} from '@gqty/cli'
 import {program, type Command} from 'commander'
 import consola from 'consola'
@@ -10,6 +9,7 @@ import {ChildProcess, spawn} from 'child_process'
 import kill from 'treekill'
 import * as telemetry from '@getcronit/pylon-telemetry'
 import dotenv from 'dotenv'
+import {build} from './builder'
 
 dotenv.config()
 

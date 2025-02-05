@@ -21,7 +21,6 @@
   },
   "homepage": "https://pylon.cronit.io",
   "dependencies": {
-    "@getcronit/pylon-builder": "workspace:^",
     "@getcronit/pylon-telemetry": "workspace:^",
     "@gqty/cli": "^4.2.0",
     "commander": "^12.1.0",
@@ -34,5 +33,11 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "chokidar": "^3.5.3",
+    "esbuild": "^0.23.1",
+    "esbuild-plugin-tsc": "^0.4.0",
+    "typescript": "^5.7.3"
   }
 }
