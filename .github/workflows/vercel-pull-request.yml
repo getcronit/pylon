@@ -5,6 +5,8 @@ on:
     types: [labeled]
     branches:
       - main
+    paths:
+      - 'docs/**'
 jobs:
   build_and_deploy:
     runs-on: ubuntu-latest

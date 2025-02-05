@@ -18,5 +18,6 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "useDefineForClassFields": true
-  }
+  },
+  "exclude": ["node_modules", "dist"]
 }

@@ -9,16 +9,27 @@
     ]
   },
   "scripts": {
-    "build": "bun run --filter ./packages/pylon-telemetry build && bun run --filter ./packages/pylon-builder build && bun run --filter ./packages/pylon build &&  bun run --filter ./packages/pylon-dev build && bun run --filter ./packages/create-pylon build"
+    "changeset": "changeset --",
+    "ci:release": "changeset publish",
+    "ci:version": "changeset version && pnpm i --no-frozen-lockfile --lockfile-only --ignore-scripts",
+    "clean": "pnpm -r --filter \"./packages/*\" exec -- rimraf dist",
+    "build": "pnpm -r --filter \"./packages/*\" run build"
   },
   "devDependencies": {
+    "@changesets/changelog-github": "^0.5.0",
+    "@changesets/cli": "^2.27.12",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/commit-analyzer": "^13.0.0",
     "@semantic-release/release-notes-generator": "^14.0.0",
     "@types/node": "^18.14.0",
-    "bun-types": "^1.0.14",
+    "esbuild": "^0.23.1",
+    "rimraf": "^6.0.1",
     "semantic-release": "^24.0.0",
-    "semantic-release-monorepo": "^8.0.2"
+    "semantic-release-monorepo": "^8.0.2",
+    "typescript": "^5.7.3"
   },
-  "dependencies": {}
+  "resolutions": {
+    "graphql": "^16.9.0"
+  },
+  "packageManager": "pnpm@10.0.0+sha512.b8fef5494bd3fe4cbd4edabd0745df2ee5be3e4b0b8b08fa643aa3e4c6702ccc0f00d68fa8a8c9858a735a0032485a44990ed2810526c875e416f001b17df12b"
 }

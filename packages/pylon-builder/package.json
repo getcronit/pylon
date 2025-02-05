@@ -1,11 +1,11 @@
 {
   "name": "@getcronit/pylon-builder",
-  "version": "2.0.0",
+  "version": "2.6.5",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "bun build ./src/index.ts --target=bun --outdir=./dist --sourcemap=external --packages external && bun run build:declarations",
+    "build": "rimraf ./dist && esbuild ./src/index.ts --bundle --platform=node --target=node18 --format=esm --minify --outdir=./dist --sourcemap=linked --packages=external && pnpm run build:declarations",
     "build:declarations": "tsc --declaration --emitDeclarationOnly --outDir ./dist"
   },
   "files": [
