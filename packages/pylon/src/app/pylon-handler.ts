@@ -7,12 +7,14 @@ import {
   JSONResolver
 } from 'graphql-scalars'
 
-import {useSentry} from '../envelop/use-sentry'
-import {Context} from '../../context'
-import {resolversToGraphQLResolvers} from '../../define-pylon'
-import {PylonConfig} from '../..'
+import {useSentry} from '../plugins/use-sentry'
+import {Context} from '../context'
+import {resolversToGraphQLResolvers} from '../define-pylon'
+import {Plugin, PylonConfig} from '..'
 import {readFileSync} from 'fs'
 import path from 'path'
+import {app, pluginsMiddleware} from '.'
+import {useViewer} from '../plugins/use-viewer'
 
 interface PylonHandlerOptions {
   graphql: {
@@ -23,12 +25,40 @@ interface PylonHandlerOptions {
   config?: PylonConfig
 }
 
+type MaybeLazyObject<T> = T | (() => T)
+
+const resolveLazyObject = <T>(obj: MaybeLazyObject<T>): T => {
+  return typeof obj === 'function' ? (obj as () => T)() : obj
+}
+
 export const handler = (options: PylonHandlerOptions) => {
-  let {typeDefs, resolvers, graphql, config} =
-    options as PylonHandlerOptions & {
-      typeDefs?: string
-      resolvers?: Record<string, any>
+  let {
+    typeDefs,
+    resolvers,
+    graphql: graphql$,
+    config: config$
+  } = options as PylonHandlerOptions & {
+    typeDefs?: string
+    resolvers?: Record<string, any>
+  }
+
+  const loadPluginsMiddleware = (plugins: Plugin[]) => {
+    for (const plugin of plugins) {
+      plugin.setup?.(app)
+
+      if (plugin.middleware) {
+        pluginsMiddleware.push(plugin.middleware)
+      }
     }
+  }
+
+  const graphql = resolveLazyObject(graphql$)
+
+  const config = resolveLazyObject(config$)
+
+  const plugins = [useSentry(), useViewer(), ...(config?.plugins || [])]
+
+  loadPluginsMiddleware(plugins)
 
   if (!typeDefs) {
     // Try to read the schema from the default location
@@ -113,7 +143,7 @@ export const handler = (options: PylonHandlerOptions) => {
     },
     graphqlEndpoint: '/graphql',
     ...config,
-    plugins: [useSentry(), ...(config?.plugins || [])],
+    plugins,
     schema
   })
 
