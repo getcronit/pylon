@@ -1,4 +1,4 @@
-import {app, auth, PylonConfig, useAuth, usePages} from '@getcronit/pylon'
+import {app, auth, getContext, PylonConfig, useAuth, usePages} from '@getcronit/pylon'
 
 // Classes
 class Author {
@@ -132,6 +132,14 @@ const instagramPosts = [
 ]
 
 
+import {
+  getCookie,
+  getSignedCookie,
+  setCookie,
+  setSignedCookie,
+  deleteCookie,
+} from 'hono/cookie'
+
 // GraphQL schema
 export const graphql = {
   Query: {
@@ -140,7 +148,36 @@ export const graphql = {
     products,
     instagramPosts
   },
+  Mutation: {
+    testSetHeader: (key: string, value: string) => {
+      const ctx = getContext();
+
+      ctx.header(key, value);
+
+      ctx.res.headers.append("X-Test-Header", "Hello, World!2");
+
+      setCookie(ctx, "test", "value", {
+        httpOnly: true,
+        secure: true,
+        sameSite: "strict"
+      });
+
+      return true;
+    }
+  }
 };
+
+app.get("/header", async c => {
+  c.header("X-Custom-Header", "Hello, World!");
+
+  setCookie(c, "test", "value", {
+    httpOnly: true,
+    secure: true,
+    sameSite: "strict"
+  });
+
+  return c.json({ message: "Header set!" });
+})
 
 
 export const config: PylonConfig = {

@@ -2,6 +2,7 @@
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { ArrowRight } from 'lucide-react'
+import { Image } from "./image"
 
 export default function MainPoints() {
   const points = [
@@ -37,7 +38,7 @@ export default function MainPoints() {
             <a href={point.href} key={point.id}>
               <Card className="group relative h-[400px] overflow-hidden cursor-pointer">
                 <div className="absolute inset-0">
-                  <img
+                  <Image
                     src={point.image || "/placeholder.svg"}
                     alt={point.title}
                     layout="fill"

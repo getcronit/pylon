@@ -9,14 +9,100 @@ import glob from 'tiny-glob';
 import tailwindcss from 'tailwindcss'
 import autoprefixer from 'autoprefixer'
 import postcss from 'postcss'
+import { createHash } from 'crypto';
+import sharp from 'sharp';
 
+const imagePlugin: Plugin = {
+  name: 'image-plugin',
+  setup(build) {
+    const outdir = build.initialOptions.outdir
+    const publicPath = build.initialOptions.publicPath
+
+    if(!outdir || !publicPath) {
+      throw new Error('outdir and publicPath must be set in esbuild options')
+    }
+
+    build.onResolve({ filter: /\.(png|jpe?g)$/ }, async (args) => {
+      console.log('args', args, build.initialOptions.outdir, build.initialOptions.publicPath)
+
+     
+
+      const filePath = path.resolve(args.resolveDir, args.path);
+
+      console.log('filePath', filePath)
+
+      const fileName = path.basename(filePath);
+      const extname = path.extname(filePath);
+      const hash = createHash('md5').update(filePath+ fs.readFileSync(filePath)).digest('hex').slice(0, 8);
+      const newFilename = `${fileName}-${hash}${extname}`;
+      const newFilePath = path.join(outdir, 'media', newFilename);
+      
+      // Ensure the directory exists
+      fs.mkdirSync(path.dirname(newFilePath), { recursive: true });
+
+      // Copy the file
+      fs.copyFileSync(filePath, newFilePath);
+
+      return {
+        path: newFilePath,
+        namespace: 'image',
+      };
+    });
+
+    build.onLoad({ filter: /\.png$|\.jpg$/ }, async (args) => {
+
+      // Load file and read the dimensions
+      const image = sharp(args.path)
+      const metadata = await image.metadata()
+
+      // Build the URL with the publicPath and w/h search params
+      const url = `${publicPath}/media/${path.basename(args.path)}`
+      
+      const searchParams = new URLSearchParams({
+        
+      })
+
+      if(metadata.width) {
+        searchParams.set('w', metadata.width.toString())
+      }
+      if (metadata.height) {
+        searchParams.set('h', metadata.height.toString())
+      }
+
+      
+
+      const output = image.resize({
+        width: Math.min(metadata.width ?? 16, 16),
+        height: Math.min(metadata.height ?? 16, 16),
+        fit: "inside",
+      }).toFormat('webp', {
+        quality: 20,
+      alphaQuality: 20,
+      smartSubsample: true,
+      })
+
+
+      const { data, info } = await output.toBuffer({ resolveWithObject: true })
+      const dataURIBase64 = `data:image/${info.format};base64,${data.toString('base64')}`
+
+      if(dataURIBase64) {
+        searchParams.set('blurDataURL', dataURIBase64)
+      }
+
+      return {
+        contents: `${url}?${searchParams.toString()}`,
+        loader: 'text',
+      };
+    });
+  },
+};
 
 
 // Root directory for your app
 const APP_DIR = path.join(process.cwd(), 'pages');
 
-const DIST_PUBLIC_DIR = path.join(process.cwd(), '.pylon/public')
-const DIST_PAGES_DIR = path.join(process.cwd(), '.pylon/pages')
+const DIST_STATIC_DIR = path.join(process.cwd(), '.pylon/__pylon/static')
+const DIST_PAGES_DIR = path.join(process.cwd(), '.pylon/__pylon/pages')
 
 
 export type PageRoute = {
@@ -266,7 +352,7 @@ async function buildPages(pageRoutes: PageRoute[]) {
       <meta charSet="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <title>App</title>
-      <link rel="stylesheet" href="/public/output.css" />
+      <link rel="stylesheet" href="/__pylon/static/output.css" />
          <Routes>
         ${pageRoutes.map((route, index) => {
       return `<Route key={${index}} index={${
@@ -306,27 +392,27 @@ async function buildPages(pageRoutes: PageRoute[]) {
   const meta = await esbuild.build({
     metafile: true,
     absWorkingDir: process.cwd(),
-    plugins: [injectAppHydrationPlugin],
-    publicPath: '/public',
-    assetNames: "[dir]/[name]-[hash]",
+    plugins: [injectAppHydrationPlugin, imagePlugin],
+    publicPath: '/__pylon/static',
+    assetNames: "assets/[name]-[hash]",
+    chunkNames: "chunks/[name]-[hash]",
     format: 'esm',
     platform: 'browser',
     entryPoints: [".pylon/app.tsx"],
-    outdir: DIST_PUBLIC_DIR,
+    outdir: DIST_STATIC_DIR,
     bundle: true,
     splitting: true,
     minify: false,
     loader: {
       // Map file extensions to the file loader
-      '.png': 'file',
-      '.jpg': 'file',
+    
       '.svg': 'file',
       '.woff': 'file',
       '.woff2': 'file',
     },
-    // define: {
-    //   'process.env.NODE_ENV': '"production"'
-    // },
+    define: {
+      'process.env.NODE_ENV': '"production"'
+    },
     mainFields: ["browser", "module", "main"],
   })
 
@@ -338,9 +424,10 @@ async function buildPages(pageRoutes: PageRoute[]) {
   // Also build for server
   await esbuild.build({
     absWorkingDir: process.cwd(),
-    plugins: [],
-    publicPath: '/public',
-    assetNames: "[dir]/[name]-[hash]",
+    plugins: [imagePlugin],
+    publicPath: '/__pylon/static',
+    assetNames: "assets/[name]-[hash]",
+    chunkNames: "chunks/[name]-[hash]",
     format: 'esm',
     platform: 'node',
     entryPoints: [".pylon/app.tsx"],
@@ -351,8 +438,7 @@ async function buildPages(pageRoutes: PageRoute[]) {
     minify: false,
     loader: {
       // Map file extensions to the file loader
-      '.png': 'file',
-      '.jpg': 'file',
+     
       '.svg': 'file',
       '.woff': 'file',
       '.woff2': 'file',
@@ -378,7 +464,7 @@ async function buildTailwind() {
     })
 
     // Write the generated CSS to a file
-    fs.writeFileSync('.pylon/public/output.css', result.css)
+    fs.writeFileSync('.pylon/__pylon/static/output.css', result.css)
 
     console.log('Tailwind CSS generated successfully!')
   } catch (error) {

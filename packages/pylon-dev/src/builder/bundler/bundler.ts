@@ -199,7 +199,7 @@ export class Bundler {
 
       chokidar.watch(process.cwd(), {
         // Node modules and output directory should be ignored
-        ignored: /node_modules|\.pylon/,
+        ignored: /node_modules|\.pylon|\.cache/,
       }).on('change', async () => {
         try {
           const output = await buildOnce()

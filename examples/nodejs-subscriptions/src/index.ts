@@ -38,6 +38,9 @@ export const graphql = {
   }
 }
 
-serve(app, info => {
+serve({
+  fetch: app.fetch,
+  port: 3100
+}, info => {
   console.log(`Server running at ${info.port}`)
 })

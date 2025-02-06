@@ -11,12 +11,13 @@ import {useSentry} from '../plugins/use-sentry'
 import {Context} from '../context'
 import {resolversToGraphQLResolvers} from '../define-pylon'
 import {app, Plugin, PylonConfig} from '..'
-import {readFileSync} from 'fs'
+import {readFileSync, rmSync} from 'fs'
 import path from 'path'
 import {useUnhandledRoute} from '../plugins/use-unhandled-route'
 import {useViewer} from '../plugins/use-viewer'
 import {Next} from 'hono'
 import {pluginsMiddleware} from '.'
+import { StatusCode } from 'hono/utils/http-status'
 
 type MaybeLazyObject<T> = T | (() => T)
 
@@ -167,7 +168,9 @@ export const handler = (options: PylonHandlerOptions) => {
       executionContext = c.executionCtx
     } catch (e) {}
 
-    return pylonGraphql.fetch(c.req.raw, c.env, executionContext)
+    const res = await pylonGraphql.fetch(c.req.raw, c.env, c)
+
+    return c.newResponse(res.body, res)
   }
 
   return handler
