@@ -5,8 +5,7 @@ import {SchemaBuilder} from './schema/builder.js'
 export interface BuildOptions {
   sfiFilePath: string
   outputFilePath: string
-  watch?: boolean
-  onWatch?: (output: {
+  onBuild?: (output: {
     totalFiles: number
     totalSize: number
     schemaChanged: boolean
@@ -34,7 +33,6 @@ export const build = async (options: BuildOptions) => {
         resolvers: built.resolvers
       }
     },
-    watch: options.watch,
-    onWatch: options.onWatch
+    onBuild: options.onBuild
   })
 }

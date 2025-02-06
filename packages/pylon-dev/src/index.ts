@@ -19,21 +19,21 @@ program
   .command('build')
   .description('Build the Pylon Schema')
   .action(async () => {
-    consola.start('[Pylon]: Building schema')
-
-    const {totalFiles, totalSize, duration} = await build({
+    const ctx = await build({
       sfiFilePath: './src/index.ts',
-      outputFilePath: './.pylon'
+      outputFilePath: './.pylon',
+      onBuild: async ({totalFiles, totalSize, duration}) => {
+        await telemetry.sendBuildEvent({
+          duration,
+          totalFiles,
+          totalSize,
+          isDevelopment: false
+        })
+      }
     })
 
-    await telemetry.sendBuildEvent({
-      duration: duration,
-      totalFiles,
-      totalSize,
-      isDevelopment: false
-    })
-
-    consola.success('[Pylon]: Schema built')
+    await ctx.rebuild()
+    await ctx.dispose()
   })
 
 program
@@ -68,6 +68,46 @@ const start = Date.now()
 
 async function main(options: ArgOptions, command: Command) {
   consola.log(`[Pylon]: ${command.name()} version ${command.version()}`)
+
+  const ctx = await build({
+    sfiFilePath: './src/index.ts',
+    outputFilePath: `./.pylon`,
+    onBuild: async ({schemaChanged, totalFiles, totalSize, duration}) => {
+      const isServerRunning = currentProc !== null
+
+      if (isServerRunning) {
+        consola.start('[Pylon]: Reloading server')
+      } else {
+        consola.start('[Pylon]: Starting server')
+      }
+
+      await serve(schemaChanged)
+
+      if (isServerRunning) {
+        consola.ready('[Pylon]: Server reloaded')
+      } else {
+        consola.box(`
+  Pylon is up and running!
+
+  Press \`Ctrl + C\` to stop the server.
+
+  Encounter any issues? Report them here:  
+  https://github.com/getcronit/pylon/issues
+
+  We value your feedback—help us make Pylon even better!
+        `)
+      }
+
+      if (schemaChanged) {
+        await telemetry.sendBuildEvent({
+          duration,
+          totalFiles,
+          totalSize,
+          isDevelopment: true
+        })
+      }
+    }
+  })
 
   let currentProc: ChildProcess | null = null
 
@@ -165,77 +205,8 @@ async function main(options: ArgOptions, command: Command) {
     }
   }
 
-  consola.start('[Pylon]: Building schema')
-
   try {
-    const {duration, totalFiles, totalSize} = await build({
-      sfiFilePath: './src/index.ts',
-      outputFilePath: `./.pylon`,
-      watch: true,
-      onWatch: async ({schemaChanged, totalFiles, totalSize, duration}) => {
-        const isServerRunning = currentProc !== null
-
-        if (isServerRunning) {
-          consola.start('[Pylon]: Reloading server')
-        } else {
-          consola.start('[Pylon]: Starting server')
-        }
-
-        await serve(schemaChanged)
-
-        if (isServerRunning) {
-          consola.ready('[Pylon]: Server reloaded')
-        } else {
-          consola.ready('[Pylon]: Server started')
-
-          consola.box(`
-    Pylon is up and running!
-
-    Press \`Ctrl + C\` to stop the server.
-
-    Encounter any issues? Report them here:  
-    https://github.com/getcronit/pylon/issues
-
-    We value your feedback—help us make Pylon even better!
-          `)
-        }
-
-        if (schemaChanged) {
-          consola.info('[Pylon]: Schema updated')
-
-          await telemetry.sendBuildEvent({
-            duration,
-            totalFiles,
-            totalSize,
-            isDevelopment: true
-          })
-        }
-      }
-    })
-
-    await telemetry.sendBuildEvent({
-      duration,
-      totalFiles,
-      totalSize,
-      isDevelopment: true
-    })
-
-    consola.success('[Pylon]: Schema built')
-
-    consola.start('[Pylon]: Starting server')
-    await serve(true)
-    consola.ready('[Pylon]: Server started')
-
-    consola.box(`
-    Pylon is up and running!
-
-    Press \`Ctrl + C\` to stop the server.
-  
-    Encounter any issues? Report them here:  
-    https://github.com/getcronit/pylon/issues
-  
-    We value your feedback—help us make Pylon even better!
-  `)
+    await ctx.watch()
   } catch (e) {
     consola.error("[Pylon]: Couldn't build schema", e)
 
