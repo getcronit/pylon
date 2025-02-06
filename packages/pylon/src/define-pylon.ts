@@ -178,23 +178,22 @@ export const resolversToGraphQLResolvers = (
       return Sentry.withScope(async scope => {
         const ctx = asyncContext.getStore()
 
-
         if (!ctx) {
           consola.warn(
             'Context is not defined. Make sure AsyncLocalStorage is supported in your environment.'
           )
         }
 
-        ctx?.set("graphqlResolveInfo", info)
+        ctx?.set('graphqlResolveInfo', info)
 
         const auth = ctx?.get('auth')
 
-        if (auth?.active) {
+        if (auth?.user) {
           scope.setUser({
-            id: auth.sub,
-            username: auth.preferred_username,
-            email: auth.email,
-            details: auth
+            id: auth.user.sub,
+            username: auth.user.preferred_username,
+            email: auth.user.email,
+            details: auth.user
           })
         }
 

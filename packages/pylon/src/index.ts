@@ -1,7 +1,7 @@
 import {Env} from './context.js'
 
 export {ServiceError} from './define-pylon.js'
-export * from './auth/index.js'
+export {useAuth, requireAuth, authMiddleware} from './plugins/use-auth/index.js'
 export {
   Context,
   Env,
