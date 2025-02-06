@@ -1,6 +1,7 @@
 // bundler.ts
 import {context} from 'esbuild'
 import esbuildPluginTsc from 'esbuild-plugin-tsc'
+import type {PylonConfig} from '@getcronit/pylon'
 
 import path from 'path'
 import {
@@ -21,6 +22,27 @@ export class Bundler {
   constructor(sfiFilePath: string, outputDir: string = './.pylon') {
     this.sfiFilePath = sfiFilePath
     this.outputDir = outputDir
+  }
+
+  private async loadAndExexConfigPluginsBuild() {
+    const configPath = path.join(process.cwd(), this.outputDir, 'index.js')
+
+    let config: PylonConfig | undefined
+    try {
+      let configModule = await import(configPath)
+
+      config = configModule.config
+    } catch (e) {
+      console.error('Error loading config', e)
+    }
+
+    const plugins = config?.plugins || []
+
+    for (const plugin of plugins) {
+      if (plugin.build) {
+        await plugin.build()
+      }
+    }
   }
 
   public async build(options: BundlerBuildOptions) {
@@ -51,6 +73,8 @@ export class Bundler {
         })
       ]
     })
+
+    await this.loadAndExexConfigPluginsBuild()
 
     return ctx
   }

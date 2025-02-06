@@ -215,6 +215,9 @@ importers:
 
   packages/pylon-dev:
     dependencies:
+      '@getcronit/pylon':
+        specifier: workspace:^2.0.0
+        version: link:../pylon
       '@getcronit/pylon-telemetry':
         specifier: workspace:^
         version: link:../pylon-telemetry

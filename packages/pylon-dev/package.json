@@ -39,5 +39,8 @@
     "esbuild": "^0.23.1",
     "esbuild-plugin-tsc": "^0.4.0",
     "typescript": "^5.7.3"
+  },
+  "peerDependencies": {
+    "@getcronit/pylon": "workspace:^2.0.0"
   }
 }

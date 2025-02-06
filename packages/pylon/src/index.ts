@@ -28,6 +28,7 @@ export type Plugin<
 > = YogaPlugin<PluginContext, TServerContext, TUserContext> & {
   middleware?: MiddlewareHandler<Env>
   setup?: (app: typeof pylonApp) => void
+  build?: () => Promise<void>
 }
 
 export type PylonConfig = {
