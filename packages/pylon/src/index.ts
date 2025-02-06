@@ -32,6 +32,7 @@ export type Plugin<
 }
 
 export type PylonConfig = {
+  landingPage?: boolean
   plugins?: Plugin[]
 }
 
