@@ -26,7 +26,7 @@
     "commander": "^12.1.0",
     "consola": "^3.2.3",
     "dotenv": "^16.4.5",
-    "treekill": "^1.0.0"
+    "ps-tree": "^1.2.0"
   },
   "publishConfig": {
     "access": "public"
@@ -35,6 +35,7 @@
     "node": ">=18.0.0"
   },
   "devDependencies": {
+    "@types/ps-tree": "^1.1.6",
     "esbuild": "^0.23.1",
     "esbuild-plugin-tsc": "^0.4.0",
     "typescript": "^5.7.3"

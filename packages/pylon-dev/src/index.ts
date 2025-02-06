@@ -6,7 +6,7 @@ import consola from 'consola'
 import path from 'path'
 import {version} from '../package.json'
 import {ChildProcess, spawn} from 'child_process'
-import kill from 'treekill'
+import psTree from 'ps-tree'
 import * as telemetry from '@getcronit/pylon-telemetry'
 import dotenv from 'dotenv'
 import {build} from './builder'
@@ -109,18 +109,32 @@ async function main(options: ArgOptions, command: Command) {
     }
   })
 
+  async function killProcessAndChildren(pid: number) {
+    await ctx.cancel()
+    psTree(pid, (err, children) => {
+      if (err) {
+        console.error('Error fetching child processes:', err)
+        return
+      }
+
+      // Kill the parent process and all its children
+      const allPids = children.map(child => parseInt(child.PID)).concat(pid)
+      allPids.forEach(childPid => {
+        try {
+          process.kill(childPid, 'SIGINT')
+        } catch (error) {}
+      })
+    })
+  }
+
   let currentProc: ChildProcess | null = null
 
   let serve = async (shouldGenerateClient: boolean = false) => {
-    if (currentProc) {
+    if (currentProc?.pid) {
       // Remove all listeners to prevent the pylon dev server from crashing
       currentProc.removeAllListeners()
 
-      kill(currentProc.pid, 'SIGINT', err => {
-        if (err) {
-          consola.error(err)
-        }
-      })
+      await killProcessAndChildren(currentProc.pid)
     }
 
     const [commandName, ...args] = options.command.split(' ')
@@ -212,27 +226,19 @@ async function main(options: ArgOptions, command: Command) {
 
     // Kill the server if it's running
     const proc = currentProc as ChildProcess | null
-    if (proc) {
+    if (proc?.pid) {
       proc.removeAllListeners()
 
-      kill(proc.pid, 'SIGINT', err => {
-        if (err) {
-          consola.error(err)
-        }
-      })
+      await killProcessAndChildren(proc.pid)
     }
   }
 
   process.on('SIGINT', async code => {
     try {
-      if (currentProc) {
+      if (currentProc?.pid) {
         currentProc.removeAllListeners()
 
-        kill(currentProc.pid, 'SIGINT', err => {
-          if (err) {
-            consola.error(err)
-          }
-        })
+        await killProcessAndChildren(currentProc.pid)
       }
     } catch {
       // Ignore
