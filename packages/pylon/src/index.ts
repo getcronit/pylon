@@ -18,8 +18,11 @@ export {getEnv} from './get-env.js'
 export {createDecorator} from './create-decorator.js'
 export {createPubSub as experimentalCreatePubSub} from 'graphql-yoga'
 
+export {usePages, type PageProps, PageData} from './plugins/use-pages/index'
+
 import type {Plugin as YogaPlugin} from 'graphql-yoga'
 import {MiddlewareHandler} from 'hono'
+import {BuildContext, BuildOptions} from 'esbuild'
 
 export type Plugin<
   PluginContext extends Record<string, any> = {},
@@ -28,7 +31,7 @@ export type Plugin<
 > = YogaPlugin<PluginContext, TServerContext, TUserContext> & {
   middleware?: MiddlewareHandler<Env>
   setup?: (app: typeof pylonApp) => void
-  build?: () => Promise<void>
+  build?: <T extends BuildOptions>(args: {onBuild: () => void}) => Promise<Omit<BuildContext<T>, 'serve'>>
 }
 
 export type PylonConfig = {

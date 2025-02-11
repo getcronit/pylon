@@ -1,6 +1,7 @@
 import {Plugin} from 'esbuild'
 import path from 'path'
 import fs from 'fs/promises'
+import {updateFileIfChanged} from '../../update-file-if-changed'
 
 export interface InjectCodePluginOptions {
   getBuildDefs: () => {
@@ -44,7 +45,7 @@ export const injectCodePlugin = ({
           'schema.graphql'
         )
 
-        await fs.writeFile(typeDefsPath, typeDefs)
+        await updateFileIfChanged(typeDefsPath, typeDefs)
 
         // Write base resolvers to a file
 
@@ -54,7 +55,7 @@ export const injectCodePlugin = ({
           'resolvers.js'
         )
 
-        await fs.writeFile(
+        await updateFileIfChanged(
           resolversPath,
           `export const resolvers = ${preparedResolvers}`
         )

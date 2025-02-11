@@ -9,7 +9,7 @@ export interface NotifyPluginOptions {
     totalSize: number
     schemaChanged: boolean
     duration: number
-  }) => void
+  }) => Promise<void> | void
   dir: string
 }
 
@@ -79,10 +79,10 @@ ${error.detail ? error.detail : ''}`)
       }
 
       if (onBuild) {
-        onBuild({
+        await onBuild({
           totalFiles,
           totalSize,
-          schemaChanged: true,
+          schemaChanged,
           duration
         })
       }

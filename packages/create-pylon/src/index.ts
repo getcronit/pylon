@@ -42,7 +42,7 @@ const runtimes: {
     key: 'bun',
     name: 'Bun.js',
     website: 'https://bunjs.dev',
-    templates: ['default']
+    templates: ['default', 'pages']
   },
   {
     key: 'node',
@@ -78,6 +78,11 @@ const templates: {
     key: 'database',
     name: 'Database (Prisma)',
     description: 'Template with Prisma ORM'
+  },
+  {
+    key: 'pages',
+    name: 'Fullstack (Pages)',
+    description: 'Build fullstack applications with pages and layouts.'
   }
 ]
 
@@ -284,14 +289,6 @@ program
   .addOption(
     new Option('-pm, --package-manager <packageManager>', 'Package manager')
   )
-  .addOption(
-    new Option(
-      '--client',
-      'Enable client generation (https://pylon.cronit.io/docs/integrations/gqty)'
-    )
-  )
-  .addOption(new Option('--client-path <clientPath>', 'Client path'))
-  .addOption(new Option('--client-port <clientPort>', 'Client port'))
   .action(main)
 
 type ArgOptions = {
@@ -299,9 +296,6 @@ type ArgOptions = {
   runtime: string
   template: string
   packageManager?: PackageManager
-  client?: boolean
-  clientPath?: string
-  clientPort?: string
 }
 
 const getPreferredPmByRuntime = (
@@ -326,10 +320,7 @@ async function main(
       install: installArg,
       runtime: runtimeArg,
       template: templateArg,
-      packageManager: packageManagerArg,
-      client: clientArg,
-      clientPath: clientPathArg,
-      clientPort: clientPortArg
+      packageManager: packageManagerArg
     } = options
 
     let target = ''
@@ -426,72 +417,6 @@ async function main(
       await installDependencies({target, packageManager})
     }
 
-    const client =
-      clientArg ||
-      (await confirm({
-        message:
-          'Would you like to enable client generation? (https://pylon.cronit.io/docs/integrations/gqty)',
-        default: false
-      }))
-
-    let clientRoot: string = ''
-    let clientPath: string = ''
-    let clientPort: string = ''
-
-    if (client) {
-      if (!clientPathArg) {
-        clientRoot = await input({
-          message: 'Path to the root where the client should be generated',
-          default: '.'
-        })
-
-        clientPath = await input({
-          message: 'Path to generate the client to',
-          default: path.join(clientRoot, 'gqty/index.ts'),
-          validate: value => {
-            // Check if the path starts with the client root (take care of .)
-            if (!value.startsWith(clientRoot === '.' ? '' : clientRoot)) {
-              return 'Path must start with the client root'
-            }
-
-            return true
-          }
-        })
-      }
-
-      clientPort =
-        clientPortArg ||
-        (await input({
-          message: 'Port of the pylon server to generate the client from',
-          default: '3000'
-        }))
-
-      consola.start(`Updating pylon dev script to generate client`)
-
-      let packagePath: string
-      let scriptKey: string
-      if (runtime.key === 'deno') {
-        packagePath = path.join(target, 'deno.json')
-        scriptKey = 'tasks'
-      } else {
-        packagePath = path.join(target, 'package.json')
-        scriptKey = 'scripts'
-      }
-
-      const devScript = JSON.parse(fs.readFileSync(packagePath, 'utf-8'))
-
-      devScript[scriptKey] = {
-        ...devScript[scriptKey],
-        dev:
-          devScript[scriptKey].dev +
-          ` --client --client-port ${clientPort} --client-path ${clientPath}`
-      }
-
-      fs.writeFileSync(packagePath, JSON.stringify(devScript, null, 2))
-
-      consola.success(`Pylon dev script updated`)
-    }
-
     const runScript = getRunScript(packageManager)
 
     const message = `
@@ -513,9 +438,7 @@ async function main(
       name: projectName,
       pylonCreateVersion: version,
       runtime: runtimeName,
-      template: templateName,
-      clientPath: clientPath || undefined,
-      clientPort: parseInt(clientPort) || undefined
+      template: templateName
     })
 
     consola.box(message)

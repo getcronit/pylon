@@ -1,0 +1,21 @@
+{
+  "extends": "@getcronit/pylon/tsconfig.pylon.json",
+  "compilerOptions": {
+    // add Bun type definitions
+    "types": ["bun-types"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"]
+    },
+    "jsx": "react-jsx", // support JSX
+    "allowJs": true // allow importing `.js` from `.ts`
+  },
+  "include": [
+    "pylon.d.ts",
+    "src/**/*.ts",
+
+    "pages",
+    "components",
+    ".pylon/**/*.ts"
+  ]
+}

@@ -1,15 +1,14 @@
 #!/usr/bin/env node
 
-import {fetchSchema, generateClient} from '@gqty/cli'
+import * as telemetry from '@getcronit/pylon-telemetry'
 import {program, type Command} from 'commander'
 import consola from 'consola'
-import path from 'path'
-import {version} from '../package.json'
-import {ChildProcess, spawn} from 'child_process'
-import psTree from 'ps-tree'
-import * as telemetry from '@getcronit/pylon-telemetry'
 import dotenv from 'dotenv'
+import pm2 from 'pm2'
+
+import {version} from '../package.json'
 import {build} from './builder'
+import {buildClient} from './builder/build-client'
 
 dotenv.config()
 
@@ -22,13 +21,15 @@ program
     const ctx = await build({
       sfiFilePath: './src/index.ts',
       outputFilePath: './.pylon',
-      onBuild: async ({totalFiles, totalSize, duration}) => {
+      onBuild: async ({totalFiles, totalSize, duration, schemaChanged}) => {
         await telemetry.sendBuildEvent({
           duration,
           totalFiles,
           totalSize,
           isDevelopment: false
         })
+
+        await buildClient({schemaChanged})
       }
     })
 
@@ -43,18 +44,6 @@ program
     'Command to run the server',
     'bun run .pylon/index.js'
   )
-  .option('--client', "Generate the client from the server's schema")
-  .option('--test', 'Test')
-  .option(
-    '--client-path <clientPath>',
-    'Path to generate the client to',
-    'gqty/index.ts'
-  )
-  .option(
-    '--client-port <clientPort>',
-    'Port of the pylon server to generate the client from',
-    '3000'
-  )
   .action(main)
 
 type ArgOptions = {
@@ -64,193 +53,82 @@ type ArgOptions = {
   clientPort: string
 }
 
-const start = Date.now()
-
 async function main(options: ArgOptions, command: Command) {
-  consola.log(`[Pylon]: ${command.name()} version ${command.version()}`)
-
-  const ctx = await build({
-    sfiFilePath: './src/index.ts',
-    outputFilePath: `./.pylon`,
-    onBuild: async ({schemaChanged, totalFiles, totalSize, duration}) => {
-      const isServerRunning = currentProc !== null
-
-      if (isServerRunning) {
-        consola.start('[Pylon]: Reloading server')
-      } else {
-        consola.start('[Pylon]: Starting server')
-      }
-
-      await serve(schemaChanged)
-
-      if (isServerRunning) {
-        consola.ready('[Pylon]: Server reloaded')
-      } else {
-        consola.box(`
-  Pylon is up and running!
-
-  Press \`Ctrl + C\` to stop the server.
-
-  Encounter any issues? Report them here:  
-  https://github.com/getcronit/pylon/issues
-
-  We value your feedback—help us make Pylon even better!
-        `)
-      }
-
-      if (schemaChanged) {
-        await telemetry.sendBuildEvent({
-          duration,
-          totalFiles,
-          totalSize,
-          isDevelopment: true
-        })
-      }
+  pm2.connect(async function (err) {
+    if (err) {
+      consola.error(err)
+      process.exit(1)
     }
-  })
 
-  async function killProcessAndChildren(pid: number) {
-    await ctx.cancel()
-    psTree(pid, (err, children) => {
+    const ctx = await build({
+      sfiFilePath: './src/index.ts',
+      outputFilePath: `./.pylon`,
+      onBuild: async ({schemaChanged, totalFiles, totalSize, duration}) => {
+        await buildClient({schemaChanged})
+        // Restart the server
+        // pm2.restart('pylon-dev', function (err) {
+        //   if (err) throw err
+        // })
+      }
+    })
+
+    await ctx.watch()
+
+    pm2.launchBus((err, bus) => {
       if (err) {
-        console.error('Error fetching child processes:', err)
+        consola.error(err)
         return
       }
 
-      // Kill the parent process and all its children
-      const allPids = children.map(child => parseInt(child.PID)).concat(pid)
-      allPids.forEach(childPid => {
-        try {
-          process.kill(childPid, 'SIGINT')
-        } catch (error) {}
+      bus.on('log:out', data => {
+        consola.log(data.data)
+      })
+
+      bus.on('log:err', data => {
+        consola.error(data.data)
       })
     })
-  }
 
-  let currentProc: ChildProcess | null = null
-
-  let serve = async (shouldGenerateClient: boolean = false) => {
-    if (currentProc?.pid) {
-      // Remove all listeners to prevent the pylon dev server from crashing
-      currentProc.removeAllListeners()
-
-      await killProcessAndChildren(currentProc.pid)
-    }
-
-    const [commandName, ...args] = options.command.split(' ')
-
-    currentProc = spawn(commandName, args, {
-      shell: true,
-      stdio: 'inherit',
-      env: {
-        ...process.env,
-        NODE_ENV: 'development'
-      }
-    })
-
-    currentProc.on('exit', code => {
-      // if (code === 143 || code === null) {
-      //   return
-      // }
-
-      if (code === 0) {
-        consola.success('Pylon server stopped')
-        process.exit(0)
-      }
-
-      consola.error(
-        `Pylon exited with code ${code}, fix the error and save the file to restart the server`
-      )
-    })
-
-    if (
-      shouldGenerateClient &&
-      options.client &&
-      options.clientPath &&
-      options.clientPort
-    ) {
-      const clientPath = path.resolve(process.cwd(), options.clientPath)
-
-      const endpoint = `http://localhost:${options.clientPort}/graphql`
-
-      console.log('Generating client...', endpoint)
-
-      const generate = async () => {
-        consola.start('[Pylon]: Fetching schema from server')
-
-        const schema = await fetchSchema(endpoint, {
-          silent: true
-        })
-
-        consola.success('[Pylon]: Schema fetched')
-
-        consola.start('[Pylon]: Generating client')
-
-        await generateClient(schema, {
-          endpoint,
-          destination: clientPath,
-          react: true,
-          scalarTypes: {
-            Number: 'number',
-            Object: 'Record<string, unknown>'
-          }
-        })
-
-        consola.success('[Pylon]: Client generated')
-      }
-
-      let retries = 0
-
-      const generateWithRetry = async () => {
-        try {
-          await generate()
-        } catch (e) {
-          retries++
-
-          if (retries < 5) {
-            setTimeout(() => {
-              generateWithRetry()
-            }, 1000)
-          }
+    pm2.start(
+      {
+        name: 'pylon-dev',
+        script: options.command,
+        // args: args,
+        exec_mode: 'fork',
+        instances: 1,
+        autorestart: true,
+        watch: ['./.pylon'],
+        restart_delay: 1000,
+        watch_delay: 1000 as any,
+        ignore_watch: ['node_modules'],
+        env: {
+          ...process.env,
+          NODE_ENV: 'development'
         }
+      } as any,
+      function (err, apps) {
+        // Check if it is a duplicate start
+        if (err) throw err
+
+        consola.box(`
+Pylon is up and running!
+          
+Press \`Ctrl + C\` to stop the server.
+          
+Encounter any issues? Report them here:
+https://github.com/getcronit/pylon/issues
+          
+We value your feedback—help us make Pylon even better!`)
       }
+    )
 
-      generateWithRetry()
-    }
-  }
-
-  try {
-    await ctx.watch()
-  } catch (e) {
-    consola.error("[Pylon]: Couldn't build schema", e)
-
-    // Kill the server if it's running
-    const proc = currentProc as ChildProcess | null
-    if (proc?.pid) {
-      proc.removeAllListeners()
-
-      await killProcessAndChildren(proc.pid)
-    }
-  }
-
-  process.on('SIGINT', async code => {
-    try {
-      if (currentProc?.pid) {
-        currentProc.removeAllListeners()
-
-        await killProcessAndChildren(currentProc.pid)
-      }
-    } catch {
-      // Ignore
-    } finally {
-      await telemetry.sendDevEvent({
-        duration: Date.now() - start,
-        clientPath: options.clientPath,
-        clientPort: parseInt(options.clientPort)
+    process.on('SIGINT', async code => {
+      await ctx.cancel()
+      pm2.delete('pylon-dev', function (err) {
+        pm2.disconnect()
+        process.exit(0)
       })
-
-      process.exit(0)
-    }
+    })
   })
 }
 
