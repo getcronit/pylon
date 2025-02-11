@@ -9,7 +9,7 @@
     "build": "pylon build"
   },
   "dependencies": {
-    "@getcronit/pylon": "^3.0.0",
+    "@getcronit/pylon": "canary",
     "@radix-ui/react-slot": "^1.1.2",
     "bun-types": "^1.1.18",
     "class-variance-authority": "^0.7.1",
@@ -22,7 +22,7 @@
     "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
-    "@getcronit/pylon-dev": "^2.0.0",
+    "@getcronit/pylon-dev": "canary",
     "@types/react": "^19.0.8"
   },
   "repository": {
