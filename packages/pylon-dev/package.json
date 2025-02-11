@@ -22,10 +22,13 @@
   "homepage": "https://pylon.cronit.io",
   "dependencies": {
     "@getcronit/pylon-telemetry": "workspace:^",
-    "@gqty/cli": "^4.2.0",
+    "@gqty/cli": "^4.2.5",
     "commander": "^12.1.0",
     "consola": "^3.2.3",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "esbuild": "^0.23.1",
+    "esbuild-plugin-tsc": "^0.4.0",
+    "pm2": "^5.4.3"
   },
   "publishConfig": {
     "access": "public"
@@ -35,9 +38,6 @@
   },
   "devDependencies": {
     "@types/ps-tree": "^1.1.6",
-    "esbuild": "^0.23.1",
-    "esbuild-plugin-tsc": "^0.4.0",
-    "pm2": "^5.4.3",
     "typescript": "^5.7.3"
   },
   "peerDependencies": {
