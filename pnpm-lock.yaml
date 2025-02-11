@@ -233,6 +233,9 @@ importers:
       autoprefixer:
         specifier: ^10.4.20
         version: 10.4.20(postcss@8.5.1)
+      chokidar:
+        specifier: ^4.0.3
+        version: 4.0.3
       consola:
         specifier: ^3.2.3
         version: 3.4.0
@@ -260,6 +263,9 @@ importers:
       postcss:
         specifier: ^8.5.1
         version: 8.5.1
+      postcss-load-config:
+        specifier: ^6.0.1
+        version: 6.0.1(jiti@2.4.2)(postcss@8.5.1)
       react:
         specifier: ^19.0.0
         version: 19.0.0
@@ -285,12 +291,6 @@ importers:
       '@sentry/types':
         specifier: ^8.54.0
         version: 8.54.0
-      chokidar:
-        specifier: ^4.0.3
-        version: 4.0.3
-      postcss-load-config:
-        specifier: ^6.0.1
-        version: 6.0.1(jiti@2.4.2)(postcss@8.5.1)
 
   packages/pylon-dev:
     dependencies:
