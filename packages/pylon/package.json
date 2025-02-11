@@ -46,6 +46,7 @@
   },
   "devDependencies": {
     "@sentry/types": "^8.54.0",
+    "chokidar": "^4.0.3",
     "postcss-load-config": "^6.0.1"
   },
   "peerDependencies": {
