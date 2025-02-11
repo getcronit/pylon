@@ -1,7 +1,7 @@
 import path from 'path'
 import {Plugin} from '../../..'
 import {generateAppFile, getPageRoutes} from './app-utils'
-import chokidar from 'chokidar'
+import chokidar, {FSWatcher} from 'chokidar'
 import fs from 'fs/promises'
 import esbuild from 'esbuild'
 import {injectAppHydrationPlugin} from './plugins/inject-app-hydration'
@@ -52,7 +52,7 @@ export const build: Plugin['build'] = async () => {
     }
   }
 
-  let pagesWatcher: chokidar.FSWatcher | null = null
+  let pagesWatcher: FSWatcher | null = null
 
   const clientCtx = await esbuild.context({
     write: false,
@@ -116,7 +116,7 @@ export const build: Plugin['build'] = async () => {
       console.log('Watching pages directory...')
       pagesWatcher = chokidar.watch('pages', {ignoreInitial: false})
 
-      pagesWatcher.on('all', (event, path) => {
+      pagesWatcher!.on('all', (event, path) => {
         if (['add', 'change', 'unlink'].includes(event)) {
           buildAppFile()
         }
