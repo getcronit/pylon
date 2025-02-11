@@ -30,6 +30,9 @@ export const build: Plugin['build'] = async () => {
     const pagesRoutes = await getPageRoutes()
     const appContent = generateAppFile(pagesRoutes)
 
+    const pagesFile = path.resolve(process.cwd(), '.pylon', 'pages.json')
+    await updateFileIfChanged(pagesFile, JSON.stringify(pagesRoutes, null, 2))
+
     // Write if the file doesn't exist or the content is different
     const appFilePath = path.resolve(process.cwd(), '.pylon', 'app.tsx')
 
