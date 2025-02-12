@@ -47,19 +47,27 @@ export const build: Plugin['build'] = async () => {
     name: 'write-on-end',
     setup(build) {
       build.onEnd(async result => {
-        result.outputFiles?.forEach(async file => {
-          await fs.mkdir(path.dirname(file.path), {recursive: true})
-          await updateFileIfChanged(file.path, file.text)
-        })
+        await Promise.all(
+          result.outputFiles!.map(async file => {
+            await fs.mkdir(path.dirname(file.path), {recursive: true})
+            await updateFileIfChanged(file.path, file.text)
+          })
+        )
       })
     }
   }
+
+  const nodePaths = [
+    path.join(process.cwd(), 'node_modules'),
+    path.join(process.cwd(), 'node_modules', '@getcronit/pylon/node_modules')
+  ]
 
   let pagesWatcher: FSWatcher | null = null
 
   const clientCtx = await esbuild.context({
     write: false,
     metafile: true,
+    nodePaths,
     absWorkingDir: process.cwd(),
     plugins: [
       injectAppHydrationPlugin,
@@ -93,6 +101,7 @@ export const build: Plugin['build'] = async () => {
   const serverCtx = await esbuild.context({
     write: false,
     absWorkingDir: process.cwd(),
+    nodePaths,
     plugins: [imagePlugin, postcssPlugin, writeOnEndPlugin],
     publicPath: '/__pylon/static',
     assetNames: 'assets/[name]-[hash]',
@@ -100,9 +109,9 @@ export const build: Plugin['build'] = async () => {
     format: 'esm',
     platform: 'node',
     entryPoints: ['.pylon/app.tsx'],
+    packages: 'external',
     outdir: DIST_PAGES_DIR,
     bundle: true,
-    packages: 'external',
     splitting: false,
     minify: false,
     loader: {

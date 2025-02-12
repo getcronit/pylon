@@ -64,10 +64,12 @@ export class Bundler {
       name: 'write-on-end',
       setup(build) {
         build.onEnd(async result => {
-          result.outputFiles?.forEach(async file => {
-            await fs.mkdir(path.dirname(file.path), {recursive: true})
-            await updateFileIfChanged(file.path, file.text)
-          })
+          await Promise.all(
+            result.outputFiles!.map(async file => {
+              await fs.mkdir(path.dirname(file.path), {recursive: true})
+              await updateFileIfChanged(file.path, file.text)
+            })
+          )
         })
       }
     }
@@ -101,6 +103,8 @@ export class Bundler {
       ]
     })
 
+    await ctx.rebuild()
+
     const pluginCtxs = await this.initBuildPlugins({
       onBuild: () => {
         options.onBuild?.({
@@ -111,6 +115,12 @@ export class Bundler {
         })
       }
     })
+
+    await Promise.all(
+      pluginCtxs.map(async c => {
+        await (await c).rebuild()
+      })
+    )
 
     return {
       watch: async () => {
