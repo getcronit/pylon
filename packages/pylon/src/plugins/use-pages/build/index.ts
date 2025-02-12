@@ -84,7 +84,7 @@ export const build: Plugin['build'] = async () => {
     outdir: DIST_STATIC_DIR,
     bundle: true,
     splitting: true,
-    minify: false,
+    minify: true,
     loader: {
       // Map file extensions to the file loader
 
@@ -113,7 +113,7 @@ export const build: Plugin['build'] = async () => {
     outdir: DIST_PAGES_DIR,
     bundle: true,
     splitting: false,
-    minify: false,
+    minify: true,
     loader: {
       // Map file extensions to the file loader
 
