@@ -20,7 +20,8 @@ export type PageProps = {
 }
 
 const disableCacheMiddleware: MiddlewareHandler = async (c, next) => {
-  if (c.env.NODE_ENV === 'development') {
+  const env = getEnv()
+  if (env.NODE_ENV === 'development') {
     c.header(
       'Cache-Control',
       'no-store, no-cache, must-revalidate, proxy-revalidate'
