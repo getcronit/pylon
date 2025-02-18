@@ -1,6 +1,7 @@
 // bundler.ts
 import esbuild, {context} from 'esbuild'
 import esbuildPluginTsc from 'esbuild-plugin-tsc'
+import type {PylonConfig, Plugin} from '@getcronit/pylon'
 
 import path from 'path'
 import fs from 'fs/promises'
@@ -23,6 +24,33 @@ export class Bundler {
   constructor(sfiFilePath: string, outputDir: string = './.pylon') {
     this.sfiFilePath = sfiFilePath
     this.outputDir = outputDir
+  }
+
+  private async initBuildPlugins(args: {onBuild: () => void}) {
+    const configPath = path.join(process.cwd(), this.outputDir, 'index.js')
+
+    let config: PylonConfig | undefined
+    try {
+      let configModule = await import(configPath)
+
+      config = configModule.config
+    } catch (e) {
+      console.error('Error loading config', e)
+    }
+
+    const buildContexts: ReturnType<NonNullable<Plugin['build']>>[] = []
+
+    const plugins = config?.plugins || []
+
+    for (const plugin of plugins) {
+      if (plugin.build) {
+        const ctx = plugin.build({onBuild: args.onBuild})
+
+        buildContexts.push(ctx)
+      }
+    }
+
+    return buildContexts
   }
 
   public async build(options: BundlerBuildOptions) {
@@ -77,6 +105,60 @@ export class Bundler {
 
     await ctx.rebuild()
 
-    return ctx
+    const pluginCtxs = await this.initBuildPlugins({
+      onBuild: () => {
+        options.onBuild?.({
+          totalFiles: 0,
+          totalSize: 0,
+          schemaChanged: false,
+          duration: 0
+        })
+      }
+    })
+
+    await Promise.all(
+      pluginCtxs.map(async c => {
+        await (await c).rebuild()
+      })
+    )
+
+    return {
+      watch: async () => {
+        for (const ctx of pluginCtxs) {
+          const c = await ctx
+
+          await c.watch()
+        }
+
+        return await ctx.watch()
+      },
+      rebuild: async () => {
+        for (const ctx of pluginCtxs) {
+          const c = await ctx
+
+          await c.rebuild()
+        }
+
+        await ctx.rebuild()
+      },
+      dispose: async () => {
+        for (const ctx of pluginCtxs) {
+          const c = await ctx
+
+          await c.dispose()
+        }
+
+        await ctx.dispose()
+      },
+      cancel: async () => {
+        for (const ctx of pluginCtxs) {
+          const c = await ctx
+
+          await c.cancel()
+        }
+
+        await ctx.cancel()
+      }
+    }
   }
 }

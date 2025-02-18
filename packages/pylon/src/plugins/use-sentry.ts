@@ -4,11 +4,11 @@ import {
   handleStreamOrSingleExecutionResult,
   isOriginalGraphQLError,
   OnExecuteDoneHookResultOnNextHook,
-  TypedExecutionArgs,
-  type Plugin
+  TypedExecutionArgs
 } from '@envelop/core'
 import * as Sentry from '@sentry/node'
 import type {Span, TraceparentData} from '@sentry/types'
+import {Plugin} from '..'
 
 export type SentryPluginOptions<PluginContext extends Record<string, any>> = {
   /**
