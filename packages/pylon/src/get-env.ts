@@ -11,7 +11,11 @@ export function getEnv() {
     // Fall back to process.env or an empty object if no context is available
     // This is useful for testing
     // ref: https://hono.dev/docs/guides/testing#env
-    return context.env || process.env || {}
+    const ctx = context.env || process.env || {}
+
+    ctx.NODE_ENV = ctx.NODE_ENV || process.env.NODE_ENV || 'development'
+
+    return ctx
   } catch {
     return process.env
   } finally {
