@@ -15,6 +15,7 @@ import {readFileSync} from 'fs'
 import path from 'path'
 import {app, pluginsMiddleware} from '.'
 import {useViewer} from '../plugins/use-viewer'
+import {useUnhandledRoute} from '../plugins/use-unhandled-route'
 
 interface PylonHandlerOptions {
   graphql: {
@@ -57,6 +58,14 @@ export const handler = (options: PylonHandlerOptions) => {
   const config = resolveLazyObject(config$)
 
   const plugins = [useSentry(), useViewer(), ...(config?.plugins || [])]
+
+  if (config?.landingPage ?? true) {
+    plugins.push(
+      useUnhandledRoute({
+        graphqlEndpoint: '/graphql'
+      })
+    )
+  }
 
   loadPluginsMiddleware(plugins)
 
