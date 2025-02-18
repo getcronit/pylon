@@ -1,10 +1,10 @@
 import {Context as HonoContext} from 'hono'
 import type {Toucan} from 'toucan-js'
-import {AuthState} from './auth'
+import type {AuthState} from './plugins/use-auth'
 import {AsyncLocalStorage} from 'async_hooks'
 import {sendFunctionEvent} from '@getcronit/pylon-telemetry'
 import {env} from 'hono/adapter'
-import type { GraphQLResolveInfo } from 'graphql'
+import type {GraphQLResolveInfo} from 'graphql'
 
 export interface Bindings {
   NODE_ENV: string
