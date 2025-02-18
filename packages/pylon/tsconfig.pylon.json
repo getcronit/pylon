@@ -5,7 +5,7 @@
     "module": "esnext",
     "target": "esnext",
 
-    "moduleResolution": "node", // support `import` from `node_modules`
+    "moduleResolution": "bundler", // support `import` from `node_modules`
     "noImplicitAny": false,
     "noImplicitThis": false,
 
