@@ -81,7 +81,7 @@ async function main(options: ArgOptions, command: Command) {
       }
 
       bus.on('log:out', data => {
-        consola.log(data.data)
+        consola.log(data.data.trim())
       })
 
       bus.on('log:err', data => {
