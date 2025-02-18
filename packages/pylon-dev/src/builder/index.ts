@@ -5,8 +5,7 @@ import {SchemaBuilder} from './schema/builder.js'
 export interface BuildOptions {
   sfiFilePath: string
   outputFilePath: string
-  watch?: boolean
-  onWatch?: (output: {
+  onBuild?: (output: {
     totalFiles: number
     totalSize: number
     schemaChanged: boolean
@@ -19,12 +18,12 @@ export {SchemaBuilder}
 export const build = async (options: BuildOptions) => {
   const bundler = new Bundler(options.sfiFilePath, options.outputFilePath)
 
+  const builder = new SchemaBuilder(
+    path.join(process.cwd(), options.sfiFilePath)
+  )
+
   return await bundler.build({
     getBuildDefs: () => {
-      const builder = new SchemaBuilder(
-        path.join(process.cwd(), options.sfiFilePath)
-      )
-
       const built = builder.build()
 
       const typeDefs = built.typeDefs
@@ -34,7 +33,6 @@ export const build = async (options: BuildOptions) => {
         resolvers: built.resolvers
       }
     },
-    watch: options.watch,
-    onWatch: options.onWatch
+    onBuild: options.onBuild
   })
 }
