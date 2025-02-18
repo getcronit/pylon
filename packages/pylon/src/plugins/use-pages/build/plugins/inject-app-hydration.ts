@@ -23,8 +23,6 @@ export const injectAppHydrationPlugin: Plugin = {
 
           const pylonData = window.__PYLON_DATA__
 
-          console.log('pylonData', pylonData)
-
           const AppLoader = (props: {
             client: any
             pylonData: {

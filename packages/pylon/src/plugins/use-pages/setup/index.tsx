@@ -126,7 +126,6 @@ export const setup: Plugin['setup'] = app => {
     console.error('Error reading public files', error)
   }
 
-  console.log('publicFiles', publicFiles)
 
   app.on('GET',
     publicFiles.map(file => `/${file}`), disableCacheMiddleware, async c => {
@@ -138,7 +137,6 @@ export const setup: Plugin['setup'] = app => {
         c.req.path.replace('/', '')
       )
 
-      console.log('publicFilePath', publicFilePath)
 
       try {
         await fs.promises.access(publicFilePath)
@@ -217,7 +215,6 @@ export const setup: Plugin['setup'] = app => {
 
   // Image optimization route
   app.get('/__pylon/image', async c => {
-    console.log('image optimization route')
     try {
       const { src, w, h, q = '75', format = 'webp' } = c.req.query()
 
@@ -237,7 +234,6 @@ export const setup: Plugin['setup'] = app => {
 
       // Check if the image exists asynchronously
       try {
-        console.log('imagePath', imagePath)
         await fs.promises.access(imagePath)
       } catch {
         return c.json({ error: 'Image not found' }, 404)
@@ -289,7 +285,6 @@ export const setup: Plugin['setup'] = app => {
 
       const quality = parseInt(q)
 
-      console.log('quality', quality)
 
       // Optimize the image using sharp
       const image = await sharp(imagePath)
@@ -299,7 +294,6 @@ export const setup: Plugin['setup'] = app => {
         })
         .toFile(cachePath)
 
-      console.log('image', image)
 
       c.res.headers.set('Content-Type', getContentType(image.format))
 

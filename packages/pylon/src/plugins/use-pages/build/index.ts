@@ -39,7 +39,6 @@ export const build: Plugin['build'] = async () => {
     const state = await updateFileIfChanged(appFilePath, appContent)
 
     if (state) {
-      console.log('Updated app file')
     }
   }
 
@@ -146,7 +145,6 @@ export const build: Plugin['build'] = async () => {
 
   return {
     watch: async () => {
-      console.log('Watching pages directory...')
       pagesWatcher = chokidar.watch('pages', {ignoreInitial: true})
 
       pagesWatcher!.on('all', async (event, path) => {
@@ -159,8 +157,6 @@ export const build: Plugin['build'] = async () => {
       await Promise.all([clientCtx.watch(), serverCtx.watch()])
     },
     dispose: async () => {
-      console.log('Disposing pages')
-
       if (pagesWatcher) {
         pagesWatcher.close()
       }
@@ -168,7 +164,6 @@ export const build: Plugin['build'] = async () => {
       Promise.all([clientCtx.dispose(), serverCtx.dispose()])
     },
     rebuild: async () => {
-      console.log('Rebuilding pages')
       await buildAppFile()
 
       await copyPublicDir()
