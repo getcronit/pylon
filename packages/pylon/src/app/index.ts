@@ -1,5 +1,7 @@
-import {sentry} from '@hono/sentry'
 import {Hono, MiddlewareHandler} from 'hono'
+import {logger} from 'hono/logger'
+import {sentry} from '@hono/sentry'
+import {except} from 'hono/combine'
 
 import {asyncContext, Env} from '../context'
 
@@ -18,6 +20,8 @@ app.use('*', async (c, next) => {
     })
   })
 })
+
+app.use('*', except(['/__pylon/static/*'], logger()))
 
 app.use((c, next) => {
   // @ts-ignore

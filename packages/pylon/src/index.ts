@@ -18,6 +18,8 @@ export {getEnv} from './get-env.js'
 export {createDecorator} from './create-decorator.js'
 export {createPubSub as experimentalCreatePubSub} from 'graphql-yoga'
 
+export {usePages} from './plugins/use-pages/index'
+
 import type {Plugin as YogaPlugin} from 'graphql-yoga'
 import {MiddlewareHandler} from 'hono'
 import {BuildContext, BuildOptions} from 'esbuild'
