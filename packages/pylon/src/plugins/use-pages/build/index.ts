@@ -43,6 +43,27 @@ export const build: Plugin['build'] = async () => {
     }
   }
 
+  const copyPublicDir = async () => {
+    // Copy the ./public directory content to the .pylon/__pylon/static directory
+    const publicDir = path.resolve(process.cwd(), 'public')
+    const pylonPublicDir = path.resolve(
+      process.cwd(),
+      '.pylon',
+      '__pylon',
+      'public'
+    )
+
+    try {
+      await fs.access(publicDir)
+
+      // Copy recursively the public directory to the static directory
+      await fs.mkdir(pylonPublicDir, {recursive: true})
+      await fs.cp(publicDir, pylonPublicDir, {recursive: true})
+    } catch (err: any) {
+      if (err.code !== 'ENOENT') throw err // Ignore file not found error
+    }
+  }
+
   const writeOnEndPlugin: esbuild.Plugin = {
     name: 'write-on-end',
     setup(build) {
@@ -126,11 +147,12 @@ export const build: Plugin['build'] = async () => {
   return {
     watch: async () => {
       console.log('Watching pages directory...')
-      pagesWatcher = chokidar.watch('pages', {ignoreInitial: false})
+      pagesWatcher = chokidar.watch('pages', {ignoreInitial: true})
 
-      pagesWatcher!.on('all', (event, path) => {
+      pagesWatcher!.on('all', async (event, path) => {
         if (['add', 'change', 'unlink'].includes(event)) {
-          buildAppFile()
+          await buildAppFile()
+          await copyPublicDir()
         }
       })
 
@@ -148,6 +170,8 @@ export const build: Plugin['build'] = async () => {
     rebuild: async () => {
       console.log('Rebuilding pages')
       await buildAppFile()
+
+      await copyPublicDir()
 
       await Promise.all([clientCtx.rebuild(), serverCtx.rebuild()])
 
