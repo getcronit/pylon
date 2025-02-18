@@ -36,8 +36,10 @@ export type Plugin<
 }
 
 export type PylonConfig = {
+  landingPage?: boolean
   plugins?: Plugin[]
 }
+
 export type ID = string & {readonly brand?: unique symbol}
 export type Int = number & {readonly brand?: unique symbol}
 export type Float = number & {readonly brand?: unique symbol}
