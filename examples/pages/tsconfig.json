@@ -1,6 +1,7 @@
 {
   "extends": "@getcronit/pylon/tsconfig.pylon.json",
   "compilerOptions": {
+    "moduleResolution": "bundler",
     // add Bun type definitions
     "types": ["bun-types"],
     "baseUrl": ".",

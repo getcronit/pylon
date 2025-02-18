@@ -1,5 +1,5 @@
-import {Button} from '@/components/ui/button'
-import {PageProps} from '@getcronit/pylon'
+import { Button } from '@/components/ui/button'
+import { PageProps } from '@getcronit/pylon/pages'
 
 const Page: React.FC<PageProps> = props => {
   return (

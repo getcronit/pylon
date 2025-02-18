@@ -107,7 +107,8 @@ export const generateAppFile = (pageRoutes: PageRoute[]): string => {
   // Dynamically build the App component with React Router Routes
   const appComponent = `"use client";
   import {lazy, Suspense} from 'react'
-  import { Routes, Route } from 'react-router';
+  import { __PYLON_ROUTER_INTERNALS_DO_NOT_USE } from '@getcronit/pylon/pages';
+  const {Routes, Route} = __PYLON_ROUTER_INTERNALS_DO_NOT_USE
   ${importPages}
   const RootLayout = lazy(() => import('../pages/layout.js'))
   ${importLayouts}

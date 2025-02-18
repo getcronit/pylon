@@ -4,8 +4,20 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./pages": {
+      "import": "./dist/pages/index.js",
+      "types": "./dist/pages/index.d.ts"
+    }
+  },
   "scripts": {
-    "build": "rimraf ./dist && esbuild ./src/index.ts --bundle --platform=node --target=node18 --format=esm --outdir=./dist --sourcemap=linked --packages=external && pnpm run build:declarations",
+    "build": "rimraf ./dist && pnpm run build:server && pnpm run build:pages",
+    "build:server": "esbuild ./src/index.ts --bundle --platform=node --target=node18 --format=esm --outdir=./dist --sourcemap=linked --packages=external && pnpm run build:declarations",
+    "build:pages": "esbuild ./src/pages/index.ts --bundle --packages=external --platform=browser --target=esnext --format=esm --outdir=./dist/pages --sourcemap=linked",
     "build:declarations": "tsc --declaration --emitDeclarationOnly --outDir ./dist"
   },
   "files": [

@@ -17,7 +17,8 @@ export const injectAppHydrationPlugin: Plugin = {
         contents += `
           import {hydrateRoot} from 'react-dom/client'
           import * as client from './${pathToClient}'
-          import {BrowserRouter} from 'react-router'
+          import { __PYLON_ROUTER_INTERNALS_DO_NOT_USE } from '@getcronit/pylon/pages';
+          const {BrowserRouter} = __PYLON_ROUTER_INTERNALS_DO_NOT_USE
           import React, {useMemo} from 'react'
 
           const pylonData = window.__PYLON_DATA__
