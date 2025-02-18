@@ -1,7 +1,7 @@
-import {Button} from '@/components/ui/button'
-import {PageProps} from '@getcronit/pylon'
+import { Button } from '@/components/ui/button'
+import { PageProps } from '@getcronit/pylon/pages'
 
-const Page: React.FC<PageProps> = ({data}) => {
+const Page: React.FC<PageProps> = ({ data }) => {
   return (
     <div>
       <title>{data.hello}</title>
