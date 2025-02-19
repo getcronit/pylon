@@ -165,6 +165,10 @@ export const handler = (options: PylonHandlerOptions) => {
 
     const response = await yoga.fetch(c.req.raw, c.env, executionContext)
 
+    if (response.status === 404) {
+      return c.notFound()
+    }
+
     return c.newResponse(response.body, response)
   }
 
