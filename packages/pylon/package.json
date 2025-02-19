@@ -40,6 +40,7 @@
     "@hono/sentry": "^1.2.0",
     "@sentry/bun": "^8.17.0",
     "@sentry/node": "^8.54.0",
+    "chokidar": "^4.0.3",
     "consola": "^3.2.3",
     "gqty": "3.4.0-canary-20250207102900.644ad9fdeafa6318516627577b1d4d754d5c5a98",
     "graphql": "^16.9.0",
@@ -48,18 +49,18 @@
     "hono": "^4.0.8",
     "jsonwebtoken": "^9.0.2",
     "openid-client": "^6.1.7",
+    "postcss-load-config": "^6.0.1",
     "react-router": "^7.1.5",
     "sharp": "^0.33.5",
     "tiny-glob": "^0.2.9",
-    "toucan-js": "^4.1.0",
-    "postcss-load-config": "^6.0.1",
-    "chokidar": "^4.0.3"
+    "toucan-js": "^4.1.0"
   },
   "engines": {
     "node": ">=18.0.0"
   },
   "devDependencies": {
-    "@sentry/types": "^8.54.0"
+    "@sentry/types": "^8.54.0",
+    "@types/react-dom": "^19.0.4"
   },
   "peerDependencies": {
     "@tailwindcss/postcss": "^4.0.4",

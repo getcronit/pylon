@@ -55,7 +55,7 @@ const bootstrapAuth = async (issuer: string, keyPath: string) => {
       authKey.clientId,
       undefined,
       openid.PrivateKeyJwt({
-        key: await importPrivateKey(authKey.key),
+        key: (await importPrivateKey(authKey.key)) as any,
         kid: authKey.keyId
       })
     )

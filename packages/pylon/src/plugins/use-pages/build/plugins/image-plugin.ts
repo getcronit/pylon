@@ -1,7 +1,6 @@
 import {createHash} from 'crypto'
 import {Plugin} from 'esbuild'
 import path from 'path'
-import sharp from 'sharp'
 import fs from 'fs/promises'
 
 export const imagePlugin: Plugin = {
@@ -39,6 +38,8 @@ export const imagePlugin: Plugin = {
     })
 
     build.onLoad({filter: /\.png$|\.jpg$/}, async args => {
+      const sharp = (await import('sharp')).default
+
       // Load file and read the dimensions
       const image = sharp(args.path)
       const metadata = await image.metadata()
