@@ -1,6 +1,7 @@
 import path from 'path'
 import fs from 'fs/promises'
 import {generateClient} from '@gqty/cli'
+import esbuild from 'esbuild'
 import {buildSchema} from 'graphql'
 import {updateFileIfChanged} from './update-file-if-changed'
 
@@ -53,6 +54,15 @@ export const buildClient = async ({schemaChanged}: BuildClientOptions) => {
       Number: 'number',
       Object: 'Record<string, unknown>'
     }
+  })
+
+  await esbuild.build({
+    entryPoints: [PYLON_CLIENT_PATH],
+    bundle: true,
+    outfile: path.join(process.cwd(), '.pylon/client/index.js'),
+    packages: 'external',
+    format: 'esm',
+    platform: 'node'
   })
 }
 
