@@ -57,9 +57,6 @@ importers:
       '@getcronit/pylon-dev':
         specifier: workspace:^
         version: link:../../packages/pylon-dev
-      '@types/bun':
-        specifier: ^1.2.2
-        version: 1.2.2
 
   examples/cloudflare-drizzle-d1:
     dependencies:
@@ -132,58 +129,6 @@ importers:
       '@getcronit/pylon-dev':
         specifier: workspace:^
         version: link:../../packages/pylon-dev
-
-  examples/my-pylon:
-    dependencies:
-      '@getcronit/pylon':
-        specifier: workspace:^
-        version: link:../../packages/pylon
-      '@gqty/react':
-        specifier: ^3.1.0
-        version: 3.1.0(gqty@3.4.1(graphql@16.10.0))(graphql@16.10.0)(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
-      '@hono/node-server':
-        specifier: ^1.12.2
-        version: 1.13.8(hono@4.6.20)
-      '@radix-ui/react-slot':
-        specifier: ^1.1.2
-        version: 1.1.2(@types/react@19.0.10)(react@19.0.0)
-      class-variance-authority:
-        specifier: ^0.7.1
-        version: 0.7.1
-      clsx:
-        specifier: ^2.1.1
-        version: 2.1.1
-      gqty:
-        specifier: ^3.4.0
-        version: 3.4.1(graphql@16.10.0)
-      lucide-react:
-        specifier: ^0.474.0
-        version: 0.474.0(react@19.0.0)
-      react:
-        specifier: ^19.0.0
-        version: 19.0.0
-      react-dom:
-        specifier: ^19.0.0
-        version: 19.0.0(react@19.0.0)
-      tailwind-merge:
-        specifier: ^3.0.1
-        version: 3.0.1
-      tailwindcss:
-        specifier: ^4.0.4
-        version: 4.0.7
-      tailwindcss-animate:
-        specifier: ^1.0.7
-        version: 1.0.7(tailwindcss@4.0.7)
-    devDependencies:
-      '@getcronit/pylon-dev':
-        specifier: workspace:^
-        version: link:../../packages/pylon-dev
-      '@tailwindcss/postcss':
-        specifier: ^4.0.6
-        version: 4.0.7
-      '@types/react':
-        specifier: ^19.0.8
-        version: 19.0.10
 
   examples/nodejs-subscriptions:
     dependencies:
@@ -2182,24 +2127,6 @@ packages:
   '@prisma/instrumentation@5.22.0':
     resolution: {integrity: sha512-LxccF392NN37ISGxIurUljZSh1YWnphO34V5a0+T7FVQG2u9bhAXRTJpgmQ3483woVhkraQZFF7cbRrpbw/F4Q==}
 
-  '@radix-ui/react-compose-refs@1.1.1':
-    resolution: {integrity: sha512-Y9VzoRDSJtgFMUCoiZBDVo084VQ5hfpXxVE+NgkdNsjiDBByiImMZKKhxMwCbdHvhlENG6a833CbFkOQvTricw==}
-    peerDependencies:
-      '@types/react': '*'
-      react: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
-    peerDependenciesMeta:
-      '@types/react':
-        optional: true
-
-  '@radix-ui/react-slot@1.1.2':
-    resolution: {integrity: sha512-YAKxaiGsSQJ38VzKH86/BPRC4rh+b1Jpa+JneA5LRE7skmLPNAyeG8kPJj/oo4STLvlrs8vkf/iYyc3A5stYCQ==}
-    peerDependencies:
-      '@types/react': '*'
-      react: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
-    peerDependenciesMeta:
-      '@types/react':
-        optional: true
-
   '@react-hookz/deep-equal@1.0.4':
     resolution: {integrity: sha512-N56fTrAPUDz/R423pag+n6TXWbvlBZDtTehaGFjK0InmN+V2OFWLE/WmORhmn6Ce7dlwH5+tQN1LJFw3ngTJVg==}
 
@@ -2484,9 +2411,6 @@ packages:
 
   '@tootallnate/quickjs-emscripten@0.23.0':
     resolution: {integrity: sha512-C5Mc6rdnsaJDjO3UpGW/CQTHtCKaYlScZTly4JIu97Jxo/odCiH0ITnDXSJPTOrEKk/ycSZ0AOgTmkDtkOsvIA==}
-
-  '@types/bun@1.2.2':
-    resolution: {integrity: sha512-tr74gdku+AEDN5ergNiBnplr7hpDp3V1h7fqI2GcR/rsUaM39jpSeKH0TFibRvU0KwniRx5POgaYnaXbk0hU+w==}
 
   '@types/connect@3.4.36':
     resolution: {integrity: sha512-P63Zd/JUGq+PdrM1lv0Wv5SBYeA2+CORvbrXbngriYY0jzLUWfQMQQxOhjONEz/wlHOAxOdY7CY65rgQdTjq2w==}
@@ -2845,9 +2769,6 @@ packages:
   cjs-module-lexer@1.4.3:
     resolution: {integrity: sha512-9z8TZaGM1pfswYeXrUpzPrkx8UnWYdhJclsiYMm6x/w5+nN+8Tf/LnAgfLGQCm59qAOxU8WwHEq2vNwF6i4j+Q==}
 
-  class-variance-authority@0.7.1:
-    resolution: {integrity: sha512-Ka+9Trutv7G8M6WT6SeiRWz792K5qEqIGEGzXKhAE6xOWAY6pPH8U+9IY3oCMv6kqTmLsv7Xh/2w2RigkePMsg==}
-
   clean-stack@2.2.0:
     resolution: {integrity: sha512-4diC9HaTE+KRAMWhDhrGOECgWZxoevMc5TlkObMqNSsVU62PYzXZ/SMTjzyGAFF1YusgxGcSWTEXBhp0CPwQ1A==}
     engines: {node: '>=6'}
@@ -2879,10 +2800,6 @@ packages:
   cliui@8.0.1:
     resolution: {integrity: sha512-BSeNnyus75C4//NQ9gQt1/csTXyo/8Sb+afLAkzAptFuMsod9HFokGNudZpi/oQV73hnVK+sR+5PVRMd+Dr7YQ==}
     engines: {node: '>=12'}
-
-  clsx@2.1.1:
-    resolution: {integrity: sha512-eYm0QWBtUrBWZWG0d386OGAw16Z995PiOVo2B7bjWSbHedGl5e0ZWaq65kOGgUSNesEIDkB9ISbTg/JK9dhCZA==}
-    engines: {node: '>=6'}
 
   color-convert@1.9.3:
     resolution: {integrity: sha512-QfAUtd+vFdAtFQcC8CCyYt1fYWxSqAiK2cSD6zDB8N3cpsEBAvRxp9zOGg6G/SHHJYAT88/az/IuDGALsNVbGg==}
@@ -4127,11 +4044,6 @@ packages:
     resolution: {integrity: sha512-jumlc0BIUrS3qJGgIkWZsyfAM7NCWiBcCDhnd+3NNM5KbBmLTgHVfWBcg6W+rLUsIpzpERPsvwUP7CckAQSOoA==}
     engines: {node: '>=12'}
 
-  lucide-react@0.474.0:
-    resolution: {integrity: sha512-CmghgHkh0OJNmxGKWc0qfPJCYHASPMVSyGY8fj3xgk4v84ItqDg64JNKFZn5hC6E0vHi6gxnbCgwhyVB09wQtA==}
-    peerDependencies:
-      react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
-
   magic-string@0.25.9:
     resolution: {integrity: sha512-RmF0AsMzgt25qzqqLc1+MbHmhdx0ojF2Fvs4XnOqz2ZOBXzzkEwc/dJQZCYHAn7v1jbVOjAZfK8msRn4BxO4VQ==}
 
@@ -5190,14 +5102,6 @@ packages:
     engines: {node: '>=8.0.0'}
     os: [darwin, linux, win32, freebsd, openbsd, netbsd, sunos, android]
     hasBin: true
-
-  tailwind-merge@3.0.1:
-    resolution: {integrity: sha512-AvzE8FmSoXC7nC+oU5GlQJbip2UO7tmOhOfQyOmPhrStOGXHU08j8mZEHZ4BmCqY5dWTCo4ClWkNyRNx1wpT0g==}
-
-  tailwindcss-animate@1.0.7:
-    resolution: {integrity: sha512-bl6mpH3T7I3UFxuvDEXLxy/VuFxBk5bbzplh7tXI68mwMokNYd1t9qPBHlnyTwfa4JGC4zP516I1hYYtQ/vspA==}
-    peerDependencies:
-      tailwindcss: '>=3.0.0 || insiders'
 
   tailwindcss@4.0.7:
     resolution: {integrity: sha512-yH5bPPyapavo7L+547h3c4jcBXcrKwybQRjwdEIVAd9iXRvy/3T1CC6XSQEgZtRySjKfqvo3Cc0ZF1DTheuIdA==}
@@ -6630,21 +6534,6 @@ snapshots:
     transitivePeerDependencies:
       - js-cookie
 
-  '@gqty/react@3.1.0(gqty@3.4.1(graphql@16.10.0))(graphql@16.10.0)(react-dom@19.0.0(react@19.0.0))(react@19.0.0)':
-    dependencies:
-      '@react-hookz/web': 23.1.0(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
-      gqty: 3.4.1(graphql@16.10.0)
-      graphql: 16.10.0
-      multidict: 1.0.9
-      p-debounce: 4.0.0
-      p-defer: 3.0.0
-      react: 19.0.0
-      react-dom: 19.0.0(react@19.0.0)
-      react-ssr-prepass: 1.6.0(react@19.0.0)
-      use-sync-external-store: 1.4.0(react@19.0.0)
-    transitivePeerDependencies:
-      - js-cookie
-
   '@graphql-codegen/core@4.0.2(graphql@16.10.0)':
     dependencies:
       '@graphql-codegen/plugin-helpers': 5.1.0(graphql@16.10.0)
@@ -7464,19 +7353,6 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@radix-ui/react-compose-refs@1.1.1(@types/react@19.0.10)(react@19.0.0)':
-    dependencies:
-      react: 19.0.0
-    optionalDependencies:
-      '@types/react': 19.0.10
-
-  '@radix-ui/react-slot@1.1.2(@types/react@19.0.10)(react@19.0.0)':
-    dependencies:
-      '@radix-ui/react-compose-refs': 1.1.1(@types/react@19.0.10)(react@19.0.0)
-      react: 19.0.0
-    optionalDependencies:
-      '@types/react': 19.0.10
-
   '@react-hookz/deep-equal@1.0.4': {}
 
   '@react-hookz/web@23.1.0(react-dom@19.0.0(react@19.0.0))(react@19.0.0)':
@@ -7779,10 +7655,6 @@ snapshots:
       tailwindcss: 4.0.7
 
   '@tootallnate/quickjs-emscripten@0.23.0': {}
-
-  '@types/bun@1.2.2':
-    dependencies:
-      bun-types: 1.2.2
 
   '@types/connect@3.4.36':
     dependencies:
@@ -8203,10 +8075,6 @@ snapshots:
 
   cjs-module-lexer@1.4.3: {}
 
-  class-variance-authority@0.7.1:
-    dependencies:
-      clsx: 2.1.1
-
   clean-stack@2.2.0: {}
 
   clean-stack@5.2.0:
@@ -8245,8 +8113,6 @@ snapshots:
       string-width: 4.2.3
       strip-ansi: 6.0.1
       wrap-ansi: 7.0.0
-
-  clsx@2.1.1: {}
 
   color-convert@1.9.3:
     dependencies:
@@ -9457,10 +9323,6 @@ snapshots:
 
   lru-cache@7.18.3: {}
 
-  lucide-react@0.474.0(react@19.0.0):
-    dependencies:
-      react: 19.0.0
-
   magic-string@0.25.9:
     dependencies:
       sourcemap-codec: 1.4.8
@@ -10534,12 +10396,6 @@ snapshots:
 
   systeminformation@5.25.11:
     optional: true
-
-  tailwind-merge@3.0.1: {}
-
-  tailwindcss-animate@1.0.7(tailwindcss@4.0.7):
-    dependencies:
-      tailwindcss: 4.0.7
 
   tailwindcss@4.0.7: {}
 
