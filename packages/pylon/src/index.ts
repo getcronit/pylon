@@ -38,6 +38,7 @@ export type Plugin<
 
 export type PylonConfig = {
   landingPage?: boolean
+  graphiql?: boolean
   plugins?: Plugin[]
 }
 

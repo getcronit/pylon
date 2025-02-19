@@ -172,6 +172,9 @@ importers:
       '@gqty/react':
         specifier: ^3.1.0
         version: 3.1.0(gqty@3.4.0-canary-20250207102900.644ad9fdeafa6318516627577b1d4d754d5c5a98(graphql@16.10.0))(graphql@16.10.0)(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
+      '@graphql-yoga/plugin-disable-introspection':
+        specifier: ^2.13.0
+        version: 2.13.0(graphql-yoga@5.10.11(graphql@16.10.0))(graphql@16.10.0)
       '@hono/sentry':
         specifier: ^1.2.0
         version: 1.2.0(hono@4.6.20)
@@ -1547,6 +1550,13 @@ packages:
   '@graphql-yoga/logger@2.0.1':
     resolution: {integrity: sha512-Nv0BoDGLMg9QBKy9cIswQ3/6aKaKjlTh87x3GiBg2Z4RrjyrM48DvOOK0pJh1C1At+b0mUIM67cwZcFTDLN4sA==}
     engines: {node: '>=18.0.0'}
+
+  '@graphql-yoga/plugin-disable-introspection@2.13.0':
+    resolution: {integrity: sha512-1su/MjzBu9xpZWaUy5tno+jNofXJLbRfLzs/obSx2qfUtDgmgOPtjKng/p8or5MN1EZIRYlMYJZXS4IeIbYYbA==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      graphql: ^16.9.0
+      graphql-yoga: ^5.12.0
 
   '@graphql-yoga/subscription@5.0.3':
     resolution: {integrity: sha512-xLGEataxCULjL9rlTCVFL1IW2E90TnDIL+mE4lZBi9X92jc6s+Q+jk6Ax3I98kryCJh0UMiwjit7CaIIczTiJg==}
@@ -6672,6 +6682,11 @@ snapshots:
   '@graphql-yoga/logger@2.0.1':
     dependencies:
       tslib: 2.8.1
+
+  '@graphql-yoga/plugin-disable-introspection@2.13.0(graphql-yoga@5.10.11(graphql@16.10.0))(graphql@16.10.0)':
+    dependencies:
+      graphql: 16.10.0
+      graphql-yoga: 5.10.11(graphql@16.10.0)
 
   '@graphql-yoga/subscription@5.0.3':
     dependencies:
