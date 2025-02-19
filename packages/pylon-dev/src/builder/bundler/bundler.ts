@@ -11,6 +11,7 @@ import {
 } from './plugins/inject-code-plugin'
 import {NotifyPluginOptions, notifyPlugin} from './plugins/notify-plugin'
 import {updateFileIfChanged} from '../update-file-if-changed'
+import {extractConfig} from './extract-config'
 
 export interface BundlerBuildOptions {
   getBuildDefs: InjectCodePluginOptions['getBuildDefs']
@@ -27,7 +28,9 @@ export class Bundler {
   }
 
   private async initBuildPlugins(args: {onBuild: () => void}) {
-    const configPath = path.join(process.cwd(), this.outputDir, 'index.js')
+    const configPath = path.join(process.cwd(), this.outputDir, 'config.js')
+
+    await extractConfig(this.sfiFilePath, configPath)
 
     let config: PylonConfig | undefined
     try {
