@@ -3,10 +3,9 @@ import path from 'path'
 import reactServer from 'react-dom/server'
 
 import { UseHydrateCacheOptions } from '@gqty/react'
-import { Readable } from 'stream'
+import { PassThrough, Readable } from 'stream'
 import { AppLoader } from './app-loader'
 import { getEnv, type Plugin } from '../../../index'
-import { cloneElement, createElement } from 'react'
 import { trimTrailingSlash } from 'hono/trailing-slash'
 import { StaticRouter } from 'react-router'
 
@@ -63,7 +62,7 @@ export const setup: Plugin['setup'] = app => {
       }
 
       if (!client) {
-        client = await import(`${process.cwd()}/.pylon/client`)
+        client = await import(`${process.cwd()}/.pylon/client/index.js`)
       }
 
       const pageProps = {
@@ -91,44 +90,88 @@ export const setup: Plugin['setup'] = app => {
 
       cacheSnapshot = prepared.cacheSnapshot
 
-      const stream = await reactServer.renderToReadableStream(
-        <AppLoader
-          Router={StaticRouter}
-          routerProps={{
-            location: c.req.path
-          }}
-          App={App}
-          client={client}
-          pylonData={{
-            pageProps: pageProps,
-            cacheSnapshot: prepared.cacheSnapshot
-          }}
-        />,
-        {
-          bootstrapModules: ['/__pylon/static/app.js'],
-          bootstrapScriptContent: `window.__PYLON_DATA__ = ${JSON.stringify({
-            pageProps: pageProps,
-            cacheSnapshot: cacheSnapshot
-          })}`
-        }
-      )
+      if (reactServer.renderToReadableStream) {
+        const stream = await reactServer.renderToReadableStream(
+          <AppLoader
+            Router={StaticRouter}
+            routerProps={{
+              location: c.req.path
+            }}
+            App={App}
+            client={client}
+            pylonData={{
+              pageProps: pageProps,
+              cacheSnapshot: prepared.cacheSnapshot
+            }}
+          />,
+          {
+            bootstrapModules: ['/__pylon/static/app.js'],
+            bootstrapScriptContent: `window.__PYLON_DATA__ = ${JSON.stringify({
+              pageProps: pageProps,
+              cacheSnapshot: cacheSnapshot
+            })}`
+          }
+        )
 
-      return c.body(stream)
+        return c.body(stream)
+      } else if (reactServer.renderToPipeableStream) {
+        const pipableStream = reactServer.renderToPipeableStream(
+          <AppLoader
+            Router={StaticRouter}
+            routerProps={{
+              location: c.req.path
+            }}
+            App={App}
+            client={client}
+            pylonData={{
+              pageProps: pageProps,
+              cacheSnapshot: prepared.cacheSnapshot
+            }}
+          />,
+          {
+            bootstrapModules: ['/__pylon/static/app.js'],
+            bootstrapScriptContent: `window.__PYLON_DATA__ = ${JSON.stringify({
+              pageProps: pageProps,
+              cacheSnapshot: cacheSnapshot
+            })}`,
+            onShellReady: () => {
+              c.header('Content-Type', 'text/html')
+            }
+          }
+        )
+
+        function pipeableToReadable(pipeable) {
+          const passThrough = new PassThrough()
+          pipeable.pipe(passThrough)
+          return Readable.toWeb(passThrough)
+        }
+
+        const stream = pipeableToReadable(pipableStream)
+
+        return c.body(stream as any)
+      }
     }
   )
 
-  const publicFilesPath = path.resolve(process.cwd(), '.pylon', '__pylon', 'public')
+  const publicFilesPath = path.resolve(
+    process.cwd(),
+    '.pylon',
+    '__pylon',
+    'public'
+  )
   let publicFiles: string[] = []
 
   try {
     publicFiles = fs.readdirSync(publicFilesPath)
   } catch (error) {
-    console.error('Error reading public files', error)
+    // Ignore error
   }
 
-
-  app.on('GET',
-    publicFiles.map(file => `/${file}`), disableCacheMiddleware, async c => {
+  app.on(
+    'GET',
+    publicFiles.map(file => `/${file}`),
+    disableCacheMiddleware,
+    async c => {
       const publicFilePath = path.resolve(
         process.cwd(),
         '.pylon',
@@ -136,7 +179,6 @@ export const setup: Plugin['setup'] = app => {
         'public',
         c.req.path.replace('/', '')
       )
-
 
       try {
         await fs.promises.access(publicFilePath)
@@ -151,7 +193,10 @@ export const setup: Plugin['setup'] = app => {
           c.res.headers.set('Content-Type', 'application/json')
         } else if (publicFilePath.endsWith('.png')) {
           c.res.headers.set('Content-Type', 'image/png')
-        } else if (publicFilePath.endsWith('.jpg') || publicFilePath.endsWith('.jpeg')) {
+        } else if (
+          publicFilePath.endsWith('.jpg') ||
+          publicFilePath.endsWith('.jpeg')
+        ) {
           c.res.headers.set('Content-Type', 'image/jpeg')
         } else if (publicFilePath.endsWith('.gif')) {
           c.res.headers.set('Content-Type', 'image/gif')
@@ -163,15 +208,14 @@ export const setup: Plugin['setup'] = app => {
 
         const stream = fs.createReadStream(publicFilePath)
 
-        const a = Readable.toWeb(stream) as ReadableStream
+        const a = Readable.toWeb(stream) as unknown as ReadableStream
 
         return c.body(a)
-
       } catch {
         return c.status(404)
       }
-    })
-
+    }
+  )
 
   app.get('/__pylon/static/*', disableCacheMiddleware, async c => {
     const filePath = path.resolve(
@@ -208,7 +252,7 @@ export const setup: Plugin['setup'] = app => {
 
     const stream = fs.createReadStream(filePath)
 
-    const a = Readable.toWeb(stream) as ReadableStream
+    const a = Readable.toWeb(stream) as unknown as ReadableStream
 
     return c.body(a)
   })
@@ -216,6 +260,8 @@ export const setup: Plugin['setup'] = app => {
   // Image optimization route
   app.get('/__pylon/image', async c => {
     try {
+      const sharp = (await import('sharp')).default
+
       const { src, w, h, q = '75', format = 'webp' } = c.req.query()
 
       const queryStringHash = createHash('sha256')
@@ -266,6 +312,11 @@ export const setup: Plugin['setup'] = app => {
 
       let imageFormat = format.toLowerCase()
 
+      function isSupportedFormat(format: string): format is keyof FormatEnum {
+        const supportedFormats = sharp.format
+        return Object.keys(supportedFormats).includes(format)
+      }
+
       if (!isSupportedFormat(imageFormat)) {
         throw new Error('Unsupported image format')
       }
@@ -285,22 +336,37 @@ export const setup: Plugin['setup'] = app => {
 
       const quality = parseInt(q)
 
+      if (IS_IMAGE_CACHE_POSSIBLE) {
+        // Optimize the image using sharp
+        const image = await sharp(imagePath)
+          .resize(finalWidth, finalHeight)
+          .toFormat(imageFormat, {
+            quality
+          })
+          .toFile(cachePath)
 
-      // Optimize the image using sharp
-      const image = await sharp(imagePath)
-        .resize(finalWidth, finalHeight)
-        .toFormat(imageFormat, {
-          quality
-        })
-        .toFile(cachePath)
+        c.res.headers.set('Content-Type', getContentType(image.format))
 
+        // Serve the optimized image
+        return c.body(
+          Readable.toWeb(
+            fs.createReadStream(cachePath)
+          ) as unknown as ReadableStream
+        )
+      } else {
+        // Optimize the image using sharp
+        const image = await sharp(imagePath)
+          .resize(finalWidth, finalHeight)
+          .toFormat(imageFormat, {
+            quality
+          })
+          .toBuffer({ resolveWithObject: true })
 
-      c.res.headers.set('Content-Type', getContentType(image.format))
+        c.res.headers.set('Content-Type', getContentType(image.info.format))
 
-      // Serve the optimized image
-      return c.body(
-        Readable.toWeb(fs.createReadStream(cachePath)) as ReadableStream
-      )
+        // Serve the optimized image
+        return c.body(image.data as any)
+      }
     } catch (error) {
       console.error('Error processing the image:', error)
       return c.json({ error: 'Error processing the image' }, 500)
@@ -308,14 +374,20 @@ export const setup: Plugin['setup'] = app => {
   })
 }
 
-import sharp, { FormatEnum } from 'sharp'
+import type { FormatEnum } from 'sharp'
 import { createHash } from 'crypto'
 
 // Cache directory
 const IMAGE_CACHE_DIR = path.join(process.cwd(), '.cache/__pylon/images')
 
-// Ensure the cache directory exists
-fs.promises.mkdir(IMAGE_CACHE_DIR, { recursive: true })
+let IS_IMAGE_CACHE_POSSIBLE = true
+
+// Ensure the cache directory exists (if creating files is allowed)
+try {
+  await fs.promises.mkdir(IMAGE_CACHE_DIR, { recursive: true })
+} catch (error) {
+  IS_IMAGE_CACHE_POSSIBLE = false
+}
 
 // Helper function to generate the cached image path
 const getCachedImagePath = (
@@ -349,11 +421,6 @@ const calculateDimensions = (
     width = Math.round((height * originalWidth) / originalHeight)
   }
   return { width, height }
-}
-
-function isSupportedFormat(format: string): format is keyof FormatEnum {
-  const supportedFormats = sharp.format
-  return Object.keys(supportedFormats).includes(format)
 }
 
 // Helper function to get the correct Content-Type based on the format
