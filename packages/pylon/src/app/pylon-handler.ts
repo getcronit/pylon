@@ -16,6 +16,7 @@ import path from 'path'
 import {app, pluginsMiddleware} from '.'
 import {useViewer} from '../plugins/use-viewer'
 import {useUnhandledRoute} from '../plugins/use-unhandled-route'
+import {useDisableIntrospection} from '@graphql-yoga/plugin-disable-introspection'
 
 interface PylonHandlerOptions {
   graphql: {
@@ -60,11 +61,10 @@ export const handler = (options: PylonHandlerOptions) => {
   const plugins = [useSentry(), useViewer(), ...(config?.plugins || [])]
 
   if (config?.landingPage ?? true) {
-    plugins.push(
-      useUnhandledRoute({
-        graphqlEndpoint: '/graphql'
-      })
-    )
+    plugins.push(useUnhandledRoute())
+  }
+  if (config?.graphiql === false) {
+    plugins.push(useDisableIntrospection() as Plugin)
   }
 
   loadPluginsMiddleware(plugins)
@@ -142,16 +142,18 @@ export const handler = (options: PylonHandlerOptions) => {
   })
 
   const yoga = createYoga({
-    landingPage: false,
-    graphiql: req => {
-      return {
-        shouldPersistHeaders: true,
-        title: 'Pylon Playground',
-        defaultQuery: `# Welcome to the Pylon Playground!`
-      }
-    },
     graphqlEndpoint: '/graphql',
     ...config,
+    landingPage: false,
+    graphiql: !!config?.graphiql
+      ? req => {
+          return {
+            shouldPersistHeaders: true,
+            title: 'Pylon Playground',
+            defaultQuery: `# Welcome to the Pylon Playground!`
+          }
+        }
+      : false,
     plugins,
     schema
   })
