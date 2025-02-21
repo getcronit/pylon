@@ -166,7 +166,7 @@ async function main(
     })
 
     const packageManager =
-      options.packageManager || (await detectPackageManager(targetDir))
+      options.packageManager || (await detectPackageManager(targetDir)) || 'npm'
 
     if (options.install === undefined) {
       options.install = await consola.prompt(
