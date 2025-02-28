@@ -117,7 +117,7 @@ export const generateAppFile = (pageRoutes: PageRoute[]): string => {
   <RootLayout>
       <meta charSet="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
-      <link rel="stylesheet" href="/__pylon/static/app.css" />
+      <link rel="stylesheet" href="/__pylon/static/app.css" precedence="high" />
          <Routes>
         ${pageRoutes
           .map((route, index) => {
