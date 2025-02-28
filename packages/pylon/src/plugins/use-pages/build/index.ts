@@ -113,7 +113,9 @@ export const build: Plugin['build'] = async () => {
       '.woff2': 'file'
     },
     define: {
-      'process.env.NODE_ENV': '"production"'
+      'process.env.NODE_ENV': JSON.stringify(
+        process.env.NODE_ENV || 'development'
+      )
     },
     mainFields: ['browser', 'module', 'main']
   })
@@ -140,6 +142,11 @@ export const build: Plugin['build'] = async () => {
       '.svg': 'file',
       '.woff': 'file',
       '.woff2': 'file'
+    },
+    define: {
+      'process.env.NODE_ENV': JSON.stringify(
+        process.env.NODE_ENV || 'development'
+      )
     }
   })
 
