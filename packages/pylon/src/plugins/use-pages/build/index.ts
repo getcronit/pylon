@@ -85,6 +85,7 @@ export const build: Plugin['build'] = async () => {
   let pagesWatcher: FSWatcher | null = null
 
   const clientCtx = await esbuild.context({
+    sourcemap: 'linked',
     write: false,
     metafile: true,
     nodePaths,
@@ -121,6 +122,7 @@ export const build: Plugin['build'] = async () => {
   })
 
   const serverCtx = await esbuild.context({
+    sourcemap: 'inline',
     write: false,
     absWorkingDir: process.cwd(),
     nodePaths,
@@ -131,10 +133,10 @@ export const build: Plugin['build'] = async () => {
     format: 'esm',
     platform: 'node',
     entryPoints: ['.pylon/app.tsx'],
-    packages: 'external',
     outdir: DIST_PAGES_DIR,
     bundle: true,
     splitting: false,
+    external: ['@getcronit/pylon', 'react', 'react-dom', 'gqty', '@gqty/react'],
     minify: true,
     loader: {
       // Map file extensions to the file loader
@@ -147,7 +149,8 @@ export const build: Plugin['build'] = async () => {
       'process.env.NODE_ENV': JSON.stringify(
         process.env.NODE_ENV || 'development'
       )
-    }
+    },
+    mainFields: ['module', 'main']
   })
 
   return {
