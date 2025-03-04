@@ -124,14 +124,12 @@ export const generateAppFile = (pageRoutes: PageRoute[]): string => {
             return `<Route key={${index}} index={${
               index === 0 ? 'true' : 'false'
             }} path="${route.slug}" element={
-         <Suspense fallback={<div>...</div>}>
             ${route.layouts.reduceRight((child, layoutPath, layoutIndex) => {
               const layoutName = layoutMap[layoutPath]
 
               return `<${layoutName}>${child}</${layoutName}>`
             }, `<${pageMap[route.pagePath]} {...pageProps} />`)}
-
-         </Suspense>} />`
+       } />`
           })
           .join('\n')}
     </Routes>
