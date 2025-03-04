@@ -2,14 +2,14 @@ import fs from 'fs'
 import path from 'path'
 import reactServer from 'react-dom/server'
 
-import { UseHydrateCacheOptions } from '@gqty/react'
-import { PassThrough, Readable } from 'stream'
-import { AppLoader } from './app-loader'
-import { getEnv, type Plugin } from '../../../index'
-import { trimTrailingSlash } from 'hono/trailing-slash'
-import { StaticRouter } from 'react-router'
+import {UseHydrateCacheOptions} from '@gqty/react'
+import {PassThrough, Readable} from 'stream'
+import {AppLoader} from './app-loader'
+import {getEnv, type Plugin} from '../../../index'
+import {trimTrailingSlash} from 'hono/trailing-slash'
+import {StaticRouter} from 'react-router'
 
-export interface PageData { }
+export interface PageData {}
 
 export type PageProps = {
   data: PageData
@@ -73,85 +73,137 @@ export const setup: Plugin['setup'] = app => {
 
       let cacheSnapshot: UseHydrateCacheOptions | undefined = undefined
 
-      const prepared = await client.prepareReactRender(
-        <AppLoader
-          Router={StaticRouter}
-          routerProps={{
-            location: c.req.path
-          }}
-          App={App}
-          client={client}
-          pylonData={{
-            pageProps: pageProps,
-            cacheSnapshot: undefined
-          }}
-        />
-      )
+      try {
+        const prepared = await client.prepareReactRender(
+          <AppLoader
+            Router={StaticRouter}
+            routerProps={{
+              location: c.req.path
+            }}
+            App={App}
+            client={client}
+            pylonData={{
+              pageProps: pageProps,
+              cacheSnapshot: undefined
+            }}
+          />
+        )
 
-      cacheSnapshot = prepared.cacheSnapshot
+        cacheSnapshot = prepared.cacheSnapshot
+      } catch (error) {
+        console.error('Error preparing cache', error)
+      }
 
       if (reactServer.renderToReadableStream) {
-        const stream = await reactServer.renderToReadableStream(
-          <AppLoader
-            Router={StaticRouter}
-            routerProps={{
-              location: c.req.path
-            }}
-            App={App}
-            client={client}
-            pylonData={{
-              pageProps: pageProps,
-              cacheSnapshot: prepared.cacheSnapshot
-            }}
-          />,
-          {
-            bootstrapModules: ['/__pylon/static/app.js'],
-            bootstrapScriptContent: `window.__PYLON_DATA__ = ${JSON.stringify({
-              pageProps: pageProps,
-              cacheSnapshot: cacheSnapshot
-            })}`
-          }
-        )
-
-        return c.body(stream)
-      } else if (reactServer.renderToPipeableStream) {
-        const pipableStream = reactServer.renderToPipeableStream(
-          <AppLoader
-            Router={StaticRouter}
-            routerProps={{
-              location: c.req.path
-            }}
-            App={App}
-            client={client}
-            pylonData={{
-              pageProps: pageProps,
-              cacheSnapshot: prepared.cacheSnapshot
-            }}
-          />,
-          {
-            bootstrapModules: ['/__pylon/static/app.js'],
-            bootstrapScriptContent: `window.__PYLON_DATA__ = ${JSON.stringify({
-              pageProps: pageProps,
-              cacheSnapshot: cacheSnapshot
-            })}`,
-            onShellReady: () => {
-              c.header('Content-Type', 'text/html')
+        try {
+          const stream = await reactServer.renderToReadableStream(
+            <AppLoader
+              Router={StaticRouter}
+              routerProps={{
+                location: c.req.path
+              }}
+              App={App}
+              client={client}
+              pylonData={{
+                pageProps: pageProps,
+                cacheSnapshot: cacheSnapshot
+              }}
+            />,
+            {
+              bootstrapModules: ['/__pylon/static/app.js'],
+              bootstrapScriptContent: `window.__PYLON_DATA__ = ${JSON.stringify(
+                {
+                  pageProps: pageProps,
+                  cacheSnapshot: cacheSnapshot
+                }
+              )}`
             }
-          }
-        )
+          )
 
-        function pipeableToReadable(pipeable) {
-          const passThrough = new PassThrough()
-          pipeable.pipe(passThrough)
-          return Readable.toWeb(passThrough)
+          return c.body(stream)
+        } catch (error) {
+          c.header('Content-Type', 'text/html')
+          c.status(500)
+
+          return c.html(
+            reactServer.renderToString(<BuildTimeErrorPage error={error} />)
+          )
         }
+      } else if (reactServer.renderToPipeableStream) {
+        try {
+          const stream = await new Promise<ReadableStream>(
+            (resolve, reject) => {
+              const pipableStream = reactServer.renderToPipeableStream(
+                <AppLoader
+                  Router={StaticRouter}
+                  routerProps={{
+                    location: c.req.path
+                  }}
+                  App={App}
+                  client={client}
+                  pylonData={{
+                    pageProps: pageProps,
+                    cacheSnapshot: cacheSnapshot
+                  }}
+                />,
+                {
+                  bootstrapModules: ['/__pylon/static/app.js'],
+                  bootstrapScriptContent: `window.__PYLON_DATA__ = ${JSON.stringify(
+                    {
+                      pageProps: pageProps,
+                      cacheSnapshot: cacheSnapshot
+                    }
+                  )}`,
+                  onShellReady: () => {
+                    c.header('Content-Type', 'text/html')
 
-        const stream = pipeableToReadable(pipableStream)
+                    console.log('ready')
 
-        return c.body(stream as any)
+                    resolve(ps as any)
+                  },
+                  onShellError: error => {
+                    console.log('error', error)
+
+                    reject(error)
+                  }
+                }
+              )
+
+              function pipeableToReadable(pipeable) {
+                const passThrough = new PassThrough()
+                pipeable.pipe(passThrough)
+                return Readable.toWeb(passThrough)
+              }
+
+              const ps = pipeableToReadable(pipableStream)
+            }
+          )
+
+          return c.body(stream)
+        } catch (error) {
+          c.header('Content-Type', 'text/html')
+          c.status(500)
+
+          return c.html(
+            reactServer.renderToString(<BuildTimeErrorPage error={error} />)
+          )
+        }
       }
     }
   )
+
+  const BuildTimeErrorPage: React.FC<{error: any}> = ({error}) => {
+    return (
+      <html lang="en">
+        <body>
+          <h1 className="bg-red-500">Error</h1>
+          <pre>{error.message}</pre>
+
+          <pre>{error.stack}</pre>
+        </body>
+      </html>
+    )
+  }
 
   const publicFilesPath = path.resolve(
     process.cwd(),
@@ -262,14 +314,14 @@ export const setup: Plugin['setup'] = app => {
     try {
       const sharp = (await import('sharp')).default
 
-      const { src, w, h, q = '75', format = 'webp' } = c.req.query()
+      const {src, w, h, q = '75', format = 'webp'} = c.req.query()
 
       const queryStringHash = createHash('sha256')
         .update(JSON.stringify(c.req.query()))
         .digest('hex')
 
       if (!src) {
-        return c.json({ error: 'Missing parameters.' }, 400)
+        return c.json({error: 'Missing parameters.'}, 400)
       }
 
       let imagePath = path.join(process.cwd(), '.pylon', src)
@@ -282,7 +334,7 @@ export const setup: Plugin['setup'] = app => {
       try {
         await fs.promises.access(imagePath)
       } catch {
-        return c.json({ error: 'Image not found' }, 404)
+        return c.json({error: 'Image not found'}, 404)
       }
 
       // Get image metadata (width and height) to calculate aspect ratio
@@ -300,7 +352,7 @@ export const setup: Plugin['setup'] = app => {
       }
 
       // Calculate missing dimension
-      const { width: finalWidth, height: finalHeight } = calculateDimensions(
+      const {width: finalWidth, height: finalHeight} = calculateDimensions(
         metadata.width,
         metadata.height,
         w ? parseInt(w) : undefined,
@@ -360,7 +412,7 @@ export const setup: Plugin['setup'] = app => {
           .toFormat(imageFormat, {
             quality
           })
-          .toBuffer({ resolveWithObject: true })
+          .toBuffer({resolveWithObject: true})
 
         c.res.headers.set('Content-Type', getContentType(image.info.format))
 
@@ -369,13 +421,13 @@ export const setup: Plugin['setup'] = app => {
       }
     } catch (error) {
       console.error('Error processing the image:', error)
-      return c.json({ error: 'Error processing the image' }, 500)
+      return c.json({error: 'Error processing the image'}, 500)
     }
   })
 }
 
-import type { FormatEnum } from 'sharp'
-import { createHash } from 'crypto'
+import type {FormatEnum} from 'sharp'
+import {createHash} from 'crypto'
 
 // Cache directory
 const IMAGE_CACHE_DIR = path.join(process.cwd(), '.cache/__pylon/images')
@@ -384,7 +436,7 @@ let IS_IMAGE_CACHE_POSSIBLE = true
 
 // Ensure the cache directory exists (if creating files is allowed)
 try {
-  await fs.promises.mkdir(IMAGE_CACHE_DIR, { recursive: true })
+  await fs.promises.mkdir(IMAGE_CACHE_DIR, {recursive: true})
 } catch (error) {
   IS_IMAGE_CACHE_POSSIBLE = false
 }
@@ -411,7 +463,7 @@ const calculateDimensions = (
   height?: number
 ) => {
   if (!width && !height) {
-    return { width: originalWidth, height: originalHeight }
+    return {width: originalWidth, height: originalHeight}
   }
   if (width && !height) {
     // Calculate height based on the aspect ratio
@@ -420,7 +472,7 @@ const calculateDimensions = (
     // Calculate width based on the aspect ratio
     width = Math.round((height * originalWidth) / originalHeight)
   }
-  return { width, height }
+  return {width, height}
 }
 
 // Helper function to get the correct Content-Type based on the format
@@ -442,11 +494,12 @@ const getContentType = (format: string) => {
   }
 }
 
-import { tmpdir } from 'os'
-import { promisify } from 'util'
-import { pipeline } from 'stream/promises'
-import { PageRoute } from '../build/app-utils'
-import { MiddlewareHandler } from 'hono'
+import {tmpdir} from 'os'
+import {promisify} from 'util'
+import {pipeline} from 'stream/promises'
+import {PageRoute} from '../build/app-utils'
+import {MiddlewareHandler} from 'hono'
+import {html} from 'hono/html'
 
 const downloadImage = async (url: string): Promise<string> => {
   const response = await fetch(url)
