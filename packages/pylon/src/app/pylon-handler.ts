@@ -145,15 +145,16 @@ export const handler = (options: PylonHandlerOptions) => {
     graphqlEndpoint: '/graphql',
     ...config,
     landingPage: false,
-    graphiql: !!config?.graphiql
-      ? req => {
-          return {
-            shouldPersistHeaders: true,
-            title: 'Pylon Playground',
-            defaultQuery: `# Welcome to the Pylon Playground!`
+    graphiql:
+      config?.graphiql !== false
+        ? req => {
+            return {
+              shouldPersistHeaders: true,
+              title: 'Pylon Playground',
+              defaultQuery: `# Welcome to the Pylon Playground!`
+            }
           }
-        }
-      : false,
+        : false,
     plugins,
     schema
   })
