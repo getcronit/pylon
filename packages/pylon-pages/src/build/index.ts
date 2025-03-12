@@ -1,5 +1,5 @@
 import path from 'path'
-import {Plugin} from '../../..'
+import {Plugin} from '@getcronit/pylon'
 import {generateAppFile, getPageRoutes} from './app-utils'
 import chokidar, {FSWatcher} from 'chokidar'
 import fs from 'fs/promises'
@@ -63,6 +63,35 @@ export const build: Plugin['build'] = async () => {
     }
   }
 
+  const copyPylonCSS = async () => {
+    const pylonCssPathDir = path.join(
+      process.cwd(),
+      'node_modules',
+      '@getcronit/pylon',
+      'node_modules',
+      '@getcronit/pylon-pages/dist/browser'
+    )
+
+    const pylonCssDestDir = path.join(
+      process.cwd(),
+      '.pylon',
+      '__pylon',
+      'static'
+    )
+
+    // Copy pylon.css and pylon.css.map to the static directory
+
+    await fs.mkdir(pylonCssDestDir, {recursive: true})
+    await fs.cp(
+      path.join(pylonCssPathDir, 'index.css'),
+      path.join(pylonCssDestDir, 'pylon.css')
+    )
+    await fs.cp(
+      path.join(pylonCssPathDir, 'index.css.map'),
+      path.join(pylonCssDestDir, 'pylon.css.map')
+    )
+  }
+
   const writeOnEndPlugin: esbuild.Plugin = {
     name: 'write-on-end',
     setup(build) {
@@ -105,7 +134,7 @@ export const build: Plugin['build'] = async () => {
     outdir: DIST_STATIC_DIR,
     bundle: true,
     splitting: true,
-    minify: true,
+    minify: false,
     loader: {
       // Map file extensions to the file loader
 
@@ -136,7 +165,14 @@ export const build: Plugin['build'] = async () => {
     outdir: DIST_PAGES_DIR,
     bundle: true,
     splitting: false,
-    external: ['@getcronit/pylon', 'react', 'react-dom', 'gqty', '@gqty/react'],
+    external: [
+      '@getcronit/pylon',
+      '@getcronit/pylon-pages',
+      'react',
+      'react-dom',
+      'gqty',
+      '@gqty/react'
+    ],
     minify: true,
     loader: {
       // Map file extensions to the file loader
@@ -161,6 +197,7 @@ export const build: Plugin['build'] = async () => {
         if (['add', 'change', 'unlink'].includes(event)) {
           await buildAppFile()
           await copyPublicDir()
+          await copyPylonCSS()
         }
       })
 
@@ -175,8 +212,8 @@ export const build: Plugin['build'] = async () => {
     },
     rebuild: async () => {
       await buildAppFile()
-
       await copyPublicDir()
+      await copyPylonCSS()
 
       await Promise.all([clientCtx.rebuild(), serverCtx.rebuild()])
 

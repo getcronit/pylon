@@ -57,13 +57,9 @@ const usePylonImageValues = (
 }
 
 export const PylonImage: React.FC<ImageProps> = props => {
-  console.log('PylonImage', props)
-
   const values = usePylonImageValues(props)
   const [isLoaded, setIsLoaded] = useState(false)
   const imgRef = useRef<HTMLImageElement | null>(null)
-
-  console.log('mgRef.current?.complete', imgRef.current?.complete)
 
   useEffect(() => {
     if (imgRef.current?.complete) {

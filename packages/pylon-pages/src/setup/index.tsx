@@ -2,12 +2,18 @@ import fs from 'fs'
 import path from 'path'
 import reactServer from 'react-dom/server'
 
+import {Env, getEnv, type Plugin} from '@getcronit/pylon'
 import {UseHydrateCacheOptions} from '@gqty/react'
-import {PassThrough, Readable} from 'stream'
-import {AppLoader} from './app-loader'
-import {getEnv, type Plugin} from '../../../index'
 import {trimTrailingSlash} from 'hono/trailing-slash'
 import {StaticRouter} from 'react-router'
+import {PassThrough, Readable} from 'stream'
+import {AppLoader} from './app-loader'
+
+import ErrorPage from '@/components/global-error-page'
+import {MiddlewareHandler} from 'hono'
+import {tmpdir} from 'os'
+import {pipeline} from 'stream/promises'
+import {PageRoute} from '../build/app-utils'
 
 export interface PageData {}
 
@@ -18,7 +24,7 @@ export type PageProps = {
   path: string
 }
 
-const disableCacheMiddleware: MiddlewareHandler = async (c, next) => {
+const disableCacheMiddleware: MiddlewareHandler<Env> = async (c, next) => {
   const env = getEnv()
   if (env.NODE_ENV === 'development') {
     c.header(
@@ -43,7 +49,7 @@ export const setup: Plugin['setup'] = app => {
     console.error('Error reading pages.json', error)
   }
 
-  app.use(trimTrailingSlash())
+  app.use(trimTrailingSlash() as any)
 
   let App: any = undefined
   let client: any = undefined
@@ -51,52 +57,31 @@ export const setup: Plugin['setup'] = app => {
   app.on(
     'GET',
     pageRoutes.map(pageRoute => pageRoute.slug),
-    disableCacheMiddleware,
+    disableCacheMiddleware as any,
     async c => {
-      if (!App) {
-        const module = await import(
-          `${process.cwd()}/.pylon/__pylon/pages/app.js`
-        )
-
-        App = module.default
-      }
-
-      if (!client) {
-        client = await import(`${process.cwd()}/.pylon/client/index.js`)
-      }
-
-      const pageProps = {
-        params: c.req.param(),
-        searchParams: c.req.query(),
-        path: c.req.path
-      }
-
-      let cacheSnapshot: UseHydrateCacheOptions | undefined = undefined
-
       try {
-        const prepared = await client.prepareReactRender(
-          <AppLoader
-            Router={StaticRouter}
-            routerProps={{
-              location: c.req.path
-            }}
-            App={App}
-            client={client}
-            pylonData={{
-              pageProps: pageProps,
-              cacheSnapshot: undefined
-            }}
-          />
-        )
+        if (!App) {
+          const module = await import(
+            `${process.cwd()}/.pylon/__pylon/pages/app.js`
+          )
 
-        cacheSnapshot = prepared.cacheSnapshot
-      } catch (error) {
-        console.error('Error preparing cache', error)
-      }
+          App = module.default
+        }
 
-      if (reactServer.renderToReadableStream) {
+        if (!client) {
+          client = await import(`${process.cwd()}/.pylon/client/index.js`)
+        }
+
+        const pageProps = {
+          params: c.req.param(),
+          searchParams: c.req.query(),
+          path: c.req.path
+        }
+
+        let cacheSnapshot: UseHydrateCacheOptions | undefined = undefined
+
         try {
-          const stream = await reactServer.renderToReadableStream(
+          const prepared = await client.prepareReactRender(
             <AppLoader
               Router={StaticRouter}
               routerProps={{
@@ -106,104 +91,96 @@ export const setup: Plugin['setup'] = app => {
               client={client}
               pylonData={{
                 pageProps: pageProps,
-                cacheSnapshot: cacheSnapshot
+                cacheSnapshot: undefined
               }}
-            />,
-            {
-              bootstrapModules: ['/__pylon/static/app.js'],
-              bootstrapScriptContent: `window.__PYLON_DATA__ = ${JSON.stringify(
-                {
+            />
+          )
+
+          cacheSnapshot = prepared.cacheSnapshot
+        } catch (error) {}
+
+        if (reactServer.renderToReadableStream) {
+          try {
+            const stream = await reactServer.renderToReadableStream(
+              <AppLoader
+                Router={StaticRouter}
+                routerProps={{
+                  location: c.req.path
+                }}
+                App={App}
+                client={client}
+                pylonData={{
                   pageProps: pageProps,
                   cacheSnapshot: cacheSnapshot
-                }
-              )}`
-            }
-          )
-
-          return c.body(stream)
-        } catch (error) {
-          c.header('Content-Type', 'text/html')
-          c.status(500)
-
-          return c.html(
-            reactServer.renderToString(<BuildTimeErrorPage error={error} />)
-          )
-        }
-      } else if (reactServer.renderToPipeableStream) {
-        try {
-          const stream = await new Promise<ReadableStream>(
-            (resolve, reject) => {
-              const pipableStream = reactServer.renderToPipeableStream(
-                <AppLoader
-                  Router={StaticRouter}
-                  routerProps={{
-                    location: c.req.path
-                  }}
-                  App={App}
-                  client={client}
-                  pylonData={{
+                }}
+              />,
+              {
+                bootstrapModules: ['/__pylon/static/app.js'],
+                bootstrapScriptContent: `window.__PYLON_DATA__ = ${JSON.stringify(
+                  {
                     pageProps: pageProps,
                     cacheSnapshot: cacheSnapshot
-                  }}
-                />,
-                {
-                  bootstrapModules: ['/__pylon/static/app.js'],
-                  bootstrapScriptContent: `window.__PYLON_DATA__ = ${JSON.stringify(
-                    {
-                      pageProps: pageProps,
-                      cacheSnapshot: cacheSnapshot
-                    }
-                  )}`,
-                  onShellReady: () => {
-                    c.header('Content-Type', 'text/html')
-
-                    console.log('ready')
-
-                    resolve(ps as any)
-                  },
-                  onShellError: error => {
-                    console.log('error', error)
-
-                    reject(error)
                   }
-                }
-              )
-
-              function pipeableToReadable(pipeable) {
-                const passThrough = new PassThrough()
-                pipeable.pipe(passThrough)
-                return Readable.toWeb(passThrough)
+                )}`
               }
+            )
 
-              const ps = pipeableToReadable(pipableStream)
-            }
-          )
+            return c.body(stream)
+          } catch (error) {
+            throw error
+          }
+        } else if (reactServer.renderToPipeableStream) {
+          return await new Promise<Response>((resolve, reject) => {
+            const {pipe} = reactServer.renderToPipeableStream(
+              <AppLoader
+                Router={StaticRouter}
+                routerProps={{
+                  location: c.req.path
+                }}
+                App={App}
+                client={client}
+                pylonData={{
+                  pageProps: pageProps,
+                  cacheSnapshot: cacheSnapshot
+                }}
+              />,
 
-          return c.body(stream)
-        } catch (error) {
-          c.header('Content-Type', 'text/html')
-          c.status(500)
+              {
+                bootstrapModules: ['/__pylon/static/app.js'],
+                bootstrapScriptContent: `window.__PYLON_DATA__ = ${JSON.stringify(
+                  {
+                    pageProps: pageProps,
+                    cacheSnapshot: cacheSnapshot
+                  }
+                )}`,
+                onShellReady: async () => {
+                  c.header('Content-Type', 'text/html')
 
-          return c.html(
-            reactServer.renderToString(<BuildTimeErrorPage error={error} />)
-          )
+                  const passThrough = new PassThrough()
+
+                  pipe(passThrough)
+
+                  resolve(c.body(Readable.toWeb(passThrough) as any))
+                },
+                onShellError: async error => {
+                  reject(error)
+                }
+              }
+            )
+          })
+        } else {
+          throw new Error('Environment not supported')
         }
+      } catch (error) {
+        c.header('Content-Type', 'text/html')
+        c.status(500)
+
+        return c.html(
+          reactServer.renderToString(<ErrorPage error={error as any} />)
+        )
       }
     }
   )
-
-  const BuildTimeErrorPage: React.FC<{error: any}> = ({error}) => {
-    return (
-      <html lang="en">
-        <body>
-          <h1 className="bg-red-500">Error</h1>
-          <pre>{error.message}</pre>
-
-          <pre>{error.stack}</pre>
-        </body>
-      </html>
-    )
-  }
 
   const publicFilesPath = path.resolve(
     process.cwd(),
@@ -222,7 +199,7 @@ export const setup: Plugin['setup'] = app => {
   app.on(
     'GET',
     publicFiles.map(file => `/${file}`),
-    disableCacheMiddleware,
+    disableCacheMiddleware as any,
     async c => {
       const publicFilePath = path.resolve(
         process.cwd(),
@@ -256,20 +233,22 @@ export const setup: Plugin['setup'] = app => {
           c.res.headers.set('Content-Type', 'image/svg+xml')
         } else if (publicFilePath.endsWith('.ico')) {
           c.res.headers.set('Content-Type', 'image/x-icon')
+        } else if (publicFilePath.endsWith('.map')) {
+          c.res.headers.set('Content-Type', 'application/json')
         }
 
         const stream = fs.createReadStream(publicFilePath)
 
-        const a = Readable.toWeb(stream) as unknown as ReadableStream
+        const webStream = Readable.toWeb(stream) as unknown as ReadableStream
 
-        return c.body(a)
+        return c.body(webStream)
       } catch {
         return c.status(404)
       }
     }
   )
 
-  app.get('/__pylon/static/*', disableCacheMiddleware, async c => {
+  app.get('/__pylon/static/*', disableCacheMiddleware as any, async c => {
     const filePath = path.resolve(
       process.cwd(),
       '.pylon',
@@ -279,7 +258,7 @@ export const setup: Plugin['setup'] = app => {
     )
 
     if (!fs.existsSync(filePath)) {
-      return c.status(404)
+      return c.notFound()
     }
 
     if (filePath.endsWith('.js')) {
@@ -288,7 +267,7 @@ export const setup: Plugin['setup'] = app => {
       c.res.headers.set('Content-Type', 'text/css')
     } else if (filePath.endsWith('.html')) {
       c.res.headers.set('Content-Type', 'text/html')
-    } else if (filePath.endsWith('.json')) {
+    } else if (filePath.endsWith('.json') || filePath.endsWith('.map')) {
       c.res.headers.set('Content-Type', 'application/json')
     } else if (filePath.endsWith('.png')) {
       c.res.headers.set('Content-Type', 'image/png')
@@ -304,9 +283,9 @@ export const setup: Plugin['setup'] = app => {
 
     const stream = fs.createReadStream(filePath)
 
-    const a = Readable.toWeb(stream) as unknown as ReadableStream
+    const webStream = Readable.toWeb(stream) as unknown as ReadableStream
 
-    return c.body(a)
+    return c.body(webStream)
   })
 
   // Image optimization route
@@ -426,10 +405,11 @@ export const setup: Plugin['setup'] = app => {
   })
 }
 
-import type {FormatEnum} from 'sharp'
 import {createHash} from 'crypto'
+import type {FormatEnum} from 'sharp'
 
 // Cache directory
+
 const IMAGE_CACHE_DIR = path.join(process.cwd(), '.cache/__pylon/images')
 
 let IS_IMAGE_CACHE_POSSIBLE = true
@@ -493,13 +473,6 @@ const getContentType = (format: string) => {
       return 'application/octet-stream' // Fallback type if format is unknown
   }
 }
-
-import {tmpdir} from 'os'
-import {promisify} from 'util'
-import {pipeline} from 'stream/promises'
-import {PageRoute} from '../build/app-utils'
-import {MiddlewareHandler} from 'hono'
-import {html} from 'hono/html'
 
 const downloadImage = async (url: string): Promise<string> => {
   const response = await fetch(url)

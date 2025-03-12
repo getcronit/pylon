@@ -21,7 +21,7 @@ app.use('*', async (c, next) => {
   })
 })
 
-app.use('*', except(['/__pylon/static/*'], logger()))
+app.use('*', except(['/__pylon/*'], logger()))
 
 app.use((c, next) => {
   // @ts-ignore
