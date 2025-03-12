@@ -17,7 +17,7 @@ export const injectAppHydrationPlugin: Plugin = {
         contents += `
           import {hydrateRoot} from 'react-dom/client'
           import * as client from './${pathToClient}'
-          import { __PYLON_ROUTER_INTERNALS_DO_NOT_USE } from '@getcronit/pylon/pages';
+          import { __PYLON_ROUTER_INTERNALS_DO_NOT_USE, DevOverlay, onCaughtErrorProd, onRecoverableErrorProd, onUncaughtErrorProd } from '@getcronit/pylon/pages';
           const {BrowserRouter} = __PYLON_ROUTER_INTERNALS_DO_NOT_USE
           import React, {useMemo} from 'react'
 
@@ -53,11 +53,17 @@ export const injectAppHydrationPlugin: Plugin = {
           
             return <props.Router {...props.routerProps}>{page}</props.Router>
           }
+
+        
           
 
           hydrateRoot(
           document,
-            <AppLoader Router={BrowserRouter} client={client} pylonData={pylonData} App={App} />
+            <AppLoader Router={BrowserRouter} client={client} pylonData={pylonData} App={App} />, {
+                  onCaughtError: onCaughtErrorProd,
+      onRecoverableError: onRecoverableErrorProd,
+      onUncaughtError: onUncaughtErrorProd,
+            }
           )
           `
 

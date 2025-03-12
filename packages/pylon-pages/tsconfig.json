@@ -7,7 +7,7 @@
     "target": "ES2022",
     "module": "ES2022",
 
-    "moduleResolution": "bundler", // support `import` from `node_modules`
+    "moduleResolution": "node", // support `import` from `node_modules`
     "noImplicitAny": false,
     "noImplicitThis": false,
 
@@ -19,7 +19,12 @@
     "strict": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
-    "experimentalDecorators": true
+    "experimentalDecorators": true,
+
+    "baseUrl": "./src",
+    "paths": {
+      "@/*": ["./*"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": [

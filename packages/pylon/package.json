@@ -13,12 +13,13 @@
       "import": "./dist/pages/index.js",
       "types": "./dist/pages/index.d.ts"
     },
+    "./pages/index.css": {
+      "import": "./dist/pages/index.css"
+    },
     "./tsconfig.pylon.json": "./tsconfig.pylon.json"
   },
   "scripts": {
-    "build": "rimraf ./dist && pnpm run build:server && pnpm run build:pages",
-    "build:server": "esbuild ./src/index.ts --bundle --platform=node --target=node18 --format=esm --outdir=./dist --sourcemap=linked --packages=external && pnpm run build:declarations",
-    "build:pages": "esbuild ./src/pages/index.ts --bundle --packages=external --platform=browser --target=esnext --format=esm --outdir=./dist/pages --sourcemap=linked",
+    "build": "rimraf ./dist && node build.js && pnpm run build:declarations",
     "build:declarations": "tsc --declaration --emitDeclarationOnly --outDir ./dist"
   },
   "files": [
@@ -41,7 +42,6 @@
     "@hono/sentry": "^1.2.0",
     "@sentry/bun": "^8.17.0",
     "@sentry/node": "^8.54.0",
-    "chokidar": "^4.0.3",
     "consola": "^3.2.3",
     "gqty": "3.4.0-canary-20250207102900.644ad9fdeafa6318516627577b1d4d754d5c5a98",
     "graphql": "^16.9.0",
@@ -50,39 +50,14 @@
     "hono": "^4.0.8",
     "jsonwebtoken": "^9.0.2",
     "openid-client": "^6.1.7",
-    "postcss-load-config": "^6.0.1",
-    "react-router": "^7.1.5",
     "sharp": "^0.33.5",
-    "tiny-glob": "^0.2.9",
-    "toucan-js": "^4.1.0"
+    "toucan-js": "^4.1.0",
+    "@getcronit/pylon-pages": "workspace:^1.0.0"
   },
   "engines": {
     "node": ">=18.0.0"
   },
   "devDependencies": {
-    "@sentry/types": "^8.54.0",
-    "@types/react": "^19.0.8",
-    "@types/react-dom": "^19.0.4"
-  },
-  "peerDependencies": {
-    "@tailwindcss/postcss": "^4.0.4",
-    "autoprefixer": "^10.4.20",
-    "postcss": "^8.5.1",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
-  },
-  "peerDependenciesMeta": {
-    "react": {
-      "optional": true
-    },
-    "react-dom": {
-      "optional": true
-    },
-    "@tailwindcss/postcss": {
-      "optional": true
-    },
-    "autoprefixer": {
-      "optional": true
-    }
+    "@sentry/types": "^8.54.0"
   }
 }
