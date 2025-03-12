@@ -448,6 +448,7 @@ export class SchemaParser {
       }
       schemaString += ` {\n`
 
+
       // loop over the fields in the type object
       for (const field of type.fields) {
         // build the argument list for the field if there is at least one argument
