@@ -1,5 +1,12 @@
 # @getcronit/pylon-dev
 
+## 1.0.4
+
+### Patch Changes
+
+- Updated dependencies [[`1aacbba`](https://github.com/getcronit/pylon/commit/1aacbba92b01f5f08b886ef2d96662ffe864f062)]:
+  - @getcronit/pylon-builder@2.6.8
+
 ## 1.0.3
 
 ### Patch Changes
