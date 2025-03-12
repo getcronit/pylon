@@ -1,5 +1,11 @@
 # @getcronit/pylon-builder
 
+## 2.6.8
+
+### Patch Changes
+
+- [#77](https://github.com/getcronit/pylon/pull/77) [`1aacbba`](https://github.com/getcronit/pylon/commit/1aacbba92b01f5f08b886ef2d96662ffe864f062) Thanks [@schettn](https://github.com/schettn)! - Fix broken field descriptions in schema parsing.
+
 ## 2.6.7
 
 ### Patch Changes
