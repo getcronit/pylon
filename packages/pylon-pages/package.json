@@ -27,7 +27,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/getcronit/pylon.git",
-    "directory": "packages/pylon"
+    "directory": "packages/pylon-pages"
   },
   "homepage": "https://pylon.cronit.io",
   "dependencies": {
@@ -45,7 +45,8 @@
     "sharp": "^0.33.5",
     "tailwind-merge": "^3.0.1",
     "tiny-glob": "^0.2.9",
-    "toucan-js": "^4.1.0"
+    "toucan-js": "^4.1.0",
+    "@getcronit/pylon": "workspace:^2.0.0"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -56,11 +57,9 @@
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.4",
     "tailwindcss": "^4.0.4",
-    "tailwindcss-animate": "^1.0.7",
-    "@getcronit/pylon": "workspace:^2.0.0"
+    "tailwindcss-animate": "^1.0.7"
   },
   "peerDependencies": {
-    "@getcronit/pylon": "workspace:^2.0.0",
     "@tailwindcss/postcss": "^4.0.4",
     "autoprefixer": "^10.4.20",
     "hono": "^4.0.8",
