@@ -79,6 +79,7 @@ export interface Schema {
 
 type ReferenceSchemaType = {
   returnType: ts.Type
+  symbol: ts.Symbol
   args: {
     // value needs to be inputs type
     [key: string]: {
@@ -447,6 +448,7 @@ export class SchemaParser {
       }
       schemaString += ` {\n`
 
+
       // loop over the fields in the type object
       for (const field of type.fields) {
         // build the argument list for the field if there is at least one argument
@@ -600,7 +602,7 @@ export class SchemaParser {
           name: propertyName,
           type: {
             ...fieldDef,
-            description: this.getTypeDocumentation(fieldType)
+            description: this.getSymbolDocumentation(property.symbol)
           },
           args: []
         }
@@ -971,6 +973,7 @@ export class SchemaParser {
             referenceSchema[processing].get(type)![
               property.escapedName as string
             ] = {
+              symbol: property,
               returnType: propertyType,
               args: {}
             }
