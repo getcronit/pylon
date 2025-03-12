@@ -51,13 +51,20 @@
     "jsonwebtoken": "^9.0.2",
     "openid-client": "^6.1.7",
     "sharp": "^0.33.5",
-    "toucan-js": "^4.1.0",
-    "@getcronit/pylon-pages": "workspace:^1.0.0"
+    "toucan-js": "^4.1.0"
   },
   "engines": {
     "node": ">=18.0.0"
   },
   "devDependencies": {
     "@sentry/types": "^8.54.0"
+  },
+  "peerDependencies": {
+    "@getcronit/pylon-pages": "workspace:^1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@getcronit/pylon-pages": {
+      "optional": true
+    }
   }
 }
