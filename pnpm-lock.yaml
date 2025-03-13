@@ -232,6 +232,9 @@ importers:
       postcss:
         specifier: ^8.5.1
         version: 8.5.1
+      postcss-load-config:
+        specifier: ^6.0.1
+        version: 6.0.1(jiti@2.4.2)(postcss@8.5.1)
       react:
         specifier: ^19.0.0
         version: 19.0.0
@@ -266,9 +269,6 @@ importers:
       '@types/react-dom':
         specifier: ^19.0.4
         version: 19.0.4(@types/react@19.0.10)
-      postcss-load-config:
-        specifier: ^6.0.1
-        version: 6.0.1(jiti@2.4.2)(postcss@8.5.1)
       tailwindcss:
         specifier: ^4.0.4
         version: 4.0.7
