@@ -1,9 +1,20 @@
-import React, {useState, useEffect, useMemo, useRef} from 'react'
+import React, {useMemo} from 'react'
 
-export interface ImageProps {
-  src: string
+interface ImageValuesProps {
+  src: string | PylonBuildSrc
   alt?: string
   className?: string
+  width?: number
+  height?: number
+  blurDataURL?: string
+}
+
+export interface ImageProps extends Omit<ImageValuesProps, 'src'> {
+  src: string
+}
+
+interface PylonBuildSrc {
+  url: string
   width?: number
   height?: number
   blurDataURL?: string
@@ -18,7 +29,7 @@ export interface ImageProps {
  * @returns {Object} The processed image values: width, height, blurDataURL, and final image source.
  */
 const usePylonImageValues = (
-  props: ImageProps
+  props: ImageValuesProps
 ): {
   src: string
   width?: number
@@ -26,30 +37,70 @@ const usePylonImageValues = (
   blurDataURL?: string
 } => {
   return useMemo(() => {
-    // Parse the image source URL to extract query parameters
-    const url = new URL(props.src, 'http://localhost')
-    const searchParams = new URLSearchParams(url.search)
+    // // Parse the image source URL to extract query parameters
+    // const isSrcAbsolute =
+    //   props.src.startsWith('http://') || props.src.startsWith('https://')
+    // const url = new URL(props.src, 'http://localhost')
+    // const searchParams = new URLSearchParams(url.search)
 
-    // Extract values, prioritizing props over query params
-    const getValue = (propValue, paramKey) =>
-      propValue ?? searchParams.get(paramKey)
-    const width = getValue(props.width, 'w')
-    const height = getValue(props.height, 'h')
-    const blurDataURL = getValue(props.blurDataURL, 'blurDataURL')
+    // // Extract values, prioritizing props over query params
+    // const getValue = (propValue, paramKey) =>
+    //   propValue ?? searchParams.get(paramKey)
+    // const width = getValue(props.width, 'w')
+    // const height = getValue(props.height, 'h')
+    // const blurDataURL = getValue(props.blurDataURL, 'blurDataURL')
 
-    // Prepare Pylon-specific query params
-    const pylonMediaSearchParams = new URLSearchParams({
-      src: url.pathname,
-      ...(width && {w: width.toString()}),
-      ...(height && {h: height.toString()})
-    })
+    // // Prepare Pylon-specific query params
+    // const pylonMediaSearchParams = new URLSearchParams({
+    //   src:
+    //   ...(width && {w: width.toString()}),
+    //   ...(height && {h: height.toString()})
+    // })
+
+    const pylonMediaSearchParams = new URLSearchParams({})
+    let blurDataURL: string | undefined
+
+    if (typeof props.src === 'string') {
+      pylonMediaSearchParams.set('src', props.src)
+    } else {
+      pylonMediaSearchParams.set('src', props.src.url)
+
+      if (props.src.width) {
+        pylonMediaSearchParams.set('w', props.src.width.toString())
+      }
+
+      if (props.src.height) {
+        pylonMediaSearchParams.set('h', props.src.height.toString())
+      }
+
+      blurDataURL = props.src.blurDataURL
+    }
+
+    if (props.width) {
+      pylonMediaSearchParams.set('w', props.width.toString())
+    }
+
+    if (props.height) {
+      pylonMediaSearchParams.set('h', props.height.toString())
+    }
+
+    if (props.blurDataURL) {
+      blurDataURL = props.blurDataURL
+    }
 
     // Construct the final image source URL
     const finalSrc = `/__pylon/image?${pylonMediaSearchParams.toString()}`
 
+    const width = pylonMediaSearchParams.has('w')
+      ? parseInt(pylonMediaSearchParams.get('w')!)
+      : undefined
+    const height = pylonMediaSearchParams.has('h')
+      ? parseInt(pylonMediaSearchParams.get('h')!)
+      : undefined
+
     return {
-      width: width ? parseInt(width) : undefined,
-      height: height ? parseInt(height) : undefined,
+      width,
+      height,
       blurDataURL,
       src: finalSrc
     }
@@ -58,29 +109,17 @@ const usePylonImageValues = (
 
 export const Image: React.FC<ImageProps> = props => {
   const values = usePylonImageValues(props)
-  const [isLoaded, setIsLoaded] = useState(false)
-  const imgRef = useRef<HTMLImageElement | null>(null)
-
-  useEffect(() => {
-    if (imgRef.current?.complete) {
-      setIsLoaded(true)
-    }
-  }, [imgRef.current])
 
   return (
     <img
-      ref={imgRef}
       src={values.src}
       alt={props.alt}
       className={props.className}
       width={values.width}
       height={values.height}
-      onLoad={() => setIsLoaded(true)}
       style={{
         backgroundImage: `url(${values.blurDataURL})`,
-        backgroundSize: 'cover',
-        filter: !isLoaded ? 'blur(5px)' : 'none',
-        transition: 'filter 0.3s ease-out, opacity 0.3s ease-out'
+        backgroundSize: 'cover'
       }}
       loading="lazy"
     />
