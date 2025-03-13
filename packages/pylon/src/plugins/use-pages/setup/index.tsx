@@ -291,13 +291,7 @@ export const setup: Plugin['setup'] = app => {
   // Image optimization route
   app.get('/__pylon/image', async c => {
     try {
-      const sharp = (await import('sharp')).default
-
       const {src, w, h, q = '75', format = 'webp'} = c.req.query()
-
-      const queryStringHash = createHash('sha256')
-        .update(JSON.stringify(c.req.query()))
-        .digest('hex')
 
       if (!src) {
         return c.json({error: 'Missing parameters.'}, 400)
@@ -315,6 +309,27 @@ export const setup: Plugin['setup'] = app => {
       } catch {
         return c.json({error: 'Image not found'}, 404)
       }
+
+      // Check cache first
+      const cachedImageFileName = getCachedImagePath(
+        src,
+        w ? parseInt(w) : 0,
+        h ? parseInt(h) : 0,
+        format as keyof FormatEnum
+      )
+
+      if (IS_IMAGE_CACHE_POSSIBLE) {
+        try {
+          await fs.promises.access(cachedImageFileName)
+          const stream = fs.createReadStream(cachedImageFileName)
+          c.res.headers.set('Content-Type', getContentType(format))
+          return c.body(Readable.toWeb(stream) as ReadableStream)
+        } catch (e) {
+          // Proceed to optimize and cache the image if it doesn't exist
+        }
+      }
+
+      const sharp = (await import('sharp')).default
 
       // Get image metadata (width and height) to calculate aspect ratio
       const metadata = await sharp(imagePath).metadata()
@@ -338,9 +353,6 @@ export const setup: Plugin['setup'] = app => {
         h ? parseInt(h) : undefined
       )
 
-      // Check cache first
-      const cachePath = path.join(IMAGE_CACHE_DIR, queryStringHash)
-
       let imageFormat = format.toLowerCase()
 
       function isSupportedFormat(format: string): format is keyof FormatEnum {
@@ -352,50 +364,27 @@ export const setup: Plugin['setup'] = app => {
         throw new Error('Unsupported image format')
       }
 
-      // Serve cached image if it exists
-      // try {
-      //   await fs.promises.access(cachePath);
-
-      //   const stream = fs.createReadStream(cachePath)
-
-      //   c.res.headers.set('Content-Type', getContentType(imageFormat));
-
-      //   return c.body(Readable.toWeb(stream) as ReadableStream)
-      // } catch {
-      //   // Proceed to optimize and cache the image if it doesn't exist
-      // }
-
       const quality = parseInt(q)
 
-      if (IS_IMAGE_CACHE_POSSIBLE) {
-        // Optimize the image using sharp
-        const image = await sharp(imagePath)
-          .resize(finalWidth, finalHeight)
-          .toFormat(imageFormat, {
-            quality
-          })
-          .toFile(cachePath)
+      const data = sharp(imagePath)
+        .resize(finalWidth, finalHeight)
+        .toFormat(imageFormat, {
+          quality
+        })
 
+      if (IS_IMAGE_CACHE_POSSIBLE) {
+        const image = await data.toFile(cachedImageFileName)
         c.res.headers.set('Content-Type', getContentType(image.format))
 
-        // Serve the optimized image
         return c.body(
           Readable.toWeb(
-            fs.createReadStream(cachePath)
+            fs.createReadStream(cachedImageFileName)
           ) as unknown as ReadableStream
         )
       } else {
-        // Optimize the image using sharp
-        const image = await sharp(imagePath)
-          .resize(finalWidth, finalHeight)
-          .toFormat(imageFormat, {
-            quality
-          })
-          .toBuffer({resolveWithObject: true})
-
+        const image = await data.toBuffer({resolveWithObject: true})
         c.res.headers.set('Content-Type', getContentType(image.info.format))
 
-        // Serve the optimized image
         return c.body(image.data as any)
       }
     } catch (error) {
@@ -429,10 +418,17 @@ const getCachedImagePath = (
   format: keyof FormatEnum
 ) => {
   const fileName = `${path.basename(
-    src,
+    createHash('md5').update(src).digest('hex'),
     path.extname(src)
   )}-${width}x${height}.${format}`
   return path.join(IMAGE_CACHE_DIR, fileName)
+}
+
+const getValuesFromCachedImagePath = (cachedImagePath: string) => {
+  const fileName = path.basename(cachedImagePath)
+  const [hash, dimensions, format] = fileName.split('.')
+  const [width, height] = dimensions.split('x').map(Number)
+  return {hash, width, height, format}
 }
 
 // Utility function to calculate missing dimension based on aspect ratio

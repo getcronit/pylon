@@ -47,15 +47,6 @@ export const imagePlugin: Plugin = {
       // Build the URL with the publicPath and w/h search params
       const url = `${publicPath}/media/${path.basename(args.path)}`
 
-      const searchParams = new URLSearchParams({})
-
-      if (metadata.width) {
-        searchParams.set('w', metadata.width.toString())
-      }
-      if (metadata.height) {
-        searchParams.set('h', metadata.height.toString())
-      }
-
       const output = image
         .resize({
           width: Math.min(metadata.width ?? 16, 16),
@@ -63,7 +54,7 @@ export const imagePlugin: Plugin = {
           fit: 'inside'
         })
         .toFormat('webp', {
-          quality: 20,
+          quality: 30,
           alphaQuality: 20,
           smartSubsample: true
         })
@@ -73,13 +64,14 @@ export const imagePlugin: Plugin = {
         'base64'
       )}`
 
-      if (dataURIBase64) {
-        searchParams.set('blurDataURL', dataURIBase64)
-      }
-
       return {
-        contents: `${url}?${searchParams.toString()}`,
-        loader: 'text'
+        contents: JSON.stringify({
+          url,
+          width: metadata.width,
+          height: metadata.height,
+          blurDataURL: dataURIBase64
+        }),
+        loader: 'json'
       }
     })
   }
