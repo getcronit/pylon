@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import reactServer from 'react-dom/server'
 
-import {Env, getEnv, type Plugin} from '@getcronit/pylon'
+import {Env, getEnv, type Plugin} from '@/index'
 import {UseHydrateCacheOptions} from '@gqty/react'
 import {trimTrailingSlash} from 'hono/trailing-slash'
 import {StaticRouter} from 'react-router'

@@ -18,8 +18,7 @@ export {getEnv} from './get-env.js'
 export {createDecorator} from './create-decorator.js'
 export {createPubSub as experimentalCreatePubSub} from 'graphql-yoga'
 
-// @ts-ignore
-export {usePages} from '@getcronit/pylon-pages'
+export {usePages} from './plugins/use-pages'
 
 import type {Plugin as YogaPlugin} from 'graphql-yoga'
 import {MiddlewareHandler} from 'hono'

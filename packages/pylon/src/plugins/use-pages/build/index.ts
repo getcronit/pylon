@@ -1,5 +1,5 @@
 import path from 'path'
-import {Plugin} from '@getcronit/pylon'
+import {Plugin} from '@/index'
 import {generateAppFile, getPageRoutes} from './app-utils'
 import chokidar, {FSWatcher} from 'chokidar'
 import fs from 'fs/promises'
@@ -67,9 +67,7 @@ export const build: Plugin['build'] = async () => {
     const pylonCssPathDir = path.join(
       process.cwd(),
       'node_modules',
-      '@getcronit/pylon',
-      'node_modules',
-      '@getcronit/pylon-pages/dist/browser'
+      '@getcronit/pylon/dist/pages',
     )
 
     const pylonCssDestDir = path.join(
@@ -167,7 +165,6 @@ export const build: Plugin['build'] = async () => {
     splitting: false,
     external: [
       '@getcronit/pylon',
-      '@getcronit/pylon-pages',
       'react',
       'react-dom',
       'gqty',
