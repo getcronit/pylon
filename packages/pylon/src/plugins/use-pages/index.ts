@@ -1,4 +1,4 @@
-import {Plugin} from '@getcronit/pylon'
+import {Plugin} from '@/index'
 import {setup, PageData, PageProps} from './setup'
 import {build} from './build'
 

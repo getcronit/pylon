@@ -166,9 +166,6 @@ importers:
       '@envelop/core':
         specifier: ^5.0.3
         version: 5.0.3
-      '@getcronit/pylon-pages':
-        specifier: workspace:^1.0.0
-        version: link:../pylon-pages
       '@getcronit/pylon-telemetry':
         specifier: workspace:^
         version: link:../pylon-telemetry
@@ -181,12 +178,30 @@ importers:
       '@hono/sentry':
         specifier: ^1.2.0
         version: 1.2.0(hono@4.6.20)
+      '@radix-ui/react-collapsible':
+        specifier: ^1.1.3
+        version: 1.1.3(@types/react-dom@19.0.4(@types/react@19.0.10))(@types/react@19.0.10)(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
+      '@radix-ui/react-slot':
+        specifier: ^1.1.2
+        version: 1.1.2(@types/react@19.0.10)(react@19.0.0)
       '@sentry/bun':
         specifier: ^8.17.0
         version: 8.54.0(@opentelemetry/api@1.9.0)(@opentelemetry/context-async-hooks@1.30.1(@opentelemetry/api@1.9.0))(@opentelemetry/core@1.30.1(@opentelemetry/api@1.9.0))(@opentelemetry/instrumentation@0.57.1(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.30.1(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.28.0)
       '@sentry/node':
         specifier: ^8.54.0
         version: 8.54.0
+      autoprefixer:
+        specifier: ^10.4.20
+        version: 10.4.20(postcss@8.5.1)
+      chokidar:
+        specifier: ^4.0.3
+        version: 4.0.3
+      class-variance-authority:
+        specifier: ^0.7.1
+        version: 0.7.1
+      clsx:
+        specifier: ^2.1.1
+        version: 2.1.1
       consola:
         specifier: ^3.2.3
         version: 3.4.0
@@ -208,12 +223,33 @@ importers:
       jsonwebtoken:
         specifier: ^9.0.2
         version: 9.0.2
+      lucide-react:
+        specifier: ^0.474.0
+        version: 0.474.0(react@19.0.0)
       openid-client:
         specifier: ^6.1.7
         version: 6.2.0
+      postcss:
+        specifier: ^8.5.1
+        version: 8.5.1
+      react:
+        specifier: ^19.0.0
+        version: 19.0.0
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.0.0(react@19.0.0)
+      react-router:
+        specifier: ^7.1.5
+        version: 7.2.0(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
       sharp:
         specifier: ^0.33.5
         version: 0.33.5
+      tailwind-merge:
+        specifier: ^3.0.1
+        version: 3.0.2
+      tiny-glob:
+        specifier: ^0.2.9
+        version: 0.2.9
       toucan-js:
         specifier: ^4.1.0
         version: 4.1.0
@@ -221,6 +257,24 @@ importers:
       '@sentry/types':
         specifier: ^8.54.0
         version: 8.54.0
+      '@tailwindcss/postcss':
+        specifier: ^4.0.6
+        version: 4.0.7
+      '@types/react':
+        specifier: ^19.0.8
+        version: 19.0.10
+      '@types/react-dom':
+        specifier: ^19.0.4
+        version: 19.0.4(@types/react@19.0.10)
+      postcss-load-config:
+        specifier: ^6.0.1
+        version: 6.0.1(jiti@2.4.2)(postcss@8.5.1)
+      tailwindcss:
+        specifier: ^4.0.4
+        version: 4.0.7
+      tailwindcss-animate:
+        specifier: ^1.0.7
+        version: 1.0.7(tailwindcss@4.0.7)
 
   packages/pylon-dev:
     dependencies:
@@ -258,91 +312,6 @@ importers:
       typescript:
         specifier: ^5.7.3
         version: 5.7.3
-
-  packages/pylon-pages:
-    dependencies:
-      '@getcronit/pylon':
-        specifier: workspace:^2.0.0
-        version: link:../pylon
-      '@gqty/react':
-        specifier: ^3.1.0
-        version: 3.1.0(gqty@3.4.0-canary-20250207102900.644ad9fdeafa6318516627577b1d4d754d5c5a98(graphql@16.10.0))(graphql@16.10.0)(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
-      '@radix-ui/react-collapsible':
-        specifier: ^1.1.3
-        version: 1.1.3(@types/react-dom@19.0.4(@types/react@19.0.10))(@types/react@19.0.10)(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
-      '@radix-ui/react-slot':
-        specifier: ^1.1.2
-        version: 1.1.2(@types/react@19.0.10)(react@19.0.0)
-      autoprefixer:
-        specifier: ^10.4.20
-        version: 10.4.20(postcss@8.5.1)
-      chokidar:
-        specifier: ^4.0.3
-        version: 4.0.3
-      class-variance-authority:
-        specifier: ^0.7.1
-        version: 0.7.1
-      clsx:
-        specifier: ^2.1.1
-        version: 2.1.1
-      consola:
-        specifier: ^3.2.3
-        version: 3.4.0
-      gqty:
-        specifier: 3.4.0-canary-20250207102900.644ad9fdeafa6318516627577b1d4d754d5c5a98
-        version: 3.4.0-canary-20250207102900.644ad9fdeafa6318516627577b1d4d754d5c5a98(graphql@16.10.0)
-      hono:
-        specifier: ^4.0.8
-        version: 4.6.20
-      lucide-react:
-        specifier: ^0.474.0
-        version: 0.474.0(react@19.0.0)
-      postcss:
-        specifier: ^8.5.1
-        version: 8.5.1
-      postcss-load-config:
-        specifier: ^6.0.1
-        version: 6.0.1(jiti@2.4.2)(postcss@8.5.1)
-      react:
-        specifier: ^19.0.0
-        version: 19.0.0
-      react-dom:
-        specifier: ^19.0.0
-        version: 19.0.0(react@19.0.0)
-      react-router:
-        specifier: ^7.1.5
-        version: 7.2.0(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
-      sharp:
-        specifier: ^0.33.5
-        version: 0.33.5
-      tailwind-merge:
-        specifier: ^3.0.1
-        version: 3.0.2
-      tiny-glob:
-        specifier: ^0.2.9
-        version: 0.2.9
-      toucan-js:
-        specifier: ^4.1.0
-        version: 4.1.0
-    devDependencies:
-      '@sentry/types':
-        specifier: ^8.54.0
-        version: 8.54.0
-      '@tailwindcss/postcss':
-        specifier: ^4.0.6
-        version: 4.0.7
-      '@types/react':
-        specifier: ^19.0.8
-        version: 19.0.10
-      '@types/react-dom':
-        specifier: ^19.0.4
-        version: 19.0.4(@types/react@19.0.10)
-      tailwindcss:
-        specifier: ^4.0.4
-        version: 4.0.7
-      tailwindcss-animate:
-        specifier: ^1.0.7
-        version: 1.0.7(tailwindcss@4.0.7)
 
   packages/pylon-telemetry:
     dependencies:

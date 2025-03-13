@@ -56,7 +56,7 @@ const usePylonImageValues = (
   }, [props])
 }
 
-export const PylonImage: React.FC<ImageProps> = props => {
+export const Image: React.FC<ImageProps> = props => {
   const values = usePylonImageValues(props)
   const [isLoaded, setIsLoaded] = useState(false)
   const imgRef = useRef<HTMLImageElement | null>(null)

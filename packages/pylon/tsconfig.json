@@ -19,7 +19,11 @@
     "strict": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
-    "experimentalDecorators": true
+    "experimentalDecorators": true,
+    "baseUrl": "./src",
+    "paths": {
+      "@/*": ["./*"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": [
