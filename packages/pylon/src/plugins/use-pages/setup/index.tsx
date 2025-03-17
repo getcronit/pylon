@@ -291,7 +291,14 @@ export const setup: Plugin['setup'] = app => {
   // Image optimization route
   app.get('/__pylon/image', async c => {
     try {
-      const {src, w, h, q = '75', format = 'webp'} = c.req.query()
+      const {
+        src,
+        w,
+        h,
+        q = '75',
+        format = 'webp',
+        lqip = 'false'
+      } = c.req.query()
 
       if (!src) {
         return c.json({error: 'Missing parameters.'}, 400)
@@ -300,12 +307,14 @@ export const setup: Plugin['setup'] = app => {
       let imagePath = path.join(process.cwd(), '.pylon', src)
 
       // Check cache first
-      const cachedImageFileName = getCachedImagePath(
+      const cachedImageFileName = getCachedImagePath({
         src,
-        w ? parseInt(w) : 0,
-        h ? parseInt(h) : 0,
-        format as keyof FormatEnum
-      )
+        width: w ? parseInt(w) : 0,
+        height: h ? parseInt(h) : 0,
+        quality: q,
+        lqip: lqip === 'true',
+        format: format as keyof FormatEnum
+      })
 
       if (src.startsWith('http://') || src.startsWith('https://')) {
         imagePath = await downloadImage(src)
@@ -366,11 +375,25 @@ export const setup: Plugin['setup'] = app => {
 
       const quality = parseInt(q)
 
-      const data = sharp(imagePath)
-        .resize(finalWidth, finalHeight)
-        .toFormat(imageFormat, {
+      let data = sharp(imagePath)
+
+      if (lqip === 'true') {
+        data = data
+          .resize({
+            width: Math.min(finalWidth ?? 16, 16),
+            height: Math.min(finalHeight ?? 16, 16),
+            fit: 'inside'
+          })
+          .toFormat('webp', {
+            quality: 30,
+            alphaQuality: 20,
+            smartSubsample: true
+          })
+      } else {
+        data = data.resize(finalWidth, finalHeight).toFormat(imageFormat, {
           quality
         })
+      }
 
       if (IS_IMAGE_CACHE_POSSIBLE) {
         const image = await data.toFile(cachedImageFileName)
@@ -411,16 +434,18 @@ try {
 }
 
 // Helper function to generate the cached image path
-const getCachedImagePath = (
-  src: string,
-  width: number,
-  height: number,
+const getCachedImagePath = (args: {
+  src: string
+  width: number
+  height: number
+  quality: string
+  lqip: boolean
   format: keyof FormatEnum
-) => {
+}) => {
   const fileName = `${path.basename(
-    createHash('md5').update(src).digest('hex'),
-    path.extname(src)
-  )}-${width}x${height}.${format}`
+    createHash('md5').update(JSON.stringify(args)).digest('hex'),
+    path.extname(args.src)
+  )}-${args.width}x${args.height}.${args.format}`
   return path.join(IMAGE_CACHE_DIR, fileName)
 }
 
