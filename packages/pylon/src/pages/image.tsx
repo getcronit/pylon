@@ -116,11 +116,13 @@ export const Image: React.FC<ImageProps> = props => {
       src={values.src}
       alt={props.alt}
       className={props.className}
-      width={values.width ?? props.fill ? '100%' : undefined}
-      height={values.height ?? props.fill ? '100%' : undefined}
+      width={values.width}
+      height={values.height}
       style={{
         backgroundImage: `url(${values.blurDataURL})`,
-        backgroundSize: 'cover'
+        backgroundSize: 'cover',
+        height: props.fill ? '100%' : undefined,
+        width: props.fill ? '100%' : undefined
       }}
       loading="lazy"
     />
