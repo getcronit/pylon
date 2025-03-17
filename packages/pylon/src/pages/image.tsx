@@ -11,6 +11,7 @@ interface ImageValuesProps {
 
 export interface ImageProps extends Omit<ImageValuesProps, 'src'> {
   src: string
+  fill?: boolean
 }
 
 interface PylonBuildSrc {
@@ -115,8 +116,8 @@ export const Image: React.FC<ImageProps> = props => {
       src={values.src}
       alt={props.alt}
       className={props.className}
-      width={values.width}
-      height={values.height}
+      width={values.width ?? props.fill ? '100%' : undefined}
+      height={values.height ?? props.fill ? '100%' : undefined}
       style={{
         backgroundImage: `url(${values.blurDataURL})`,
         backgroundSize: 'cover'
