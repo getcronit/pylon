@@ -299,6 +299,14 @@ export const setup: Plugin['setup'] = app => {
 
       let imagePath = path.join(process.cwd(), '.pylon', src)
 
+      // Check cache first
+      const cachedImageFileName = getCachedImagePath(
+        src,
+        w ? parseInt(w) : 0,
+        h ? parseInt(h) : 0,
+        format as keyof FormatEnum
+      )
+
       if (src.startsWith('http://') || src.startsWith('https://')) {
         imagePath = await downloadImage(src)
       }
@@ -309,14 +317,6 @@ export const setup: Plugin['setup'] = app => {
       } catch {
         return c.json({error: 'Image not found'}, 404)
       }
-
-      // Check cache first
-      const cachedImageFileName = getCachedImagePath(
-        src,
-        w ? parseInt(w) : 0,
-        h ? parseInt(h) : 0,
-        format as keyof FormatEnum
-      )
 
       if (IS_IMAGE_CACHE_POSSIBLE) {
         try {
