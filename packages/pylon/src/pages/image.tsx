@@ -36,6 +36,7 @@ const usePylonImageValues = (
   width?: number
   height?: number
   blurDataURL?: string
+  preloads: string[]
 } => {
   return useMemo(() => {
     // // Parse the image source URL to extract query parameters
@@ -99,16 +100,22 @@ const usePylonImageValues = (
       ? parseInt(pylonMediaSearchParams.get('h')!)
       : undefined
 
+    const preloads: string[] = []
+
     if (!blurDataURL) {
       // Use finalSrc with lqip=true to generate blurDataURL
       blurDataURL = finalSrc + '&lqip=true'
+
+      // Preload the blurDataURL image
+      preloads.push(blurDataURL)
     }
 
     return {
       width,
       height,
       blurDataURL,
-      src: finalSrc
+      src: finalSrc,
+      preloads
     }
   }, [props])
 }
@@ -117,19 +124,24 @@ export const Image: React.FC<ImageProps> = props => {
   const values = usePylonImageValues(props)
 
   return (
-    <img
-      src={values.src}
-      alt={props.alt}
-      className={props.className}
-      width={values.width}
-      height={values.height}
-      style={{
-        backgroundImage: `url(${values.blurDataURL})`,
-        backgroundSize: 'cover',
-        height: props.fill ? '100%' : undefined,
-        width: props.fill ? '100%' : undefined
-      }}
-      loading="lazy"
-    />
+    <>
+      {values.preloads.map((src, index) => (
+        <link key={index} rel="preload" as="image" href={src} />
+      ))}
+      <img
+        src={values.src}
+        alt={props.alt}
+        className={props.className}
+        width={values.width}
+        height={values.height}
+        style={{
+          backgroundImage: `url(${values.blurDataURL})`,
+          backgroundSize: 'cover',
+          height: props.fill ? '100%' : undefined,
+          width: props.fill ? '100%' : undefined
+        }}
+        loading="lazy"
+      />
+    </>
   )
 }
