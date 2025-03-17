@@ -99,6 +99,11 @@ const usePylonImageValues = (
       ? parseInt(pylonMediaSearchParams.get('h')!)
       : undefined
 
+    if (!blurDataURL) {
+      // Use finalSrc with lqip=true to generate blurDataURL
+      blurDataURL = finalSrc + '&lqip=true'
+    }
+
     return {
       width,
       height,
