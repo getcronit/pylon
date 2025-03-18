@@ -417,7 +417,7 @@ export const setup: Plugin['setup'] = app => {
 
 import {createHash} from 'crypto'
 import type {FormatEnum} from 'sharp'
-import glob from 'tiny-glob/sync'
+import glob from 'tiny-glob/sync.js'
 
 // Cache directory
 
