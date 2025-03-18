@@ -324,7 +324,7 @@ export const setup: Plugin['setup'] = app => {
             src
           )
         } else {
-          imagePath = path.join(process.cwd(), '.pylon', '__pylon', src)
+          imagePath = path.join(process.cwd(), '.pylon', src)
         }
       }
 
