@@ -302,7 +302,31 @@ export const setup: Plugin['setup'] = app => {
         return c.json({error: 'Missing parameters.'}, 400)
       }
 
-      let imagePath = path.join(process.cwd(), '.pylon', src)
+      const isSrcAbsolute =
+        src.startsWith('http://') || src.startsWith('https://')
+
+      let imagePath: string
+
+      if (isSrcAbsolute) {
+        imagePath = await downloadImage(src)
+      } else {
+        if (!src.startsWith('/')) {
+          return c.json({error: 'Invalid image path.'}, 400)
+        }
+
+        if (!src.startsWith('/__pylon/static/media')) {
+          // Prefix it with the public directory
+          imagePath = path.join(
+            process.cwd(),
+            '.pylon',
+            '__pylon',
+            'public',
+            src
+          )
+        } else {
+          imagePath = path.join(process.cwd(), '.pylon', '__pylon', src)
+        }
+      }
 
       // Check cache first
       const cachedImageFileName = getCachedImagePath({
@@ -313,10 +337,6 @@ export const setup: Plugin['setup'] = app => {
         lqip: lqip === 'true',
         format: format as keyof FormatEnum
       })
-
-      if (src.startsWith('http://') || src.startsWith('https://')) {
-        imagePath = await downloadImage(src)
-      }
 
       // Check if the image exists asynchronously
       try {
