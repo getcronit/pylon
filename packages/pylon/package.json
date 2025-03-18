@@ -20,7 +20,7 @@
   },
   "scripts": {
     "build": "rimraf ./dist && node build.js && pnpm run build:declarations",
-    "build:declarations": "tsc --declaration --emitDeclarationOnly --outDir ./dist"
+    "build:declarations": "tsc --declaration --emitDeclarationOnly --outDir ./dist && tsc-alias"
   },
   "files": [
     "dist",
@@ -72,7 +72,8 @@
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.4",
     "tailwindcss": "^4.0.4",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "tsc-alias": "^1.8.11"
   },
   "peerDependencies": {
     "@tailwindcss/postcss": "^4.0.4",
