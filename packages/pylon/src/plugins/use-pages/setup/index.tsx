@@ -186,7 +186,10 @@ export const setup: Plugin['setup'] = app => {
   let publicFiles: string[] = []
 
   try {
-    publicFiles = glob(`${publicFilesPath}/**/*`)
+    publicFiles = glob(`**/*`, {
+      filesOnly: true,
+      cwd: publicFilesPath
+    })
   } catch (error) {
     // Ignore error
   }
