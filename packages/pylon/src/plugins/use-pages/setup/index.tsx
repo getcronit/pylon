@@ -186,7 +186,7 @@ export const setup: Plugin['setup'] = app => {
   let publicFiles: string[] = []
 
   try {
-    publicFiles = fs.readdirSync(publicFilesPath)
+    publicFiles = glob(`${publicFilesPath}/**/*`)
   } catch (error) {
     // Ignore error
   }
@@ -414,6 +414,7 @@ export const setup: Plugin['setup'] = app => {
 
 import {createHash} from 'crypto'
 import type {FormatEnum} from 'sharp'
+import glob from 'tiny-glob/sync'
 
 // Cache directory
 
