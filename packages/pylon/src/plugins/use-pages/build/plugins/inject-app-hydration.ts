@@ -18,7 +18,7 @@ export const injectAppHydrationPlugin: Plugin = {
           import {hydrateRoot} from 'react-dom/client'
           import * as client from './${pathToClient}'
           import { __PYLON_ROUTER_INTERNALS_DO_NOT_USE, DevOverlay, onCaughtErrorProd, onRecoverableErrorProd, onUncaughtErrorProd } from '@getcronit/pylon/pages';
-          const {BrowserRouter} = __PYLON_ROUTER_INTERNALS_DO_NOT_USE
+          const {BrowserRouter, useParams, useSearchParam, useLocation} = __PYLON_ROUTER_INTERNALS_DO_NOT_USE
           import React, {useMemo} from 'react'
 
           const pylonData = window.__PYLON_DATA__
@@ -36,7 +36,28 @@ export const injectAppHydrationPlugin: Plugin = {
             routerProps: any
           }) => {
             props.client.useHydrateCache({cacheSnapshot: props.pylonData.cacheSnapshot})
-          
+
+            // Inject the data from the client into the pageProps if it differs from the server
+            // This is necessary for client-side navigation to work correctly
+
+
+            const params = useParams();
+            const [searchParams] = useSearchParams();
+            const location = useLocation();
+
+            if (params && JSON.stringify(params) !== JSON.stringify(props.pylonData.pageProps.params)) {
+              props.pylonData.pageProps.params = params;
+            }
+
+            if (searchParams && JSON.stringify(searchParams) !== JSON.stringify(props.pylonData.pageProps.searchParams)) {
+              props.pylonData.pageProps.searchParams = searchParams;
+            }
+
+            if (location.pathname && location.pathname !== props.pylonData.pageProps.location) {
+              props.pylonData.pageProps.location = location.pathname;
+            }
+
+                   
             const data = props.client.useQuery()
             const page = useMemo(() => {
               const page = (
