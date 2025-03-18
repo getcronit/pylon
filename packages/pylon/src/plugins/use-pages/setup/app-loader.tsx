@@ -4,11 +4,10 @@ import {PageProps} from '..'
 export const AppLoader = (props: {
   client: any
   pylonData: {
-    pageProps: Omit<PageProps, 'data'>
     cacheSnapshot?: any
   }
   App: React.FC<{
-    pageProps: PageProps
+    data: PageProps['data']
   }>
   Router: React.FC<any>
   routerProps: any
@@ -17,14 +16,7 @@ export const AppLoader = (props: {
 
   const data = props.client.useQuery()
   const page = useMemo(() => {
-    const page = (
-      <props.App
-        pageProps={{
-          ...props.pylonData.pageProps,
-          data
-        }}
-      />
-    )
+    const page = <props.App data={data} />
 
     return page
   }, [props])

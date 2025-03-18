@@ -72,11 +72,7 @@ export const setup: Plugin['setup'] = app => {
           client = await import(`${process.cwd()}/.pylon/client/index.js`)
         }
 
-        const pageProps = {
-          params: c.req.param(),
-          searchParams: c.req.query(),
-          path: c.req.path
-        }
+        const requestUrl = new URL(c.req.url)
 
         let cacheSnapshot: UseHydrateCacheOptions | undefined = undefined
 
@@ -85,12 +81,15 @@ export const setup: Plugin['setup'] = app => {
             <AppLoader
               Router={StaticRouter}
               routerProps={{
-                location: c.req.path
+                location: {
+                  pathname: requestUrl.pathname,
+                  search: requestUrl.search,
+                  hash: requestUrl.hash
+                }
               }}
               App={App}
               client={client}
               pylonData={{
-                pageProps: pageProps,
                 cacheSnapshot: undefined
               }}
             />
@@ -110,7 +109,6 @@ export const setup: Plugin['setup'] = app => {
                 App={App}
                 client={client}
                 pylonData={{
-                  pageProps: pageProps,
                   cacheSnapshot: cacheSnapshot
                 }}
               />,
@@ -118,7 +116,6 @@ export const setup: Plugin['setup'] = app => {
                 bootstrapModules: ['/__pylon/static/app.js'],
                 bootstrapScriptContent: `window.__PYLON_DATA__ = ${JSON.stringify(
                   {
-                    pageProps: pageProps,
                     cacheSnapshot: cacheSnapshot
                   }
                 )}`
@@ -140,7 +137,6 @@ export const setup: Plugin['setup'] = app => {
                 App={App}
                 client={client}
                 pylonData={{
-                  pageProps: pageProps,
                   cacheSnapshot: cacheSnapshot
                 }}
               />,
@@ -149,7 +145,6 @@ export const setup: Plugin['setup'] = app => {
                 bootstrapModules: ['/__pylon/static/app.js'],
                 bootstrapScriptContent: `window.__PYLON_DATA__ = ${JSON.stringify(
                   {
-                    pageProps: pageProps,
                     cacheSnapshot: cacheSnapshot
                   }
                 )}`,
