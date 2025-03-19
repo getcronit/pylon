@@ -11,17 +11,20 @@ import {postcssPlugin} from './plugins/postcss-plugin'
 const DIST_STATIC_DIR = path.join(process.cwd(), '.pylon/__pylon/static')
 const DIST_PAGES_DIR = path.join(process.cwd(), '.pylon/__pylon/pages')
 
-async function updateFileIfChanged(path: string, newContent: string) {
+async function updateFileIfChanged(
+  path: string,
+  newContent: Uint8Array<ArrayBufferLike>
+) {
   try {
-    const currentContent = await fs.readFile(path, 'utf8')
-    if (currentContent === newContent) {
+    const currentContent = await fs.readFile(path)
+    if (currentContent.equals(newContent)) {
       return false // No update needed
     }
   } catch (err: any) {
     if (err.code !== 'ENOENT') throw err // Ignore file not found error
   }
 
-  await fs.writeFile(path, newContent, 'utf8')
+  await fs.writeFile(path, newContent)
   return true // File created or updated
 }
 
@@ -97,7 +100,7 @@ export const build: Plugin['build'] = async () => {
         await Promise.all(
           result.outputFiles!.map(async file => {
             await fs.mkdir(path.dirname(file.path), {recursive: true})
-            await updateFileIfChanged(file.path, file.text)
+            await updateFileIfChanged(file.path, file.contents)
           })
         )
       })
