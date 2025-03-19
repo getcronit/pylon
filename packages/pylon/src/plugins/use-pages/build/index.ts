@@ -67,7 +67,7 @@ export const build: Plugin['build'] = async () => {
     const pylonCssPathDir = path.join(
       process.cwd(),
       'node_modules',
-      '@getcronit/pylon/dist/pages',
+      '@getcronit/pylon/dist/pages'
     )
 
     const pylonCssDestDir = path.join(
@@ -138,7 +138,9 @@ export const build: Plugin['build'] = async () => {
 
       '.svg': 'file',
       '.woff': 'file',
-      '.woff2': 'file'
+      '.woff2': 'file',
+      '.ttf': 'file',
+      '.otf': 'file'
     },
     define: {
       'process.env.NODE_ENV': JSON.stringify(
@@ -163,20 +165,16 @@ export const build: Plugin['build'] = async () => {
     outdir: DIST_PAGES_DIR,
     bundle: true,
     splitting: false,
-    external: [
-      '@getcronit/pylon',
-      'react',
-      'react-dom',
-      'gqty',
-      '@gqty/react'
-    ],
+    external: ['@getcronit/pylon', 'react', 'react-dom', 'gqty', '@gqty/react'],
     minify: true,
     loader: {
       // Map file extensions to the file loader
 
       '.svg': 'file',
       '.woff': 'file',
-      '.woff2': 'file'
+      '.woff2': 'file',
+      '.ttf': 'file',
+      '.otf': 'file'
     },
     define: {
       'process.env.NODE_ENV': JSON.stringify(
