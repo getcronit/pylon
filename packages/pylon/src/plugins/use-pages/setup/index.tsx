@@ -279,18 +279,8 @@ export const setup: Plugin['setup'] = app => {
       c.res.headers.set('Content-Type', 'image/svg+xml')
     } else if (filePath.endsWith('.ico')) {
       c.res.headers.set('Content-Type', 'image/x-icon')
-    }
-    // Fonts
-    else if (filePath.endsWith('.woff')) {
-      c.res.headers.set('Content-Type', 'font/woff')
-    } else if (filePath.endsWith('.woff2')) {
-      c.res.headers.set('Content-Type', 'font/woff2')
-    } else if (filePath.endsWith('.eot')) {
-      c.res.headers.set('Content-Type', 'application/vnd.ms-fontobject')
-    } else if (filePath.endsWith('.ttf')) {
-      c.res.headers.set('Content-Type', 'font/ttf')
-    } else if (filePath.endsWith('.otf')) {
-      c.res.headers.set('Content-Type', 'font/otf')
+    } else {
+      c.res.headers.set('Content-Type', 'application/octet-stream')
     }
 
     const stream = fs.createReadStream(filePath)
