@@ -164,7 +164,7 @@ export const build: Plugin['build'] = async () => {
     write: false,
     absWorkingDir: process.cwd(),
     nodePaths,
-    plugins: [imagePlugin, postcssPlugin, writeOnEndPlugin],
+    plugins: [imagePlugin, writeOnEndPlugin],
     publicPath: '/__pylon/static',
     assetNames: 'assets/[name]-[hash]',
     chunkNames: 'chunks/[name]-[hash]',
