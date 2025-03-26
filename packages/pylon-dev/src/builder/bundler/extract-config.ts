@@ -51,7 +51,7 @@ export async function extractConfig(
   })
 
   if (!configCode) {
-    return
+    configCode = 'export const config = {}'
   }
 
   // Write extracted config to file
