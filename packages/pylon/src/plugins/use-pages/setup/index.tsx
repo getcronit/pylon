@@ -8,6 +8,7 @@ import {trimTrailingSlash} from 'hono/trailing-slash'
 import {StaticRouter} from 'react-router'
 import {PassThrough, Readable} from 'stream'
 import {AppLoader} from './app-loader'
+import mime from 'mime/lite'
 
 import ErrorPage from '@/components/global-error-page'
 import {MiddlewareHandler} from 'hono'
@@ -212,30 +213,10 @@ export const setup: Plugin['setup'] = app => {
       try {
         await fs.promises.access(publicFilePath)
 
-        if (publicFilePath.endsWith('.js')) {
-          c.res.headers.set('Content-Type', 'text/javascript')
-        } else if (publicFilePath.endsWith('.css')) {
-          c.res.headers.set('Content-Type', 'text/css')
-        } else if (publicFilePath.endsWith('.html')) {
-          c.res.headers.set('Content-Type', 'text/html')
-        } else if (publicFilePath.endsWith('.json')) {
-          c.res.headers.set('Content-Type', 'application/json')
-        } else if (publicFilePath.endsWith('.png')) {
-          c.res.headers.set('Content-Type', 'image/png')
-        } else if (
-          publicFilePath.endsWith('.jpg') ||
-          publicFilePath.endsWith('.jpeg')
-        ) {
-          c.res.headers.set('Content-Type', 'image/jpeg')
-        } else if (publicFilePath.endsWith('.gif')) {
-          c.res.headers.set('Content-Type', 'image/gif')
-        } else if (publicFilePath.endsWith('.svg')) {
-          c.res.headers.set('Content-Type', 'image/svg+xml')
-        } else if (publicFilePath.endsWith('.ico')) {
-          c.res.headers.set('Content-Type', 'image/x-icon')
-        } else if (publicFilePath.endsWith('.map')) {
-          c.res.headers.set('Content-Type', 'application/json')
-        }
+        c.res.headers.set(
+          'Content-Type',
+          mime.getType(publicFilePath) || 'application/octet-stream'
+        )
 
         const stream = fs.createReadStream(publicFilePath)
 
@@ -261,27 +242,10 @@ export const setup: Plugin['setup'] = app => {
       return c.notFound()
     }
 
-    if (filePath.endsWith('.js')) {
-      c.res.headers.set('Content-Type', 'text/javascript')
-    } else if (filePath.endsWith('.css')) {
-      c.res.headers.set('Content-Type', 'text/css')
-    } else if (filePath.endsWith('.html')) {
-      c.res.headers.set('Content-Type', 'text/html')
-    } else if (filePath.endsWith('.json') || filePath.endsWith('.map')) {
-      c.res.headers.set('Content-Type', 'application/json')
-    } else if (filePath.endsWith('.png')) {
-      c.res.headers.set('Content-Type', 'image/png')
-    } else if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
-      c.res.headers.set('Content-Type', 'image/jpeg')
-    } else if (filePath.endsWith('.gif')) {
-      c.res.headers.set('Content-Type', 'image/gif')
-    } else if (filePath.endsWith('.svg')) {
-      c.res.headers.set('Content-Type', 'image/svg+xml')
-    } else if (filePath.endsWith('.ico')) {
-      c.res.headers.set('Content-Type', 'image/x-icon')
-    } else {
-      c.res.headers.set('Content-Type', 'application/octet-stream')
-    }
+    c.res.headers.set(
+      'Content-Type',
+      mime.getType(filePath) || 'application/octet-stream'
+    )
 
     const stream = fs.createReadStream(filePath)
 

@@ -226,6 +226,9 @@ importers:
       lucide-react:
         specifier: ^0.474.0
         version: 0.474.0(react@19.0.0)
+      mime:
+        specifier: ^4.0.6
+        version: 4.0.6
       openid-client:
         specifier: ^6.1.7
         version: 6.2.0
