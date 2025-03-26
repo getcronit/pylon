@@ -210,22 +210,7 @@ export const setup: Plugin['setup'] = app => {
         c.req.path.replace('/', '')
       )
 
-      try {
-        await fs.promises.access(publicFilePath)
-
-        c.res.headers.set(
-          'Content-Type',
-          mime.getType(publicFilePath) || 'application/octet-stream'
-        )
-
-        const stream = fs.createReadStream(publicFilePath)
-
-        const webStream = Readable.toWeb(stream) as unknown as ReadableStream
-
-        return c.body(webStream)
-      } catch {
-        return c.status(404)
-      }
+      return serveFilePath({filePath: publicFilePath, context: c})
     }
   )
 
@@ -238,20 +223,7 @@ export const setup: Plugin['setup'] = app => {
       c.req.path.replace('/__pylon/static/', '')
     )
 
-    if (!fs.existsSync(filePath)) {
-      return c.notFound()
-    }
-
-    c.res.headers.set(
-      'Content-Type',
-      mime.getType(filePath) || 'application/octet-stream'
-    )
-
-    const stream = fs.createReadStream(filePath)
-
-    const webStream = Readable.toWeb(stream) as unknown as ReadableStream
-
-    return c.body(webStream)
+    return serveFilePath({filePath, context: c})
   })
 
   // Image optimization route
@@ -406,6 +378,7 @@ export const setup: Plugin['setup'] = app => {
 import {createHash} from 'crypto'
 import type {FormatEnum} from 'sharp'
 import glob from 'tiny-glob/sync.js'
+import {serveFilePath} from './serve-file-path'
 
 // Cache directory
 
