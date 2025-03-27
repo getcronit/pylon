@@ -84,15 +84,6 @@ export const serveFilePath = async ({
       context.header('Accept-Ranges', 'bytes')
     }
 
-    if (contentType === 'video/mp4') {
-      console.log('Serving file', filePath, 'with options', options)
-      console.log('Content-Length', contentLength)
-      console.log('Content-Type', contentType)
-      console.log('Range', range)
-      console.log('Start', start)
-      console.log('End', end)
-    }
-
     const stream = createReadStream(filePath, options)
     const webStream = Readable.toWeb(stream) as ReadableStream
 
