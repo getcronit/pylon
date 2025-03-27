@@ -1,11 +1,4 @@
-import {sendFunctionEvent} from '@getcronit/pylon-telemetry'
-
 export function createDecorator(callback: (...args: any[]) => Promise<void>) {
-  sendFunctionEvent({
-    name: 'createDecorator',
-    duration: 0
-  }).then(() => {})
-
   function MyDecorator<T extends (...args: any[]) => any>(
     target: Object,
     propertyKey: string | symbol
