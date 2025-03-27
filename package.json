@@ -3,7 +3,6 @@
   "private": true,
   "workspaces": {
     "packages": [
-      "packages/pylon-telemetry",
       "packages/*",
       "examples/*"
     ]

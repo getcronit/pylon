@@ -36,7 +36,6 @@
   "homepage": "https://pylon.cronit.io",
   "dependencies": {
     "@envelop/core": "^5.0.3",
-    "@getcronit/pylon-telemetry": "workspace:^",
     "@gqty/react": "^3.1.0",
     "@graphql-yoga/plugin-disable-introspection": "^2.13.0",
     "@hono/sentry": "^1.2.0",

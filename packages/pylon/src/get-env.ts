@@ -1,4 +1,3 @@
-import {sendFunctionEvent} from '@getcronit/pylon-telemetry'
 import {asyncContext, Context} from './context'
 
 export function getEnv() {
@@ -20,10 +19,6 @@ export function getEnv() {
     return process.env
   } finally {
     if (!skipTracing) {
-      sendFunctionEvent({
-        name: 'getEnv',
-        duration: Date.now() - start
-      }).then(() => {})
     }
   }
 }

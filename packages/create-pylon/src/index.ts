@@ -16,15 +16,9 @@ import {
   installPackage,
   PackageManager
 } from './install-pkg'
+import {analytics, distinctId} from './analytics'
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
-
-const version = (() => {
-  return JSON.parse(
-    fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf-8')
-  ).version as string
-})()
+import {version} from '../package.json'
 
 program
   .name('create-pylon')
@@ -183,6 +177,17 @@ async function main(
       await installPackage([])
     }
 
+    analytics.capture({
+      distinctId,
+      event: 'create-pylon',
+      properties: {
+        runtime: runtime.key,
+        features: options.features,
+        packageManager,
+        install: options.install
+      }
+    })
+
     const runScript = getRunScript(packageManager)
 
     const message = `
@@ -207,6 +212,8 @@ async function main(
     consola.box(message)
   } catch (e) {
     consola.error(e)
+  } finally {
+    await analytics.shutdown()
   }
 }
 
