@@ -18,12 +18,12 @@ export {SchemaBuilder}
 export const build = async (options: BuildOptions) => {
   const bundler = new Bundler(options.sfiFilePath, options.outputFilePath)
 
-  const builder = new SchemaBuilder(
-    path.join(process.cwd(), options.sfiFilePath)
-  )
-
   return await bundler.build({
     getBuildDefs: () => {
+      const builder = new SchemaBuilder(
+        path.join(process.cwd(), options.sfiFilePath)
+      )
+
       const built = builder.build()
 
       const typeDefs = built.typeDefs
