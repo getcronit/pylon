@@ -33,41 +33,49 @@ const resolveLazyObject = <T>(obj: MaybeLazyObject<T>): T => {
   return typeof obj === 'function' ? (obj as () => T)() : obj
 }
 
-export const handler = (options: PylonHandlerOptions) => {
-  let {
-    typeDefs,
-    resolvers,
-    graphql: graphql$,
-    config: config$
-  } = options as PylonHandlerOptions & {
-    typeDefs?: string
-    resolvers?: Record<string, any>
-  }
+const loadPluginsMiddleware = (plugins: Plugin[]) => {
+  for (const plugin of plugins) {
+    plugin.setup?.(app)
 
-  const loadPluginsMiddleware = (plugins: Plugin[]) => {
-    for (const plugin of plugins) {
-      plugin.setup?.(app)
-
-      if (plugin.middleware) {
-        pluginsMiddleware.push(plugin.middleware)
-      }
+    if (plugin.middleware) {
+      pluginsMiddleware.push(plugin.middleware)
     }
   }
+}
 
-  const graphql = resolveLazyObject(graphql$)
-
-  const config = resolveLazyObject(config$)
-
+export const executeConfig = (config: PylonConfig) => {
   const plugins = [useSentry(), useViewer(), ...(config?.plugins || [])]
 
   if (config?.landingPage ?? true) {
     plugins.push(useUnhandledRoute())
   }
+
   if (config?.graphiql === false) {
     plugins.push(useDisableIntrospection() as Plugin)
   }
 
   loadPluginsMiddleware(plugins)
+
+  config.plugins = plugins
+
+  // @ts-ignore
+  app.config = config
+}
+
+export const handler = (options: PylonHandlerOptions) => {
+  let {
+    typeDefs,
+    resolvers,
+    graphql: graphql$
+  } = options as PylonHandlerOptions & {
+    typeDefs?: string
+    resolvers?: Record<string, any>
+  }
+
+  const graphql = resolveLazyObject(graphql$)
+
+  // @ts-ignore
+  const config = app.config as PylonConfig
 
   if (!typeDefs) {
     // Try to read the schema from the default location
@@ -155,7 +163,6 @@ export const handler = (options: PylonHandlerOptions) => {
             }
           }
         : false,
-    plugins,
     schema
   })
 

@@ -63,23 +63,21 @@ export const injectCodePlugin = ({
         return {
           loader: 'ts',
           contents:
+            `import {executeConfig} from "@getcronit/pylon"
+          
+            const __internalPylonConfig = await import(".pylon/config.js")
+            executeConfig(__internalPylonConfig.config)
+
+            
+` +
             contents +
             `
   import {handler as __internalPylonHandler} from "@getcronit/pylon"
-
-  let __internalPylonConfig = undefined
-
-  try {
-    __internalPylonConfig = config
-  } catch {
-    // config is not declared, pylonConfig remains undefined
-  }
 
   app.use(__internalPylonHandler({
     typeDefs: ${JSON.stringify(typeDefs)},
     graphql,
     resolvers: ${preparedResolvers},
-    config: __internalPylonConfig
   }))
   `
         }
