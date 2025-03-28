@@ -20,6 +20,7 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "experimentalDecorators": true,
+    "rootDir": "./src",
     "baseUrl": "./src",
     "outDir": "./dist",
     "paths": {
@@ -28,6 +29,7 @@
   },
   "include": ["src"],
   "exclude": [
+    "dist",
     "node_modules/**/*",
     "**/*.test.ts",
     "**/*.test.tsx",
