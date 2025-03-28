@@ -43,6 +43,8 @@ const disableCacheMiddleware: MiddlewareHandler<Env> = async (c, next) => {
 }
 
 export const setup: Plugin['setup'] = app => {
+  const cacheBustingSuffix = `?v=${Date.now()}`
+
   const pagesFilePath = path.resolve(process.cwd(), '.pylon', 'pages.json')
 
   let pageRoutes: PageRoute[] = []
@@ -116,7 +118,9 @@ export const setup: Plugin['setup'] = app => {
                 }}
               />,
               {
-                bootstrapModules: ['/__pylon/static/app.js'],
+                bootstrapModules: [
+                  '/__pylon/static/app.js' + cacheBustingSuffix
+                ],
                 bootstrapScriptContent: `window.__PYLON_DATA__ = ${JSON.stringify(
                   {
                     cacheSnapshot: cacheSnapshot
@@ -145,7 +149,9 @@ export const setup: Plugin['setup'] = app => {
               />,
 
               {
-                bootstrapModules: ['/__pylon/static/app.js'],
+                bootstrapModules: [
+                  '/__pylon/static/app.js' + cacheBustingSuffix
+                ],
                 bootstrapScriptContent: `window.__PYLON_DATA__ = ${JSON.stringify(
                   {
                     cacheSnapshot: cacheSnapshot
