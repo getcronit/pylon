@@ -1,6 +1,6 @@
 import path from 'path'
 import {Plugin} from '@/index'
-import {generateAppFile, getPageRoutes} from './app-utils'
+import {makeAppFiles} from './app-utils'
 import chokidar, {FSWatcher} from 'chokidar'
 import fs from 'fs/promises'
 import esbuild from 'esbuild'
@@ -30,25 +30,16 @@ async function updateFileIfChanged(
 
 export const build: Plugin['build'] = async () => {
   const buildAppFile = async () => {
-    const pagesRoutes = await getPageRoutes()
-    const appContent = generateAppFile(pagesRoutes)
+    const appFiles = makeAppFiles()
 
-    const pagesFile = path.resolve(process.cwd(), '.pylon', 'pages.json')
     await updateFileIfChanged(
-      pagesFile,
-      Buffer.from(JSON.stringify(pagesRoutes, null, 2))
+      path.resolve(process.cwd(), '.pylon', 'app.tsx'),
+      Buffer.from(appFiles.routes)
     )
-
-    // Write if the file doesn't exist or the content is different
-    const appFilePath = path.resolve(process.cwd(), '.pylon', 'app.tsx')
-
-    const state = await updateFileIfChanged(
-      appFilePath,
-      Buffer.from(appContent)
+    await updateFileIfChanged(
+      path.resolve(process.cwd(), '.pylon', 'slugs.js'),
+      Buffer.from(appFiles.slugs)
     )
-
-    if (state) {
-    }
   }
 
   const copyPublicDir = async () => {

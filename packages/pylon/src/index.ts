@@ -30,7 +30,7 @@ export type Plugin<
   TUserContext = {}
 > = YogaPlugin<PluginContext, TServerContext, TUserContext> & {
   middleware?: MiddlewareHandler<Env>
-  setup?: (app: typeof pylonApp) => void
+  setup?: (app: typeof pylonApp) => Promise<void> | void
   build?: <T extends BuildOptions>(args: {
     onBuild: () => void
   }) => Promise<Omit<BuildContext<T>, 'serve'>>

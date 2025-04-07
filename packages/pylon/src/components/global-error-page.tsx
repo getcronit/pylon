@@ -6,7 +6,7 @@ interface GlobalErrorProps {
   error: Error & {digest?: string}
 }
 
-export default function GlobalError({error}: GlobalErrorProps) {
+export default function GlobalError({error, ...rest}: GlobalErrorProps) {
   useEffect(() => {
     // Log the error to an error reporting service
     console.error('Global error:', error)
