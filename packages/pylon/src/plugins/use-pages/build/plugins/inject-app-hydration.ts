@@ -26,16 +26,9 @@ export const injectAppHydrationPlugin: Plugin = {
 
           hydrateRoot(
             document,
-            <DevOverlay>
-              <DataClientProvider client={client}>
+            <DataClientProvider client={client}>
                 <RouterProvider router={router} />
-              </DataClientProvider>
-            </DevOverlay>,
-            {
-              onCaughtError: onCaughtErrorProd,
-              onRecoverableError: onRecoverableErrorProd,
-              onUncaughtError: onUncaughtErrorProd
-            }
+            </DataClientProvider>
           )
           `
 
