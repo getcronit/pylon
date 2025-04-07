@@ -33,9 +33,9 @@ const resolveLazyObject = <T>(obj: MaybeLazyObject<T>): T => {
   return typeof obj === 'function' ? (obj as () => T)() : obj
 }
 
-const loadPluginsMiddleware = (plugins: Plugin[]) => {
+const loadPluginsMiddleware = async (plugins: Plugin[]) => {
   for (const plugin of plugins) {
-    plugin.setup?.(app)
+    await plugin.setup?.(app)
 
     if (plugin.middleware) {
       pluginsMiddleware.push(plugin.middleware)
@@ -43,7 +43,7 @@ const loadPluginsMiddleware = (plugins: Plugin[]) => {
   }
 }
 
-export const executeConfig = (config: PylonConfig) => {
+export const executeConfig = async (config: PylonConfig) => {
   const plugins = [useSentry(), useViewer(), ...(config?.plugins || [])]
 
   if (config?.landingPage ?? true) {
@@ -54,7 +54,7 @@ export const executeConfig = (config: PylonConfig) => {
     plugins.push(useDisableIntrospection() as Plugin)
   }
 
-  loadPluginsMiddleware(plugins)
+  await loadPluginsMiddleware(plugins)
 
   config.plugins = plugins
 

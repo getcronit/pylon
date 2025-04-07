@@ -5,16 +5,19 @@ import reactServer from 'react-dom/server'
 import {Env, getEnv, type Plugin} from '@/index'
 import {UseHydrateCacheOptions} from '@gqty/react'
 import {trimTrailingSlash} from 'hono/trailing-slash'
-import {StaticRouter} from 'react-router'
+import {
+  createStaticHandler,
+  createStaticRouter,
+  StaticRouter,
+  StaticRouterProvider
+} from 'react-router'
 import {PassThrough, Readable} from 'stream'
-import {AppLoader} from './app-loader'
 import mime from 'mime/lite'
 
 import ErrorPage from '@/components/global-error-page'
 import {MiddlewareHandler} from 'hono'
 import {tmpdir} from 'os'
 import {pipeline} from 'stream/promises'
-import {PageRoute} from '../build/app-utils'
 
 export interface PageData {}
 
@@ -42,149 +45,99 @@ const disableCacheMiddleware: MiddlewareHandler<Env> = async (c, next) => {
   return next()
 }
 
-export const setup: Plugin['setup'] = app => {
+export const setup: Plugin['setup'] = async app => {
   const cacheBustingSuffix = `?v=${Date.now()}`
 
-  const pagesFilePath = path.resolve(process.cwd(), '.pylon', 'pages.json')
+  const slugs = (await import(`${process.cwd()}/.pylon/slugs.js`)).default
+  const routes = (await import(`${process.cwd()}/.pylon/__pylon/pages/app.js`))
+    .default
+  const client = await import(`${process.cwd()}/.pylon/client/index.js`)
 
-  let pageRoutes: PageRoute[] = []
-  try {
-    pageRoutes = JSON.parse(fs.readFileSync(pagesFilePath, 'utf-8'))
-  } catch (error) {
-    console.error('Error reading pages.json', error)
-  }
+  let handler = createStaticHandler(routes)
 
   app.use(trimTrailingSlash() as any)
 
-  let App: any = undefined
-  let client: any = undefined
+  app.get('/test1234', async c => {
+    return c.json({hello: 'world'})
+  })
 
-  app.on(
-    'GET',
-    pageRoutes.map(pageRoute => pageRoute.slug),
-    disableCacheMiddleware as any,
-    async c => {
-      try {
-        if (!App) {
-          const module = await import(
-            `${process.cwd()}/.pylon/__pylon/pages/app.js`
-          )
+  app.on('GET', slugs, disableCacheMiddleware as any, async c => {
+    const context = await handler.query(c.req.raw)
 
-          App = module.default
-        }
-
-        if (!client) {
-          client = await import(`${process.cwd()}/.pylon/client/index.js`)
-        }
-
-        const requestUrl = new URL(c.req.url)
-
-        let cacheSnapshot: UseHydrateCacheOptions | undefined = undefined
-
-        try {
-          const prepared = await client.prepareReactRender(
-            <AppLoader
-              Router={StaticRouter}
-              routerProps={{
-                location: {
-                  pathname: requestUrl.pathname,
-                  search: requestUrl.search,
-                  hash: requestUrl.hash
-                }
-              }}
-              App={App}
-              client={client}
-              pylonData={{
-                cacheSnapshot: undefined
-              }}
-            />
-          )
-
-          cacheSnapshot = prepared.cacheSnapshot
-        } catch (error) {}
-
-        if (reactServer.renderToReadableStream) {
-          try {
-            const stream = await reactServer.renderToReadableStream(
-              <AppLoader
-                Router={StaticRouter}
-                routerProps={{
-                  location: c.req.path
-                }}
-                App={App}
-                client={client}
-                pylonData={{
-                  cacheSnapshot: cacheSnapshot
-                }}
-              />,
-              {
-                bootstrapModules: [
-                  '/__pylon/static/app.js' + cacheBustingSuffix
-                ],
-                bootstrapScriptContent: `window.__PYLON_DATA__ = ${JSON.stringify(
-                  {
-                    cacheSnapshot: cacheSnapshot
-                  }
-                )}`
-              }
-            )
-
-            return c.body(stream)
-          } catch (error) {
-            throw error
-          }
-        } else if (reactServer.renderToPipeableStream) {
-          return await new Promise<Response>((resolve, reject) => {
-            const {pipe} = reactServer.renderToPipeableStream(
-              <AppLoader
-                Router={StaticRouter}
-                routerProps={{
-                  location: c.req.path
-                }}
-                App={App}
-                client={client}
-                pylonData={{
-                  cacheSnapshot: cacheSnapshot
-                }}
-              />,
-
-              {
-                bootstrapModules: [
-                  '/__pylon/static/app.js' + cacheBustingSuffix
-                ],
-                bootstrapScriptContent: `window.__PYLON_DATA__ = ${JSON.stringify(
-                  {
-                    cacheSnapshot: cacheSnapshot
-                  }
-                )}`,
-                onShellReady: async () => {
-                  c.header('Content-Type', 'text/html')
-
-                  const passThrough = new PassThrough()
-
-                  pipe(passThrough)
-
-                  resolve(c.body(Readable.toWeb(passThrough) as any))
-                },
-                onShellError: async error => {
-                  reject(error)
-                }
-              }
-            )
-          })
-        } else {
-          throw new Error('Environment not supported')
-        }
-      } catch (error) {
-        c.header('Content-Type', 'text/html')
-        c.status(500)
-
-        return c.html(
-          reactServer.renderToString(<ErrorPage error={error as any} />)
-        )
-      }
+    if (context instanceof Response) {
+      return context
     }
-  )
+
+    const router = createStaticRouter(handler.dataRoutes, context)
+
+    const component = (
+      <__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider client={client}>
+        <StaticRouterProvider router={router} context={context} />
+      </__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider>
+    )
+
+    // Check if the request wants JSON, if so, prepare the data
+    if (c.req.header('accept')?.includes('application/json')) {
+      const prepared = await client.prepareReactRender(component)
+
+      const data = prepared.cacheSnapshot
+
+      return c.json(data)
+    }
+
+    try {
+      let cacheSnapshot: UseHydrateCacheOptions | undefined = undefined
+
+      try {
+        const prepared = await client.prepareReactRender(<></>)
+
+        cacheSnapshot = prepared.cacheSnapshot
+      } catch (error) {}
+
+      if (reactServer.renderToReadableStream) {
+        try {
+          const stream = await reactServer.renderToReadableStream(component, {
+            bootstrapModules: ['/__pylon/static/app.js' + cacheBustingSuffix]
+          })
+
+          return c.body(stream)
+        } catch (error) {
+          throw error
+        }
+      } else if (reactServer.renderToPipeableStream) {
+        return await new Promise<Response>((resolve, reject) => {
+          const {pipe} = reactServer.renderToPipeableStream(
+            component,
+
+            {
+              bootstrapModules: ['/__pylon/static/app.js' + cacheBustingSuffix],
+              onShellReady: async () => {
+                c.header('Content-Type', 'text/html')
+
+                const passThrough = new PassThrough()
+
+                pipe(passThrough)
+
+                resolve(c.body(Readable.toWeb(passThrough) as any))
+              },
+              onShellError: async error => {
+                reject(error)
+              }
+            }
+          )
+        })
+      } else {
+        throw new Error('Environment not supported')
+      }
+    } catch (error) {
+      c.header('Content-Type', 'text/html')
+      c.status(500)
+
+      return c.html(
+        reactServer.renderToString(<ErrorPage error={error as any} />)
+      )
+    }
+  })
 
   const publicFilesPath = path.resolve(
     process.cwd(),
@@ -385,6 +338,7 @@ import {createHash} from 'crypto'
 import type {FormatEnum} from 'sharp'
 import glob from 'tiny-glob/sync.js'
 import {serveFilePath} from './serve-file-path'
+import {__PYLON_INTERNALS_DO_NOT_USE} from '@getcronit/pylon/pages'
 
 // Cache directory
 
