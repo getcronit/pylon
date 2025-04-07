@@ -14,6 +14,7 @@ interface Route {
   loader?: string
   index?: boolean
   children?: Route[]
+  HydrateFallback?: string
 }
 
 /**
@@ -95,6 +96,8 @@ function scanDirectory(directory: string, basePath: string = ''): Route | null {
         route.errorElement = '<ErrorElement />'
       }
 
+      route.HydrateFallback = 'HydrateFallback'
+
       hasLayout = true
     } else if (item.name === 'page.tsx') {
       // if (hasLayout) {
@@ -116,7 +119,8 @@ function scanDirectory(directory: string, basePath: string = ''): Route | null {
         path: undefined,
         index: true,
         lazy: `async () => {const i = await import(${importPath}); return {Component: withLoaderData(i.default)}}`,
-        loader: `loader`
+        loader: `loader`,
+        HydrateFallback: 'HydrateFallback'
       })
 
       pageFound = true
@@ -164,7 +168,8 @@ function serialize(obj: any, parentKey?: string | number): string {
       parentKey === 'lazy' ||
       parentKey === 'loader' ||
       parentKey === 'Component' ||
-      parentKey === 'errorElement'
+      parentKey === 'errorElement' ||
+      parentKey === 'HydrateFallback'
     ) {
       return obj
     }
@@ -198,6 +203,10 @@ const ErrorElement = () => {
   const error = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useRouteError()
 
   return <GlobalErrorPage error={error} />
+}
+
+const HydrateFallback = () => {
+  return <div>Loading...</div>
 }
 
 function withLoaderData<T>(Component: React.ComponentType<{ data: T }>) {
