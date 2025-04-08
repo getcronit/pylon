@@ -242,9 +242,22 @@ const loader: __PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFunction  = async ({ req
   if (typeof process !== "undefined") {
     headers.set("Authorization", process.env.PYLON_CLIENT_TOKEN || undefined);
   }
-    
+
+  let browserOrInternalFetch: typeof fetch = fetch
+
   try {
-  const response = await fetch(url, {
+    const moduleNameToPreventBundling = '@getcronit/pylon'
+    const {app} = await import(moduleNameToPreventBundling)
+
+    browserOrInternalFetch = app.request
+  } catch (error) {
+    // Pylon is not found. Maybe we are running in a different environment.
+  }
+
+  const uri = url.pathname + url.search
+
+  try {
+  const response = await browserOrInternalFetch(uri, {
     method: 'GET',
     headers: headers,
   })
