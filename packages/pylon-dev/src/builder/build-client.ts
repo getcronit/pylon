@@ -98,12 +98,17 @@ const queryFetcher: QueryFetcher = async function (
     // Pylon is not found. Maybe we are running in a different environment.
   }
 
+  const headers = new Headers({
+    "Content-Type": "application/json",
+  });
+
+  if (typeof process !== "undefined") {
+    headers.set("Authorization", process.env.PYLON_CLIENT_TOKEN || undefined);
+  }
+
   const response = await browserOrInternalFetch('/graphql', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': typeof process !== 'undefined' ? process.env.PYLON_CLIENT_TOKEN : undefined,
-    },
+    headers,
     body: JSON.stringify({
       query,
       variables,

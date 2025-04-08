@@ -238,6 +238,11 @@ const loader: __PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFunction  = async ({ req
   const url = new URL(request.url)
   const headers = new Headers()
   headers.set('Accept', 'application/json')
+
+  if (typeof process !== "undefined") {
+    headers.set("Authorization", process.env.PYLON_CLIENT_TOKEN || undefined);
+  }
+    
   try {
   const response = await fetch(url, {
     method: 'GET',
