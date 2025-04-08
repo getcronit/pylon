@@ -101,7 +101,8 @@ const queryFetcher: QueryFetcher = async function (
   const response = await browserOrInternalFetch('/graphql', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      'Authorization': typeof process !== 'undefined' ? process.env.PYLON_CLIENT_TOKEN : undefined,
     },
     body: JSON.stringify({
       query,
