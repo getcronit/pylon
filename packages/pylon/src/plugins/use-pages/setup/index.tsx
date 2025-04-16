@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import reactServer from 'react-dom/server'
 
-import {Env, getEnv, type Plugin} from '@/index'
+import {app, Env, getEnv, type Plugin} from '@/index'
 import {UseHydrateCacheOptions} from '@gqty/react'
 import {trimTrailingSlash} from 'hono/trailing-slash'
 import {
@@ -241,7 +241,11 @@ export const setup: Plugin['setup'] = async app => {
       try {
         await fs.promises.access(imagePath)
       } catch {
-        return c.json({error: 'Image not found'}, 404)
+        try {
+          imagePath = await downloadImage(src)
+        } catch (error) {
+          return c.json({error: 'Image not found'}, 404)
+        }
       }
 
       if (IS_IMAGE_CACHE_POSSIBLE) {
@@ -416,11 +420,15 @@ const getContentType = (format: string) => {
 }
 
 const downloadImage = async (url: string): Promise<string> => {
-  const response = await fetch(url)
+  const isSrcAbsoluteUrl =
+    url.startsWith('http://') || url.startsWith('https://')
+  const _fetch = isSrcAbsoluteUrl ? fetch : app.request
+
+  const response = await _fetch(url)
   if (!response.ok)
     throw new Error(`Failed to download image: ${response.statusText}`)
 
-  const ext = path.extname(new URL(url).pathname) || '.jpg'
+  const ext = path.extname(url) || '.jpg'
   const tempFilePath = path.join(tmpdir(), `image-${Date.now()}${ext}`)
 
   const fileStream = fs.createWriteStream(tempFilePath)
