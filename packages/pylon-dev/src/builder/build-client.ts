@@ -98,27 +98,68 @@ const queryFetcher: QueryFetcher = async function (
     // Pylon is not found. Maybe we are running in a different environment.
   }
 
-  const headers = new Headers({
-    "Content-Type": "application/json",
-  });
+  const headers = new Headers({});
 
   if (typeof process !== "undefined") {
     headers.set("Authorization", process.env.PYLON_CLIENT_TOKEN || undefined);
   }
 
+  const formData = buildGraphQLMultipartForm(query, variables);
+
   const response = await browserOrInternalFetch('/graphql', {
     method: 'POST',
     headers,
-    body: JSON.stringify({
-      query,
-      variables,
-      operationName
-    }),
+    body: formData,
     mode: 'cors',
     ...fetchOptions
   })
 
   return await defaultResponseHandler(response)
+}
+
+function buildGraphQLMultipartForm(query, variables) {
+  const form = new FormData();
+  const operations = { query, variables: structuredClone(variables) };
+  const map = {};
+  const files = [];
+
+  let fileIndex = 0;
+
+  // Helper to find all files in variables
+  function recurse(value, path = []) {
+    if (value instanceof File || value instanceof Blob) {
+      map[fileIndex] = [\`variables.\${path.join(".")}\`];
+      set(operations.variables, path, null);
+      files.push({ index: fileIndex, file: value });
+      fileIndex++;
+    } else if (Array.isArray(value)) {
+      value.forEach((item, i) => recurse(item, [...path, i]));
+    } else if (value && typeof value === "object") {
+      Object.entries(value).forEach(([key, val]) =>
+        recurse(val, [...path, key])
+      );
+    }
+  }
+
+  recurse(variables);
+
+  form.append("operations", JSON.stringify(operations));
+  form.append("map", JSON.stringify(map));
+
+  files.forEach(({ index, file }) => {
+    form.append(index, file);
+  });
+
+  return form;
+}
+
+// Utility to set a value at a path inside an object
+function set(obj, path, value) {
+  let curr = obj;
+  for (let i = 0; i < path.length - 1; i++) {
+    curr = curr[path[i]];
+  }
+  curr[path[path.length - 1]] = value;
 }
 
 const cache = new Cache(
