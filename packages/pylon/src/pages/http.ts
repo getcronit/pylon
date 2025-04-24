@@ -14,6 +14,6 @@ export function notFound(
 
   throw new Response(JSON.stringify(data), {
     status: 404,
-    statusText: args?.statusText || 'Not Found'
+    statusText: args?.statusText || "This page doesn't exist"
   })
 }
