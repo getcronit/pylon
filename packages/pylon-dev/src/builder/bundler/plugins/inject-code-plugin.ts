@@ -79,6 +79,10 @@ export const injectCodePlugin = ({
     graphql,
     resolvers: ${preparedResolvers},
   }))
+
+  await executeConfig(__internalPylonConfig.config, {
+    pluginsStrategy: "last"
+  })
   `
         }
       }

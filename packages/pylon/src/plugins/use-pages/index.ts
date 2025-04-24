@@ -6,6 +6,7 @@ export {PageData, PageProps}
 
 export function usePages(): Plugin {
   return {
+    strategy: 'last',
     setup,
     build
   }
