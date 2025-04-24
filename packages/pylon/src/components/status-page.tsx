@@ -1,4 +1,3 @@
-import {Link} from '@/pages'
 import {Button} from './ui/button'
 
 export interface StatusPageProps {
@@ -6,13 +5,17 @@ export interface StatusPageProps {
   title: string
   message: string
   standalone?: boolean
+  returnText?: string
+  returnUrl?: string
 }
 
 export const StatusPage = ({
   code,
   title,
   message,
-  standalone = false
+  standalone = false,
+  returnText = 'Return to home',
+  returnUrl = '/'
 }: StatusPageProps) => {
   const element = (
     <div className="flex min-h-screen w-full flex-col items-center justify-center bg-white p-4 text-center">
@@ -22,7 +25,7 @@ export const StatusPage = ({
       <h2 className="mb-6 text-xl font-light text-gray-600">{title}</h2>
       <p className="mb-8 max-w-md text-sm text-gray-500">{message}</p>
       <Button asChild>
-        <Link href="/">Return to home</Link>
+        <a href={returnUrl}>{returnText}</a>
       </Button>
     </div>
   )
