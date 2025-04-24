@@ -15,6 +15,7 @@ import {PassThrough, Readable} from 'stream'
 import mime from 'mime/lite'
 
 import ErrorPage from '@/components/global-error-page'
+import {StatusPage} from '@/components/status-page'
 import {MiddlewareHandler} from 'hono'
 import {tmpdir} from 'os'
 import {pipeline} from 'stream/promises'
@@ -327,6 +328,26 @@ export const setup: Plugin['setup'] = async app => {
       }
     } catch (error) {
       c.header('Content-Type', 'text/html')
+
+      if (error instanceof Response) {
+        c.status(error.status as StatusCode)
+
+        const data = (await error.json()) as any
+
+        return c.html(
+          reactServer.renderToString(
+            <StatusPage
+              standalone
+              code={error.status}
+              title={error.statusText}
+              message={data.message}
+              returnText={data.returnText}
+              returnUrl={data.returnUrl}
+            />
+          )
+        )
+      }
+
       c.status(500)
 
       return c.html(
@@ -341,6 +362,7 @@ import type {FormatEnum} from 'sharp'
 import glob from 'tiny-glob/sync.js'
 import {serveFilePath} from './serve-file-path'
 import {__PYLON_INTERNALS_DO_NOT_USE} from '@getcronit/pylon/pages'
+import {StatusCode} from 'hono/utils/http-status'
 
 // Cache directory
 
