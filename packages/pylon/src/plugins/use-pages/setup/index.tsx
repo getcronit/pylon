@@ -57,88 +57,6 @@ export const setup: Plugin['setup'] = async app => {
 
   app.use(trimTrailingSlash() as any)
 
-  app.get('/test1234', async c => {
-    return c.json({hello: 'world'})
-  })
-
-  app.on('GET', slugs, disableCacheMiddleware as any, async c => {
-    const context = await handler.query(c.req.raw)
-
-    if (context instanceof Response) {
-      return context
-    }
-
-    const router = createStaticRouter(handler.dataRoutes, context)
-
-    const component = (
-      <__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider client={client}>
-        <StaticRouterProvider router={router} context={context} />
-      </__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider>
-    )
-
-    // Check if the request wants JSON, if so, prepare the data
-    if (c.req.header('accept')?.includes('application/json')) {
-      const prepared = await client.prepareReactRender(component)
-
-      const data = prepared.cacheSnapshot
-
-      return c.json(data)
-    }
-
-    try {
-      let cacheSnapshot: UseHydrateCacheOptions | undefined = undefined
-
-      try {
-        const prepared = await client.prepareReactRender(<></>)
-
-        cacheSnapshot = prepared.cacheSnapshot
-      } catch (error) {}
-
-      if (reactServer.renderToReadableStream) {
-        try {
-          const stream = await reactServer.renderToReadableStream(component, {
-            bootstrapModules: ['/__pylon/static/app.js' + cacheBustingSuffix]
-          })
-
-          return c.body(stream)
-        } catch (error) {
-          throw error
-        }
-      } else if (reactServer.renderToPipeableStream) {
-        return await new Promise<Response>((resolve, reject) => {
-          const {pipe} = reactServer.renderToPipeableStream(
-            component,
-
-            {
-              bootstrapModules: ['/__pylon/static/app.js' + cacheBustingSuffix],
-              onShellReady: async () => {
-                c.header('Content-Type', 'text/html')
-
-                const passThrough = new PassThrough()
-
-                pipe(passThrough)
-
-                resolve(c.body(Readable.toWeb(passThrough) as any))
-              },
-              onShellError: async error => {
-                reject(error)
-              }
-            }
-          )
-        })
-      } else {
-        throw new Error('Environment not supported')
-      }
-    } catch (error) {
-      c.header('Content-Type', 'text/html')
-      c.status(500)
-
-      return c.html(
-        reactServer.renderToString(<ErrorPage error={error as any} />)
-      )
-    }
-  })
-
   const publicFilesPath = path.resolve(
     process.cwd(),
     '.pylon',
@@ -334,6 +252,86 @@ export const setup: Plugin['setup'] = async app => {
     } catch (error) {
       console.error('Error processing the image:', error)
       return c.json({error: 'Error processing the image'}, 500)
+    }
+  })
+
+  app.get('*', disableCacheMiddleware as any, async c => {
+    const context = await handler.query(c.req.raw)
+
+    if (context instanceof Response) {
+      return context
+    }
+
+    const router = createStaticRouter(handler.dataRoutes, context)
+
+    const component = (
+      <__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider client={client}>
+        <StaticRouterProvider router={router} context={context} />
+      </__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider>
+    )
+
+    // Check if the request wants JSON, if so, prepare the data
+    if (c.req.header('accept')?.includes('application/json')) {
+      try {
+        const data = await client.prepareReactRender(component)
+        return c.json(data.cacheSnapshot)
+      } catch (error) {
+        console.error('Error preparing data:', error)
+        return c.json(null, 500)
+      }
+    }
+
+    try {
+      let cacheSnapshot: UseHydrateCacheOptions | undefined = undefined
+
+      try {
+        const prepared = await client.prepareReactRender(<></>)
+
+        cacheSnapshot = prepared.cacheSnapshot
+      } catch (error) {}
+
+      if (reactServer.renderToReadableStream) {
+        try {
+          const stream = await reactServer.renderToReadableStream(component, {
+            bootstrapModules: ['/__pylon/static/app.js' + cacheBustingSuffix]
+          })
+
+          return c.body(stream)
+        } catch (error) {
+          throw error
+        }
+      } else if (reactServer.renderToPipeableStream) {
+        return await new Promise<Response>((resolve, reject) => {
+          const {pipe} = reactServer.renderToPipeableStream(
+            component,
+
+            {
+              bootstrapModules: ['/__pylon/static/app.js' + cacheBustingSuffix],
+              onShellReady: async () => {
+                c.header('Content-Type', 'text/html')
+
+                const passThrough = new PassThrough()
+
+                pipe(passThrough)
+
+                resolve(c.body(Readable.toWeb(passThrough) as any))
+              },
+              onShellError: async error => {
+                reject(error)
+              }
+            }
+          )
+        })
+      } else {
+        throw new Error('Environment not supported')
+      }
+    } catch (error) {
+      c.header('Content-Type', 'text/html')
+      c.status(500)
+
+      return c.html(
+        reactServer.renderToString(<ErrorPage error={error as any} />)
+      )
     }
   })
 }

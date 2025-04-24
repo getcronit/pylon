@@ -196,7 +196,7 @@ export function makeAppFiles() {
 
   const routes = `${imports.join('\n')}
 
-import {__PYLON_ROUTER_INTERNALS_DO_NOT_USE, __PYLON_INTERNALS_DO_NOT_USE, GlobalErrorPage} from '@getcronit/pylon/pages'
+import {__PYLON_ROUTER_INTERNALS_DO_NOT_USE, __PYLON_INTERNALS_DO_NOT_USE, GlobalErrorPage, StatusPage} from '@getcronit/pylon/pages'
 const Outlet = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.Outlet
 
 const ErrorElement = () => {
@@ -280,7 +280,7 @@ const RootLayout = (props: { children: React.ReactNode; [key: string]: any }) =>
 }
 
 const NotFoundPage = () => {
-  return <div>Page Not Found</div>
+  return <StatusPage code={404} title="Page Not Found" message="The page you are looking for does not exist." standalone />
 }
 
 const routes = ${serialize([rootRoute, notFoundRoute].filter(Boolean))}

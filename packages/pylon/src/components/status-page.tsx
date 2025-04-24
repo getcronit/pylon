@@ -1,0 +1,53 @@
+import {Link} from '@/pages'
+import {Button} from './ui/button'
+
+export interface StatusPageProps {
+  code: number
+  title: string
+  message: string
+  standalone?: boolean
+}
+
+export const StatusPage = ({
+  code,
+  title,
+  message,
+  standalone = false
+}: StatusPageProps) => {
+  const element = (
+    <div className="flex min-h-screen w-full flex-col items-center justify-center bg-white p-4 text-center">
+      <h1 className="mb-2 text-9xl font-thin tracking-tight text-gray-900">
+        {code}
+      </h1>
+      <h2 className="mb-6 text-xl font-light text-gray-600">{title}</h2>
+      <p className="mb-8 max-w-md text-sm text-gray-500">{message}</p>
+      <Button asChild>
+        <Link href="/">Return to home</Link>
+      </Button>
+    </div>
+  )
+
+  if (standalone) {
+    return (
+      <html>
+        <head>
+          <title>{title}</title>
+          <head>
+            <meta charSet="utf-8" />
+            <meta
+              name="viewport"
+              content="width=device-width, initial-scale=1"
+            />
+            <link
+              rel="stylesheet"
+              href="/__pylon/static/pylon.css"
+              precedence="high"
+            />
+          </head>
+        </head>
+        <body>{element}</body>
+      </html>
+    )
+  }
+  return element
+}

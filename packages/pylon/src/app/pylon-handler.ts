@@ -17,6 +17,7 @@ import {app, pluginsMiddleware} from '.'
 import {useViewer} from '../plugins/use-viewer'
 import {useUnhandledRoute} from '../plugins/use-unhandled-route'
 import {useDisableIntrospection} from '@graphql-yoga/plugin-disable-introspection'
+import {MiddlewareHandler} from 'hono'
 
 interface PylonHandlerOptions {
   graphql: {
@@ -43,7 +44,12 @@ const loadPluginsMiddleware = async (plugins: Plugin[]) => {
   }
 }
 
-export const executeConfig = async (config: PylonConfig) => {
+export const executeConfig = async (
+  config: PylonConfig,
+  args?: {
+    pluginsStrategy?: 'first' | 'last'
+  }
+) => {
   const plugins = [useSentry(), useViewer(), ...(config?.plugins || [])]
 
   if (config?.landingPage ?? true) {
@@ -54,7 +60,17 @@ export const executeConfig = async (config: PylonConfig) => {
     plugins.push(useDisableIntrospection() as Plugin)
   }
 
-  await loadPluginsMiddleware(plugins)
+  const pluginsStrategy = args?.pluginsStrategy || 'first'
+
+  await loadPluginsMiddleware(
+    plugins.filter(p => {
+      if (!p.strategy) {
+        p.strategy = 'first'
+      }
+
+      return p.strategy === pluginsStrategy
+    })
+  )
 
   config.plugins = plugins
 
@@ -166,7 +182,7 @@ export const handler = (options: PylonHandlerOptions) => {
     schema
   })
 
-  const handler = async (c: Context): Promise<Response> => {
+  const handler: MiddlewareHandler = async (c, next) => {
     let executionContext: Context['executionCtx'] | {} = {}
 
     try {
@@ -176,7 +192,7 @@ export const handler = (options: PylonHandlerOptions) => {
     const response = await yoga.fetch(c.req.raw, c.env, executionContext)
 
     if (response.status === 404) {
-      return c.notFound()
+      return next()
     }
 
     return c.newResponse(response.body, response)

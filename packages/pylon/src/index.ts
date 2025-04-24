@@ -29,6 +29,7 @@ export type Plugin<
   TServerContext extends Record<string, any> = {},
   TUserContext = {}
 > = YogaPlugin<PluginContext, TServerContext, TUserContext> & {
+  strategy?: 'first' | 'last'
   middleware?: MiddlewareHandler<Env>
   setup?: (app: typeof pylonApp) => Promise<void> | void
   build?: <T extends BuildOptions>(args: {
