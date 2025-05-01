@@ -274,7 +274,9 @@ export const setup: Plugin['setup'] = async app => {
     // Check if the request wants JSON, if so, prepare the data
     if (c.req.header('accept')?.includes('application/json')) {
       try {
+        client.cache.clear()
         const data = await client.prepareReactRender(component)
+         
         return c.json(data.cacheSnapshot)
       } catch (error) {
         console.error('Error preparing data:', error)
