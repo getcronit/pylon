@@ -162,7 +162,7 @@ function set(obj, path, value) {
   curr[path[path.length - 1]] = value;
 }
 
-const cache = new Cache(
+export const cache = new Cache(
   undefined,
   /**
    * Default option is immediate cache expiry but keep it for 5 minutes,
