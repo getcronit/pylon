@@ -283,14 +283,6 @@ export const setup: Plugin['setup'] = async app => {
     }
 
     try {
-      let cacheSnapshot: UseHydrateCacheOptions | undefined = undefined
-
-      try {
-        const prepared = await client.prepareReactRender(<></>)
-
-        cacheSnapshot = prepared.cacheSnapshot
-      } catch (error) {}
-
       if (reactServer.renderToReadableStream) {
         try {
           const stream = await reactServer.renderToReadableStream(component, {
