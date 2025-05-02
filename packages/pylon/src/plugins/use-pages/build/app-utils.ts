@@ -227,46 +227,47 @@ function withLoaderData<T>(Component: React.ComponentType<{ data: T }>) {
   };
 }
 
-const loader: __PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFunction  = async ({ request }) => {
- if (
-    request.headers.has('accept') &&
-    request.headers.get('accept') === 'application/json'
-  ) {
-    // Skip the loader if the request is for JSON
+const loader: __PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFunction = async ({ request }) => {
+  // 1. Skip if request is a JSON-only fetch (e.g., client-side route preloading)
+  const acceptHeader = request.headers.get('accept')
+  if (acceptHeader?.includes('application/json')) {
     return null
   }
+
   const url = new URL(request.url)
   const headers = new Headers()
-  headers.set('Accept', 'application/json')
-
-  if (typeof process !== "undefined") {
-    headers.set("Authorization", process.env.PYLON_CLIENT_TOKEN || undefined);
-  }
-
-  let browserOrInternalFetch: typeof fetch = fetch
+  let fetchToUse: typeof fetch = fetch
 
   try {
-    const moduleNameToPreventBundling = '@getcronit/pylon'
-    const {app} = await import(moduleNameToPreventBundling)
+    // 2. Try importing Pylon — if this works, we're on the server
+    const { app, getContext } = await import('@getcronit/pylon')
+    fetchToUse = app.request
 
-    browserOrInternalFetch = app.request
-  } catch (error) {
-    // Pylon is not found. Maybe we are running in a different environment.
+    // 3. Get headers from the original server request and forward them
+    const context = getContext()
+    for (const [key, value] of context.req.raw.headers.entries()) {
+      headers.append(key, value)
+    }
+  } catch {
+    // 4. Pylon not available — fallback to default fetch (runs in browser)
+    // No additional headers are needed; browser sends cookies automatically
   }
 
-  const uri = url.pathname + url.search
+  headers.set('Accept', 'application/json') // Ensure the internal request gets JSON
 
   try {
-  const response = await browserOrInternalFetch(uri, {
-    method: 'GET',
-    headers: headers,
-  })
-  const data = await response.json<object>()
-  return data
+    const response = await fetchToUse(url.pathname + url.search, {
+      method: 'GET',
+      headers,
+    })
+    const data = await response.json<object>()
+    return data
   } catch (error) {
-   return null
-   }
+    console.error('Loader fetch error:', error)
+    return null
+  }
 }
+
 
 const RootLayout = (props: { children: React.ReactNode; [key: string]: any }) => {
   return (

@@ -87,26 +87,27 @@ const queryFetcher: QueryFetcher = async function (
   {query, variables, operationName},
   fetchOptions
 ) {
-  let browserOrInternalFetch: typeof fetch | typeof app.request = fetch
+  const headers = new Headers({});
+  let fetchToUse: typeof fetch | typeof app.request = fetch
 
   try {
-    const moduleNameToPreventBundling = '@getcronit/pylon'
-    const {app} = await import(moduleNameToPreventBundling)
+    // 1. Try importing Pylon — if this works, we're on the server
+    const { app, getContext } = await import('@getcronit/pylon')
+    fetchToUse = app.request
 
-    browserOrInternalFetch = app.request
-  } catch (error) {
-    // Pylon is not found. Maybe we are running in a different environment.
-  }
-
-  const headers = new Headers({});
-
-  if (typeof process !== "undefined") {
-    headers.set("Authorization", process.env.PYLON_CLIENT_TOKEN || undefined);
+    // 2. Get headers from the original server request and forward them
+    const context = getContext()
+    for (const [key, value] of context.req.raw.headers.entries()) {
+      headers.append(key, value)
+    }
+  } catch {
+    // 3. Pylon not available — fallback to default fetch (runs in browser)
+    // No additional headers are needed; browser sends cookies automatically
   }
 
   const formData = buildGraphQLMultipartForm(query, variables);
 
-  const response = await browserOrInternalFetch('/graphql', {
+  const response = await fetchToUse('/graphql', {
     method: 'POST',
     headers,
     body: formData,
