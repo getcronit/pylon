@@ -240,7 +240,8 @@ const loader: __PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFunction = async ({ requ
 
   try {
     // 2. Try importing Pylon — if this works, we're on the server
-    const { app, getContext } = await import('@getcronit/pylon')
+    const moduleNameToPreventBundling = '@getcronit/pylon'
+    const { app, getContext } = await import(moduleNameToPreventBundling)
     fetchToUse = app.request
 
     // 3. Get headers from the original server request and forward them

@@ -92,7 +92,8 @@ const queryFetcher: QueryFetcher = async function (
 
   try {
     // 1. Try importing Pylon — if this works, we're on the server
-    const { app, getContext } = await import('@getcronit/pylon')
+    const moduleNameToPreventBundling = '@getcronit/pylon'
+    const { app, getContext } = await import(moduleNameToPreventBundling)
     fetchToUse = app.request
 
     // 2. Get headers from the original server request and forward them
