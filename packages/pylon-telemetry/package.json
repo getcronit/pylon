@@ -7,7 +7,9 @@
   "description": "Telemetry for Pylon",
   "scripts": {
     "build": "rimraf ./dist && esbuild ./src/index.ts --bundle --platform=node --target=node18 --format=esm --minify --outdir=./dist --sourcemap=linked --packages=external && pnpm run build:declarations",
-    "build:declarations": "tsc --declaration --emitDeclarationOnly --outDir ./dist"
+    "build:declarations": "tsc --declaration --emitDeclarationOnly --outDir ./dist",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "files": [
     "dist"
@@ -28,5 +30,8 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "devDependencies": {
+    "vitest": "^3.1.3"
   }
 }

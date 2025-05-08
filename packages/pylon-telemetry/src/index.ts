@@ -97,7 +97,7 @@ const sendEvent = async (
   const env = await getEnv(true)
 
   // @ts-ignore
-  if (!env.PYLON_TELEMETRY_DISABLED === '1') {
+  if (!!env.PYLON_TELEMETRY_DISABLED) {
     return
   }
 
