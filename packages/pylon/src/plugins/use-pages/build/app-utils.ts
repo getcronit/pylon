@@ -118,7 +118,7 @@ function scanDirectory(directory: string, basePath: string = ''): Route | null {
       route.children!.push({
         path: undefined,
         index: true,
-        lazy: `async () => {const i = await import(${importPath}); return {Component: withLoaderData(i.default)}}`,
+        lazy: `async () => {const i = await import(${importPath}).catch(() => {window.reload()}); return {Component: withLoaderData(i.default)}}`,
         loader: `loader`,
         HydrateFallback: 'HydrateFallback'
       })
