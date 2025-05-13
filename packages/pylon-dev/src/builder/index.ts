@@ -11,6 +11,7 @@ export interface BuildOptions {
     schemaChanged: boolean
     duration: number
   }) => void
+  skipInitialBuild?: boolean
 }
 
 export {SchemaBuilder}
@@ -33,6 +34,7 @@ export const build = async (options: BuildOptions) => {
         resolvers: built.resolvers
       }
     },
-    onBuild: options.onBuild
+    onBuild: options.onBuild,
+    skipInitialBuild: options.skipInitialBuild
   })
 }

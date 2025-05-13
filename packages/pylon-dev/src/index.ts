@@ -83,7 +83,8 @@ program
                 $session_id: sessionId
               }
             })
-          }
+          },
+          skipInitialBuild: true
         })
 
         await ctx.watch()

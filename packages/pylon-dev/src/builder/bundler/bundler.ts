@@ -16,6 +16,7 @@ import {extractConfig} from './extract-config'
 export interface BundlerBuildOptions {
   getBuildDefs: InjectCodePluginOptions['getBuildDefs']
   onBuild?: NotifyPluginOptions['onBuild']
+  skipInitialBuild?: boolean
 }
 
 export class Bundler {
@@ -106,7 +107,9 @@ export class Bundler {
       ]
     })
 
-    await ctx.rebuild()
+    if (!options.skipInitialBuild) {
+      await ctx.rebuild()
+    }
 
     const pluginCtxs = await this.initBuildPlugins({
       onBuild: () => {
@@ -119,11 +122,13 @@ export class Bundler {
       }
     })
 
-    await Promise.all(
-      pluginCtxs.map(async c => {
-        await (await c).rebuild()
-      })
-    )
+    if (!options.skipInitialBuild) {
+      for (const pluginCtx of pluginCtxs) {
+        const c = await pluginCtx
+
+        await c.rebuild()
+      }
+    }
 
     return {
       watch: async () => {
