@@ -7,6 +7,7 @@ import esbuild from 'esbuild'
 import {injectAppHydrationPlugin} from './plugins/inject-app-hydration'
 import {imagePlugin} from './plugins/image-plugin'
 import {postcssPlugin} from './plugins/postcss-plugin'
+import consola from 'consola'
 
 const DIST_STATIC_DIR = path.join(process.cwd(), '.pylon/__pylon/static')
 const DIST_PAGES_DIR = path.join(process.cwd(), '.pylon/__pylon/pages')
@@ -93,6 +94,10 @@ export const build: Plugin['build'] = async () => {
   const writeOnEndPlugin: esbuild.Plugin = {
     name: 'write-on-end',
     setup(build) {
+      build.onStart(async () => {
+        console.time('Building pages..')
+        consola.start('[Pylon]: Building pages...')
+      })
       build.onEnd(async result => {
         await Promise.all(
           result.outputFiles!.map(async file => {
@@ -100,6 +105,9 @@ export const build: Plugin['build'] = async () => {
             await updateFileIfChanged(file.path, file.contents)
           })
         )
+
+        console.timeEnd('Building pages..')
+        consola.success('[Pylon]: Pages built successfully')
       })
     }
   }
