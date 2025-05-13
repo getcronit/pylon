@@ -96,8 +96,7 @@ const sendEvent = async (
 ) => {
   const env = await getEnv(true)
 
-  // @ts-ignore
-  if (!!env.PYLON_TELEMETRY_DISABLED) {
+  if (isTruthyEnv(env.PYLON_TELEMETRY_DISABLED)) {
     return
   }
 
@@ -120,7 +119,7 @@ mutation Event($instanceId: String!, $payload: EventPayloadInput!) {
   }
 
   // @ts-ignore
-  if (env.PYLON_TELEMETRY_DEBUG) {
+  if (isTruthyEnv(env.PYLON_TELEMETRY_DEBUG)) {
     console.log(`[Pylon Telemetry]`, variables.payload)
   }
 
@@ -213,4 +212,9 @@ export const sendFunctionEvent = async (payload: {
     pylonBuilderVersion: versions.pylonBuilderVersion,
     ...payload
   })
+}
+
+const isTruthyEnv = (value?: string) => {
+  if (!value) return false;
+  return ['1', 'true', 'yes'].includes(value.toLowerCase());
 }
