@@ -94,10 +94,6 @@ export const build: Plugin['build'] = async () => {
   const writeOnEndPlugin: esbuild.Plugin = {
     name: 'write-on-end',
     setup(build) {
-      build.onStart(async () => {
-        console.time('Building pages..')
-        consola.start('[Pylon]: Building pages...')
-      })
       build.onEnd(async result => {
         await Promise.all(
           result.outputFiles!.map(async file => {
@@ -105,9 +101,6 @@ export const build: Plugin['build'] = async () => {
             await updateFileIfChanged(file.path, file.contents)
           })
         )
-
-        console.timeEnd('Building pages..')
-        consola.success('[Pylon]: Pages built successfully')
       })
     }
   }
@@ -119,6 +112,19 @@ export const build: Plugin['build'] = async () => {
 
   let pagesWatcher: FSWatcher | null = null
 
+  const timePlugin = (name: string): esbuild.Plugin => ({
+    name: 'rebuild-log',
+    setup({onStart, onEnd}) {
+      var t
+      onStart(() => {
+        t = Date.now()
+      })
+      onEnd(() => {
+        console.log(`Pages [${name}] Rebuild took ${Date.now() - t}ms`)
+      })
+    }
+  })
+
   const clientCtx = await esbuild.context({
     sourcemap: 'linked',
     write: false,
@@ -129,7 +135,8 @@ export const build: Plugin['build'] = async () => {
       injectAppHydrationPlugin,
       imagePlugin,
       postcssPlugin,
-      writeOnEndPlugin
+      writeOnEndPlugin,
+      timePlugin('client')
     ],
     publicPath: '/__pylon/static',
     assetNames: 'assets/[name]-[hash]',
@@ -163,7 +170,12 @@ export const build: Plugin['build'] = async () => {
     write: false,
     absWorkingDir: process.cwd(),
     nodePaths,
-    plugins: [imagePlugin, postcssPlugin, writeOnEndPlugin],
+    plugins: [
+      imagePlugin,
+      postcssPlugin,
+      writeOnEndPlugin,
+      timePlugin('server')
+    ],
     publicPath: '/__pylon/static',
     assetNames: 'assets/[name]-[hash]',
     chunkNames: 'chunks/[name]-[hash]',
