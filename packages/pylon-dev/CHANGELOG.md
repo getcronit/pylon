@@ -1,5 +1,12 @@
 # @getcronit/pylon-dev
 
+## 1.0.5
+
+### Patch Changes
+
+- Updated dependencies [[`ecd7782`](https://github.com/getcronit/pylon/commit/ecd77827be4df05a7fe1c26f1d827708e95ff026)]:
+  - @getcronit/pylon-telemetry@1.0.4
+
 ## 1.0.4
 
 ### Patch Changes

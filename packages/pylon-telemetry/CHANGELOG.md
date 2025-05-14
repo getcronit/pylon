@@ -1,5 +1,12 @@
 # @getcronit/pylon-telemetry
 
+## 1.0.4
+
+### Patch Changes
+
+- [#81](https://github.com/getcronit/pylon/pull/81) [`ecd7782`](https://github.com/getcronit/pylon/commit/ecd77827be4df05a7fe1c26f1d827708e95ff026) Thanks [@kfly8](https://github.com/kfly8)! - - `PYLON_TELEMETRY_DISABLED` now properly disables telemetry as intended.
+  - `PYLON_TELEMETRY_DISABLED` and `PYLON_TELEMETRY_DEBUG` now accept additional truthy values (`"true"`, `"yes"`, and `"1"`).
+
 ## 1.0.3
 
 ### Patch Changes
