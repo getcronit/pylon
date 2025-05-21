@@ -37,10 +37,6 @@ export const build: Plugin['build'] = async () => {
       path.resolve(process.cwd(), '.pylon', 'app.tsx'),
       Buffer.from(appFiles.routes)
     )
-    await updateFileIfChanged(
-      path.resolve(process.cwd(), '.pylon', 'slugs.js'),
-      Buffer.from(appFiles.slugs)
-    )
   }
 
   const copyPublicDir = async () => {

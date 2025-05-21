@@ -49,7 +49,6 @@ const disableCacheMiddleware: MiddlewareHandler<Env> = async (c, next) => {
 export const setup: Plugin['setup'] = async app => {
   const cacheBustingSuffix = `?v=${Date.now()}`
 
-  const slugs = (await import(`${process.cwd()}/.pylon/slugs.js`)).default
   const routes = (await import(`${process.cwd()}/.pylon/__pylon/pages/app.js`))
     .default
   const client = await import(`${process.cwd()}/.pylon/client/index.js`)
@@ -276,7 +275,7 @@ export const setup: Plugin['setup'] = async app => {
       try {
         client.cache.clear()
         const data = await client.prepareReactRender(component)
-         
+
         return c.json(data.cacheSnapshot)
       } catch (error) {
         console.error('Error preparing data:', error)
