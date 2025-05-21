@@ -202,6 +202,10 @@ export const build: Plugin['build'] = async () => {
 
   return {
     watch: async () => {
+      await buildAppFile()
+      await copyPublicDir()
+      await copyPylonCSS()
+
       pagesWatcher = chokidar.watch('pages', {ignoreInitial: true})
 
       pagesWatcher!.on('all', async (event, path) => {
