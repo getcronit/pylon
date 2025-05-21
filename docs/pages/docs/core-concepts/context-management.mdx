@@ -41,6 +41,44 @@ app.get('/hello', (ctx, next) => {
 })
 ```
 
+There is a gotcha if you utilize `app.route()` and piggy-back on a Pylon app instance, because there must only be one import of the Pylon `app` instance. The import is the main entry point for the application and it is important that it should only be used once, because the Pylon app registers some global middlewares and the router. If you import it multiple times, it will register the middlewares multiple times and cause conflicts. Example conflicts include:
+
+- Multiple request and response logs in the console.
+- Multiple passes of middlewares (`app.use('*')`), which can lead to incorrect variable reads/writes.
+
+To avoid this, all other routers should be created as sub-routers using a new Hono instance.
+
+`/src/authRouter.ts`:
+
+```typescript
+import {type Bindings, type Variables} from '@getcronit/pylon'
+import {Hono} from 'hono'
+
+const authRouter = new Hono<{
+  Bindings: Bindings
+  Variables: Variables
+}>()
+
+authRouter.get('/', c => {
+  return c.text('Hello from Auth')
+})
+
+export default authRouter
+```
+
+`/src/index.ts`:
+
+```typescript
+import {app} from '@getcronit/pylon'
+import authRouter from './authRouter'
+
+app.route('/auth', authRouter)
+
+export const graphql = {...}
+
+export default app
+```
+
 For more detailed information on utilizing the Hono app instance, refer to the [Hono documentation](https://hono.dev/getting-started/basic).
 
 ## Accessing Context in Service Functions
