@@ -1,8 +1,8 @@
 import {Plugin} from '@/index'
-import {setup, PageData, PageProps} from './setup'
+import {setup, PageData, PageProps, LayoutProps} from './setup'
 import {build} from './build'
 
-export {PageData, PageProps}
+export {PageData, PageProps, LayoutProps}
 
 export function usePages(): Plugin {
   return {

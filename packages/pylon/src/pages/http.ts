@@ -57,3 +57,23 @@ export function unauthorized(
     statusText: args?.statusText || 'Unauthorized'
   })
 }
+
+export function redirect(
+  url: string,
+  args?: {
+    statusText?: string
+    status?: number
+    headers?: HeadersInit
+  }
+): never {
+  const response = new Response(null, {
+    status: args?.status || 302,
+    statusText: args?.statusText || 'Redirecting',
+    headers: {
+      Location: url,
+      ...args?.headers
+    }
+  })
+
+  throw response
+}
