@@ -8,6 +8,7 @@ import {injectAppHydrationPlugin} from './plugins/inject-app-hydration'
 import {imagePlugin} from './plugins/image-plugin'
 import {postcssPlugin} from './plugins/postcss-plugin'
 import consola from 'consola'
+import {esmExternalsPlugin} from './plugins/external-esm-plugin'
 
 const DIST_STATIC_DIR = path.join(process.cwd(), '.pylon/__pylon/static')
 const DIST_PAGES_DIR = path.join(process.cwd(), '.pylon/__pylon/pages')
@@ -170,7 +171,14 @@ export const build: Plugin['build'] = async () => {
       imagePlugin,
       postcssPlugin,
       writeOnEndPlugin,
-      timePlugin('server')
+      timePlugin('server'),
+      esmExternalsPlugin([
+        '@getcronit/pylon',
+        'react',
+        'react-dom',
+        'gqty',
+        '@gqty/react'
+      ])
     ],
     publicPath: '/__pylon/static',
     assetNames: 'assets/[name]-[hash]',
