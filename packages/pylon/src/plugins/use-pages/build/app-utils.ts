@@ -287,8 +287,7 @@ const loader: __PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFunction = async ({ requ
   }
 
   if (!response.ok) {
-  console.error('Error fetching loader data:', response, response)
-   throw response
+    throw response
   }
 
   const data = await response.json<object>()
