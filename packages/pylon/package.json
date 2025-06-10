@@ -47,6 +47,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "consola": "^3.2.3",
+    "escape-string-regexp": "^5.0.0",
     "gqty": "3.4.0-canary-20250207102900.644ad9fdeafa6318516627577b1d4d754d5c5a98",
     "graphql": "^16.9.0",
     "graphql-scalars": "^1.24.0",
