@@ -90,7 +90,8 @@ function scanDirectory(directory: string, basePath: string = ''): Route | null {
           ? `RootLayout`
           : `${layoutComponentName}`
 
-      route.Component = `withLoaderData(() => <${componentName} children={<Outlet />} />)`
+      route.Component = `withLoaderData((...props) => <${componentName} children={<Outlet />} {...props} />)`
+      route.loader = `loader`
 
       if (route.path === '/') {
         route.errorElement = '<ErrorElement />'
