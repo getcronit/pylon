@@ -29,6 +29,10 @@ export type PageProps = {
   path: string
 }
 
+export type LayoutProps = PageProps & {
+  children: React.ReactNode
+}
+
 const disableCacheMiddleware: MiddlewareHandler<Env> = async (c, next) => {
   const env = getEnv()
   // Disable cache for all request for now
@@ -278,7 +282,10 @@ export const setup: Plugin['setup'] = async app => {
 
         return c.json(data.cacheSnapshot)
       } catch (error) {
-        console.error('Error preparing data:', error)
+        if (error instanceof Response) {
+          return error
+        }
+
         return c.json(null, 500)
       }
     }
@@ -319,32 +326,19 @@ export const setup: Plugin['setup'] = async app => {
       } else {
         throw new Error('Environment not supported')
       }
-    } catch (error) {
+    } catch (errorOrResponse) {
       c.header('Content-Type', 'text/html')
 
-      if (error instanceof Response) {
-        c.status(error.status as StatusCode)
-
-        const data = (await error.json()) as any
-
-        return c.html(
-          reactServer.renderToString(
-            <StatusPage
-              standalone
-              code={error.status}
-              title={error.statusText}
-              message={data.message}
-              returnText={data.returnText}
-              returnUrl={data.returnUrl}
-            />
-          )
-        )
+      if (errorOrResponse instanceof Response) {
+        return errorOrResponse
       }
 
       c.status(500)
 
       return c.html(
-        reactServer.renderToString(<ErrorPage error={error as any} />)
+        reactServer.renderToString(
+          <ErrorPage error={errorOrResponse as Error} />
+        )
       )
     }
   })

@@ -202,6 +202,26 @@ const Outlet = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.Outlet
 const ErrorElement = () => {
   const error = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useRouteError()
 
+   if (__PYLON_ROUTER_INTERNALS_DO_NOT_USE.isRouteErrorResponse(error)) {
+    let message = 'An unexpected error occurred.'
+
+    try {
+      const data = JSON.parse(error.data?.message || '{}')
+      if (data.message) {
+        message = data.message
+      }
+    } catch (e) {}
+
+    return (
+      <StatusPage
+        code={error.status}
+        title={error.statusText}
+        message={message}
+        standalone
+      />
+    )
+  }
+
   return <GlobalErrorPage error={error} />
 }
 
@@ -256,17 +276,22 @@ const loader: __PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFunction = async ({ requ
 
   headers.set('Accept', 'application/json') // Ensure the internal request gets JSON
 
-  try {
-    const response = await fetchToUse(url.pathname + url.search, {
+  const response = await fetchToUse(url.pathname + url.search, {
       method: 'GET',
       headers,
-    })
-    const data = await response.json<object>()
-    return data
-  } catch (error) {
-    console.error('Loader fetch error:', error)
-    return null
+  })
+
+  if(response.redirected) {
+    throw __PYLON_ROUTER_INTERNALS_DO_NOT_USE.redirect(response.url)
   }
+
+  if (!response.ok) {
+  console.error('Error fetching loader data:', response, response)
+   throw response
+  }
+
+  const data = await response.json<object>()
+  return data
 }
 
 
