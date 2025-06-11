@@ -9,6 +9,7 @@ const PAGES_DIR = './pages'
 interface Route {
   path?: string
   Component?: string
+  element?: string
   errorElement?: string
   lazy?: string
   loader?: string
@@ -141,6 +142,18 @@ function scanDirectory(directory: string, basePath: string = ''): Route | null {
     }
   }
 
+  if (hasLayout) {
+    const childNotFoundRoute: Route = {
+      path: '*',
+      element: '<NotFoundPage standalone={false} />'
+    }
+
+    if (!route.children) {
+      route.children = []
+    }
+    route.children.push(childNotFoundRoute)
+  }
+
   if (
     hasLayout ||
     route.lazy ||
@@ -169,6 +182,7 @@ function serialize(obj: any, parentKey?: string | number): string {
       parentKey === 'lazy' ||
       parentKey === 'loader' ||
       parentKey === 'Component' ||
+      parentKey === 'element' ||
       parentKey === 'errorElement' ||
       parentKey === 'HydrateFallback'
     ) {
@@ -192,7 +206,7 @@ export function makeAppFiles() {
   const rootRoute = scanDirectory(PAGES_DIR)
   const notFoundRoute: Route = {
     path: '*',
-    Component: 'NotFoundPage'
+    element: '<NotFoundPage standalone={true} />'
   }
 
   const routes = `${imports.join('\n')}
@@ -302,14 +316,15 @@ const RootLayout = (props: { children: React.ReactNode; [key: string]: any }) =>
     <Layout {...props}>
       <meta charSet="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <link rel="stylesheet" href="/__pylon/static/pylon.css" precedence="high" />
       <link rel="stylesheet" href="/__pylon/static/app.css" precedence="high" />
       {props.children}
     </Layout>
   )
 }
 
-const NotFoundPage = () => {
-  return <StatusPage code={404} title="Page Not Found" message="The page you are looking for does not exist." standalone />
+const NotFoundPage: React.FC<{standalone: boolean}> = ({standalone = false}) => {
+  return <StatusPage code={404} title="Page Not Found" message="The page you are looking for does not exist." standalone={standalone} />
 }
 
 const routes = ${serialize([rootRoute, notFoundRoute].filter(Boolean))}

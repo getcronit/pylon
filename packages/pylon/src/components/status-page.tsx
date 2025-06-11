@@ -20,11 +20,6 @@ export const StatusPage = ({
   const element = (
     <div className="flex min-h-screen w-full flex-col items-center justify-center bg-white p-4 text-center">
       <title>{title}</title>
-      <link
-        rel="stylesheet"
-        href="/__pylon/static/pylon.css"
-        precedence="high"
-      />
       <h1 className="mb-2 text-9xl font-thin tracking-tight text-gray-900">
         {code}
       </h1>
@@ -42,6 +37,11 @@ export const StatusPage = ({
         <head>
           <meta charSet="utf-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <link
+            rel="stylesheet"
+            href="/__pylon/static/pylon.css"
+            precedence="high"
+          />
         </head>
         <body>{element}</body>
       </html>
