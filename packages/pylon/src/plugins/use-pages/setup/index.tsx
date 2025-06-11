@@ -330,7 +330,29 @@ export const setup: Plugin['setup'] = async app => {
       c.header('Content-Type', 'text/html')
 
       if (errorOrResponse instanceof Response) {
-        return errorOrResponse
+        c.status(errorOrResponse.status as StatusCode)
+
+        // Redirect if the response is a redirect
+        if (errorOrResponse.status >= 300 && errorOrResponse.status < 400) {
+          const location = errorOrResponse.headers.get('Location')
+          if (location) {
+            return c.redirect(
+              location,
+              errorOrResponse.status as RedirectStatusCode
+            )
+          }
+        }
+
+        return c.html(
+          reactServer.renderToString(
+            <StatusPage
+              code={errorOrResponse.status}
+              title={errorOrResponse.statusText}
+              message={errorOrResponse.statusText}
+              standalone
+            />
+          )
+        )
       }
 
       c.status(500)
@@ -349,7 +371,7 @@ import type {FormatEnum} from 'sharp'
 import glob from 'tiny-glob/sync.js'
 import {serveFilePath} from './serve-file-path'
 import {__PYLON_INTERNALS_DO_NOT_USE} from '@getcronit/pylon/pages'
-import {StatusCode} from 'hono/utils/http-status'
+import {RedirectStatusCode, StatusCode} from 'hono/utils/http-status'
 
 // Cache directory
 
