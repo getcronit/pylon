@@ -94,7 +94,7 @@ function scanDirectory(directory: string, basePath: string = ''): Route | null {
       route.loader = `loader`
 
       if (route.path === '/') {
-        route.errorElement = '<ErrorElement />'
+        route.errorElement = '<ErrorElement standalone={true} />'
       }
 
       route.HydrateFallback = 'HydrateFallback'
@@ -119,8 +119,8 @@ function scanDirectory(directory: string, basePath: string = ''): Route | null {
       route.children!.push({
         path: undefined,
         index: true,
+        errorElement: '<ErrorElement standalone={false} />',
         lazy: `async () => {const i = await import(${importPath}).catch(() => {window.reload()}); return {Component: withLoaderData(i.default)}}`,
-        loader: `loader`,
         HydrateFallback: 'HydrateFallback'
       })
 
@@ -200,11 +200,17 @@ export function makeAppFiles() {
 import {__PYLON_ROUTER_INTERNALS_DO_NOT_USE, __PYLON_INTERNALS_DO_NOT_USE, GlobalErrorPage, StatusPage} from '@getcronit/pylon/pages'
 const Outlet = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.Outlet
 
-const ErrorElement = () => {
+const ErrorElement: React.FC<{standalone: boolean}> = ({standalone}) => {
   const error = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useRouteError()
 
-   if (__PYLON_ROUTER_INTERNALS_DO_NOT_USE.isRouteErrorResponse(error)) {
-    let message = 'An unexpected error occurred.'
+
+    if(error instanceof Response) {
+      // Check if the error is a redirect response
+      if(error.status > 300 && error.status < 400 && error.headers.get('Location')) {
+      return <__PYLON_ROUTER_INTERNALS_DO_NOT_USE.Navigate to={error.headers.get('Location')!} replace />
+      }
+
+      let message = 'An unexpected error occurred.'
 
     try {
       const data = JSON.parse(error.data?.message || '{}')
@@ -218,7 +224,7 @@ const ErrorElement = () => {
         code={error.status}
         title={error.statusText}
         message={message}
-        standalone
+        standalone={standalone}
       />
     )
   }
@@ -282,16 +288,12 @@ const loader: __PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFunction = async ({ requ
       headers,
   })
 
-  if(response.redirected) {
-    throw __PYLON_ROUTER_INTERNALS_DO_NOT_USE.redirect(response.url)
+  try {
+    const data = await response.json<object>()
+    return data
+  } catch {
+    return null
   }
-
-  if (!response.ok) {
-    throw response
-  }
-
-  const data = await response.json<object>()
-  return data
 }
 
 
