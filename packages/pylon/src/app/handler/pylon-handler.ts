@@ -1,4 +1,3 @@
-import {createSchema, createYoga} from 'graphql-yoga'
 import {GraphQLScalarType, Kind} from 'graphql'
 import {
   DateTimeISOResolver,
@@ -6,13 +5,16 @@ import {
   JSONObjectResolver,
   JSONResolver
 } from 'graphql-scalars'
+import {createSchema, createYoga} from 'graphql-yoga'
 
-import {useSentry} from '../envelop/use-sentry'
+import {readFileSync} from 'fs'
+import {logger} from 'hono/logger'
+import path from 'path'
+import {app, PylonConfig} from '../..'
 import {Context} from '../../context'
 import {resolversToGraphQLResolvers} from '../../define-pylon'
-import {PylonConfig} from '../..'
-import {readFileSync} from 'fs'
-import path from 'path'
+import {useSentry} from '../envelop/use-sentry'
+import {graphqlViewerHandler} from './graphql-viewer-handler'
 
 interface PylonHandlerOptions {
   graphql: {
@@ -116,6 +118,14 @@ export const handler = (options: PylonHandlerOptions) => {
     plugins: [useSentry(), ...(config?.plugins || [])],
     schema
   })
+
+  // Load middlewares based on config
+  if (config?.logger !== false) {
+    app.use('*', logger())
+  }
+  if (config?.graphiql !== false) {
+    app.get('/viewer', graphqlViewerHandler)
+  }
 
   const handler = async (c: Context): Promise<Response> => {
     let executionContext: Context['executionCtx'] | {} = {}
