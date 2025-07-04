@@ -2,17 +2,14 @@ import fs from 'fs'
 import path from 'path'
 import reactServer from 'react-dom/server'
 
-import {app, Env, getEnv, type Plugin} from '@/index'
-import {UseHydrateCacheOptions} from '@gqty/react'
+import {app, Env, getEnv, Variables, type Plugin} from '@/index'
 import {trimTrailingSlash} from 'hono/trailing-slash'
 import {
   createStaticHandler,
   createStaticRouter,
-  StaticRouter,
   StaticRouterProvider
 } from 'react-router'
 import {PassThrough, Readable} from 'stream'
-import mime from 'mime/lite'
 
 import ErrorPage from '@/components/global-error-page'
 import {StatusPage} from '@/components/status-page'
@@ -23,6 +20,8 @@ import {pipeline} from 'stream/promises'
 export interface PageData {}
 
 export type PageProps = {
+  // @ts-expect-error
+  context: Variables['pagesContext']
   data: PageData
   params: Record<string, string>
   searchParams: Record<string, string>
@@ -276,18 +275,23 @@ export const setup: Plugin['setup'] = async app => {
 
     // Check if the request wants JSON, if so, prepare the data
     if (c.req.header('accept')?.includes('application/json')) {
+      const context = c.get('pagesContext' as any) || {}
+      let cacheSnapshot
       try {
         client.cache.clear()
         const data = await client.prepareReactRender(component)
 
-        return c.json(data.cacheSnapshot)
+        cacheSnapshot = data.cacheSnapshot
       } catch (error) {
         if (error instanceof Response) {
           return error
         }
-
-        return c.json(null, 500)
       }
+
+      return c.json({
+        cacheSnapshot,
+        context
+      })
     }
 
     try {
@@ -366,12 +370,12 @@ export const setup: Plugin['setup'] = async app => {
   })
 }
 
+import {__PYLON_INTERNALS_DO_NOT_USE} from '@getcronit/pylon/pages'
 import {createHash} from 'crypto'
+import {RedirectStatusCode, StatusCode} from 'hono/utils/http-status'
 import type {FormatEnum} from 'sharp'
 import glob from 'tiny-glob/sync.js'
 import {serveFilePath} from './serve-file-path'
-import {__PYLON_INTERNALS_DO_NOT_USE} from '@getcronit/pylon/pages'
-import {RedirectStatusCode, StatusCode} from 'hono/utils/http-status'
 
 // Cache directory
 

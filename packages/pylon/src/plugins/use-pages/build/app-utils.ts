@@ -122,7 +122,8 @@ function scanDirectory(directory: string, basePath: string = ''): Route | null {
         index: true,
         errorElement: '<ErrorElement standalone={false} />',
         lazy: `async () => {const i = await import(${importPath}).catch(() => {window.reload()}); return {Component: withLoaderData(i.default)}}`,
-        HydrateFallback: 'HydrateFallback'
+        HydrateFallback: 'HydrateFallback',
+        loader: `loader`
       })
 
       pageFound = true
@@ -253,18 +254,20 @@ const HydrateFallback = () => {
 function withLoaderData<T>(Component: React.ComponentType<{ data: T }>) {
   return function WithLoaderDataWrapper(props: T) {
     const client = __PYLON_INTERNALS_DO_NOT_USE.useDataClient()
-    const cacheSnapshot = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useLoaderData()
-
+    const {cacheSnapshot, context} = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useLoaderData() || {};
 
     const location = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useLocation()
     const [searchParams] = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useSearchParams()
     const searchParamsObject = Object.fromEntries(searchParams.entries())
     const params = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useParams()
 
-    client.useHydrateCache({cacheSnapshot})
+    if(cacheSnapshot) {
+      client.useHydrateCache({cacheSnapshot})
+    }
+
     const data = client.useQuery()
 
-    return <Component {...(props as any)} path={location.pathname} params={params} searchParams={searchParamsObject} data={data} />;
+    return <Component {...(props as any)} path={location.pathname} params={params} searchParams={searchParamsObject} data={data} context={context} />;
   };
 }
 
