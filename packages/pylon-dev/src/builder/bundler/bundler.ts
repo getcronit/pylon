@@ -80,6 +80,7 @@ export class Bundler {
 
     const ctx = await context({
       write: false,
+      platform: 'node',
       logLevel: 'silent',
       metafile: true,
       entryPoints: [inputPath],
