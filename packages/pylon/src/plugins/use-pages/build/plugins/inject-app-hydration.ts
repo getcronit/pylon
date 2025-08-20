@@ -20,7 +20,7 @@ export const injectAppHydrationPlugin: Plugin = {
           import { __PYLON_ROUTER_INTERNALS_DO_NOT_USE, __PYLON_INTERNALS_DO_NOT_USE, DevOverlay, onCaughtErrorProd, onRecoverableErrorProd, onUncaughtErrorProd } from '@getcronit/pylon/pages';
           const {createBrowserRouter, RouterProvider, matchRoutes} = __PYLON_ROUTER_INTERNALS_DO_NOT_USE
           const {DataClientProvider} = __PYLON_INTERNALS_DO_NOT_USE
-          import React, {useMemo} from 'react'
+          import React, {useMemo, startTransition} from 'react'
 
           hydrate()
 
@@ -43,13 +43,15 @@ export const injectAppHydrationPlugin: Plugin = {
 
             const router = createBrowserRouter(routes)
 
-            hydrateRoot(
-              document,
-              <DataClientProvider client={client}>
+            startTransition(() => {
+              hydrateRoot(
+                document,
+                <DataClientProvider client={client}>
                   <RouterProvider router={router} />
-              </DataClientProvider>
-            )
-          }
+                </DataClientProvider>
+              )
+            })
+         }
 
 
           `
