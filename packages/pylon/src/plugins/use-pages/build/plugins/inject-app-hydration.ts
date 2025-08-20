@@ -21,8 +21,9 @@ export const injectAppHydrationPlugin: Plugin = {
           const {createBrowserRouter, RouterProvider, matchRoutes} = __PYLON_ROUTER_INTERNALS_DO_NOT_USE
           const {DataClientProvider} = __PYLON_INTERNALS_DO_NOT_USE
           import React, {useMemo, startTransition} from 'react'
+          import * as Sentry from '@sentry/react'
 
-          hydrate()
+          
 
           async function hydrate() {
             // Determine if any of the initial routes are lazy
@@ -49,9 +50,20 @@ export const injectAppHydrationPlugin: Plugin = {
                 <DataClientProvider client={client}>
                   <RouterProvider router={router} />
                 </DataClientProvider>
-              )
+              , {
+                // Callback called when an error is thrown and not caught by an ErrorBoundary.
+                onUncaughtError: Sentry.reactErrorHandler((error, errorInfo) => {
+                  console.warn('Uncaught error', error, errorInfo.componentStack);
+                }),
+                // Callback called when React catches an error in an ErrorBoundary.
+                onCaughtError: Sentry.reactErrorHandler(),
+                // Callback called when React automatically recovers from errors.
+                onRecoverableError: Sentry.reactErrorHandler(),
+              })
             })
          }
+
+         hydrate()
 
 
           `
