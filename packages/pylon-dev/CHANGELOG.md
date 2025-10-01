@@ -1,5 +1,14 @@
 # @getcronit/pylon-dev
 
+## 1.0.6
+
+### Patch Changes
+
+- [#102](https://github.com/getcronit/pylon/pull/102) [`f4f3dca`](https://github.com/getcronit/pylon/commit/f4f3dcaee59d03508a99ce7bd4a4ae8370d74a4a) Thanks [@schettn](https://github.com/schettn)! - feat: add `graphiql` option to config
+  fix: update internal consola imports
+- Updated dependencies [[`f4f3dca`](https://github.com/getcronit/pylon/commit/f4f3dcaee59d03508a99ce7bd4a4ae8370d74a4a)]:
+  - @getcronit/pylon-builder@2.6.9
+
 ## 1.0.5
 
 ### Patch Changes

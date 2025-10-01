@@ -1,6 +1,6 @@
 {
   "name": "@getcronit/pylon-builder",
-  "version": "2.6.8",
+  "version": "2.6.9",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
