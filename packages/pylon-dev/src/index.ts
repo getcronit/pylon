@@ -3,7 +3,7 @@
 import {build} from '@getcronit/pylon-builder'
 import {fetchSchema, generateClient} from '@gqty/cli'
 import {program, type Command} from 'commander'
-import consola from 'consola'
+import {consola} from 'consola'
 import path from 'path'
 import {version} from '../package.json'
 import {ChildProcess, spawn} from 'child_process'

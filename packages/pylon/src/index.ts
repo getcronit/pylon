@@ -18,7 +18,12 @@ export {getEnv} from './get-env.js'
 export {createDecorator} from './create-decorator.js'
 export {createPubSub as experimentalCreatePubSub} from 'graphql-yoga'
 
-export type PylonConfig = Pick<YogaServerOptions<Context, Context>, 'plugins'>
+export type PylonConfig = Pick<
+  YogaServerOptions<Context, Context>,
+  'plugins'
+> & {
+  graphiql?: boolean | ((c: Context) => boolean)
+}
 
 export type ID = string & {readonly brand?: unique symbol}
 export type Int = number & {readonly brand?: unique symbol}

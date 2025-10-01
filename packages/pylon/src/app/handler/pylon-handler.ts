@@ -1,4 +1,3 @@
-import {createSchema, createYoga} from 'graphql-yoga'
 import {GraphQLScalarType, Kind} from 'graphql'
 import {
   DateTimeISOResolver,
@@ -6,13 +5,16 @@ import {
   JSONObjectResolver,
   JSONResolver
 } from 'graphql-scalars'
+import {createSchema, createYoga} from 'graphql-yoga'
 
-import {useSentry} from '../envelop/use-sentry'
-import {Context} from '../../context'
-import {resolversToGraphQLResolvers} from '../../define-pylon'
-import {PylonConfig} from '../..'
+import {useDisableIntrospection} from '@envelop/disable-introspection'
 import {readFileSync} from 'fs'
 import path from 'path'
+import {PylonConfig} from '../..'
+import {Context, getContext} from '../../context'
+import {resolversToGraphQLResolvers} from '../../define-pylon'
+import {useSentry} from '../envelop/use-sentry'
+import {useViewer} from '../envelop/use-viewer'
 
 interface PylonHandlerOptions {
   graphql: {
@@ -102,18 +104,52 @@ export const handler = (options: PylonHandlerOptions) => {
     }
   })
 
+  const resolveGraphiql = (config?: PylonConfig) => {
+    const graphiqlOptions = {
+      shouldPersistHeaders: true,
+      title: 'Pylon Playground',
+      defaultQuery: `# Welcome to the Pylon Playground!`
+    }
+
+    if (typeof config?.graphiql === 'undefined') {
+      return graphiqlOptions
+    }
+
+    if (typeof config.graphiql === 'boolean') {
+      return config.graphiql ? graphiqlOptions : false
+    }
+
+    if (typeof config.graphiql === 'function') {
+      const c = getContext()
+      return config.graphiql(c) ? graphiqlOptions : false
+    }
+
+    return false // fallback safeguard
+  }
+
   const yoga = createYoga({
     landingPage: false,
-    graphiql: req => {
-      return {
-        shouldPersistHeaders: true,
-        title: 'Pylon Playground',
-        defaultQuery: `# Welcome to the Pylon Playground!`
-      }
-    },
     graphqlEndpoint: '/graphql',
     ...config,
-    plugins: [useSentry(), ...(config?.plugins || [])],
+    graphiql: async () => resolveGraphiql(config),
+    plugins: [
+      useSentry(),
+      useDisableIntrospection({
+        disableIf: () => {
+          const disable = resolveGraphiql(config) === false
+
+          return disable
+        }
+      }),
+      useViewer({
+        disableIf: () => {
+          const disable = resolveGraphiql(config) === false
+
+          return disable
+        }
+      }),
+      ...(config?.plugins || [])
+    ],
     schema
   })
 
