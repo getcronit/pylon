@@ -13,6 +13,7 @@ interface Route {
   errorElement?: string
   lazy?: string
   loader?: string
+  shouldRevalidate?: string
   index?: boolean
   children?: Route[]
   HydrateFallback?: string
@@ -93,6 +94,7 @@ function scanDirectory(directory: string, basePath: string = ''): Route | null {
 
       route.Component = `withLoaderData((props) => <${componentName} children={<Outlet />} {...props} />)`
       route.loader = `loader`
+      route.shouldRevalidate = `() => false`
 
       if (route.path === '/') {
         route.errorElement = '<ErrorElement standalone={true} />'
@@ -182,6 +184,7 @@ function serialize(obj: any, parentKey?: string | number): string {
     if (
       parentKey === 'lazy' ||
       parentKey === 'loader' ||
+      parentKey === 'shouldRevalidate' ||
       parentKey === 'Component' ||
       parentKey === 'element' ||
       parentKey === 'errorElement' ||
@@ -211,6 +214,8 @@ export function makeAppFiles() {
   }
 
   const routes = `${imports.join('\n')}
+
+import {useMemo} from 'react'
 
 import {__PYLON_ROUTER_INTERNALS_DO_NOT_USE, __PYLON_INTERNALS_DO_NOT_USE, GlobalErrorPage, StatusPage} from '@getcronit/pylon/pages'
 const Outlet = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.Outlet
@@ -253,7 +258,10 @@ const HydrateFallback = () => {
 
 function withLoaderData<T>(Component: React.ComponentType<{ data: T }>) {
   return function WithLoaderDataWrapper(props: T) {
-    const client = __PYLON_INTERNALS_DO_NOT_USE.useDataClient()
+    const dataClient = __PYLON_INTERNALS_DO_NOT_USE.useDataClient()
+    const {useQuery, useHydrateCache} = useMemo(() => dataClient.pageClient(), [])
+
+
     const {cacheSnapshot, context} = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useLoaderData() || {};
 
     const location = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useLocation()
@@ -262,10 +270,10 @@ function withLoaderData<T>(Component: React.ComponentType<{ data: T }>) {
     const params = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useParams()
 
     if(cacheSnapshot) {
-      client.useHydrateCache({cacheSnapshot})
+      useHydrateCache({cacheSnapshot})
     }
 
-    const data = client.useQuery()
+    const data = typeof window !== "undefined" ? useQuery() : dataClient.useQuery()
 
     return <Component {...(props as any)} path={location.pathname} params={params} searchParams={searchParamsObject} data={data} context={context} />;
   };
