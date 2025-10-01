@@ -22,7 +22,7 @@ export type PylonConfig = Pick<
   YogaServerOptions<Context, Context>,
   'plugins'
 > & {
-  graphiql: boolean | ((c: Context) => boolean)
+  graphiql?: boolean | ((c: Context) => boolean)
 }
 
 export type ID = string & {readonly brand?: unique symbol}

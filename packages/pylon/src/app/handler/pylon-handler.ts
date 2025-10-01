@@ -135,10 +135,18 @@ export const handler = (options: PylonHandlerOptions) => {
     plugins: [
       useSentry(),
       useDisableIntrospection({
-        disableIf: () => resolveGraphiql(config) !== false
+        disableIf: () => {
+          const disable = resolveGraphiql(config) === false
+
+          return disable
+        }
       }),
       useViewer({
-        disableIf: () => resolveGraphiql(config) !== false
+        disableIf: () => {
+          const disable = resolveGraphiql(config) === false
+
+          return disable
+        }
       }),
       ...(config?.plugins || [])
     ],

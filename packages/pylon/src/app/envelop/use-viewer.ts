@@ -15,7 +15,9 @@ export const useViewer = <PluginContext extends Record<string, any> = {}>(
 
       if (
         url.pathname === '/viewer' &&
-        (typeof options.disableIf !== 'undefined' ? options.disableIf() : true)
+        (typeof options.disableIf !== 'undefined'
+          ? options.disableIf() === false
+          : true)
       ) {
         const res = await c.html(html`
           <!DOCTYPE html>
