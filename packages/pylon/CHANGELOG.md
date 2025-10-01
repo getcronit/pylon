@@ -1,14 +1,5 @@
 # @getcronit/pylon
 
-## 2.9.6
-
-### Patch Changes
-
-- [#104](https://github.com/getcronit/pylon/pull/104) [`cd7d2b4`](https://github.com/getcronit/pylon/commit/cd7d2b4c420eaa52c5bf742be68bf7fc287975e1) Thanks [@schettn](https://github.com/schettn)! - feat: add option to disable logger to config
-
-- [#102](https://github.com/getcronit/pylon/pull/102) [`f4f3dca`](https://github.com/getcronit/pylon/commit/f4f3dcaee59d03508a99ce7bd4a4ae8370d74a4a) Thanks [@schettn](https://github.com/schettn)! - feat: add `graphiql` option to config
-  fix: update internal consola imports
-
 ## 2.9.5
 
 ### Patch Changes
