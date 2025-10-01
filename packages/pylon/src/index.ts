@@ -23,6 +23,7 @@ export type PylonConfig = Pick<
   'plugins'
 > & {
   graphiql?: boolean | ((c: Context) => boolean)
+  logger?: boolean
 }
 
 export type ID = string & {readonly brand?: unique symbol}

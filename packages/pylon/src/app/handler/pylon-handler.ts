@@ -6,11 +6,12 @@ import {
   JSONResolver
 } from 'graphql-scalars'
 import {createSchema, createYoga} from 'graphql-yoga'
+import {logger} from 'hono/logger'
 
 import {useDisableIntrospection} from '@envelop/disable-introspection'
 import {readFileSync} from 'fs'
 import path from 'path'
-import {PylonConfig} from '../..'
+import {app, PylonConfig} from '../..'
 import {Context, getContext} from '../../context'
 import {resolversToGraphQLResolvers} from '../../define-pylon'
 import {useSentry} from '../envelop/use-sentry'
@@ -152,6 +153,10 @@ export const handler = (options: PylonHandlerOptions) => {
     ],
     schema
   })
+
+  if (config?.logger !== false) {
+    app.use('*', logger())
+  }
 
   const handler = async (c: Context): Promise<Response> => {
     let executionContext: Context['executionCtx'] | {} = {}
