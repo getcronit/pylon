@@ -2,7 +2,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import process from 'node:process'
 import {execSync} from 'node:child_process'
-import consola from 'consola'
+import {consola} from 'consola'
 
 // Helper function to check if a command exists
 function isCommandAvailable(command: string): boolean {

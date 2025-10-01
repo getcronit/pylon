@@ -14,7 +14,7 @@ import {
   Union as _Union,
   Enum as _Enum
 } from './type-definition-builder.js'
-import consola from 'consola'
+import {consola} from 'consola'
 
 type Union = _Union & {
   description: string
@@ -447,7 +447,6 @@ export class SchemaParser {
         schemaString += ` implements ${type.implements.join(' & ')}`
       }
       schemaString += ` {\n`
-
 
       // loop over the fields in the type object
       for (const field of type.fields) {

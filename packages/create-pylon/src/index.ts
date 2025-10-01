@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import {Option, program, type Command} from 'commander'
-import consola from 'consola'
+import {consola} from 'consola'
 import {input, select, confirm} from '@inquirer/prompts'
 import path from 'path'
 import chalk from 'chalk'

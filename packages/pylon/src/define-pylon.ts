@@ -1,5 +1,5 @@
 import * as Sentry from '@sentry/bun'
-import consola from 'consola'
+import {consola} from 'consola'
 import {
   FragmentDefinitionNode,
   GraphQLError,
@@ -178,14 +178,13 @@ export const resolversToGraphQLResolvers = (
       return Sentry.withScope(async scope => {
         const ctx = asyncContext.getStore()
 
-
         if (!ctx) {
           consola.warn(
             'Context is not defined. Make sure AsyncLocalStorage is supported in your environment.'
           )
         }
 
-        ctx?.set("graphqlResolveInfo", info)
+        ctx?.set('graphqlResolveInfo', info)
 
         const auth = ctx?.get('auth')
 

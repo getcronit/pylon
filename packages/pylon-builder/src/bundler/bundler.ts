@@ -5,7 +5,7 @@ import {Plugin, build} from 'esbuild'
 import esbuildPluginTsc from 'esbuild-plugin-tsc'
 
 import path from 'path'
-import consola from 'consola'
+import {consola} from 'consola'
 
 export interface BundlerBuildOptions {
   getBuildDefs: () => {
