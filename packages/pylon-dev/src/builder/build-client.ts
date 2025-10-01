@@ -186,6 +186,28 @@ export const client = createClient<GeneratedSchema>({
   }
 })
 
+export const pageClient = () => {
+  const client = createClient<GeneratedSchema>({
+  schema: generatedSchema,
+  scalars: scalarsEnumsHash,
+  cache: new Cache(
+  undefined,
+  {
+    maxAge: Infinity,
+    staleWhileRevalidate: 5 * 60 * 1000,
+    normalization: true
+  }
+),
+  fetchOptions: {
+    fetcher: queryFetcher
+  }
+})
+
+const react = createReactClient(client)
+
+return {useQuery: react.useQuery, useHydrateCache: react.useHydrateCache}
+}
+
 // Core functions
 export const {resolve, subscribe, schema} = client
 
