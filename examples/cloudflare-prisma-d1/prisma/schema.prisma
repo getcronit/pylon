@@ -1,0 +1,43 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+// This `datasource` file isn't used but Prisma ORM still requires the `datasource` definition.
+// Your SQLite database file will be managed by D1:
+// - A local version will exist in `.wrangler`.
+// - The remote version is managed by Cloudflare in the Cloud.
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  // Primary key, auto-incrementing integer
+  id        Int     @id @default(autoincrement())
+
+  // Unique user email address
+  email     String  @unique
+
+  // User's name
+  name      String
+
+  // Hashed user password
+  password  String
+
+  // JSON array of roles (e.g., ["admin","customer"])
+  roles     String  @default("[]")
+
+  // Creation timestamp, stored as text
+  createdAt String  @map("created_at")
+
+  // Last update timestamp, stored as text
+  updatedAt String  @map("updated_at")
+
+  // Map this model to the existing `user` table in SQLite
+  // (only needed if you're using the old Drizzle DB from the previous example)
+  // @@map("user")
+}
