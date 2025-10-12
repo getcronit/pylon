@@ -140,6 +140,7 @@ export function getRunScript(pm: PackageManager): PackageManagerScript {
     case 'deno':
       return 'deno task'
     default:
-      throw new Error('Unknown package manager')
+      // Default to npm run if unknown
+      return 'npm run'
   }
 }
