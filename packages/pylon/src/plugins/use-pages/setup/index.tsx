@@ -300,7 +300,7 @@ export const setup: Plugin['setup'] = async app => {
           const stream = await reactServer.renderToReadableStream(component, {
             bootstrapModules: ['/__pylon/static/app.js' + cacheBustingSuffix]
           })
-
+          c.header('Content-Type', 'text/html')
           return c.body(stream)
         } catch (error) {
           throw error
