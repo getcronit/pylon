@@ -1,5 +1,7 @@
+import {Hono, MiddlewareHandler} from 'hono'
+import {logger} from 'hono/logger'
 import {sentry} from '@hono/sentry'
-import {Hono} from 'hono'
+import {except} from 'hono/combine'
 
 import {asyncContext, Env} from '../context'
 
@@ -19,8 +21,26 @@ app.use('*', async (c, next) => {
   })
 })
 
+app.use('*', except(['/__pylon/*'], logger()))
+
 app.use((c, next) => {
   // @ts-ignore
   c.req.id = crypto.randomUUID()
   return next()
 })
+
+export const pluginsMiddleware: MiddlewareHandler[] = []
+
+const pluginsMiddlewareLoader: MiddlewareHandler = async (c, next) => {
+  for (const middleware of pluginsMiddleware) {
+    const response = await middleware(c, async () => {})
+
+    if (response) {
+      return response
+    }
+  }
+
+  return next()
+}
+
+app.use(pluginsMiddlewareLoader)

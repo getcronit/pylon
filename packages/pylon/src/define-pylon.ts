@@ -1,5 +1,5 @@
 import * as Sentry from '@sentry/bun'
-import {consola} from 'consola'
+import consola from 'consola'
 import {
   FragmentDefinitionNode,
   GraphQLError,
@@ -188,12 +188,12 @@ export const resolversToGraphQLResolvers = (
 
         const auth = ctx?.get('auth')
 
-        if (auth?.active) {
+        if (auth?.user) {
           scope.setUser({
-            id: auth.sub,
-            username: auth.preferred_username,
-            email: auth.email,
-            details: auth
+            id: auth.user.sub,
+            username: auth.user.preferred_username,
+            email: auth.user.email,
+            details: auth.user
           })
         }
 
