@@ -326,7 +326,6 @@ const RootLayout = (props: { children: React.ReactNode; [key: string]: any }) =>
   return (
     <Layout {...props}>
       <meta charSet="utf-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1" />
       <link rel="stylesheet" href="/__pylon/static/pylon.css" precedence="high" />
       <link rel="stylesheet" href="/__pylon/static/app.css" precedence="high" />
       {props.children}
