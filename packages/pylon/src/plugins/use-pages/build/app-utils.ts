@@ -42,11 +42,18 @@ function getLayoutComponentName(filePath: string): string {
       .replace(/layout\.tsx$/, '')
       .split('/')
       .filter(Boolean)
-      .map(segment => segment.charAt(0).toUpperCase() + segment.slice(1))
+      .map(segment => {
+        // 1. Sanitize dynamic segments: '[ticketId]' becomes 'ticketId'
+        const sanitizedSegment = segment.replace(/^\[(.+)\]$/, '$1')
+
+        // 2. Capitalize the segment
+        return (
+          sanitizedSegment.charAt(0).toUpperCase() + sanitizedSegment.slice(1)
+        )
+      })
       .join('') + 'Layout'
   )
 }
-
 /**
  * Converts dynamic route segments from [param] format to :param format.
  * @param segment - A segment of the route.
