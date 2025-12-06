@@ -282,7 +282,19 @@ function withLoaderData<T>(Component: React.ComponentType<{ data: T }>) {
 
     const data = typeof window !== "undefined" ? useQuery() : dataClient.useQuery()
 
-    return <Component {...(props as any)} path={location.pathname} params={params} searchParams={searchParamsObject} data={data} context={context} />;
+    const pageProps = useMemo(() => {
+      return {
+        path: location.pathname,
+        params,
+        searchParams: searchParamsObject,
+        data,
+        context,
+      }
+    }, [location.pathname, params, searchParamsObject, data, context])
+
+    return <__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider props={pageProps}>
+      <Component {...(props as any)} {...pageProps} />
+    </__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider>
   };
 }
 
