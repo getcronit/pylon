@@ -99,7 +99,7 @@ function scanDirectory(directory: string, basePath: string = ''): Route | null {
           ? `RootLayout`
           : `${layoutComponentName}`
 
-      route.Component = `withLoaderData((props) => <${componentName} children={<Outlet />} {...props} />, "${componentName}"),`
+      route.Component = `withLoaderData((props) => <${componentName} children={<Outlet />} {...props} />, "${componentName}")`
       route.loader = `loader`
       route.shouldRevalidate = `() => false`
 
