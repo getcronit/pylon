@@ -22,7 +22,9 @@ export interface PageData {}
 export type PageProps = {
   // @ts-expect-error
   context: Variables['pagesContext']
-  data: PageData
+  data: PageData & {
+    $refetch: () => Promise<void>
+  }
   params: Record<string, string>
   searchParams: Record<string, string>
   path: string

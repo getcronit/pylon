@@ -99,7 +99,7 @@ function scanDirectory(directory: string, basePath: string = ''): Route | null {
           ? `RootLayout`
           : `${layoutComponentName}`
 
-      route.Component = `withLoaderData((props) => <${componentName} children={<Outlet />} {...props} />)`
+      route.Component = `withLoaderData((props) => <${componentName} children={<Outlet />} {...props} />, "${componentName}"),`
       route.loader = `loader`
       route.shouldRevalidate = `() => false`
 
@@ -263,7 +263,7 @@ const HydrateFallback = () => {
   return <div>Loading...</div>
 }
 
-function withLoaderData<T>(Component: React.ComponentType<{ data: T }>) {
+function withLoaderData<T>(Component: React.ComponentType<{ data: T }>, name?: string) {
   return function WithLoaderDataWrapper(props: T) {
     const dataClient = __PYLON_INTERNALS_DO_NOT_USE.useDataClient()
     const {useQuery, useHydrateCache} = useMemo(() => dataClient.pageClient(), [])
@@ -292,7 +292,7 @@ function withLoaderData<T>(Component: React.ComponentType<{ data: T }>) {
       }
     }, [location.pathname, params, searchParamsObject, data, context])
 
-    return <__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider props={pageProps}>
+    return <__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider props={pageProps} name={name}>
       <Component {...(props as any)} {...pageProps} />
     </__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider>
   };
