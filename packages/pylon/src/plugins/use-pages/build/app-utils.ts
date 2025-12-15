@@ -266,6 +266,7 @@ const HydrateFallback = () => {
 function withLoaderData<T>(Component: React.ComponentType<{ data: T }>, name?: string) {
   return function WithLoaderDataWrapper(props: T) {
     const dataClient = __PYLON_INTERNALS_DO_NOT_USE.useDataClient()
+    const {useQuery, useHydrateCache} = useMemo(() => dataClient.pageClient(), [])
     const {cacheSnapshot, context} = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useLoaderData() || {};
 
     const location = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useLocation()
@@ -274,10 +275,10 @@ function withLoaderData<T>(Component: React.ComponentType<{ data: T }>, name?: s
     const params = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useParams()
 
     if(cacheSnapshot) {
-      dataClient.useHydrateCache({cacheSnapshot})
+      useHydrateCache({cacheSnapshot})
     }
 
-    const data = dataClient.useQuery()
+    const data = typeof window !== "undefined" ? useQuery() : dataClient.useQuery()
 
     const pageProps = useMemo(() => {
       return {
