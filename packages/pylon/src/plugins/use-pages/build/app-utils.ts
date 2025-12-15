@@ -101,7 +101,7 @@ function scanDirectory(directory: string, basePath: string = ''): Route | null {
 
       route.Component = `withLoaderData((props) => <${componentName} children={<Outlet />} {...props} />, "${componentName}")`
       route.loader = `loader`
-      route.shouldRevalidate = `() => false`
+      route.shouldRevalidate = `(args) => args.defaultShouldRevalidate`
 
       if (route.path === '/') {
         route.errorElement = '<ErrorElement standalone={true} />'
