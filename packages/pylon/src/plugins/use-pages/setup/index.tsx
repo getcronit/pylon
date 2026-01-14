@@ -58,7 +58,7 @@ export const setup: Plugin['setup'] = async app => {
     .default
   const client = await import(`${process.cwd()}/.pylon/client/index.js`)
 
-  let handler = createStaticHandler(routes)
+  const handler = createStaticHandler(routes)
 
   app.use(trimTrailingSlash() as any)
 
@@ -261,23 +261,33 @@ export const setup: Plugin['setup'] = async app => {
   })
 
   app.get('*', disableCacheMiddleware as any, async c => {
-    const context = await handler.query(c.req.raw)
+    const staticHandlerContext = await handler.query(c.req.raw)
 
-    if (context instanceof Response) {
-      return context
+    if (staticHandlerContext instanceof Response) {
+      return staticHandlerContext
     }
 
-    const router = createStaticRouter(handler.dataRoutes, context)
+    // X-Pylon-Route-Ref header stores the route ref of the current layout
+    // This is used to remove the children of the layout to prevent
+    // rendering overhead
+    const xPylonRouteRef = c.req.header('x-pylon-route-ref')
+
+    const router = createStaticRouter(handler.dataRoutes, staticHandlerContext)
 
     const component = (
       <__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider client={client}>
-        <StaticRouterProvider router={router} context={context} />
+        <__PYLON_INTERNALS_DO_NOT_USE.SSRPruningProvider
+          target={xPylonRouteRef || null}>
+          <StaticRouterProvider
+            router={router}
+            context={staticHandlerContext}
+          />
+        </__PYLON_INTERNALS_DO_NOT_USE.SSRPruningProvider>
       </__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider>
     )
 
     // Check if the request wants JSON, if so, prepare the data
     if (c.req.header('accept')?.includes('application/json')) {
-      const context = c.get('pagesContext' as any) || {}
       let cacheSnapshot
       try {
         client.cache.clear()
@@ -289,6 +299,8 @@ export const setup: Plugin['setup'] = async app => {
           return error
         }
       }
+
+      const context = c.get('pagesContext' as any) || {}
 
       return c.json({
         cacheSnapshot,

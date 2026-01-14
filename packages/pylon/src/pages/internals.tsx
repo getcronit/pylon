@@ -150,3 +150,31 @@ const useRouteDataRefetch = (): ((names?: string[]) => Promise<void[]>) => {
 }
 
 export {RouteDataProvider, useRouteData, useRouteDataRefetch}
+
+// ====================================================================
+// 5. SSR PRUNING (Selective Rendering)
+// ====================================================================
+
+const SSRPruningContext = createContext<string | null>(null)
+
+/**
+ * Provider to signal which layout should be the "pruning target" during SSR.
+ * Components matching this target will skip rendering their children.
+ */
+export const SSRPruningProvider: React.FC<{
+  target: string | null
+  children: React.ReactNode
+}> = ({children, target}) => {
+  return (
+    <SSRPruningContext.Provider value={target}>
+      {children}
+    </SSRPruningContext.Provider>
+  )
+}
+
+/**
+ * Hook to consume the SSR pruning target.
+ */
+export const useSSRPruning = () => {
+  return useContext(SSRPruningContext)
+}

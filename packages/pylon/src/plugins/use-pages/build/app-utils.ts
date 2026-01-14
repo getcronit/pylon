@@ -100,7 +100,7 @@ function scanDirectory(directory: string, basePath: string = ''): Route | null {
           : `${layoutComponentName}`
 
       route.Component = `withLoaderData((props) => <${componentName} children={<Outlet />} {...props} />, "${componentName}")`
-      route.loader = `loader`
+      route.loader = `loader("${componentName}")`
       route.shouldRevalidate = `(args) => args.defaultShouldRevalidate`
 
       if (route.path === '/') {
@@ -132,7 +132,7 @@ function scanDirectory(directory: string, basePath: string = ''): Route | null {
         errorElement: '<ErrorElement standalone={false} />',
         lazy: `async () => {const i = await import(${importPath}).catch(() => {window.reload()}); return {Component: withLoaderData(i.default)}}`,
         HydrateFallback: 'HydrateFallback',
-        loader: `loader`
+        loader: `loader()`
       })
 
       pageFound = true
@@ -266,13 +266,22 @@ const HydrateFallback = () => {
 function withLoaderData<T>(Component: React.ComponentType<{ data: T }>, name?: string) {
   return function WithLoaderDataWrapper(props: T) {
     const dataClient = __PYLON_INTERNALS_DO_NOT_USE.useDataClient()
-    const {useQuery, useHydrateCache} = useMemo(() => dataClient.pageClient(), [])
-    const {cacheSnapshot, context} = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useLoaderData() || {};
+    const pruningTarget = __PYLON_INTERNALS_DO_NOT_USE.useSSRPruning()
 
+    const {cacheSnapshot, context} = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useLoaderData() || {};
     const location = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useLocation()
     const [searchParams] = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useSearchParams()
     const searchParamsObject = Object.fromEntries(searchParams.entries())
     const params = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useParams()
+
+    // 1. Handle Transparent Ancestors
+    // If we're optimized-rendering a specific layout, and THIS is not it,
+    // we just act as a passthrough to skip THIS layout's logic/queries.
+    if (pruningTarget && name !== pruningTarget) {
+      return <Outlet />
+    }
+
+    const {useQuery, useHydrateCache} = useMemo(() => dataClient.pageClient(), [])
 
     if(cacheSnapshot) {
       useHydrateCache({cacheSnapshot})
@@ -290,13 +299,17 @@ function withLoaderData<T>(Component: React.ComponentType<{ data: T }>, name?: s
       }
     }, [location.pathname, params, searchParamsObject, data, context])
 
+    // 2. Handle Pruning Target
+    // If THIS is the target, we render it but clear its children (the Outlet).
+    const children = pruningTarget && name === pruningTarget ? null : <Outlet />
+
     return <__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider props={pageProps} name={name}>
-      <Component {...(props as any)} {...pageProps} />
+      <Component {...(props as any)} {...pageProps} children={children} />
     </__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider>
   };
 }
 
-const loader: __PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFunction = async ({ request }) => {
+const loader: (ref?: string) => __PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFunction = (ref) => async ({ request, ...args }) => {
   // 1. Skip if request is a JSON-only fetch (e.g., client-side route preloading)
   const acceptHeader = request.headers.get('accept')
   if (acceptHeader?.includes('application/json')) {
@@ -324,6 +337,9 @@ const loader: __PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFunction = async ({ requ
   }
 
   headers.set('Accept', 'application/json') // Ensure the internal request gets JSON
+  if(ref) {
+    headers.set('X-Pylon-Route-Ref', ref)
+  }
 
   const response = await fetchToUse(url.pathname + url.search, {
       method: 'GET',
