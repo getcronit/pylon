@@ -277,7 +277,8 @@ function withLoaderData<T>(Component: React.ComponentType<{ data: T }>, name?: s
     // 1. Handle Transparent Ancestors
     // If we're optimized-rendering a specific layout, and THIS is not it,
     // we just act as a passthrough to skip THIS layout's logic/queries.
-    if (pruningTarget && name !== pruningTarget) {
+    // Exception: RootLayout is never skipped to preserve global providers.
+    if (pruningTarget && name !== pruningTarget && name !== 'RootLayout') {
       return <Outlet />
     }
 
