@@ -622,7 +622,10 @@ export class SchemaParser {
 
             const fieldDef = getTypeDefinition(argType.type, {
               isInputType: true,
-              propertyName: argName,
+              propertyName:
+                propertyName +
+                argName.charAt(0).toUpperCase() +
+                argName.slice(1),
               isRequired: arg.isRequired
             })
 
