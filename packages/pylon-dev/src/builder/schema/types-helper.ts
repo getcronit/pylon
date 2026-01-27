@@ -197,7 +197,19 @@ export function getPublicPropertiesOfType(
 }
 
 export const safeTypeName = (name: string) => {
-  return name.replace(/[^0-9a-zA-Z_]/g, '_')
+  let safeName = name.replace(/[^0-9a-zA-Z_]/g, '_')
+
+  // GraphQL doesn't allow type names to start with __
+  // We also remove all leading underscores to be safe and avoid "internal" looking names
+  while (safeName.startsWith('_')) {
+    safeName = safeName.slice(1)
+  }
+
+  if (!safeName) {
+    return 'Object'
+  }
+
+  return safeName
 }
 
 export const isSubscriptionRepeater = (type: ts.Type) => {
