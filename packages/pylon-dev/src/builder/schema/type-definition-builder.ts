@@ -212,20 +212,7 @@ export class TypeDefinitionBuilder {
       }
     }
 
-    const ignoredPropertyNames = [
-      'edges',
-      'node',
-      'pageInfo',
-      'totalCount',
-      'items',
-      'args'
-    ]
-
-    const effectivePropertyName =
-      options.propertyName &&
-      !ignoredPropertyNames.includes(options.propertyName)
-        ? options.propertyName
-        : undefined
+    const effectivePropertyName = options.propertyName
 
     if (typeName === '__type' || typeName === '__object' || !typeName) {
       if (effectivePropertyName) {
@@ -291,8 +278,11 @@ export class TypeDefinitionBuilder {
         }
 
         const argNames = relevantArguments.map(arg => {
-          // Use dryRun for prefixes to avoid claiming names prematurely
-          const def = this.getTypeDefinition(arg!, {...options, dryRun: true})
+          // Use our current dryRun status for prefixes
+          const def = this.getTypeDefinition(arg!, {
+            ...options,
+            dryRun: options.dryRun
+          })
           return def.name
         })
 
@@ -356,7 +346,7 @@ export class TypeDefinitionBuilder {
           const firstArg = typeArguments[0]!
           const firstArgDef = this.getTypeDefinition(firstArg, {
             ...options,
-            dryRun: true
+            dryRun: options.dryRun
           })
           const prefix = firstArgDef.name
 
@@ -598,7 +588,7 @@ export class TypeDefinitionBuilder {
     }
 
     if (!typeName) {
-      typeName = 'Any'
+      typeName = 'Object'
     }
 
     if (!options.dryRun) {
