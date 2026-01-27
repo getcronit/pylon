@@ -215,10 +215,12 @@ export class TypeDefinitionBuilder {
     const effectivePropertyName = options.propertyName
 
     if (
-      typeName === '__type' ||
-      typeName === '__object' ||
-      !typeName ||
-      (options.isInputType && effectivePropertyName && !type.aliasSymbol)
+      (typeName === '__type' ||
+        typeName === '__object' ||
+        !typeName ||
+        (options.isInputType && effectivePropertyName && !type.aliasSymbol)) &&
+      !isPrimitive(type) &&
+      !(typeName && this.schema.scalars.includes(typeName))
     ) {
       if (effectivePropertyName) {
         const capitalizedPropertyName =
