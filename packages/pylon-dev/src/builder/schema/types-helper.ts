@@ -54,6 +54,14 @@ export const isPrimitive = (type: ts.Type) => {
   return primitive
 }
 
+export const isLiteralType = (type: ts.Type) => {
+  return !!(
+    type.flags & ts.TypeFlags.StringLiteral ||
+    type.flags & ts.TypeFlags.NumberLiteral ||
+    type.flags & ts.TypeFlags.BooleanLiteral
+  )
+}
+
 export const isFunction = (type: ts.Type) => {
   return type.getCallSignatures().length > 0
 }

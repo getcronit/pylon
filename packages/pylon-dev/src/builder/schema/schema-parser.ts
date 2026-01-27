@@ -145,7 +145,11 @@ export class SchemaParser {
     this.sfiFile = sfiFile
     this.program = program
 
-    this.typeDefinitionBuilder = new TypeDefinitionBuilder(checker, this.schema)
+    this.typeDefinitionBuilder = new TypeDefinitionBuilder(
+      checker,
+      this.schema,
+      program
+    )
   }
 
   public parse(index: Index) {
@@ -448,7 +452,6 @@ export class SchemaParser {
       }
       schemaString += ` {\n`
 
-
       // loop over the fields in the type object
       for (const field of type.fields) {
         // build the argument list for the field if there is at least one argument
@@ -586,6 +589,12 @@ export class SchemaParser {
         })
 
         root = this.schema[processing][this.schema[processing].length - 1]!
+      }
+    } else {
+      // If the type already exists and has fields, we don't need to process it again.
+      // This happens when multiple structurally identical types are unified to the same name.
+      if (root.fields.length > 0) {
+        return
       }
     }
 
