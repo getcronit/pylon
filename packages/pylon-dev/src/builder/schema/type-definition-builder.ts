@@ -60,67 +60,6 @@ export class TypeDefinitionBuilder {
     return undefined
   }
 
-  private areTypesStructurallyEqual(typeA: ts.Type, typeB: ts.Type): boolean {
-    if (typeA === typeB) return true
-
-    // Only apply structural check to object types
-    if (
-      !(typeA.flags & ts.TypeFlags.Object) ||
-      !(typeB.flags & ts.TypeFlags.Object)
-    ) {
-      return (
-        this.checker.isTypeAssignableTo(typeA, typeB) &&
-        this.checker.isTypeAssignableTo(typeB, typeA)
-      )
-    }
-
-    const propsA = typeA.getProperties()
-    const propsB = typeB.getProperties()
-
-    if (propsA.length !== propsB.length) return false
-
-    const mapB = new Map(propsB.map(p => [p.name, p]))
-
-    for (const propA of propsA) {
-      const propB = mapB.get(propA.name)
-      if (!propB) return false
-
-      // Check optionality
-      const isOptionalA = (propA.flags & ts.SymbolFlags.Optional) !== 0
-      const isOptionalB = (propB.flags & ts.SymbolFlags.Optional) !== 0
-      if (isOptionalA !== isOptionalB) return false
-
-      const getPropType = (type: ts.Type, prop: ts.Symbol) => {
-        if (prop.valueDeclaration) {
-          return this.checker.getTypeOfSymbolAtLocation(
-            prop,
-            prop.valueDeclaration
-          )
-        }
-        // Fallback for synthetic properties or those without a declaration
-        return (this.checker as any).getTypeOfSymbol(prop) as ts.Type
-      }
-
-      const typeAProp = getPropType(typeA, propA)
-      const typeBProp = getPropType(typeB, propB)
-
-      if (!typeAProp || !typeBProp) return false
-
-      // For property types, we use assignability.
-      // This is generally sufficient because if property types are also objects
-      // that need strict checking, they will be handled when they are compared.
-      // However, we are not comparing them here, we are just checking if they match.
-      if (
-        !this.checker.isTypeAssignableTo(typeAProp, typeBProp) ||
-        !this.checker.isTypeAssignableTo(typeBProp, typeAProp)
-      ) {
-        return false
-      }
-    }
-
-    return true
-  }
-
   private getUniqueName(
     type: ts.Type,
     originalName: string,
@@ -134,7 +73,10 @@ export class TypeDefinitionBuilder {
 
       if (!existingType) break
 
-      if (this.areTypesStructurallyEqual(type, existingType)) {
+      if (
+        this.checker.isTypeAssignableTo(type, existingType) &&
+        this.checker.isTypeAssignableTo(existingType, type)
+      ) {
         return name
       }
 
@@ -272,7 +214,12 @@ export class TypeDefinitionBuilder {
 
     const effectivePropertyName = options.propertyName
 
-    if (typeName === '__type' || typeName === '__object' || !typeName) {
+    if (
+      typeName === '__type' ||
+      typeName === '__object' ||
+      !typeName ||
+      (options.isInputType && effectivePropertyName && !type.aliasSymbol)
+    ) {
       if (effectivePropertyName) {
         const capitalizedPropertyName =
           effectivePropertyName.charAt(0).toUpperCase() +
