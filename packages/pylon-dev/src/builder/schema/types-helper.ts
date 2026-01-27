@@ -2,7 +2,8 @@ import ts from 'typescript'
 
 export const isEmptyObject = (type: ts.Type) => {
   return (
-    type.flags & ts.TypeFlags.Object &&
+    (type.flags & ts.TypeFlags.Object ||
+      type.flags & (ts.TypeFlags as any).NonPrimitive) &&
     type.getProperties().length === 0 &&
     type.getCallSignatures().length === 0
   )
@@ -18,8 +19,10 @@ export const isList = (checker: ts.TypeChecker, type: ts.Type) => {
   )
 
   if (!is) {
-    // Check if type references an array
-    const isArray = type.getSymbol()?.getName() === 'Array'
+    // Check if type references an array or extends one
+    const isArray =
+      type.getSymbol()?.getName() === 'Array' ||
+      type.getBaseTypes()?.some(t => t.getSymbol()?.getName() === 'Array')
 
     if (isArray) {
       return true
