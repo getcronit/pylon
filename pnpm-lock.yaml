@@ -65,7 +65,7 @@ importers:
         version: link:../../packages/pylon
       drizzle-orm:
         specifier: ^0.33.0
-        version: 0.33.0(@cloudflare/workers-types@4.20250129.0)(@opentelemetry/api@1.9.0)(@types/pg@8.6.1)(@types/react@19.0.10)(bun-types@1.2.2)(react@19.0.0)
+        version: 0.33.0(@cloudflare/workers-types@4.20250129.0)(@opentelemetry/api@1.9.0)(@types/pg@8.6.1)(@types/react@19.0.10)(bun-types@1.2.2)(react@19.1.0)
     devDependencies:
       '@cloudflare/vitest-pool-workers':
         specifier: ^0.4.5
@@ -142,6 +142,58 @@ importers:
       '@getcronit/pylon-dev':
         specifier: workspace:^
         version: link:../../packages/pylon-dev
+
+  examples/pages:
+    dependencies:
+      '@getcronit/pylon':
+        specifier: workspace:^
+        version: link:../../packages/pylon
+      '@gqty/react':
+        specifier: ^3.1.0
+        version: 3.1.0(gqty@3.4.1(graphql@16.10.0))(graphql@16.10.0)(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
+      '@hono/node-server':
+        specifier: ^1.12.2
+        version: 1.13.8(hono@4.6.20)
+      '@radix-ui/react-slot':
+        specifier: ^1.1.2
+        version: 1.1.2(@types/react@19.0.10)(react@19.0.0)
+      class-variance-authority:
+        specifier: ^0.7.1
+        version: 0.7.1
+      clsx:
+        specifier: ^2.1.1
+        version: 2.1.1
+      gqty:
+        specifier: ^3.4.0
+        version: 3.4.1(graphql@16.10.0)
+      lucide-react:
+        specifier: ^0.474.0
+        version: 0.474.0(react@19.0.0)
+      react:
+        specifier: 19.0.0
+        version: 19.0.0
+      react-dom:
+        specifier: 19.0.0
+        version: 19.0.0(react@19.0.0)
+      tailwind-merge:
+        specifier: ^3.0.1
+        version: 3.0.2
+      tailwindcss:
+        specifier: ^4.0.4
+        version: 4.0.7
+      tailwindcss-animate:
+        specifier: ^1.0.7
+        version: 1.0.7(tailwindcss@4.0.7)
+    devDependencies:
+      '@getcronit/pylon-dev':
+        specifier: workspace:^
+        version: link:../../packages/pylon-dev
+      '@tailwindcss/postcss':
+        specifier: ^4.0.6
+        version: 4.0.7
+      '@types/react':
+        specifier: ^19.0.8
+        version: 19.0.10
 
   packages/create-pylon:
     dependencies:
@@ -5082,6 +5134,10 @@ packages:
     resolution: {integrity: sha512-V8AVnmPIICiWpGfm6GLzCR/W5FXLchHop40W4nXBmdlEceh16rCN8O8LNWm5bh5XUX91fh7KpA+W0TgMKmgTpQ==}
     engines: {node: '>=0.10.0'}
 
+  react@19.1.0:
+    resolution: {integrity: sha512-FS+XFBNvn3GTAWq26joslQgWNoFu08F4kl0J4CgdNKADkdSGXQyTCnKteIAJy96Br6YbpEU1LSzV5dYtjMkMDg==}
+    engines: {node: '>=0.10.0'}
+
   read-package-up@11.0.0:
     resolution: {integrity: sha512-MbgfoNPANMdb4oRBNg5eqLbB2t2r+o5Ua1pNt8BqGp4I0FJZhuVSOj3PaBPni4azWuSzEdNn2evevzVmEk1ohQ==}
     engines: {node: '>=18'}
@@ -6914,6 +6970,21 @@ snapshots:
     dependencies:
       '@react-hookz/web': 23.1.0(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
       gqty: 3.4.0-canary-20250207102900.644ad9fdeafa6318516627577b1d4d754d5c5a98(graphql@16.10.0)
+      graphql: 16.10.0
+      multidict: 1.0.9
+      p-debounce: 4.0.0
+      p-defer: 3.0.0
+      react: 19.0.0
+      react-dom: 19.0.0(react@19.0.0)
+      react-ssr-prepass: 1.6.0(react@19.0.0)
+      use-sync-external-store: 1.4.0(react@19.0.0)
+    transitivePeerDependencies:
+      - js-cookie
+
+  '@gqty/react@3.1.0(gqty@3.4.1(graphql@16.10.0))(graphql@16.10.0)(react-dom@19.0.0(react@19.0.0))(react@19.0.0)':
+    dependencies:
+      '@react-hookz/web': 23.1.0(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
+      gqty: 3.4.1(graphql@16.10.0)
       graphql: 16.10.0
       multidict: 1.0.9
       p-debounce: 4.0.0
@@ -8927,14 +8998,14 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  drizzle-orm@0.33.0(@cloudflare/workers-types@4.20250129.0)(@opentelemetry/api@1.9.0)(@types/pg@8.6.1)(@types/react@19.0.10)(bun-types@1.2.2)(react@19.0.0):
+  drizzle-orm@0.33.0(@cloudflare/workers-types@4.20250129.0)(@opentelemetry/api@1.9.0)(@types/pg@8.6.1)(@types/react@19.0.10)(bun-types@1.2.2)(react@19.1.0):
     optionalDependencies:
       '@cloudflare/workers-types': 4.20250129.0
       '@opentelemetry/api': 1.9.0
       '@types/pg': 8.6.1
       '@types/react': 19.0.10
       bun-types: 1.2.2
-      react: 19.0.0
+      react: 19.1.0
 
   dset@3.1.4: {}
 
@@ -10637,6 +10708,9 @@ snapshots:
       react: 19.0.0
 
   react@19.0.0: {}
+
+  react@19.1.0:
+    optional: true
 
   read-package-up@11.0.0:
     dependencies:
