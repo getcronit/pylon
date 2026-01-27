@@ -125,6 +125,15 @@ export class TypeDefinitionBuilder {
       }
     }
 
+    if (type.flags & ts.TypeFlags.Any) {
+      return {
+        name: 'Any',
+        isList: false,
+        isRequired:
+          options.isRequired !== undefined ? options.isRequired : !wasOptional
+      }
+    }
+
     if (isSubscriptionRepeater(type)) {
       const repeaterItemType = this.checker.getTypeArguments(type as any)[0]
 
@@ -308,6 +317,23 @@ export class TypeDefinitionBuilder {
 
       // GraphQL types should be capitalized
       typeName = typeName.charAt(0).toUpperCase() + typeName.slice(1)
+    }
+
+    if (typeName === 'JsonValue' || typeName === 'JsonObject') {
+      return {
+        name: 'JSON',
+        isList: false,
+        isRequired
+      }
+    }
+
+    if (typeName === 'JsonArray') {
+      return {
+        name: 'JSON',
+        isList: true,
+        isRequired: true,
+        isListRequired: isRequired
+      }
     }
 
     if (typeName && !this.schema.scalars.includes(typeName)) {
@@ -516,6 +542,20 @@ export class TypeDefinitionBuilder {
           })
         }
       } else {
+        // If the union contains a JSON, Object or Any type, remove the types
+        // that are already present in the JSON, Object or Any type
+        if (
+          unionTypeDefs.some(
+            t => t.name === 'JSON' || t.name === 'Object' || t.name === 'Any'
+          )
+        ) {
+          return {
+            name: 'JSON',
+            isList: false,
+            isRequired
+          }
+        }
+
         // We only care about the first type in the union since GraphQL doesn't support unions of input types
         const typeDef = unionTypeDefs[0]
 
