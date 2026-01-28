@@ -154,7 +154,7 @@ export class TypeDefinitionBuilder {
 
     if (isEmptyObject(type)) {
       return {
-        name: 'Object',
+        name: 'JSONObject',
         isList: false,
         isRequired
       }
@@ -543,7 +543,8 @@ export class TypeDefinitionBuilder {
         // that are already present in the JSON, Object or Any type
         if (
           unionTypeDefs.some(
-            t => t.name === 'JSON' || t.name === 'Object' || t.name === 'Any'
+            t =>
+              t.name === 'JSON' || t.name === 'JSONObject' || t.name === 'Any'
           )
         ) {
           return {
@@ -595,7 +596,7 @@ export class TypeDefinitionBuilder {
     }
 
     if (!typeName) {
-      typeName = 'Object'
+      typeName = 'JSONObject'
     }
 
     if (!options.dryRun) {

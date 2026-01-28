@@ -132,7 +132,7 @@ export class SchemaParser {
         'Number',
         'Any',
         'Void',
-        'Object',
+        'JSONObject',
         'File',
         'Date',
         'JSON',

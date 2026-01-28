@@ -52,7 +52,6 @@ export const buildClient = async ({schemaChanged}: BuildClientOptions) => {
     react: true,
     scalarTypes: {
       Number: 'number',
-      Object: 'Record<string, unknown>',
       JSONObject: 'Record<string, unknown>'
     }
   })
