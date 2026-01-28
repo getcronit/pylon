@@ -206,7 +206,7 @@ export const safeTypeName = (name: string) => {
   }
 
   if (!safeName) {
-    return 'Object'
+    return 'JSONObject'
   }
 
   return safeName
