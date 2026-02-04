@@ -1,0 +1,172 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Pylon Builder - Inheritance & Interfaces > should handle class inheritance with I-prefix and concrete types 1`] = `
+{
+  "resolvers": {
+    "IUser": {
+      "__resolveType": "function resolveType(node) { if (node && typeof node === 'object') { if ("firstName" in node && "lastName" in node && "username" in node) {return 'HumanUser'}; if ("username" in node) {return 'User'}; } }",
+    },
+  },
+  "typeDefs": "type Query {
+users: [IUser!]!
+}
+type User implements IUser {
+username: String!
+}
+type HumanUser implements IUser {
+firstName: String!
+lastName: String!
+username: String!
+}
+interface IUser {
+username: String!
+}
+scalar ID
+scalar Int
+scalar Float
+scalar Number
+scalar Any
+scalar Void
+scalar JSONObject
+scalar File
+scalar Date
+scalar JSON
+scalar String
+scalar Boolean
+",
+}
+`;
+
+exports[`Pylon Builder - Inheritance & Interfaces > should handle interface implementation with I-prefix and concrete types 1`] = `
+{
+  "resolvers": {
+    "IUser": {
+      "__resolveType": "function resolveType(node) { if (node && typeof node === 'object') { if ("username" in node && "firstName" in node && "lastName" in node) {return 'HumanUser'}; if ("username" in node) {return 'User'}; } }",
+    },
+  },
+  "typeDefs": "type Query {
+users: [HumanUser!]!
+current: IUser!
+}
+type HumanUser implements IUser {
+username: String!
+firstName: String!
+lastName: String!
+}
+type User implements IUser {
+username: String!
+}
+interface IUser {
+username: String!
+}
+scalar ID
+scalar Int
+scalar Float
+scalar Number
+scalar Any
+scalar Void
+scalar JSONObject
+scalar File
+scalar Date
+scalar JSON
+scalar String
+scalar Boolean
+",
+}
+`;
+
+exports[`Pylon Builder - Inheritance & Interfaces > should handle transitive implementation for interfaces 1`] = `
+{
+  "resolvers": {
+    "IMachineUser": {
+      "__resolveType": "function resolveType(node) { if (node && typeof node === 'object') { if ("username" in node && "key" in node && "motorType" in node) {return 'MotorUser'}; if ("key" in node && "username" in node) {return 'MachineUser'}; } }",
+    },
+    "IUser": {
+      "__resolveType": "function resolveType(node) { if (node && typeof node === 'object') { if ("username" in node && "key" in node && "motorType" in node) {return 'MotorUser'}; if ("key" in node && "username" in node) {return 'MachineUser'}; if ("username" in node) {return 'User'}; } }",
+    },
+  },
+  "typeDefs": "type Query {
+motors: [MotorUser!]!
+}
+type MotorUser implements IMachineUser & IUser {
+username: String!
+key: String!
+motorType: String!
+}
+type MachineUser implements IMachineUser & IUser {
+key: String!
+username: String!
+}
+type User implements IUser {
+username: String!
+}
+interface IUser {
+username: String!
+}
+interface IMachineUser implements IUser {
+key: String!
+username: String!
+}
+scalar ID
+scalar Int
+scalar Float
+scalar Number
+scalar Any
+scalar Void
+scalar JSONObject
+scalar File
+scalar Date
+scalar JSON
+scalar String
+scalar Boolean
+",
+}
+`;
+
+exports[`Pylon Builder - Inheritance & Interfaces > should support multi-level inheritance 1`] = `
+{
+  "resolvers": {
+    "IMachineUser": {
+      "__resolveType": "function resolveType(node) { if (node && typeof node === 'object') { if ("motorType" in node && "key" in node && "username" in node) {return 'MotorUser'}; if ("key" in node && "username" in node) {return 'MachineUser'}; } }",
+    },
+    "IUser": {
+      "__resolveType": "function resolveType(node) { if (node && typeof node === 'object') { if ("motorType" in node && "key" in node && "username" in node) {return 'MotorUser'}; if ("key" in node && "username" in node) {return 'MachineUser'}; if ("username" in node) {return 'User'}; } }",
+    },
+  },
+  "typeDefs": "type Query {
+motors: [MotorUser!]!
+}
+type MotorUser implements IMachineUser & IUser {
+motorType: String!
+key: String!
+username: String!
+}
+type User implements IUser {
+username: String!
+}
+type MachineUser implements IMachineUser & IUser {
+key: String!
+username: String!
+}
+interface IMachineUser implements IUser {
+key: String!
+username: String!
+}
+interface IUser {
+username: String!
+}
+scalar ID
+scalar Int
+scalar Float
+scalar Number
+scalar Any
+scalar Void
+scalar JSONObject
+scalar File
+scalar Date
+scalar JSON
+scalar String
+scalar Boolean
+",
+}
+`;

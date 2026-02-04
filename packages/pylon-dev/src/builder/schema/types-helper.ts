@@ -72,23 +72,23 @@ export const isFunction = (type: ts.Type) => {
 export const isPrimitiveUnion = (type: ts.Type) => {
   if (isPrimitive(type)) return false
 
-  const isUnion = (type as ts.UnionType).types?.length > 1
+  if (!type.isUnion()) return false
 
-  if (isUnion) {
-    // check if all types are primitives
-    const isAllPrimitives = (type as ts.UnionType).types.every(
-      t =>
-        t.flags & ts.TypeFlags.StringLiteral ||
-        t.flags & ts.TypeFlags.NumberLiteral ||
-        t.flags & ts.TypeFlags.BooleanLiteral
-    )
+  const nonNullableTypes = type.types.filter(
+    t => !(t.flags & ts.TypeFlags.Undefined || t.flags & ts.TypeFlags.Null)
+  )
 
-    if (isAllPrimitives) {
-      return true
-    }
-  }
+  if (nonNullableTypes.length === 0) return false
 
-  return false
+  // check if all non-nullable types are primitives
+  const isAllPrimitives = nonNullableTypes.every(
+    t =>
+      t.flags & ts.TypeFlags.StringLiteral ||
+      t.flags & ts.TypeFlags.NumberLiteral ||
+      t.flags & ts.TypeFlags.BooleanLiteral
+  )
+
+  return isAllPrimitives
 }
 
 export const isPromise = (type: ts.Type) => {

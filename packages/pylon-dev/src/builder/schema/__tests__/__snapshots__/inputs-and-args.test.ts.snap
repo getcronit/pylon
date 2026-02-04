@@ -1,0 +1,173 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Pylon Builder - Inputs and Arguments > should handle direct positional arguments 1`] = `
+{
+  "resolvers": {},
+  "typeDefs": "type Mutation {
+updateUser(id: String!, username: String!, age: Number): UpdateUser!
+}
+type UpdateUser {
+id: String!
+username: String!
+}
+scalar ID
+scalar Int
+scalar Float
+scalar Number
+scalar Any
+scalar Void
+scalar JSONObject
+scalar File
+scalar Date
+scalar JSON
+scalar String
+scalar Boolean
+",
+}
+`;
+
+exports[`Pylon Builder - Inputs and Arguments > should handle mix of named objects and primitives 1`] = `
+{
+  "resolvers": {},
+  "typeDefs": "input SetupProfileInput {
+	bio: String!
+}
+type Mutation {
+setup(id: String!, profile: SetupProfileInput!): Setup!
+}
+type Setup {
+id: String!
+}
+scalar ID
+scalar Int
+scalar Float
+scalar Number
+scalar Any
+scalar Void
+scalar JSONObject
+scalar File
+scalar Date
+scalar JSON
+scalar String
+scalar Boolean
+",
+}
+`;
+
+exports[`Pylon Builder - Inputs and Arguments > should handle nested arguments (the standard Pylon pattern) 1`] = `
+{
+  "resolvers": {},
+  "typeDefs": "input UserArgsInput {
+	id: String!
+}
+input CreateUserArgsInput {
+	input: Input!
+}
+input Input {
+	username: String!
+	email: String
+}
+type Query {
+user(args: UserArgsInput!): User!
+}
+type User {
+username: String!
+}
+type Mutation {
+createUser(args: CreateUserArgsInput!): CreateUser!
+}
+type CreateUser {
+username: String!
+}
+scalar ID
+scalar Int
+scalar Float
+scalar Number
+scalar Any
+scalar Void
+scalar JSONObject
+scalar File
+scalar Date
+scalar JSON
+scalar String
+scalar Boolean
+",
+}
+`;
+
+exports[`Pylon Builder - Inputs and Arguments > should handle optional enums without warning 1`] = `
+{
+  "resolvers": {},
+  "typeDefs": "type Query {
+users(role: RoleInput): [Users!]!
+}
+scalar ID
+scalar Int
+scalar Float
+scalar Number
+scalar Any
+scalar Void
+scalar JSONObject
+scalar File
+scalar Date
+scalar JSON
+scalar String
+scalar Boolean
+enum RoleInput {
+	ADMIN
+	USER
+}
+",
+}
+`;
+
+exports[`Pylon Builder - Inputs and Arguments > should handle rest parameters with tuple types 1`] = `
+{
+  "resolvers": {},
+  "typeDefs": "type Query {
+search(query: String!, limit: Number): [Search!]!
+}
+scalar ID
+scalar Int
+scalar Float
+scalar Number
+scalar Any
+scalar Void
+scalar JSONObject
+scalar File
+scalar Date
+scalar JSON
+scalar String
+scalar Boolean
+",
+}
+`;
+
+exports[`Pylon Builder - Inputs and Arguments > should handle the "input" parameter pattern 1`] = `
+{
+  "resolvers": {},
+  "typeDefs": "input CreateUserInput {
+	username: String!
+	email: String!
+}
+type Mutation {
+createUser(input: CreateUserInput!): CreateUser!
+}
+type CreateUser {
+username: String!
+}
+scalar ID
+scalar Int
+scalar Float
+scalar Number
+scalar Any
+scalar Void
+scalar JSONObject
+scalar File
+scalar Date
+scalar JSON
+scalar String
+scalar Boolean
+",
+}
+`;

@@ -7,7 +7,8 @@ import {
   isList,
   isPrimitive,
   isPromise,
-  isSubscriptionRepeater
+  isSubscriptionRepeater,
+  safeTypeName
 } from './types-helper.js'
 import {
   TypeDefinitionBuilder,
@@ -25,6 +26,7 @@ type Interface = {
   name: string
   description: string
   fields: Array<Field>
+  implements?: Array<string>
   __resolveType?: (obj: any) => string
 }
 
@@ -98,6 +100,7 @@ interface ReferenceSchema {
     }
   >
   classImplementsMap: Map<ts.Type, ts.Type[]>
+  inheritanceMap: Map<ts.Type, ts.Type[]>
   inputs: ReferenceSchema['types']
 }
 
@@ -232,6 +235,126 @@ export class SchemaParser {
         })
       }
     })
+
+    // Go through all inheritance and create interfaces
+    for (const [baseType, derivedTypes] of referenceSchema.inheritanceMap) {
+      const baseTypeName = safeTypeName(this.checker.typeToString(baseType))
+
+      const interfaceName = `I${baseTypeName}`
+
+      const baseSchemaType = this.schema.types.find(
+        t => t.name === baseTypeName
+      )
+
+      if (baseSchemaType) {
+        // Check if interface already exists
+        let targetInterface: Interface | undefined =
+          this.schema.interfaces.find(i => i.name === interfaceName)
+        if (!targetInterface) {
+          targetInterface = {
+            name: interfaceName,
+            description: baseSchemaType.description,
+            fields: [...baseSchemaType.fields],
+            implements: [],
+            __resolveType: undefined // Will be set later
+          }
+
+          // Check if the base type has a base type that is also in the inheritance map
+          const baseTypes = baseType.getBaseTypes()
+
+          if (baseTypes) {
+            baseTypes.forEach(baseBaseType => {
+              // baseBaseType is already a Type (from getBaseTypes return value)
+              const baseBaseTypeName = safeTypeName(
+                this.checker.typeToString(baseBaseType)
+              )
+              const baseInterfaceName = `I${baseBaseTypeName}`
+
+              if (referenceSchema.inheritanceMap.has(baseBaseType)) {
+                targetInterface!.implements!.push(baseInterfaceName)
+              } else {
+                // Check if the base class is in the inheritance map by checking the symbol
+                const baseBaseTypeSymbol = baseBaseType.getSymbol()
+                if (baseBaseTypeSymbol) {
+                  for (const [key] of referenceSchema.inheritanceMap) {
+                    if (key.getSymbol() === baseBaseTypeSymbol) {
+                      targetInterface!.implements!.push(baseInterfaceName)
+                      break
+                    }
+                  }
+                }
+              }
+            })
+          }
+
+          this.schema.interfaces.push(targetInterface)
+        }
+
+        // Add the `implements` field to the base type
+        if (!baseSchemaType.implements) {
+          baseSchemaType.implements = []
+        }
+
+        if (!baseSchemaType.implements.includes(interfaceName)) {
+          baseSchemaType.implements.push(interfaceName)
+        }
+
+        // Add the `implements` field to the derived types
+        const addInterfaceToDerived = (types: ts.Type[]) => {
+          for (const derivedType of types) {
+            const derivedTypeName = safeTypeName(
+              this.checker.typeToString(derivedType)
+            )
+            const derivedSchemaType = this.schema.types.find(
+              t => t.name === derivedTypeName
+            )
+
+            if (derivedSchemaType) {
+              if (!derivedSchemaType.implements) {
+                derivedSchemaType.implements = []
+              }
+
+              if (!derivedSchemaType.implements.includes(interfaceName)) {
+                derivedSchemaType.implements.push(interfaceName)
+              }
+            }
+
+            // Check if this derived type is also a base type for other types
+            // We need to find the key in the inheritanceMap that matches the derivedType
+            // Since we established earlier that object identity might be an issue, let's try strict matching first, then symbol matching
+            let subDerivedTypes =
+              referenceSchema.inheritanceMap.get(derivedType)
+
+            if (!subDerivedTypes) {
+              const derivedTypeSymbol = derivedType.getSymbol()
+              if (derivedTypeSymbol) {
+                for (const [key, value] of referenceSchema.inheritanceMap) {
+                  if (key.getSymbol() === derivedTypeSymbol) {
+                    subDerivedTypes = value
+                    break
+                  }
+                }
+              }
+            }
+
+            if (subDerivedTypes) {
+              addInterfaceToDerived(subDerivedTypes)
+            }
+          }
+        }
+
+        addInterfaceToDerived(derivedTypes)
+
+        // Replace the base type with the interface type in the schema
+        this.schema.types.forEach(type => {
+          type.fields.forEach(field => {
+            if (field.type.name === baseTypeName) {
+              field.type.name = interfaceName
+            }
+          })
+        })
+      }
+    }
 
     // // Go through all types and check if a type is an interface
 
@@ -448,7 +571,9 @@ export class SchemaParser {
       schemaString += addDescription(type.description)
       schemaString += `type ${type.name}`
       if (type.implements) {
-        schemaString += ` implements ${type.implements.join(' & ')}`
+        schemaString += ` implements ${[...type.implements]
+          .sort((a, b) => a.localeCompare(b))
+          .join(' & ')}`
       }
       schemaString += ` {\n`
 
@@ -489,7 +614,15 @@ export class SchemaParser {
     for (const intf of this.schema.interfaces) {
       // add the interface object to the schema string
       schemaString += addDescription(intf.description)
-      schemaString += `interface ${intf.name} {\n`
+      schemaString += `interface ${intf.name}`
+
+      if (intf.implements && intf.implements.length > 0) {
+        schemaString += ` implements ${[...intf.implements]
+          .sort((a, b) => a.localeCompare(b))
+          .join(' & ')}`
+      }
+
+      schemaString += ` {\n`
 
       // loop over the fields in the interface object
       for (const field of intf.fields) {
@@ -743,7 +876,8 @@ export class SchemaParser {
     const referenceSchema: ReferenceSchema = {
       types: new Map(),
       inputs: new Map(),
-      classImplementsMap: new Map()
+      classImplementsMap: new Map(),
+      inheritanceMap: new Map()
     }
 
     const recLoop = (
@@ -800,14 +934,18 @@ export class SchemaParser {
         return
       }
 
-      if (type.isClass()) {
+      if (!!(type.getSymbol()?.flags! & ts.SymbolFlags.Class)) {
         const baseTypes = type.getBaseTypes()
         if (baseTypes) {
           baseTypes.forEach(baseType => {
-            if (!referenceSchema.classImplementsMap.has(baseType)) {
-              referenceSchema.classImplementsMap.set(baseType, [])
+            if (!!(baseType.getSymbol()?.flags! & ts.SymbolFlags.Class)) {
+              if (!referenceSchema.inheritanceMap.has(baseType)) {
+                referenceSchema.inheritanceMap.set(baseType, [])
+              }
+              referenceSchema.inheritanceMap.get(baseType)!.push(type)
+
+              recLoop(baseType)
             }
-            referenceSchema.classImplementsMap.get(baseType)!.push(type)
           })
         }
       }
@@ -1016,38 +1154,123 @@ export class SchemaParser {
       recLoop(index.Subscription)
     }
 
-    // Handle classes that implement interfaces of the schema
+    // Handle classes that implement interfaces or extend classes of the schema
     const sourceFiles = this.program.getSourceFiles()
 
     for (const sourceFile of sourceFiles) {
+      if (sourceFile.isDeclarationFile) continue
+
       ts.forEachChild(sourceFile, node => {
-        if (ts.isClassDeclaration(node)) {
-          const baseTypes =
-            node.heritageClauses?.flatMap(heritage =>
-              heritage.types.map(type => {
-                return type
+        if (ts.isClassDeclaration(node) || ts.isInterfaceDeclaration(node)) {
+          const derivedType = this.checker.getTypeAtLocation(node)
+
+          const heritageClauses = node.heritageClauses
+
+          if (heritageClauses) {
+            heritageClauses.forEach(clause => {
+              clause.types.forEach(typeRef => {
+                const baseType = this.checker.getTypeAtLocation(typeRef)
+
+                // Add to inheritance map
+                let foundBaseType = baseType
+
+                // Try to find if this baseType is already in the inheritance map using symbol
+                const baseTypeSymbol = baseType.getSymbol()
+                if (baseTypeSymbol) {
+                  for (const key of referenceSchema.inheritanceMap.keys()) {
+                    if (key.getSymbol() === baseTypeSymbol) {
+                      foundBaseType = key
+                      break
+                    }
+                  }
+                }
+
+                if (!referenceSchema.inheritanceMap.has(foundBaseType)) {
+                  referenceSchema.inheritanceMap.set(foundBaseType, [])
+                }
+
+                const derivedTypes =
+                  referenceSchema.inheritanceMap.get(foundBaseType)!
+                const derivedTypeSymbol = derivedType.getSymbol()
+
+                if (
+                  derivedTypeSymbol &&
+                  !derivedTypes.some(t => t.getSymbol() === derivedTypeSymbol)
+                ) {
+                  derivedTypes.push(derivedType)
+                }
               })
-            ) || []
+            })
+          }
+        }
+      })
+    }
 
-          // Check if the class implements an interface
-          if (baseTypes.length > 0) {
-            for (const baseType of baseTypes) {
-              if (
-                referenceSchema.types.has(
-                  this.checker.getTypeAtLocation(baseType)
-                )
-              ) {
-                referenceSchema.classImplementsMap.set(
-                  this.checker.getTypeAtLocation(node),
-                  [this.checker.getTypeAtLocation(baseType)]
-                )
+    // Go through all types in the schema and check if we have any derived types that are not in the schema
+    let changed = true
+    while (changed) {
+      changed = false
+      for (const [baseType, derivedTypes] of referenceSchema.inheritanceMap) {
+        let isBaseTypeInSchema = referenceSchema.types.has(baseType)
 
-                recLoop(this.checker.getTypeAtLocation(node))
+        if (!isBaseTypeInSchema) {
+          const baseTypeSymbol = baseType.getSymbol()
+          if (baseTypeSymbol) {
+            for (const type of referenceSchema.types.keys()) {
+              if (type.getSymbol() === baseTypeSymbol) {
+                isBaseTypeInSchema = true
+                break
               }
             }
           }
         }
-      })
+
+        // Check if any derived type is in the schema
+        let isAnyDerivedTypeInSchema = false
+        for (const derivedType of derivedTypes) {
+          if (referenceSchema.types.has(derivedType)) {
+            isAnyDerivedTypeInSchema = true
+            break
+          }
+          const derivedTypeSymbol = derivedType.getSymbol()
+          if (derivedTypeSymbol) {
+            for (const type of referenceSchema.types.keys()) {
+              if (type.getSymbol() === derivedTypeSymbol) {
+                isAnyDerivedTypeInSchema = true
+                break
+              }
+            }
+          }
+          if (isAnyDerivedTypeInSchema) break
+        }
+
+        if (isBaseTypeInSchema) {
+          for (const derivedType of derivedTypes) {
+            let isDerivedTypeInSchema = referenceSchema.types.has(derivedType)
+
+            if (!isDerivedTypeInSchema) {
+              const derivedTypeSymbol = derivedType.getSymbol()
+              if (derivedTypeSymbol) {
+                for (const type of referenceSchema.types.keys()) {
+                  if (type.getSymbol() === derivedTypeSymbol) {
+                    isDerivedTypeInSchema = true
+                    break
+                  }
+                }
+              }
+            }
+
+            if (!isDerivedTypeInSchema) {
+              recLoop(derivedType)
+              changed = true
+            }
+          }
+        } else if (isAnyDerivedTypeInSchema) {
+          // If a derived type is in the schema, we must also have the base type
+          recLoop(baseType)
+          changed = true
+        }
+      }
     }
 
     return referenceSchema

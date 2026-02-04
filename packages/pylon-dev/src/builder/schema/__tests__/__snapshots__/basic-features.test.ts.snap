@@ -1,0 +1,233 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Pylon Builder - Basic Features > should handle JSDoc descriptions 1`] = `
+{
+  "resolvers": {},
+  "typeDefs": "input UserArgsInput {
+	id: String!
+}
+type Query {
+"""
+Fetches a user by ID
+"""
+user(args: UserArgsInput!): User!
+}
+"""
+A user in the system
+"""
+type User {
+"""
+The unique identifier
+"""
+id: String!
+"""
+The login name
+"""
+username: String!
+}
+scalar ID
+scalar Int
+scalar Float
+scalar Number
+scalar Any
+scalar Void
+scalar JSONObject
+scalar File
+scalar Date
+scalar JSON
+scalar String
+scalar Boolean
+",
+}
+`;
+
+exports[`Pylon Builder - Basic Features > should handle JSON types 1`] = `
+{
+  "resolvers": {},
+  "typeDefs": "type Query {
+json: Json!
+}
+type Json {
+arbitrary: Boolean!
+}
+scalar ID
+scalar Int
+scalar Float
+scalar Number
+scalar Any
+scalar Void
+scalar JSONObject
+scalar File
+scalar Date
+scalar JSON
+scalar String
+scalar Boolean
+",
+}
+`;
+
+exports[`Pylon Builder - Basic Features > should handle async/promises 1`] = `
+{
+  "resolvers": {},
+  "typeDefs": "type Query {
+asyncData: String!
+}
+scalar ID
+scalar Int
+scalar Float
+scalar Number
+scalar Any
+scalar Void
+scalar JSONObject
+scalar File
+scalar Date
+scalar JSON
+scalar String
+scalar Boolean
+",
+}
+`;
+
+exports[`Pylon Builder - Basic Features > should handle enums (string literal unions) 1`] = `
+{
+  "resolvers": {},
+  "typeDefs": "type Query {
+getRole: Role!
+}
+scalar ID
+scalar Int
+scalar Float
+scalar Number
+scalar Any
+scalar Void
+scalar JSONObject
+scalar File
+scalar Date
+scalar JSON
+scalar String
+scalar Boolean
+enum Role {
+	ADMIN
+	USER
+	GUEST
+}
+",
+}
+`;
+
+exports[`Pylon Builder - Basic Features > should handle generic types 1`] = `
+{
+  "resolvers": {},
+  "typeDefs": "type Query {
+users: UserPaginated!
+}
+type UserPaginated {
+items: [User!]!
+total: Number!
+}
+type User {
+id: String!
+name: String!
+}
+scalar ID
+scalar Int
+scalar Float
+scalar Number
+scalar Any
+scalar Void
+scalar JSONObject
+scalar File
+scalar Date
+scalar JSON
+scalar String
+scalar Boolean
+",
+}
+`;
+
+exports[`Pylon Builder - Basic Features > should handle lists and optionality 1`] = `
+{
+  "resolvers": {},
+  "typeDefs": "input OptionalArgsInput {
+	id: String
+}
+type Query {
+list: [String!]!
+optional(args: OptionalArgsInput!): String
+nullable: String
+}
+scalar ID
+scalar Int
+scalar Float
+scalar Number
+scalar Any
+scalar Void
+scalar JSONObject
+scalar File
+scalar Date
+scalar JSON
+scalar String
+scalar Boolean
+",
+}
+`;
+
+exports[`Pylon Builder - Basic Features > should handle primitives and scalars 1`] = `
+{
+  "resolvers": {},
+  "typeDefs": "type Query {
+getString: String!
+getInt: Number!
+getFloat: Number!
+getBoolean: Boolean!
+getAny: Any!
+getVoid: Void
+}
+scalar ID
+scalar Int
+scalar Float
+scalar Number
+scalar Any
+scalar Void
+scalar JSONObject
+scalar File
+scalar Date
+scalar JSON
+scalar String
+scalar Boolean
+",
+}
+`;
+
+exports[`Pylon Builder - Basic Features > should handle unions of objects (or promote to interface if shared fields exist) 1`] = `
+{
+  "resolvers": {
+    "Result": {
+      "__resolveType": "function resolveType(node) { if (node && typeof node === 'object') { if ("a" in node) {return 'A'}; if ("b" in node) {return 'B'}; } }",
+    },
+  },
+  "typeDefs": "type Query {
+getResult: Result!
+}
+type A {
+a: String!
+}
+type B {
+b: Number!
+}
+union Result = A | B
+scalar ID
+scalar Int
+scalar Float
+scalar Number
+scalar Any
+scalar Void
+scalar JSONObject
+scalar File
+scalar Date
+scalar JSON
+scalar String
+scalar Boolean
+",
+}
+`;
