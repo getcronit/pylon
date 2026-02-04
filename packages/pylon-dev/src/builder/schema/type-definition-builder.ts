@@ -10,7 +10,8 @@ import {
   isPromise,
   isSubscriptionRepeater,
   safeTypeName,
-  isLiteralType
+  isLiteralType,
+  isNever
 } from './types-helper.js'
 import {Schema} from './schema-parser.js'
 
@@ -125,9 +126,9 @@ export class TypeDefinitionBuilder {
       }
     }
 
-    if (type.flags & ts.TypeFlags.Any) {
+    if (type.flags & ts.TypeFlags.Any || isNever(type)) {
       return {
-        name: 'Any',
+        name: isNever(type) ? 'JSONObject' : 'Any',
         isList: false,
         isRequired:
           options.isRequired !== undefined ? options.isRequired : !wasOptional
@@ -335,7 +336,7 @@ export class TypeDefinitionBuilder {
 
     if (typeName && !this.schema.scalars.includes(typeName)) {
       if (options.isInputType) {
-        if (!typeName.endsWith('Input')) {
+        if (!typeName.endsWith('Input') && !isPrimitiveUnion(type)) {
           typeName = `${typeName}Input`
         }
       }

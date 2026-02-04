@@ -65,6 +65,10 @@ export const isLiteralType = (type: ts.Type) => {
   )
 }
 
+export const isNever = (type: ts.Type) => {
+  return !!(type.flags & ts.TypeFlags.Never)
+}
+
 export const isFunction = (type: ts.Type) => {
   return type.getCallSignatures().length > 0
 }
