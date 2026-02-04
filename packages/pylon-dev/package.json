@@ -4,7 +4,8 @@
   "version": "1.0.5",
   "description": "CLI for creating a Pylon",
   "scripts": {
-    "build": "rimraf ./dist && esbuild ./src/index.ts --bundle --platform=node --target=node18 --format=esm --minify --outdir=./dist --sourcemap=linked --packages=external"
+    "build": "rimraf ./dist && esbuild ./src/index.ts --bundle --platform=node --target=node18 --format=esm --minify --outdir=./dist --sourcemap=linked --packages=external",
+    "test": "vitest run"
   },
   "bin": {
     "pylon": "./dist/index.js"
@@ -38,7 +39,9 @@
     "node": ">=18.0.0"
   },
   "devDependencies": {
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^2.0.0",
+    "@types/node": "^20.0.0"
   },
   "peerDependencies": {
     "@getcronit/pylon": "workspace:^2.0.0",

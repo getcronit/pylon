@@ -335,7 +335,9 @@ export class TypeDefinitionBuilder {
 
     if (typeName && !this.schema.scalars.includes(typeName)) {
       if (options.isInputType) {
-        typeName = `${typeName}Input`
+        if (!typeName.endsWith('Input')) {
+          typeName = `${typeName}Input`
+        }
       }
 
       // If we have a generic type, we want to apply the suffix to the subject (prefix)

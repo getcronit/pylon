@@ -1,0 +1,81 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Pylon Builder - Connection and Edge Generics > should handle nested generics like Connection<Edge<User>> 1`] = `
+{
+  "resolvers": {},
+  "typeDefs": "type Query {
+nested: UserEdgeConnection!
+}
+type UserEdgeConnection {
+edges: [UserEdgeEdge!]!
+pageInfo: PageInfo!
+}
+type UserEdgeEdge {
+node: UserEdge!
+cursor: String!
+}
+type UserEdge {
+node: User!
+cursor: String!
+}
+type User {
+id: String!
+}
+type PageInfo {
+hasNextPage: Boolean!
+}
+scalar ID
+scalar Int
+scalar Float
+scalar Number
+scalar Any
+scalar Void
+scalar JSONObject
+scalar File
+scalar Date
+scalar JSON
+scalar String
+scalar Boolean
+",
+}
+`;
+
+exports[`Pylon Builder - Connection and Edge Generics > should transform Connection<T> to TConnection and Edge<T> to TEdge 1`] = `
+{
+  "resolvers": {},
+  "typeDefs": "type Query {
+users: UserConnection!
+}
+type UserConnection {
+edges: [UserEdge!]!
+pageInfo: PageInfo!
+}
+type UserEdge {
+node: User!
+cursor: String!
+}
+type User {
+id: String!
+name: String!
+}
+type PageInfo {
+hasNextPage: Boolean!
+hasPreviousPage: Boolean!
+startCursor: String!
+endCursor: String!
+}
+scalar ID
+scalar Int
+scalar Float
+scalar Number
+scalar Any
+scalar Void
+scalar JSONObject
+scalar File
+scalar Date
+scalar JSON
+scalar String
+scalar Boolean
+",
+}
+`;
