@@ -26,6 +26,36 @@ scalar Boolean
 }
 `;
 
+exports[`Pylon Builder - Inputs and Arguments > should handle enums shared between input and output 1`] = `
+{
+  "resolvers": {},
+  "typeDefs": "type Query {
+checkStatus(status: Status!): CheckStatus!
+}
+type CheckStatus {
+id: String!
+status: Status!
+}
+scalar ID
+scalar Int
+scalar Float
+scalar Number
+scalar Any
+scalar Void
+scalar JSONObject
+scalar File
+scalar Date
+scalar JSON
+scalar String
+scalar Boolean
+enum Status {
+	ACTIVE
+	INACTIVE
+}
+",
+}
+`;
+
 exports[`Pylon Builder - Inputs and Arguments > should handle mix of named objects and primitives 1`] = `
 {
   "resolvers": {},

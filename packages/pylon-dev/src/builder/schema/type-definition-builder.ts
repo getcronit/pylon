@@ -436,11 +436,17 @@ export class TypeDefinitionBuilder {
         }
 
         if (!options.dryRun) {
-          this.enums.push({
-            name: typeName,
-            values: members,
-            rawType: type
-          })
+          if (!this.enums.find(e => e.name === typeName)) {
+            this.enums.push({
+              name: typeName,
+              values: members,
+              rawType: type
+            })
+
+            // Enums are shared across types and inputs
+            this.typesNameMap.set(type, typeName)
+            this.inputsNameMap.set(type, typeName)
+          }
         }
       }
     }
@@ -535,11 +541,13 @@ export class TypeDefinitionBuilder {
         !hasPrimitivesOrEnum
       ) {
         if (!options.dryRun) {
-          this.unions.push({
-            name: typeName,
-            types: typeNames,
-            rawType: type
-          })
+          if (!this.unions.find(u => u.name === typeName)) {
+            this.unions.push({
+              name: typeName,
+              types: typeNames,
+              rawType: type
+            })
+          }
         }
       } else {
         // If the union contains a JSON, Object or Any type, remove the types

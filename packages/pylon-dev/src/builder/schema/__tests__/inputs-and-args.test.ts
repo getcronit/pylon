@@ -121,4 +121,31 @@ describe('Pylon Builder - Inputs and Arguments', () => {
 
     expect(result).toMatchSnapshot()
   })
+
+  it('should handle enums shared between input and output', () => {
+    const code = `
+      type Status = "ACTIVE" | "INACTIVE"
+
+      export const graphql = {
+        Query: {
+          checkStatus: (status: Status) => {
+            return {
+              id: "1",
+              status: status
+            }
+          }
+        }
+      }
+    `
+    const result = buildTestSchema(code)
+
+    expect(result.typeDefs).toContain(
+      'checkStatus(status: Status!): CheckStatus!'
+    )
+    expect(result.typeDefs).toContain('type CheckStatus')
+    expect(result.typeDefs).toContain('status: Status!')
+    expect(result.typeDefs).toContain('enum Status')
+
+    expect(result).toMatchSnapshot()
+  })
 })
