@@ -99,7 +99,7 @@ exports[`Pylon Builder - Inputs and Arguments > should handle optional enums wit
 {
   "resolvers": {},
   "typeDefs": "type Query {
-users(role: RoleInput): [Users!]!
+users(role: Role): [JSONObject!]!
 }
 scalar ID
 scalar Int
@@ -113,7 +113,7 @@ scalar Date
 scalar JSON
 scalar String
 scalar Boolean
-enum RoleInput {
+enum Role {
 	ADMIN
 	USER
 }
@@ -125,7 +125,7 @@ exports[`Pylon Builder - Inputs and Arguments > should handle rest parameters wi
 {
   "resolvers": {},
   "typeDefs": "type Query {
-search(query: String!, limit: Number): [Search!]!
+search(query: String!, limit: Number): [JSONObject!]!
 }
 scalar ID
 scalar Int

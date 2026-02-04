@@ -98,7 +98,7 @@ describe('Pylon Builder - Inputs and Arguments', () => {
     const result = buildTestSchema(code)
 
     expect(result.typeDefs).toContain(
-      'search(query: String!, limit: Number): [Search!]!'
+      'search(query: String!, limit: Number): [JSONObject!]!'
     )
 
     expect(result).toMatchSnapshot()
@@ -116,8 +116,8 @@ describe('Pylon Builder - Inputs and Arguments', () => {
     `
     const result = buildTestSchema(code)
 
-    expect(result.typeDefs).toContain('users(role: RoleInput): [Users!]!')
-    expect(result.typeDefs).toContain('enum RoleInput')
+    expect(result.typeDefs).toContain('users(role: Role): [JSONObject!]!')
+    expect(result.typeDefs).toContain('enum Role')
 
     expect(result).toMatchSnapshot()
   })

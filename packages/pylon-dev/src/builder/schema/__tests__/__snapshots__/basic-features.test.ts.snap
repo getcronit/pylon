@@ -88,6 +88,28 @@ scalar Boolean
 }
 `;
 
+exports[`Pylon Builder - Basic Features > should handle empty array returns 1`] = `
+{
+  "resolvers": {},
+  "typeDefs": "type Query {
+empty: [JSONObject!]!
+}
+scalar ID
+scalar Int
+scalar Float
+scalar Number
+scalar Any
+scalar Void
+scalar JSONObject
+scalar File
+scalar Date
+scalar JSON
+scalar String
+scalar Boolean
+",
+}
+`;
+
 exports[`Pylon Builder - Basic Features > should handle enums (string literal unions) 1`] = `
 {
   "resolvers": {},

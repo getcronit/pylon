@@ -150,4 +150,17 @@ describe('Pylon Builder - Basic Features', () => {
     expect(result.typeDefs).toContain('"""\nFetches a user by ID\n"""')
     expect(result).toMatchSnapshot()
   })
+
+  it('should handle empty array returns', () => {
+    const code = `
+      export const graphql = {
+        Query: {
+          empty: () => []
+        }
+      }
+    `
+    const result = buildTestSchema(code)
+    expect(result.typeDefs).toContain('empty: [JSONObject!]!')
+    expect(result).toMatchSnapshot()
+  })
 })
