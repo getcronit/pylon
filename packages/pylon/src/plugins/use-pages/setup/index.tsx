@@ -51,7 +51,7 @@ const disableCacheMiddleware: MiddlewareHandler<Env> = async (c, next) => {
   return next()
 }
 
-export const setup: Plugin['setup'] = async app => {
+export const setup: NonNullable<Plugin['setup']> = async app => {
   const cacheBustingSuffix = `?v=${Date.now()}`
 
   const routes = (await import(`${process.cwd()}/.pylon/__pylon/pages/app.js`))

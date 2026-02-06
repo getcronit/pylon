@@ -1,14 +1,13 @@
-import path from 'path'
 import {Plugin} from '@/index'
-import {makeAppFiles} from './app-utils'
 import chokidar, {FSWatcher} from 'chokidar'
-import fs from 'fs/promises'
 import esbuild from 'esbuild'
-import {injectAppHydrationPlugin} from './plugins/inject-app-hydration'
-import {imagePlugin} from './plugins/image-plugin'
-import {postcssPlugin} from './plugins/postcss-plugin'
-import consola from 'consola'
+import fs from 'fs/promises'
+import path from 'path'
+import {makeAppFiles} from './app-utils'
 import {esmExternalsPlugin} from './plugins/external-esm-plugin'
+import {imagePlugin} from './plugins/image-plugin'
+import {injectAppHydrationPlugin} from './plugins/inject-app-hydration'
+import {postcssPlugin} from './plugins/postcss-plugin'
 
 const DIST_STATIC_DIR = path.join(process.cwd(), '.pylon/__pylon/static')
 const DIST_PAGES_DIR = path.join(process.cwd(), '.pylon/__pylon/pages')
@@ -30,7 +29,7 @@ async function updateFileIfChanged(
   return true // File created or updated
 }
 
-export const build: Plugin['build'] = async () => {
+export const build: NonNullable<Plugin['build']> = async () => {
   const buildAppFile = async () => {
     const appFiles = makeAppFiles()
 
