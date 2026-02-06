@@ -65,7 +65,11 @@ export const injectCodePlugin = ({
           contents:
             `import {executeConfig} from "@getcronit/pylon"
           
-            import * as __internalPylonConfig from ".pylon/config"
+            var __internalPylonConfig = {config: {}}
+            try {
+              __internalPylonConfig = await import('./config.js')
+            } catch (e) {
+            }
             await executeConfig(__internalPylonConfig.config)
 
             
