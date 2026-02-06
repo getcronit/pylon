@@ -1,6 +1,6 @@
 import {Plugin} from 'esbuild'
-import path from 'path'
 import fs from 'fs/promises'
+import path from 'path'
 import {updateFileIfChanged} from '../../update-file-if-changed'
 
 export interface InjectCodePluginOptions {
@@ -65,7 +65,7 @@ export const injectCodePlugin = ({
           contents:
             `import {executeConfig} from "@getcronit/pylon"
           
-            const __internalPylonConfig = await import(".pylon/config.js")
+            import * as __internalPylonConfig from ".pylon/config"
             await executeConfig(__internalPylonConfig.config)
 
             
