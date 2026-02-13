@@ -25,7 +25,7 @@ export type PageProps = {
   data: PageData & {
     $refetch: () => Promise<void>
   }
-  params: Record<string, string>
+  params: Record<string, string | string[] | undefined>
   searchParams: Record<string, string>
   path: string
 }

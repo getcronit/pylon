@@ -43,8 +43,10 @@ function getLayoutComponentName(filePath: string): string {
       .split('/')
       .filter(Boolean)
       .map(segment => {
-        // 1. Sanitize dynamic segments: '[ticketId]' becomes 'ticketId'
-        const sanitizedSegment = segment.replace(/^\[(.+)\]$/, '$1')
+        // 1. Sanitize dynamic segments: '[ticketId]' becomes 'ticketId', '[...path]' becomes 'CatchAllPath'
+        const sanitizedSegment = segment
+          .replace(/^\[\.\.\.(.+)\]$/, 'CatchAll$1')
+          .replace(/^\[(.+)\]$/, '$1')
 
         // 2. Capitalize the segment
         return (
@@ -60,6 +62,9 @@ function getLayoutComponentName(filePath: string): string {
  * @returns The converted route segment.
  */
 function convertToDynamicRoute(segment: string): string {
+  if (segment.startsWith('[...') && segment.endsWith(']')) {
+    return '*'
+  }
   if (segment.startsWith('[') && segment.endsWith(']')) {
     return `:${segment.slice(1, -1)}`
   }
@@ -99,7 +104,9 @@ function scanDirectory(directory: string, basePath: string = ''): Route | null {
           ? `RootLayout`
           : `${layoutComponentName}`
 
-      route.Component = `withLoaderData((props) => <${componentName} children={<Outlet />} {...props} />, "${componentName}")`
+      const catchAllParam = relativePath.match(/\[\.\.\.(.+)\]/)?.[1]
+
+      route.Component = `withLoaderData((props) => <${componentName} children={<Outlet />} {...props} />, "${componentName}", ${catchAllParam ? `"${catchAllParam}"` : 'undefined'})`
       route.loader = `loader("${componentName}")`
       route.shouldRevalidate = `(args) => args.defaultShouldRevalidate`
 
@@ -126,11 +133,13 @@ function scanDirectory(directory: string, basePath: string = ''): Route | null {
       //   }
       // }
 
+      const catchAllParam = relativePath.match(/\[\.\.\.(.+)\]/)?.[1]
+
       route.children!.push({
         path: undefined,
         index: true,
         errorElement: '<ErrorElement standalone={false} />',
-        lazy: `async () => {const i = await import(${importPath}).catch(() => {window.reload()}); return {Component: withLoaderData(i.default)}}`,
+        lazy: `async () => {const i = await import(${importPath}).catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, ${catchAllParam ? `"${catchAllParam}"` : 'undefined'})}}`,
         HydrateFallback: 'HydrateFallback',
         loader: `loader()`
       })
@@ -152,7 +161,7 @@ function scanDirectory(directory: string, basePath: string = ''): Route | null {
     }
   }
 
-  if (hasLayout) {
+  if (hasLayout && route.path !== '*') {
     const childNotFoundRoute: Route = {
       path: '*',
       element: '<NotFoundPage standalone={false} />'
@@ -162,6 +171,31 @@ function scanDirectory(directory: string, basePath: string = ''): Route | null {
       route.children = []
     }
     route.children.push(childNotFoundRoute)
+  }
+
+  // If the route is a catch-all route and there is no layout, we want to flatten the route
+  // so that the catch-all route is the one that is rendering the page
+  if (route.path === '*' && !hasLayout && route.children?.length === 1) {
+    const child = route.children[0]
+    if (child.index) {
+      route.lazy = child.lazy
+      route.loader = child.loader
+      route.errorElement = child.errorElement
+      route.HydrateFallback = child.HydrateFallback
+      route.shouldRevalidate = child.shouldRevalidate
+      route.children = undefined
+    }
+  }
+
+  // --- ADD THIS NEW BLOCK ---
+  // If the route IS a catch-all route AND has a layout, the child page cannot be an index route.
+  // It must also be a catch-all route so it can absorb the deep URL segments inside the Outlet.
+  if (route.path === '*' && hasLayout && route.children) {
+    const pageChild = route.children.find(child => child.index)
+    if (pageChild) {
+      delete pageChild.index
+      pageChild.path = '*'
+    }
   }
 
   if (
@@ -263,7 +297,7 @@ const HydrateFallback = () => {
   return <div>Loading...</div>
 }
 
-function withLoaderData<T>(Component: React.ComponentType<{ data: T }>, name?: string) {
+function withLoaderData<T>(Component: React.ComponentType<{ data: T }>, name?: string, catchAllParam?: string) {
   return function WithLoaderDataWrapper(props: T) {
     const dataClient = __PYLON_INTERNALS_DO_NOT_USE.useDataClient()
     const pruningTarget = __PYLON_INTERNALS_DO_NOT_USE.useSSRPruning()
@@ -271,8 +305,19 @@ function withLoaderData<T>(Component: React.ComponentType<{ data: T }>, name?: s
     const {cacheSnapshot, context} = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useLoaderData() || {};
     const location = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useLocation()
     const [searchParams] = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useSearchParams()
-    const searchParamsObject = Object.fromEntries(searchParams.entries())
-    const params = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useParams()
+    const searchParamsObject = useMemo(() => Object.fromEntries(searchParams.entries()), [searchParams])
+
+    const reactRouterParams = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useParams()
+
+    const params = useMemo(() => {
+      const params: Record<string, string | string[] | undefined> = reactRouterParams
+
+      if (catchAllParam && reactRouterParams['*']) {
+        params[catchAllParam] = reactRouterParams['*']?.split('/')
+      }
+
+      return params
+    }, [reactRouterParams, catchAllParam])
 
     // 1. Handle Transparent Ancestors
     // If we're optimized-rendering a specific layout, and THIS is not it,
