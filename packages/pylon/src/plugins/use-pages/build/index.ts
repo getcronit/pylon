@@ -29,7 +29,7 @@ async function updateFileIfChanged(
   return true // File created or updated
 }
 
-export const build: NonNullable<Plugin['build']> = async () => {
+export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
   const buildAppFile = async () => {
     const appFiles = makeAppFiles()
 
@@ -97,6 +97,9 @@ export const build: NonNullable<Plugin['build']> = async () => {
             await updateFileIfChanged(file.path, file.contents)
           })
         )
+        if (result.errors.length === 0) {
+          onBuild()
+        }
       })
     }
   }
