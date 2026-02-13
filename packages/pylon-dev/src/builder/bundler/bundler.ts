@@ -1,17 +1,17 @@
 // bundler.ts
+import type {Plugin, PylonConfig} from '@getcronit/pylon'
 import esbuild, {context} from 'esbuild'
 import esbuildPluginTsc from 'esbuild-plugin-tsc'
-import type {PylonConfig, Plugin} from '@getcronit/pylon'
 
-import path from 'path'
 import fs from 'fs/promises'
+import path from 'path'
+import {updateFileIfChanged} from '../update-file-if-changed'
+import {extractConfig} from './extract-config'
 import {
   InjectCodePluginOptions,
   injectCodePlugin
 } from './plugins/inject-code-plugin'
 import {NotifyPluginOptions, notifyPlugin} from './plugins/notify-plugin'
-import {updateFileIfChanged} from '../update-file-if-changed'
-import {extractConfig} from './extract-config'
 
 export interface BundlerBuildOptions {
   getBuildDefs: InjectCodePluginOptions['getBuildDefs']
