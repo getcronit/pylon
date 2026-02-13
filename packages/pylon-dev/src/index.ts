@@ -1,20 +1,19 @@
-import {program, type Command} from 'commander'
+import {program} from 'commander'
 
+import {spawn, type ChildProcess} from 'child_process'
 import consola from 'consola'
 import dotenv from 'dotenv'
-import pm2 from 'pm2'
 import {version} from '../package.json'
 import {
   analytics,
-  distinctId,
-  sessionId,
   dependencies,
-  readPylonConfig
+  distinctId,
+  readPylonConfig,
+  sessionId
 } from './analytics'
 import {build} from './builder'
 import {buildClient} from './builder/build-client'
-
-const processName = `pylon-dev-${sessionId}`
+import {treeKillSync} from './tree-kill'
 
 dotenv.config()
 
@@ -28,23 +27,36 @@ program
       sfiFilePath: './src/index.ts',
       outputFilePath: './.pylon',
       onBuild: async ({totalFiles, totalSize, duration, schemaChanged}) => {
-        analytics.capture({
-          distinctId,
-          event: 'build completed',
-          properties: {
-            duration,
-            totalFiles,
-            totalSize,
-            schemaChanged,
-            dependencies,
-            isDevelopment: false,
-            $session_id: sessionId
-          }
-        })
+        try {
+          analytics.capture({
+            distinctId,
+            event: 'build completed',
+            properties: {
+              duration,
+              totalFiles,
+              totalSize,
+              schemaChanged,
+              dependencies,
+              isDevelopment: false,
+              $session_id: sessionId
+            }
+          })
 
-        await buildClient({schemaChanged})
+          await buildClient({schemaChanged})
+        } catch (e) {
+          consola.error('Error during build callback', e)
+        }
       }
     })
+
+    const cleanupAndExit = async () => {
+      await ctx.dispose()
+      process.exit(0)
+    }
+
+    process.on('SIGINT', cleanupAndExit)
+    process.on('SIGTERM', cleanupAndExit)
+    process.on('SIGHUP', cleanupAndExit)
 
     await ctx.rebuild()
     await ctx.dispose()
@@ -59,37 +71,63 @@ program
     'bun run .pylon/index.js'
   )
   .action(async options => {
+    let serverProcess: ChildProcess | null = null
+
+    const killServer = async () => {
+      if (serverProcess && serverProcess.pid) {
+        try {
+          treeKillSync(serverProcess.pid)
+        } catch (e: any) {
+          consola.error('Failed to kill server process', e)
+        }
+        serverProcess = null
+      }
+    }
+
+    let ctx: {
+      watch: () => Promise<void>
+      rebuild: () => Promise<void>
+      dispose: () => Promise<void>
+      cancel: () => Promise<void>
+    } | null = null
+
     await new Promise<void>(async (resolve, reject) => {
       try {
-        await connectPM2()
-
-        const ctx = await build({
+        ctx = await build({
           sfiFilePath: './src/index.ts',
           outputFilePath: `./.pylon`,
           onBuild: async ({schemaChanged, totalFiles, totalSize, duration}) => {
-            await buildClient({schemaChanged})
+            try {
+              await buildClient({schemaChanged})
 
-            analytics.capture({
-              distinctId,
-              event: 'build completed',
-              properties: {
-                duration,
-                totalFiles,
-                totalSize,
-                schemaChanged,
-                dependencies,
-                pylonConfig: await readPylonConfig(),
-                isDevelopment: true,
-                $session_id: sessionId
-              }
-            })
+              await killServer()
+
+              serverProcess = await startDevServer(options.command)
+
+              console.log('Server process started with PID', serverProcess.pid)
+
+              analytics.capture({
+                distinctId,
+                event: 'build completed',
+                properties: {
+                  duration,
+                  totalFiles,
+                  totalSize,
+                  schemaChanged,
+                  dependencies,
+                  pylonConfig: await readPylonConfig(),
+                  isDevelopment: true,
+                  $session_id: sessionId
+                }
+              })
+            } catch (e) {
+              consola.error('Error during dev build callback', e)
+            }
           },
           skipInitialBuild: true
         })
 
         await ctx.watch()
-
-        await startDevServer(options.command)
 
         consola.box(`Pylon is up and running!
         
@@ -100,19 +138,18 @@ https://github.com/getcronit/pylon/issues
                 
 We value your feedback—help us make Pylon even better!`)
 
-        process.on('SIGINT', async () => {
-          await ctx.cancel()
-          await stopDevServerAndDisconnect()
+        const cleanupAndExit = async () => {
+          if (ctx) {
+            await ctx.dispose()
+          }
+          await killServer()
+          process.exit(0)
+        }
 
-          resolve()
-        })
-
-        process.on('SIGTERM', async () => {
-          await ctx.cancel()
-          await stopDevServerAndDisconnect()
-
-          resolve()
-        })
+        process.on('SIGINT', cleanupAndExit)
+        process.on('SIGTERM', cleanupAndExit)
+        process.on('SIGHUP', cleanupAndExit)
+        process.on('exit', () => killServer())
 
         analytics.capture({
           distinctId,
@@ -125,82 +162,32 @@ We value your feedback—help us make Pylon even better!`)
           }
         })
       } catch (error) {
-        await stopDevServerAndDisconnect()
+        if (ctx) {
+          await ctx.dispose()
+        }
+        await killServer()
         reject(error)
       }
     })
   })
 
-const connectPM2 = () => {
-  return new Promise<void>((resolve, reject) => {
-    pm2.connect(err => {
-      if (err) {
-        reject(err)
-      } else {
-        resolve()
-      }
-    })
+const startDevServer = async (command: string) => {
+  const [script, ...args] = command.split(' ')
+
+  const child = spawn(script, args, {
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      NODE_ENV: 'development',
+      FORCE_COLOR: '1'
+    }
   })
-}
 
-const startDevServer = (command: string) => {
-  return new Promise<void>((resolve, reject) => {
-    pm2.launchBus((err, bus) => {
-      if (err) {
-        reject(err)
-      }
-
-      bus.on('log:out', data => {
-        consola.log(data.data.trim())
-      })
-
-      bus.on('log:err', data => {
-        consola.error(data.data)
-      })
-    })
-
-    pm2.start(
-      {
-        name: processName,
-        script: command,
-        exec_mode: 'fork',
-        instances: 1,
-        autorestart: true,
-        watch: ['./.pylon'],
-        restart_delay: 5000,
-        watch_delay: 1000 as any,
-        ignore_watch: ['node_modules'],
-        env: {
-          ...process.env,
-          NODE_ENV: 'development'
-        }
-      } as any,
-      function (err, apps) {
-        if (err) {
-          reject(err)
-        } else {
-          resolve()
-        }
-      }
-    )
+  child.on('error', err => {
+    consola.error(err)
   })
-}
 
-const stopDevServerAndDisconnect = async () => {
-  try {
-    await new Promise<void>((resolve, reject) => {
-      pm2.delete(processName, function (err) {
-        if (err) {
-          reject(err)
-        } else {
-          resolve()
-        }
-      })
-    })
-  } catch {
-  } finally {
-    pm2.disconnect()
-  }
+  return child
 }
 
 try {
