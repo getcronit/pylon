@@ -6,7 +6,7 @@ const PAGES_DIR = './pages'
 /**
  * Interface representing a route configuration.
  */
-interface Route {
+export interface Route {
   path?: string
   Component?: string
   element?: string
@@ -20,64 +20,158 @@ interface Route {
 }
 
 /**
- * Array to collect import statements.
+ * Context for the scan operation to collect imports and slugs.
  */
-let imports: string[] = []
+interface ScanContext {
+  imports: string[]
+  routeSlugs: string[]
+}
 
 /**
- * Array to store the route slugs.
+ * Formats a route segment into a component-friendly string.
+ * @param segment - The raw route segment.
+ * @returns The formatted segment string.
  */
-let routeSlugs: string[] = []
+function formatSegment(segment: string): string {
+  let sanitized = segment
+  if (sanitized.startsWith('[...') && sanitized.endsWith(']')) {
+    const param = sanitized.slice(4, -1)
+    sanitized = 'CatchAll' + param.charAt(0).toUpperCase() + param.slice(1)
+  } else if (sanitized.startsWith('[') && sanitized.endsWith(']')) {
+    sanitized = sanitized.slice(1, -1)
+  }
+  return sanitized.charAt(0).toUpperCase() + sanitized.slice(1)
+}
 
 /**
  * Converts a file path to a corresponding layout component name.
  * @param filePath - The file path to convert.
  * @returns The generated layout component name.
  */
-function getLayoutComponentName(filePath: string): string {
-  return (
-    filePath
-      .replace(PAGES_DIR, '')
-      .replace(/\\/g, '/')
-      .replace(/layout\.tsx$/, '')
-      .split('/')
-      .filter(Boolean)
-      .map(segment => {
-        // 1. Sanitize dynamic segments: '[ticketId]' becomes 'ticketId', '[...path]' becomes 'CatchAllPath'
-        const sanitizedSegment = segment
-          .replace(/^\[\.\.\.(.+)\]$/, 'CatchAll$1')
-          .replace(/^\[(.+)\]$/, '$1')
+export function getLayoutComponentName(filePath: string): string {
+  const segments = filePath
+    .replace(PAGES_DIR, '')
+    .replace(/\\/g, '/')
+    .replace(/layout\.tsx$/, '')
+    .split('/')
+    .filter(Boolean)
 
-        // 2. Capitalize the segment
-        return (
-          sanitizedSegment.charAt(0).toUpperCase() + sanitizedSegment.slice(1)
-        )
-      })
-      .join('') + 'Layout'
-  )
+  return segments.map(formatSegment).join('') + 'Layout'
 }
+
 /**
  * Converts dynamic route segments from [param] format to :param format.
  * @param segment - A segment of the route.
  * @returns The converted route segment.
  */
-function convertToDynamicRoute(segment: string): string {
-  if (segment.startsWith('[...') && segment.endsWith(']')) {
-    return '*'
-  }
-  if (segment.startsWith('[') && segment.endsWith(']')) {
+export function convertToDynamicRoute(segment: string): string {
+  if (segment.startsWith('[...') && segment.endsWith(']')) return '*'
+  if (segment.startsWith('[') && segment.endsWith(']'))
     return `:${segment.slice(1, -1)}`
-  }
   return segment
+}
+
+/**
+ * Processes a layout file and updates the route configuration.
+ */
+function processLayoutItem(
+  relativePath: string,
+  importPath: string,
+  route: Route,
+  context: ScanContext
+): void {
+  const layoutComponentName = getLayoutComponentName(relativePath)
+  context.imports.push(`import ${layoutComponentName} from ${importPath};`)
+
+  const componentName =
+    layoutComponentName === 'Layout' ? `RootLayout` : `${layoutComponentName}`
+
+  const catchAllParam = relativePath.match(/\[\.\.\.(.+)\]/)?.[1]
+
+  route.Component = `withLoaderData((props) => <${componentName} children={<Outlet />} {...props} />, "${componentName}", ${catchAllParam ? `"${catchAllParam}"` : 'undefined'})`
+  route.loader = `loader("${componentName}")`
+  route.shouldRevalidate = `(args) => args.defaultShouldRevalidate`
+
+  if (route.path === '/') {
+    route.errorElement = '<ErrorElement standalone={true} />'
+  }
+
+  route.HydrateFallback = 'HydrateFallback'
+}
+
+/**
+ * Processes a page file and adds it to the route children.
+ */
+function processPageItem(
+  relativePath: string,
+  importPath: string,
+  route: Route
+): void {
+  const catchAllParam = relativePath.match(/\[\.\.\.(.+)\]/)?.[1]
+
+  route.children!.push({
+    path: undefined,
+    index: true,
+    errorElement: '<ErrorElement standalone={false} />',
+    lazy: `async () => {const i = await import(${importPath}).catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, ${catchAllParam ? `"${catchAllParam}"` : 'undefined'})}}`,
+    HydrateFallback: 'HydrateFallback',
+    loader: `loader()`
+  })
+}
+
+/**
+ * Optimizes the route structure by merging or cleaning up children.
+ */
+function optimizeRouteStructure(route: Route, hasLayout: boolean): void {
+  // If the route has a single child that is a catch-all route, and the current route
+  // has no layout, we can merge the match logic.
+  if (
+    !hasLayout &&
+    route.children?.length === 1 &&
+    route.children[0].path === '*'
+  ) {
+    const child = route.children[0]
+    const currentPath = route.path === '/' ? '' : route.path
+    Object.assign(route, child)
+    route.path = currentPath ? `${currentPath}/*` : '*'
+    delete route.children
+  }
+
+  // If the route IS a catch-all route and there is no layout, we effectively "become"
+  // the child page to avoid an empty middle route.
+  if (route.path === '*' && !hasLayout && route.children?.length === 1) {
+    const child = route.children[0]
+    if (child.index || child.path === '*') {
+      const currentPath = route.path
+      Object.assign(route, child)
+      route.path = currentPath
+      delete route.index
+      delete route.children
+    }
+  }
+
+  // If the route IS a catch-all route AND has a layout, the child page cannot be an index route.
+  if (route.path === '*' && hasLayout && route.children) {
+    const pageChild = route.children.find(child => child.index)
+    if (pageChild) {
+      delete pageChild.index
+      pageChild.path = '*'
+    }
+  }
 }
 
 /**
  * Recursively scans a directory to build route objects.
  * @param directory - The directory to scan.
+ * @param context - The scan context.
  * @param basePath - The base route path accumulated so far.
  * @returns A Route object or null if the directory does not define a route.
  */
-function scanDirectory(directory: string, basePath: string = ''): Route | null {
+export function scanDirectory(
+  directory: string,
+  context: ScanContext,
+  basePath: string = ''
+): Route | null {
   const items = fs.readdirSync(directory, {withFileTypes: true})
   const route: Route = {path: basePath || '/', children: []}
   let hasLayout = false
@@ -91,59 +185,15 @@ function scanDirectory(directory: string, basePath: string = ''): Route | null {
       .replace(/\.tsx$/, '')}"`
 
     if (item.isDirectory()) {
-      const childRoute = scanDirectory(itemPath, relativePath)
+      const childRoute = scanDirectory(itemPath, context, relativePath)
       if (childRoute) {
         route.children!.push(childRoute)
       }
     } else if (item.name === 'layout.tsx') {
-      const layoutComponentName = getLayoutComponentName(relativePath)
-      imports.push(`import ${layoutComponentName} from ${importPath};`)
-
-      const componentName =
-        layoutComponentName === 'Layout'
-          ? `RootLayout`
-          : `${layoutComponentName}`
-
-      const catchAllParam = relativePath.match(/\[\.\.\.(.+)\]/)?.[1]
-
-      route.Component = `withLoaderData((props) => <${componentName} children={<Outlet />} {...props} />, "${componentName}", ${catchAllParam ? `"${catchAllParam}"` : 'undefined'})`
-      route.loader = `loader("${componentName}")`
-      route.shouldRevalidate = `(args) => args.defaultShouldRevalidate`
-
-      if (route.path === '/') {
-        route.errorElement = '<ErrorElement standalone={true} />'
-      }
-
-      route.HydrateFallback = 'HydrateFallback'
-
+      processLayoutItem(relativePath, importPath, route, context)
       hasLayout = true
     } else if (item.name === 'page.tsx') {
-      // if (hasLayout) {
-      //   route.children!.push({
-      //     path: undefined,
-      //     index: true,
-      //     lazy: `async () => {const i = await import(${importPath}); return {Component: withLoaderData(i.default)}}`,
-      //     loader: `loader`
-      //   })
-      // } else {
-      //   route.lazy = `async () => {const i = await import(${importPath}); return {Component: withLoaderData(i.default)}}`
-      //   route.loader = `loader`
-      //   if (basePath === '') {
-      //     route.index = true
-      //   }
-      // }
-
-      const catchAllParam = relativePath.match(/\[\.\.\.(.+)\]/)?.[1]
-
-      route.children!.push({
-        path: undefined,
-        index: true,
-        errorElement: '<ErrorElement standalone={false} />',
-        lazy: `async () => {const i = await import(${importPath}).catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, ${catchAllParam ? `"${catchAllParam}"` : 'undefined'})}}`,
-        HydrateFallback: 'HydrateFallback',
-        loader: `loader()`
-      })
-
+      processPageItem(relativePath, importPath, route)
       pageFound = true
     }
   }
@@ -157,46 +207,22 @@ function scanDirectory(directory: string, basePath: string = ''): Route | null {
     const fullPath = segments.length > 0 ? `/${segments.join('/')}` : '/'
     route.path = segments[segments.length - 1] || '/'
     if (hasLayout || pageFound) {
-      routeSlugs.push(fullPath)
+      context.routeSlugs.push(fullPath)
     }
   }
 
-  if (hasLayout && route.path !== '*') {
+  if (hasLayout) {
     const childNotFoundRoute: Route = {
       path: '*',
       element: '<NotFoundPage standalone={false} />'
     }
-
     if (!route.children) {
       route.children = []
     }
     route.children.push(childNotFoundRoute)
   }
 
-  // If the route is a catch-all route and there is no layout, we want to flatten the route
-  // so that the catch-all route is the one that is rendering the page
-  if (route.path === '*' && !hasLayout && route.children?.length === 1) {
-    const child = route.children[0]
-    if (child.index) {
-      route.lazy = child.lazy
-      route.loader = child.loader
-      route.errorElement = child.errorElement
-      route.HydrateFallback = child.HydrateFallback
-      route.shouldRevalidate = child.shouldRevalidate
-      route.children = undefined
-    }
-  }
-
-  // --- ADD THIS NEW BLOCK ---
-  // If the route IS a catch-all route AND has a layout, the child page cannot be an index route.
-  // It must also be a catch-all route so it can absorb the deep URL segments inside the Outlet.
-  if (route.path === '*' && hasLayout && route.children) {
-    const pageChild = route.children.find(child => child.index)
-    if (pageChild) {
-      delete pageChild.index
-      pageChild.path = '*'
-    }
-  }
+  optimizeRouteStructure(route, hasLayout)
 
   if (
     hasLayout ||
@@ -241,20 +267,14 @@ function serialize(obj: any, parentKey?: string | number): string {
 }
 
 /**
- * Builds the route configuration and outputs the generated code.
- * @returns The complete file content as a string.
+ * Generates the content of the route file.
  */
-export function makeAppFiles() {
-  imports = []
-  routeSlugs = []
-
-  const rootRoute = scanDirectory(PAGES_DIR)
-  const notFoundRoute: Route = {
-    path: '*',
-    element: '<NotFoundPage standalone={true} />'
-  }
-
-  const routes = `${imports.join('\n')}
+function generateRouteFileContent(
+  context: ScanContext,
+  rootRoute: Route | null,
+  notFoundRoute: Route
+): string {
+  return `${context.imports.join('\n')}
 
 import {useMemo} from 'react'
 
@@ -421,8 +441,23 @@ const routes = ${serialize([rootRoute, notFoundRoute].filter(Boolean))}
 export default routes
 
 `
+}
 
-  const slugs = `export default ${JSON.stringify(routeSlugs, null, 2)}`
+/**
+ * Builds the route configuration and outputs the generated code.
+ * @returns The complete file content as a string.
+ */
+export function makeAppFiles() {
+  const context: ScanContext = {imports: [], routeSlugs: []}
+
+  const rootRoute = scanDirectory(PAGES_DIR, context)
+  const notFoundRoute: Route = {
+    path: '*',
+    element: '<NotFoundPage standalone={true} />'
+  }
+
+  const routes = generateRouteFileContent(context, rootRoute, notFoundRoute)
+  const slugs = `export default ${JSON.stringify(context.routeSlugs, null, 2)}`
 
   return {
     routes,
