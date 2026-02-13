@@ -1,0 +1,183 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`app-utils > makeAppFiles > should generate the correct app files content 1`] = `
+"import Layout from "./../pages/layout";
+import AuthLayout from "./../pages/auth/layout";
+import DashboardLayout from "./../pages/dashboard/layout";
+
+import {useMemo} from 'react'
+
+import {__PYLON_ROUTER_INTERNALS_DO_NOT_USE, __PYLON_INTERNALS_DO_NOT_USE, GlobalErrorPage, StatusPage} from '@getcronit/pylon/pages'
+const Outlet = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.Outlet
+
+const ErrorElement: React.FC<{standalone: boolean}> = ({standalone}) => {
+  const error = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useRouteError()
+
+
+    if(error instanceof Response) {
+      // Check if the error is a redirect response
+      if(error.status > 300 && error.status < 400 && error.headers.get('Location')) {
+      return <__PYLON_ROUTER_INTERNALS_DO_NOT_USE.Navigate to={error.headers.get('Location')!} replace />
+      }
+
+      let message = 'An unexpected error occurred.'
+
+    try {
+      const data = JSON.parse(error.data?.message || '{}')
+      if (data.message) {
+        message = data.message
+      }
+    } catch (e) {}
+
+    return (
+      <StatusPage
+        code={error.status}
+        title={error.statusText}
+        message={message}
+        standalone={standalone}
+      />
+    )
+  }
+
+  return <GlobalErrorPage error={error} />
+}
+
+const HydrateFallback = () => {
+  return <div>Loading...</div>
+}
+
+function withLoaderData<T>(Component: React.ComponentType<{ data: T }>, name?: string, catchAllParam?: string) {
+  return function WithLoaderDataWrapper(props: T) {
+    const dataClient = __PYLON_INTERNALS_DO_NOT_USE.useDataClient()
+    const pruningTarget = __PYLON_INTERNALS_DO_NOT_USE.useSSRPruning()
+
+    const {cacheSnapshot, context} = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useLoaderData() || {};
+    const location = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useLocation()
+    const [searchParams] = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useSearchParams()
+    const searchParamsObject = useMemo(() => Object.fromEntries(searchParams.entries()), [searchParams])
+
+    const reactRouterParams = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useParams()
+
+    const params = useMemo(() => {
+      const params: Record<string, string | string[] | undefined> = reactRouterParams
+
+      if (catchAllParam && reactRouterParams['*']) {
+        params[catchAllParam] = reactRouterParams['*']?.split('/')
+      }
+
+      return params
+    }, [reactRouterParams, catchAllParam])
+
+    // 1. Handle Transparent Ancestors
+    // If we're optimized-rendering a specific layout, and THIS is not it,
+    // we just act as a passthrough to skip THIS layout's logic/queries.
+    // Exception: RootLayout is never skipped to preserve global providers.
+    if (pruningTarget && name !== pruningTarget && name !== 'RootLayout') {
+      return <Outlet />
+    }
+
+    const {useQuery, useHydrateCache} = useMemo(() => dataClient.pageClient(), [])
+
+    if(cacheSnapshot) {
+      useHydrateCache({cacheSnapshot})
+    }
+
+    const data = typeof window !== "undefined" ? useQuery() : dataClient.useQuery()
+
+    const pageProps = useMemo(() => {
+      return {
+        path: location.pathname,
+        params,
+        searchParams: searchParamsObject,
+        data,
+        context,
+      }
+    }, [location.pathname, params, searchParamsObject, data, context])
+
+    // 2. Handle Pruning Target
+    // If THIS is the target, we render it but clear its children (the Outlet).
+    const children = pruningTarget && name === pruningTarget ? null : <Outlet />
+
+    return <__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider props={pageProps} name={name}>
+      <Component {...(props as any)} {...pageProps} children={children} />
+    </__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider>
+  };
+}
+
+const loader: (ref?: string) => __PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFunction = (ref) => async ({ request, ...args }) => {
+  // 1. Skip if request is a JSON-only fetch (e.g., client-side route preloading)
+  const acceptHeader = request.headers.get('accept')
+  if (acceptHeader?.includes('application/json')) {
+    return null
+  }
+
+  const url = new URL(request.url)
+  const headers = new Headers()
+  let fetchToUse: typeof fetch = fetch
+
+  try {
+    // 2. Try importing Pylon — if this works, we're on the server
+    const moduleNameToPreventBundling = '@getcronit/pylon'
+    const { app, getContext } = await import(moduleNameToPreventBundling)
+    fetchToUse = app.request
+
+    // 3. Get headers from the original server request and forward them
+    const context = getContext()
+    for (const [key, value] of context.req.raw.headers.entries()) {
+      headers.append(key, value)
+    }
+  } catch {
+    // 4. Pylon not available — fallback to default fetch (runs in browser)
+    // No additional headers are needed; browser sends cookies automatically
+  }
+
+  headers.set('Accept', 'application/json') // Ensure the internal request gets JSON
+  if(ref) {
+    headers.set('X-Pylon-Route-Ref', ref)
+  }
+
+  const response = await fetchToUse(url.pathname + url.search, {
+      method: 'GET',
+      headers,
+  })
+
+  try {
+    const data = await response.json<object>()
+    return data
+  } catch {
+    return null
+  }
+}
+
+
+const RootLayout = (props: { children: React.ReactNode; [key: string]: any }) => {
+  return (
+    <Layout {...props}>
+      <meta charSet="utf-8" />
+      <link rel="stylesheet" href="/__pylon/static/pylon.css" precedence="high" />
+      <link rel="stylesheet" href="/__pylon/static/app.css" precedence="high" />
+      {props.children}
+    </Layout>
+  )
+}
+
+const NotFoundPage: React.FC<{standalone: boolean}> = ({standalone = false}) => {
+  return <StatusPage code={404} title="Page Not Found" message="The page you are looking for does not exist." standalone={standalone} />
+}
+
+const routes = [{"path": "/", "children": [{"path": undefined, "index": true, "errorElement": <ErrorElement standalone={false} />, "lazy": async () => {const i = await import("./../pages/page").catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}, "HydrateFallback": HydrateFallback, "loader": loader()}, {"path": "auth", "children": [{"path": "login", "children": [{"path": undefined, "index": true, "errorElement": <ErrorElement standalone={false} />, "lazy": async () => {const i = await import("./../pages/auth/login/page").catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}, "HydrateFallback": HydrateFallback, "loader": loader()}]}, {"path": "*", "element": <NotFoundPage standalone={false} />}], "Component": withLoaderData((props) => <AuthLayout children={<Outlet />} {...props} />, "AuthLayout", undefined), "loader": loader("AuthLayout"), "shouldRevalidate": (args) => args.defaultShouldRevalidate, "HydrateFallback": HydrateFallback}, {"path": "dashboard", "children": [{"path": undefined, "index": true, "errorElement": <ErrorElement standalone={false} />, "lazy": async () => {const i = await import("./../pages/dashboard/page").catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}, "HydrateFallback": HydrateFallback, "loader": loader()}, {"path": "settings", "children": [{"path": undefined, "index": true, "errorElement": <ErrorElement standalone={false} />, "lazy": async () => {const i = await import("./../pages/dashboard/settings/page").catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}, "HydrateFallback": HydrateFallback, "loader": loader()}]}, {"path": "*", "element": <NotFoundPage standalone={false} />}], "Component": withLoaderData((props) => <DashboardLayout children={<Outlet />} {...props} />, "DashboardLayout", undefined), "loader": loader("DashboardLayout"), "shouldRevalidate": (args) => args.defaultShouldRevalidate, "HydrateFallback": HydrateFallback}, {"path": "*", "element": <NotFoundPage standalone={false} />}], "Component": withLoaderData((props) => <RootLayout children={<Outlet />} {...props} />, "RootLayout", undefined), "loader": loader("RootLayout"), "shouldRevalidate": (args) => args.defaultShouldRevalidate, "errorElement": <ErrorElement standalone={true} />, "HydrateFallback": HydrateFallback}, {"path": "*", "element": <NotFoundPage standalone={true} />}]
+
+export default routes
+
+"
+`;
+
+exports[`app-utils > makeAppFiles > should generate the correct app files content 2`] = `
+"export default [
+  "/auth/login",
+  "/auth",
+  "/dashboard/settings",
+  "/dashboard",
+  "/"
+]"
+`;
