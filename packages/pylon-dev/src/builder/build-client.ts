@@ -1,8 +1,8 @@
-import path from 'path'
-import fs from 'fs/promises'
 import {generateClient} from '@gqty/cli'
 import esbuild from 'esbuild'
+import fs from 'fs/promises'
 import {buildSchema} from 'graphql'
+import path from 'path'
 import {updateFileIfChanged} from './update-file-if-changed'
 
 const PYLON_SCHEMA_PATH = path.join(process.cwd(), '.pylon/schema.graphql')
@@ -100,6 +100,9 @@ const queryFetcher: QueryFetcher = async function (
     const context = getContext()
     for (const [key, value] of context.req.raw.headers.entries()) {
       headers.append(key, value)
+
+      // Set Accept-Encoding header to identity so the internal fetch returns JSON
+      headers.set('Accept-Encoding', 'identity')
     }
   } catch {
     // 3. Pylon not available — fallback to default fetch (runs in browser)

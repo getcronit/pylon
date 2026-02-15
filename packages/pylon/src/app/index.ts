@@ -1,11 +1,13 @@
-import {Hono, MiddlewareHandler} from 'hono'
-import {logger} from 'hono/logger'
 import {sentry} from '@hono/sentry'
+import {Hono, MiddlewareHandler} from 'hono'
 import {except} from 'hono/combine'
-
+import {compress} from 'hono/compress'
+import {logger} from 'hono/logger'
 import {asyncContext, Env} from '../context'
 
 export const app = new Hono<Env>()
+
+app.use(compress())
 
 app.use('*', sentry())
 
