@@ -104,8 +104,6 @@ program
 
               serverProcess = await startDevServer(options.command)
 
-              console.log('Server process started with PID', serverProcess.pid)
-
               analytics.capture({
                 distinctId,
                 event: 'build completed',
