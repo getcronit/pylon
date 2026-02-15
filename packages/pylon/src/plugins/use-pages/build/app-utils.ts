@@ -397,6 +397,10 @@ const loader: (ref?: string) => __PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFuncti
     for (const [key, value] of context.req.raw.headers.entries()) {
       headers.append(key, value)
     }
+
+    // Set Accept-Encoding header to identity so the internal fetch returns JSON
+    headers.set('Accept-Encoding', 'identity')
+    
   } catch {
     // 4. Pylon not available — fallback to default fetch (runs in browser)
     // No additional headers are needed; browser sends cookies automatically

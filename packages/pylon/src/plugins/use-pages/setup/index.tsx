@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import reactServer from 'react-dom/server'
 
-import {app, Env, getEnv, Variables, type Plugin} from '@/index'
+import {app, Variables, type Plugin} from '@/index'
 import {trimTrailingSlash} from 'hono/trailing-slash'
 import {
   createStaticHandler,
@@ -13,7 +13,7 @@ import {PassThrough, Readable} from 'stream'
 
 import ErrorPage from '@/components/global-error-page'
 import {StatusPage} from '@/components/status-page'
-import {MiddlewareHandler} from 'hono'
+import {etag} from 'hono/etag'
 import {tmpdir} from 'os'
 import {pipeline} from 'stream/promises'
 
@@ -32,23 +32,6 @@ export type PageProps = {
 
 export type LayoutProps = PageProps & {
   children: React.ReactNode
-}
-
-const disableCacheMiddleware: MiddlewareHandler<Env> = async (c, next) => {
-  const env = getEnv()
-  // Disable cache for all request for now
-  // This is a temporary solution before we implement a proper cache control
-  if (true || env.NODE_ENV === 'development') {
-    c.header(
-      'Cache-Control',
-      'no-store, no-cache, must-revalidate, proxy-revalidate'
-    )
-    c.header('Pragma', 'no-cache')
-    c.header('Expires', '0')
-    c.header('Surrogate-Control', 'no-store')
-  }
-
-  return next()
 }
 
 export const setup: NonNullable<Plugin['setup']> = async app => {
@@ -82,7 +65,7 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
   app.on(
     'GET',
     publicFiles.map(file => `/${file}`),
-    disableCacheMiddleware as any,
+    etag(),
     async c => {
       const publicFilePath = path.resolve(
         process.cwd(),
@@ -96,7 +79,7 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
     }
   )
 
-  app.get('/__pylon/static/*', disableCacheMiddleware as any, async c => {
+  app.get('/__pylon/static/*', etag(), async c => {
     const filePath = path.resolve(
       process.cwd(),
       '.pylon',
@@ -260,7 +243,7 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
     }
   })
 
-  app.get('*', disableCacheMiddleware as any, async c => {
+  app.get('*', etag(), async c => {
     const staticHandlerContext = await handler.query(c.req.raw)
 
     if (staticHandlerContext instanceof Response) {
@@ -291,10 +274,13 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
       let cacheSnapshot
       try {
         client.cache.clear()
+        console.log('Rendering component', xPylonRouteRef)
         const data = await client.prepareReactRender(component)
+        console.log('Component rendered!!!!!!!', xPylonRouteRef)
 
         cacheSnapshot = data.cacheSnapshot
       } catch (error) {
+        console.log('Error rendering component', error)
         if (error instanceof Response) {
           return error
         }
