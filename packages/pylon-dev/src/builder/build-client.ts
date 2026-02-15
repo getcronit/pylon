@@ -206,9 +206,13 @@ export const pageClient = () => {
   }
 })
 
-const react = createReactClient(client)
+const react = createReactClient(client, {
+  defaults: {
+    suspense: false
+  }
+})
 
-return {useQuery: react.useQuery, useHydrateCache: react.useHydrateCache}
+return {client, ...react, pageClient}
 }
 
 // Core functions
