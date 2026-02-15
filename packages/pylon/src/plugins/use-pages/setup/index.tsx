@@ -39,7 +39,7 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
 
   const routes = (await import(`${process.cwd()}/.pylon/__pylon/pages/app.js`))
     .default
-  const client = await import(`${process.cwd()}/.pylon/client/index.js`)
+  const _client = await import(`${process.cwd()}/.pylon/client/index.js`)
 
   const handler = createStaticHandler(routes)
 
@@ -243,134 +243,150 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
     }
   })
 
+  const requestStore = new AsyncLocalStorage<{client: any}>()
+
   app.get('*', etag(), async c => {
-    const staticHandlerContext = await handler.query(c.req.raw)
-
-    if (staticHandlerContext instanceof Response) {
-      return staticHandlerContext
+    const initCtx = requestStore.getStore() || {
+      client: null
     }
 
-    // X-Pylon-Route-Ref header stores the route ref of the current layout
-    // This is used to remove the children of the layout to prevent
-    // rendering overhead
-    const xPylonRouteRef = c.req.header('x-pylon-route-ref')
-
-    const router = createStaticRouter(handler.dataRoutes, staticHandlerContext)
-
-    const component = (
-      <__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider client={client}>
-        <__PYLON_INTERNALS_DO_NOT_USE.SSRPruningProvider
-          target={xPylonRouteRef || null}>
-          <StaticRouterProvider
-            router={router}
-            context={staticHandlerContext}
-          />
-        </__PYLON_INTERNALS_DO_NOT_USE.SSRPruningProvider>
-      </__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider>
-    )
-
-    // Check if the request wants JSON, if so, prepare the data
-    if (c.req.header('accept')?.includes('application/json')) {
-      let cacheSnapshot
-      try {
-        client.cache.clear()
-        console.log('Rendering component', xPylonRouteRef)
-        const data = await client.prepareReactRender(component)
-        console.log('Component rendered!!!!!!!', xPylonRouteRef)
-
-        cacheSnapshot = data.cacheSnapshot
-      } catch (error) {
-        console.log('Error rendering component', error)
-        if (error instanceof Response) {
-          return error
-        }
+    return requestStore.run(initCtx, async () => {
+      if (!initCtx.client) {
+        initCtx.client = _client.pageClient()
       }
 
-      const context = c.get('pagesContext' as any) || {}
+      const client = initCtx.client
 
-      return c.json({
-        cacheSnapshot,
-        context
-      })
-    }
+      const staticHandlerContext = await handler.query(c.req.raw)
 
-    try {
-      if (reactServer.renderToReadableStream) {
+      if (staticHandlerContext instanceof Response) {
+        return staticHandlerContext
+      }
+
+      // X-Pylon-Route-Ref header stores the route ref of the current layout
+      // This is used to remove the children of the layout to prevent
+      // rendering overhead
+      const xPylonRouteRef = c.req.header('x-pylon-route-ref')
+
+      const router = createStaticRouter(
+        handler.dataRoutes,
+        staticHandlerContext
+      )
+
+      const component = (
+        <__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider client={client}>
+          <__PYLON_INTERNALS_DO_NOT_USE.SSRPruningProvider
+            target={xPylonRouteRef || null}>
+            <StaticRouterProvider
+              router={router}
+              context={staticHandlerContext}
+            />
+          </__PYLON_INTERNALS_DO_NOT_USE.SSRPruningProvider>
+        </__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider>
+      )
+
+      // Check if the request wants JSON, if so, prepare the data
+      if (c.req.header('accept')?.includes('application/json')) {
+        let cacheSnapshot
         try {
-          const stream = await reactServer.renderToReadableStream(component, {
-            bootstrapModules: ['/__pylon/static/app.js' + cacheBustingSuffix]
-          })
-          c.header('Content-Type', 'text/html')
-          return c.body(stream)
+          const data = await client.prepareReactRender(component)
+
+          cacheSnapshot = data.cacheSnapshot
         } catch (error) {
-          throw error
-        }
-      } else if (reactServer.renderToPipeableStream) {
-        return await new Promise<Response>((resolve, reject) => {
-          const {pipe} = reactServer.renderToPipeableStream(
-            component,
-
-            {
-              bootstrapModules: ['/__pylon/static/app.js' + cacheBustingSuffix],
-              onShellReady: async () => {
-                c.header('Content-Type', 'text/html')
-
-                const passThrough = new PassThrough()
-
-                pipe(passThrough)
-
-                resolve(c.body(Readable.toWeb(passThrough) as any))
-              },
-              onShellError: async error => {
-                reject(error)
-              }
-            }
-          )
-        })
-      } else {
-        throw new Error('Environment not supported')
-      }
-    } catch (errorOrResponse) {
-      c.header('Content-Type', 'text/html')
-
-      if (errorOrResponse instanceof Response) {
-        c.status(errorOrResponse.status as StatusCode)
-
-        // Redirect if the response is a redirect
-        if (errorOrResponse.status >= 300 && errorOrResponse.status < 400) {
-          const location = errorOrResponse.headers.get('Location')
-          if (location) {
-            return c.redirect(
-              location,
-              errorOrResponse.status as RedirectStatusCode
-            )
+          if (error instanceof Response) {
+            return error
           }
         }
 
+        const context = c.get('pagesContext' as any) || {}
+
+        return c.json({
+          cacheSnapshot,
+          context
+        })
+      }
+
+      try {
+        if (reactServer.renderToReadableStream) {
+          try {
+            const stream = await reactServer.renderToReadableStream(component, {
+              bootstrapModules: ['/__pylon/static/app.js' + cacheBustingSuffix]
+            })
+            c.header('Content-Type', 'text/html')
+            return c.body(stream)
+          } catch (error) {
+            throw error
+          }
+        } else if (reactServer.renderToPipeableStream) {
+          return await new Promise<Response>((resolve, reject) => {
+            const {pipe} = reactServer.renderToPipeableStream(
+              component,
+
+              {
+                bootstrapModules: [
+                  '/__pylon/static/app.js' + cacheBustingSuffix
+                ],
+                onShellReady: async () => {
+                  c.header('Content-Type', 'text/html')
+
+                  const passThrough = new PassThrough()
+
+                  pipe(passThrough)
+
+                  resolve(c.body(Readable.toWeb(passThrough) as any))
+                },
+                onShellError: async error => {
+                  reject(error)
+                }
+              }
+            )
+          })
+        } else {
+          throw new Error('Environment not supported')
+        }
+      } catch (errorOrResponse) {
+        c.header('Content-Type', 'text/html')
+
+        if (errorOrResponse instanceof Response) {
+          c.status(errorOrResponse.status as StatusCode)
+
+          // Redirect if the response is a redirect
+          if (errorOrResponse.status >= 300 && errorOrResponse.status < 400) {
+            const location = errorOrResponse.headers.get('Location')
+            if (location) {
+              return c.redirect(
+                location,
+                errorOrResponse.status as RedirectStatusCode
+              )
+            }
+          }
+
+          return c.html(
+            reactServer.renderToString(
+              <StatusPage
+                code={errorOrResponse.status}
+                title={errorOrResponse.statusText}
+                message={errorOrResponse.statusText}
+                standalone
+              />
+            )
+          )
+        }
+
+        c.status(500)
+
         return c.html(
           reactServer.renderToString(
-            <StatusPage
-              code={errorOrResponse.status}
-              title={errorOrResponse.statusText}
-              message={errorOrResponse.statusText}
-              standalone
-            />
+            <ErrorPage error={errorOrResponse as Error} />
           )
         )
       }
-
-      c.status(500)
-
-      return c.html(
-        reactServer.renderToString(
-          <ErrorPage error={errorOrResponse as Error} />
-        )
-      )
-    }
+    })
   })
 }
 
 import {__PYLON_INTERNALS_DO_NOT_USE} from '@getcronit/pylon/pages'
+import {AsyncLocalStorage} from 'async_hooks'
 import {createHash} from 'crypto'
 import {RedirectStatusCode, StatusCode} from 'hono/utils/http-status'
 import type {FormatEnum} from 'sharp'
