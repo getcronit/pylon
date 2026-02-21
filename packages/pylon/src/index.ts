@@ -1,28 +1,28 @@
 import {Env} from './context.js'
 
-export {ServiceError} from './define-pylon.js'
-export {useAuth, requireAuth, authMiddleware} from './plugins/use-auth/index.js'
+export {createPubSub as experimentalCreatePubSub} from 'graphql-yoga'
+export {executeConfig, handler} from './app/pylon-handler.js'
 export {
+  asyncContext,
+  Bindings,
   Context,
   Env,
-  Variables,
-  Bindings,
-  asyncContext,
   getContext,
-  setContext
+  setContext,
+  Variables
 } from './context.js'
-import {app as pylonApp} from './app/index.js'
-export {pylonApp as app}
-export {handler, executeConfig} from './app/pylon-handler.js'
-export {getEnv} from './get-env.js'
 export {createDecorator} from './create-decorator.js'
-export {createPubSub as experimentalCreatePubSub} from 'graphql-yoga'
-
+export {getResolveInfo, ServiceError} from './define-pylon.js'
+export {getEnv} from './get-env.js'
+export {authMiddleware, requireAuth, useAuth} from './plugins/use-auth/index.js'
 export {usePages} from './plugins/use-pages'
+export {pylonApp as app}
 
+import {app as pylonApp} from './app/index.js'
+
+import {BuildContext, BuildOptions} from 'esbuild'
 import type {Plugin as YogaPlugin} from 'graphql-yoga'
 import {MiddlewareHandler} from 'hono'
-import {BuildContext, BuildOptions} from 'esbuild'
 
 export type Plugin<
   PluginContext extends Record<string, any> = {},

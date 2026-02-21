@@ -1,16 +1,16 @@
 import * as Sentry from '@sentry/bun'
 import consola from 'consola'
 import {
-  FragmentDefinitionNode,
   GraphQLError,
   GraphQLErrorExtensions,
   GraphQLObjectType,
-  GraphQLResolveInfo,
-  SelectionSetNode
+  GraphQLResolveInfo
 } from 'graphql'
 
-import {Context, asyncContext} from './context'
-import {isAsyncIterable, Maybe} from 'graphql-yoga'
+import {AsyncLocalStorage} from 'async_hooks'
+import {Maybe} from 'graphql-yoga'
+import {asyncContext, Context} from './context'
+import {getExecutionContext} from './get-execution-context'
 
 export interface Resolvers {
   Query: Record<string, any>
@@ -18,143 +18,122 @@ export interface Resolvers {
   Subscription?: Record<string, any>
 }
 
-type FunctionWrapper = (fn: (...args: any[]) => any) => (...args: any[]) => any
-
-function getAllPropertyNames(instance: any): string[] {
-  const allProps = new Set<string>()
-
-  // Traverse the prototype chain
-  let currentObj: any = instance
-
-  while (currentObj && currentObj !== Object.prototype) {
-    // Get all own property names of the current object
-    const ownProps = Object.getOwnPropertyNames(currentObj)
-
-    // Add each property to the Set
-    ownProps.forEach(prop => allProps.add(prop))
-
-    // Move up the prototype chain
-    currentObj = Object.getPrototypeOf(currentObj)
-  }
-
-  // Convert Set to array and filter out the constructor if desired
-  return Array.from(allProps).filter(prop => prop !== 'constructor')
+export interface ExecutionArgument {
+  name: string
+  value: any
 }
 
-async function wrapFunctionsRecursively(
-  obj: any,
-  wrapper: FunctionWrapper,
-  that: any = null,
-  selectionSet: SelectionSetNode['selections'] = [],
-  info: GraphQLResolveInfo
-): Promise<any> {
-  // Skip if the object is a Date object or any other special object.
-  // Those objects are then handled by custom resolvers.
-  if (obj === null || obj instanceof Date) {
-    return obj
+export interface ExecutionContext {
+  name: string
+  fields: ExecutionContext[]
+  arguments: ExecutionArgument[]
+}
+
+export const executionAsyncContext = new AsyncLocalStorage<ExecutionContext>()
+
+export const getResolveInfo = () => {
+  const store = executionAsyncContext.getStore()
+
+  if (!store) {
+    throw new Error('Resolve info is not available')
   }
 
-  if (Array.isArray(obj)) {
-    return await Promise.all(
-      obj.map(async item => {
-        return await wrapFunctionsRecursively(
-          item,
-          wrapper,
-          that,
-          selectionSet,
-          info
-        )
-      })
-    )
-  } else if (typeof obj === 'function') {
-    return Sentry.startSpan(
-      {
-        name: obj.name,
-        op: 'pylon.fn'
-      },
-      async () => {
-        // @ts-ignore
-        return await wrapper.call(that, obj, selectionSet, info)
-      }
-    )
-  } else if (obj instanceof Promise) {
-    return await wrapFunctionsRecursively(
-      await obj,
-      wrapper,
-      that,
-      selectionSet,
-      info
-    )
-  } else if (isAsyncIterable(obj)) {
-    return obj
-  } else if (typeof obj === 'object') {
-    that = obj
+  return store
+}
 
-    const result: Record<string, any> = {}
+type PrimitiveType = string | number | boolean | null | undefined
 
-    for (const key of getAllPropertyNames(obj)) {
-      result[key] = await wrapFunctionsRecursively(
-        obj[key],
-        wrapper,
-        that,
-        selectionSet,
-        info
-      )
+type ResolverType =
+  | Function
+  | object
+  | Promise<Function>
+  | Promise<object>
+  | PrimitiveType
+
+const wrapResolver = (
+  resolver: ResolverType,
+  context: ExecutionContext
+): any => {
+  // Changed return type to allow sync returns
+
+  // 1. FAST PATH: Primitives & Nulls
+  if (
+    resolver === null ||
+    (typeof resolver !== 'object' && typeof resolver !== 'function')
+  ) {
+    return resolver
+  }
+
+  // 2. LEAF OBJECTS: Dates
+  if (resolver instanceof Date) return resolver
+
+  // 3. ASYNC NODES: Promises
+  if (typeof (resolver as any).then === 'function') {
+    // We can't await here if we want to stay sync-first.
+    // We chain the promise and recurse.
+    return (resolver as any).then((resolved: any) =>
+      wrapResolver(resolved, context)
+    )
+  }
+
+  // 4. COLLECTIONS: Arrays
+  if (Array.isArray(resolver)) {
+    const results = resolver.map(item => wrapResolver(item, context))
+
+    // Performance: Check if any result is a Promise
+    if (results.some(r => r && typeof r.then === 'function')) {
+      return Promise.all(results)
     }
-
-    return result
-  } else {
-    return await obj
+    return results
   }
-}
-function spreadFunctionArguments<T extends (...args: any[]) => any>(fn: T) {
-  return (otherArgs: Record<string, any>, c: any, info: GraphQLResolveInfo) => {
-    const selections = arguments[1] as SelectionSetNode['selections']
-    const realInfo = arguments[2] as GraphQLResolveInfo
 
-    let args: Record<string, any> = {}
+  // 5. EXECUTABLES: Functions
+  // >>> THIS IS THE OPTIMIZATION <<<
+  // We only activate ALS here, right before calling the user's function.
+  if (typeof resolver === 'function') {
+    return executionAsyncContext.run(context, () => {
+      const args = context.arguments.map(arg => arg.value)
+      // Recurse on the result
+      return wrapResolver(resolver(...args), context)
+    })
+  }
 
-    if (info) {
-      const type = info.parentType
+  // 6. COMPLEX NODES: Objects
+  const result: Record<string, any> = {}
+  const fields = context.fields
 
-      const field = type.getFields()[info.fieldName]
+  // We track promises only if they occur
+  const promises: Promise<void>[] = []
 
-      const fieldArguments = field?.args
+  for (let i = 0; i < fields.length; i++) {
+    const fieldCtx = fields[i]
+    const fieldName = fieldCtx.name
+    const rawValue = (resolver as any)[fieldName]
 
-      const preparedArguments = fieldArguments?.reduce(
-        (acc: {[x: string]: undefined}, arg: {name: string | number}) => {
-          if (otherArgs[arg.name] !== undefined) {
-            acc[arg.name] = otherArgs[arg.name]
-          } else {
-            acc[arg.name] = undefined
-          }
+    if (rawValue === undefined) continue
 
-          return acc
-        },
-        {} as Record<string, any>
+    // RECURSION: We pass 'fieldCtx' explicitly as an argument.
+    // We DO NOT wrap this in ALS.run().
+    // If rawValue turns out to be a function (Step 5), ALS will trigger then.
+    const resolved = wrapResolver(rawValue, fieldCtx)
+
+    // Handle Async vs Sync results efficiently
+    if (resolved && typeof resolved.then === 'function') {
+      promises.push(
+        resolved.then((v: any) => {
+          result[fieldName] = v
+        })
       )
-
-      if (preparedArguments) {
-        args = preparedArguments
-      }
     } else {
-      args = otherArgs
+      result[fieldName] = resolved
     }
-
-    const orderedArgs = Object.keys(args).map(key => args[key])
-
-    const that = this || {}
-
-    const result = wrapFunctionsRecursively(
-      fn.call(that, ...orderedArgs),
-      spreadFunctionArguments,
-      this,
-      selections,
-      realInfo
-    )
-
-    return result as ReturnType<typeof fn>
   }
+
+  if (promises.length > 0) {
+    return Promise.all(promises).then(() => result)
+  }
+
+  return result
 }
 
 /**
@@ -168,7 +147,7 @@ export const resolversToGraphQLResolvers = (
 ): Resolvers => {
   // Define a root resolver function that maps a given resolver function or object to a GraphQL resolver.
   const rootGraphqlResolver =
-    (fn: Function | object | Promise<Function> | Promise<object>) =>
+    (resolver: ResolverType) =>
     async (
       _: object,
       args: Record<string, any>,
@@ -215,69 +194,18 @@ export const resolversToGraphQLResolvers = (
             throw new Error('Unknown operation')
         }
 
-        const field = type?.getFields()[info.fieldName]
+        const executionContext = getExecutionContext(info)
 
-        // Get the list of arguments expected by the current query field.
-        const fieldArguments = field?.args || []
+        return executionAsyncContext.run(executionContext, async () => {
+          const maybeFn = wrapResolver(resolver, executionContext)
 
-        // Prepare the arguments for the resolver function call by adding any missing arguments with an undefined value.
-        const preparedArguments = fieldArguments.reduce(
-          (acc: {[x: string]: undefined}, arg: {name: string | number}) => {
-            if (args[arg.name] !== undefined) {
-              acc[arg.name] = args[arg.name]
-            } else {
-              acc[arg.name] = undefined
-            }
-
-            return acc
-          },
-          {} as Record<string, any>
-        )
-
-        // Determine the resolver function to call (either the given function or the wrappedWithContext function if it exists).
-        let inner = await fn
-
-        let baseSelectionSet: SelectionSetNode['selections'] = []
-
-        // Find the selection set for the current field.
-        for (const selection of info.operation.selectionSet.selections) {
-          if (
-            selection.kind === 'Field' &&
-            selection.name.value === info.fieldName
-          ) {
-            baseSelectionSet = selection.selectionSet?.selections || []
-          }
-        }
-
-        // Wrap the resolver function with any required middleware.
-        const wrappedFn = await wrapFunctionsRecursively(
-          inner,
-          spreadFunctionArguments,
-          this,
-          baseSelectionSet,
-          info
-        )
-
-        // Call the resolver function with the prepared arguments.
-        if (typeof wrappedFn !== 'function') {
-          return wrappedFn
-        }
-
-        const res = await wrappedFn(preparedArguments)
-
-        return res
+          return maybeFn
+        })
       })
     }
 
   // Convert the Query and Mutation resolvers to GraphQL resolvers.
   const graphqlResolvers = {} as Resolvers
-
-  // Remove empty resolvers
-  for (const key of Object.keys(resolvers.Query)) {
-    if (!resolvers.Query[key]) {
-      delete resolvers.Query[key]
-    }
-  }
 
   if (resolvers.Query && Object.keys(resolvers.Query).length > 0) {
     for (const [key, value] of Object.entries(resolvers.Query)) {
@@ -285,9 +213,7 @@ export const resolversToGraphQLResolvers = (
         graphqlResolvers.Query = {}
       }
 
-      graphqlResolvers.Query[key] = rootGraphqlResolver(
-        value as Function | object
-      )
+      graphqlResolvers.Query[key] = rootGraphqlResolver(value)
     }
   }
 
@@ -297,9 +223,7 @@ export const resolversToGraphQLResolvers = (
     }
 
     for (const [key, value] of Object.entries(resolvers.Mutation)) {
-      graphqlResolvers.Mutation[key] = rootGraphqlResolver(
-        value as Function | object
-      )
+      graphqlResolvers.Mutation[key] = rootGraphqlResolver(value)
     }
   }
 
@@ -313,7 +237,7 @@ export const resolversToGraphQLResolvers = (
 
     for (const [key, value] of Object.entries(resolvers.Subscription)) {
       graphqlResolvers.Subscription[key] = {
-        subscribe: rootGraphqlResolver(value as Function | object),
+        subscribe: rootGraphqlResolver(value),
         resolve: (payload: any) => payload
       }
     }

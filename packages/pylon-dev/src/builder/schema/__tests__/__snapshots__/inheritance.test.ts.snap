@@ -4,7 +4,7 @@ exports[`Pylon Builder - Inheritance & Interfaces > should handle class inherita
 {
   "resolvers": {
     "IUser": {
-      "__resolveType": "function resolveType(node) { if (node && typeof node === 'object') { if ("firstName" in node && "lastName" in node && "username" in node) {return 'HumanUser'}; if ("username" in node) {return 'User'}; } }",
+      "__resolveType": "function resolveType(node) { if (!node || typeof node !== 'object') return null; if ("firstName" in node && node["firstName"] !== undefined) { return 'HumanUser'; } if ("username" in node && node["username"] !== undefined) { return 'User'; } return null; }",
     },
   },
   "typeDefs": "type Query {
@@ -41,7 +41,7 @@ exports[`Pylon Builder - Inheritance & Interfaces > should handle interface impl
 {
   "resolvers": {
     "IUser": {
-      "__resolveType": "function resolveType(node) { if (node && typeof node === 'object') { if ("username" in node && "firstName" in node && "lastName" in node) {return 'HumanUser'}; if ("username" in node) {return 'User'}; } }",
+      "__resolveType": "function resolveType(node) { if (!node || typeof node !== 'object') return null; if ("firstName" in node && node["firstName"] !== undefined) { return 'HumanUser'; } if ("username" in node && node["username"] !== undefined) { return 'User'; } return null; }",
     },
   },
   "typeDefs": "type Query {
@@ -79,10 +79,10 @@ exports[`Pylon Builder - Inheritance & Interfaces > should handle transitive imp
 {
   "resolvers": {
     "IMachineUser": {
-      "__resolveType": "function resolveType(node) { if (node && typeof node === 'object') { if ("username" in node && "key" in node && "motorType" in node) {return 'MotorUser'}; if ("key" in node && "username" in node) {return 'MachineUser'}; } }",
+      "__resolveType": "function resolveType(node) { if (!node || typeof node !== 'object') return null; if ("motorType" in node && node["motorType"] !== undefined) { return 'MotorUser'; } if ("key" in node && node["key"] !== undefined && "username" in node && node["username"] !== undefined) { return 'MachineUser'; } return null; }",
     },
     "IUser": {
-      "__resolveType": "function resolveType(node) { if (node && typeof node === 'object') { if ("username" in node && "key" in node && "motorType" in node) {return 'MotorUser'}; if ("key" in node && "username" in node) {return 'MachineUser'}; if ("username" in node) {return 'User'}; } }",
+      "__resolveType": "function resolveType(node) { if (!node || typeof node !== 'object') return null; if ("motorType" in node && node["motorType"] !== undefined) { return 'MotorUser'; } if ("key" in node && node["key"] !== undefined && "username" in node && node["username"] !== undefined) { return 'MachineUser'; } if ("username" in node && node["username"] !== undefined) { return 'User'; } return null; }",
     },
   },
   "typeDefs": "type Query {
@@ -127,10 +127,10 @@ exports[`Pylon Builder - Inheritance & Interfaces > should support multi-level i
 {
   "resolvers": {
     "IMachineUser": {
-      "__resolveType": "function resolveType(node) { if (node && typeof node === 'object') { if ("motorType" in node && "key" in node && "username" in node) {return 'MotorUser'}; if ("key" in node && "username" in node) {return 'MachineUser'}; } }",
+      "__resolveType": "function resolveType(node) { if (!node || typeof node !== 'object') return null; if ("motorType" in node && node["motorType"] !== undefined) { return 'MotorUser'; } if ("key" in node && node["key"] !== undefined && "username" in node && node["username"] !== undefined) { return 'MachineUser'; } return null; }",
     },
     "IUser": {
-      "__resolveType": "function resolveType(node) { if (node && typeof node === 'object') { if ("motorType" in node && "key" in node && "username" in node) {return 'MotorUser'}; if ("key" in node && "username" in node) {return 'MachineUser'}; if ("username" in node) {return 'User'}; } }",
+      "__resolveType": "function resolveType(node) { if (!node || typeof node !== 'object') return null; if ("motorType" in node && node["motorType"] !== undefined) { return 'MotorUser'; } if ("key" in node && node["key"] !== undefined && "username" in node && node["username"] !== undefined) { return 'MachineUser'; } if ("username" in node && node["username"] !== undefined) { return 'User'; } return null; }",
     },
   },
   "typeDefs": "type Query {

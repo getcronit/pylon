@@ -1,21 +1,21 @@
+import consola from 'consola'
 import ts from 'typescript'
+import {
+  TypeDefinitionBuilder,
+  Enum as _Enum,
+  Union as _Union
+} from './type-definition-builder.js'
 import {
   getPromiseType,
   getPublicPropertiesOfType,
-  isPrimitiveUnion,
   isFunction,
   isList,
   isPrimitive,
+  isPrimitiveUnion,
   isPromise,
   isSubscriptionRepeater,
   safeTypeName
 } from './types-helper.js'
-import {
-  TypeDefinitionBuilder,
-  Union as _Union,
-  Enum as _Enum
-} from './type-definition-builder.js'
-import consola from 'consola'
 
 type Union = _Union & {
   description: string
@@ -510,19 +510,36 @@ export class SchemaParser {
       }
     })
 
-    const checks = entityTypes.map(type => {
-      const fields = type.fields
+    const checks = entityTypes
+      .map(type => {
+        const otherTypes = entityTypes.filter(t => t.name !== type.name)
+        const otherFields = new Set(
+          otherTypes.flatMap(t => t.fields.map(f => f.name))
+        )
 
-      const fieldChecks = fields
-        .map(field => `"${field.name}" in node`)
-        .join(' && ')
+        const uniqueField = type.fields.find(
+          f => f.type.isRequired && !otherFields.has(f.name)
+        )
 
-      return `if (${fieldChecks}) {return '${type.name}'};`
-    })
+        if (uniqueField) {
+          return `if ("${uniqueField.name}" in node && node["${uniqueField.name}"] !== undefined) { return '${type.name}'; }`
+        } else {
+          // Fallback to checking all fields if a discriminant isn't possible
+          const fieldChecks = type.fields
+            .map(
+              field =>
+                `"${field.name}" in node && node["${field.name}"] !== undefined`
+            )
+            .join(' && ')
 
-    const str = `function resolveType(node) { if (node && typeof node === 'object') { ${checks.join(
-      ' '
-    )} } }`
+          return fieldChecks.length > 0
+            ? `if (${fieldChecks}) { return '${type.name}'; }`
+            : ''
+        }
+      })
+      .filter(c => c.length > 0)
+
+    const str = `function resolveType(node) { if (!node || typeof node !== 'object') return null; ${checks.join(' ')} return null; }`
 
     return new Function('return ' + str)()
   }
