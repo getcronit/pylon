@@ -1,16 +1,22 @@
 import * as Sentry from '@sentry/bun'
 import consola from 'consola'
 import {
+  FieldNode,
+  getNamedType,
   GraphQLError,
   GraphQLErrorExtensions,
-  GraphQLObjectType,
-  GraphQLResolveInfo
+  GraphQLInterfaceType,
+  GraphQLResolveInfo,
+  GraphQLUnionType,
+  isInterfaceType,
+  isNonNullType,
+  isObjectType,
+  Kind,
+  SelectionNode
 } from 'graphql'
 
 import {AsyncLocalStorage} from 'async_hooks'
-import {Maybe} from 'graphql-yoga'
 import {asyncContext, Context} from './context'
-import {getExecutionContext} from './get-execution-context'
 
 export interface Resolvers {
   Query: Record<string, any>
@@ -18,15 +24,13 @@ export interface Resolvers {
   Subscription?: Record<string, any>
 }
 
-export interface ExecutionArgument {
-  name: string
-  value: any
-}
-
 export interface ExecutionContext {
-  name: string
-  fields: ExecutionContext[]
-  arguments: ExecutionArgument[]
+  info: GraphQLResolveInfo
+  selectedFields: {
+    name: string
+    fieldNodes: FieldNode[]
+    returnType?: any
+  }[]
 }
 
 export const executionAsyncContext = new AsyncLocalStorage<ExecutionContext>()
@@ -50,9 +54,105 @@ type ResolverType =
   | Promise<object>
   | PrimitiveType
 
+export const getSelectedFields = (
+  info: GraphQLResolveInfo,
+  fieldNodes: readonly FieldNode[] = info.fieldNodes,
+  parentType?: any
+) => {
+  const fieldsMap = new Map<string, {nodes: FieldNode[]; returnType?: any}>()
+
+  const extract = (selections: readonly SelectionNode[], currentType?: any) => {
+    for (const selection of selections) {
+      if (selection.kind === Kind.FIELD) {
+        const name = selection.name.value
+        let childReturnType: any = undefined
+
+        if (
+          currentType &&
+          (isObjectType(currentType) || isInterfaceType(currentType))
+        ) {
+          const fieldDef = currentType.getFields()[name]
+          if (fieldDef) {
+            childReturnType = getNamedType(fieldDef.type)
+          }
+        }
+
+        if (!fieldsMap.has(name)) {
+          fieldsMap.set(name, {nodes: [], returnType: childReturnType})
+        }
+        fieldsMap.get(name)!.nodes.push(selection)
+      } else if (selection.kind === Kind.INLINE_FRAGMENT) {
+        const inlineType = selection.typeCondition
+          ? info.schema.getType(selection.typeCondition.name.value)
+          : currentType
+
+        if (selection.selectionSet) {
+          extract(selection.selectionSet.selections, inlineType)
+        }
+      } else if (selection.kind === Kind.FRAGMENT_SPREAD) {
+        const fragment = info.fragments[selection.name.value]
+        if (fragment && fragment.selectionSet) {
+          const fragmentType = info.schema.getType(
+            fragment.typeCondition.name.value
+          )
+          extract(fragment.selectionSet.selections, fragmentType)
+        }
+      }
+    }
+  }
+
+  for (const fieldNode of fieldNodes) {
+    if (fieldNode.selectionSet) {
+      extract(fieldNode.selectionSet.selections, parentType)
+    }
+  }
+
+  const result = Array.from(fieldsMap.entries()).map(([name, data]) => ({
+    name,
+    fieldNodes: data.nodes,
+    returnType: data.returnType
+  }))
+
+  // Auto-inject Discriminator Fields for Abstract Types
+  if (
+    parentType &&
+    (isInterfaceType(parentType) || parentType instanceof GraphQLUnionType)
+  ) {
+    const abstractType = info.schema.getType(parentType.name) as
+      | GraphQLInterfaceType
+      | GraphQLUnionType
+    const possibleTypes = info.schema.getPossibleTypes(abstractType)
+
+    for (const possibleType of possibleTypes) {
+      const typeFieldsMap = possibleType.getFields()
+      const typeFields = Object.keys(typeFieldsMap).filter(f =>
+        isNonNullType(typeFieldsMap[f].type)
+      )
+      const otherTypes = possibleTypes.filter(t => t.name !== possibleType.name)
+      const otherTypesFields = new Set(
+        otherTypes.flatMap(t => Object.keys(t.getFields()))
+      )
+
+      const uniqueField = typeFields.find(f => !otherTypesFields.has(f))
+
+      if (uniqueField && !result.some(f => f.name === uniqueField)) {
+        result.push({
+          name: uniqueField,
+          fieldNodes: [],
+          returnType: getNamedType(typeFieldsMap[uniqueField].type)
+        })
+      }
+    }
+  }
+
+  return result
+}
+
 const wrapResolver = (
   resolver: ResolverType,
-  context: ExecutionContext
+  context: ExecutionContext,
+  fieldNodes?: readonly FieldNode[],
+  parentType?: any
 ): any => {
   // Changed return type to allow sync returns
 
@@ -65,20 +165,24 @@ const wrapResolver = (
   }
 
   // 2. LEAF OBJECTS: Dates
-  if (resolver instanceof Date) return resolver
+  if (resolver instanceof Date) {
+    return resolver
+  }
 
   // 3. ASYNC NODES: Promises
   if (typeof (resolver as any).then === 'function') {
     // We can't await here if we want to stay sync-first.
     // We chain the promise and recurse.
     return (resolver as any).then((resolved: any) =>
-      wrapResolver(resolved, context)
+      wrapResolver(resolved, context, fieldNodes, parentType)
     )
   }
 
   // 4. COLLECTIONS: Arrays
   if (Array.isArray(resolver)) {
-    const results = resolver.map(item => wrapResolver(item, context))
+    const results = resolver.map(item =>
+      wrapResolver(item, context, fieldNodes, parentType)
+    )
 
     // Performance: Check if any result is a Promise
     if (results.some(r => r && typeof r.then === 'function')) {
@@ -91,46 +195,54 @@ const wrapResolver = (
   // >>> THIS IS THE OPTIMIZATION <<<
   // We only activate ALS here, right before calling the user's function.
   if (typeof resolver === 'function') {
-    return executionAsyncContext.run(context, () => {
-      const args = context.arguments.map(arg => arg.value)
-      // Recurse on the result
-      return wrapResolver(resolver(...args), context)
-    })
-  }
-
-  // 6. COMPLEX NODES: Objects
-  const result: Record<string, any> = {}
-  const fields = context.fields
-
-  // We track promises only if they occur
-  const promises: Promise<void>[] = []
-
-  for (let i = 0; i < fields.length; i++) {
-    const fieldCtx = fields[i]
-    const fieldName = fieldCtx.name
-    const rawValue = (resolver as any)[fieldName]
-
-    if (rawValue === undefined) continue
-
-    // RECURSION: We pass 'fieldCtx' explicitly as an argument.
-    // We DO NOT wrap this in ALS.run().
-    // If rawValue turns out to be a function (Step 5), ALS will trigger then.
-    const resolved = wrapResolver(rawValue, fieldCtx)
-
-    // Handle Async vs Sync results efficiently
-    if (resolved && typeof resolved.then === 'function') {
-      promises.push(
-        resolved.then((v: any) => {
-          result[fieldName] = v
-        })
+    return (args: Record<string, any>, ctx: any, info: GraphQLResolveInfo) => {
+      // Evaluate selected properties specifically at this function's scope
+      const currentParentType = getNamedType(info.returnType)
+      const selectedFields = getSelectedFields(
+        info,
+        fieldNodes || info.fieldNodes,
+        currentParentType
       )
-    } else {
-      result[fieldName] = resolved
+      const executionContext = {info, selectedFields}
+
+      return executionAsyncContext.run(executionContext, () => {
+        const fieldDef = info.parentType.getFields()[info.fieldName]
+
+        const orderedArgs = fieldDef
+          ? fieldDef.args.map(arg =>
+              args[arg.name] !== undefined ? args[arg.name] : arg.defaultValue
+            )
+          : []
+
+        // Recurse on the result
+        return wrapResolver(
+          (resolver as Function)(...orderedArgs),
+          executionContext,
+          fieldNodes || info.fieldNodes,
+          currentParentType
+        )
+      })
     }
   }
 
-  if (promises.length > 0) {
-    return Promise.all(promises).then(() => result)
+  // 6. COMPLEX NODES: Objects
+  const selectedFields = getSelectedFields(
+    context.info,
+    fieldNodes || context.info.fieldNodes,
+    parentType
+  )
+
+  if (selectedFields.length === 0) {
+    return resolver
+  }
+
+  const result: Record<string, any> = {}
+
+  for (const {name, fieldNodes: childNodes, returnType} of selectedFields) {
+    const rawValue = (resolver as any)[name]
+    if (rawValue !== undefined) {
+      result[name] = wrapResolver(rawValue, context, childNodes, returnType)
+    }
   }
 
   return result
@@ -178,28 +290,27 @@ export const resolversToGraphQLResolvers = (
 
         // get query or mutation field
 
-        let type: Maybe<GraphQLObjectType> | null = null
-
-        switch (info.operation.operation) {
-          case 'query':
-            type = info.schema.getQueryType()
-            break
-          case 'mutation':
-            type = info.schema.getMutationType()
-            break
-          case 'subscription':
-            type = info.schema.getSubscriptionType()
-            break
-          default:
-            throw new Error('Unknown operation')
-        }
-
-        const executionContext = getExecutionContext(info)
+        const rootParentType = getNamedType(info.returnType)
+        const selectedFields = getSelectedFields(
+          info,
+          info.fieldNodes,
+          rootParentType
+        )
+        const executionContext = {info, selectedFields}
 
         return executionAsyncContext.run(executionContext, async () => {
-          const maybeFn = wrapResolver(resolver, executionContext)
+          const wrapped = wrapResolver(
+            resolver,
+            executionContext,
+            info.fieldNodes,
+            rootParentType
+          )
 
-          return maybeFn
+          if (typeof wrapped === 'function') {
+            return wrapped(args, ctx, info)
+          }
+
+          return wrapped
         })
       })
     }
