@@ -13,11 +13,14 @@ const DIST_STATIC_DIR = path.join(process.cwd(), '.pylon/__pylon/static')
 const DIST_PAGES_DIR = path.join(process.cwd(), '.pylon/__pylon/pages')
 
 async function updateFileIfChanged(
-  path: string,
+  filePath: string,
   newContent: Uint8Array<ArrayBufferLike>
 ) {
+  // Make sure the directory exists
+  await fs.mkdir(path.dirname(filePath), {recursive: true})
+
   try {
-    const currentContent = await fs.readFile(path)
+    const currentContent = await fs.readFile(filePath)
     if (currentContent.equals(newContent)) {
       return false // No update needed
     }
@@ -25,7 +28,7 @@ async function updateFileIfChanged(
     if (err.code !== 'ENOENT') throw err // Ignore file not found error
   }
 
-  await fs.writeFile(path, newContent)
+  await fs.writeFile(filePath, newContent)
   return true // File created or updated
 }
 
@@ -54,43 +57,66 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
 
       // Copy recursively the public directory to the static directory
       await fs.mkdir(pylonPublicDir, {recursive: true})
-      await fs.cp(publicDir, pylonPublicDir, {recursive: true})
+      await fs.cp(publicDir, pylonPublicDir, {recursive: true, force: true})
     } catch (err: any) {
       if (err.code !== 'ENOENT') throw err // Ignore file not found error
     }
   }
 
-  const copyPylonCSS = async () => {
-    const pylonCssPathDir = path.join(
-      process.cwd(),
-      'node_modules',
-      '@getcronit/pylon/dist/pages'
-    )
+  const pylonCssPath = path.join(
+    process.cwd(),
+    'node_modules',
+    '@getcronit/pylon/dist/pages/index.css'
+  )
 
-    const pylonCssDestDir = path.join(
-      process.cwd(),
-      '.pylon',
-      '__pylon',
-      'static'
-    )
-
-    // Copy pylon.css and pylon.css.map to the static directory
-
-    await fs.mkdir(pylonCssDestDir, {recursive: true})
-    await fs.cp(
-      path.join(pylonCssPathDir, 'index.css'),
-      path.join(pylonCssDestDir, 'pylon.css')
-    )
-    await fs.cp(
-      path.join(pylonCssPathDir, 'index.css.map'),
-      path.join(pylonCssDestDir, 'pylon.css.map')
-    )
+  const buildAppFilePlugin: esbuild.Plugin = {
+    name: 'build-app-file',
+    setup(build) {
+      build.onStart(async () => {
+        await buildAppFile()
+      })
+    }
   }
 
   const writeOnEndPlugin: esbuild.Plugin = {
     name: 'write-on-end',
     setup(build) {
+      build.initialOptions.metafile = true
+      build.initialOptions.write = false
       build.onEnd(async result => {
+        const manifest: Record<string, string> = {}
+
+        for (const [key, value] of Object.entries(
+          result.metafile?.outputs || {}
+        )) {
+          if (value.entryPoint === '.pylon/app.tsx') {
+            manifest['app.js'] = key
+            if (value.cssBundle) {
+              manifest['app.css'] = value.cssBundle
+            }
+          } else if (value.entryPoint?.endsWith('pylon/dist/pages/index.css')) {
+            manifest['index.css'] = key
+          }
+        }
+
+        if (build.initialOptions.publicPath) {
+          const publicPath = build.initialOptions.publicPath
+
+          for (const [key, value] of Object.entries(manifest)) {
+            const index = value.indexOf(publicPath)
+
+            if (index !== -1) {
+              // Slice from the start of the publicPath to the end of the string
+              manifest[key] = value.slice(index)
+            }
+          }
+        }
+
+        await updateFileIfChanged(
+          path.join(build.initialOptions.outdir!, 'manifest.json'),
+          Buffer.from(JSON.stringify(manifest, null, 2))
+        )
+
         await Promise.all(
           result.outputFiles!.map(async file => {
             await fs.mkdir(path.dirname(file.path), {recursive: true})
@@ -131,6 +157,7 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
     nodePaths,
     absWorkingDir: process.cwd(),
     plugins: [
+      buildAppFilePlugin,
       injectAppHydrationPlugin,
       imagePlugin,
       postcssPlugin,
@@ -140,9 +167,10 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
     publicPath: '/__pylon/static',
     assetNames: 'assets/[name]-[hash]',
     chunkNames: 'chunks/[name]-[hash]',
+    entryNames: './[name]-[hash]',
     format: 'esm',
     platform: 'browser',
-    entryPoints: ['.pylon/app.tsx'],
+    entryPoints: ['.pylon/app.tsx', pylonCssPath],
     outdir: DIST_STATIC_DIR,
     bundle: true,
     splitting: true,
@@ -167,9 +195,11 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
   const serverCtx = await esbuild.context({
     sourcemap: 'inline',
     write: false,
+    metafile: true,
     absWorkingDir: process.cwd(),
     nodePaths,
     plugins: [
+      buildAppFilePlugin,
       imagePlugin,
       postcssPlugin,
       writeOnEndPlugin,
@@ -185,9 +215,10 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
     publicPath: '/__pylon/static',
     assetNames: 'assets/[name]-[hash]',
     chunkNames: 'chunks/[name]-[hash]',
+    entryNames: './[name]-[hash]',
     format: 'esm',
     platform: 'node',
-    entryPoints: ['.pylon/app.tsx'],
+    entryPoints: ['.pylon/app.tsx', pylonCssPath],
     outdir: DIST_PAGES_DIR,
     bundle: true,
     splitting: false,
@@ -214,15 +245,12 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
     watch: async () => {
       await buildAppFile()
       await copyPublicDir()
-      await copyPylonCSS()
 
       pagesWatcher = chokidar.watch('pages', {ignoreInitial: true})
 
       pagesWatcher!.on('all', async (event, path) => {
         if (['add', 'change', 'unlink'].includes(event)) {
-          await buildAppFile()
           await copyPublicDir()
-          await copyPylonCSS()
         }
       })
 
@@ -236,9 +264,7 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
       Promise.all([clientCtx.dispose(), serverCtx.dispose()])
     },
     rebuild: async () => {
-      await buildAppFile()
       await copyPublicDir()
-      await copyPylonCSS()
 
       await Promise.all([clientCtx.rebuild(), serverCtx.rebuild()])
 

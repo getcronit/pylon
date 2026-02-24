@@ -31,17 +31,21 @@ export const StatusPage = ({
     </div>
   )
 
+  const manifest = (globalThis as any).__PYLON_MANIFEST__
+
   if (standalone) {
     return (
       <html>
         <head>
           <meta charSet="utf-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1" />
-          <link
-            rel="stylesheet"
-            href="/__pylon/static/pylon.css"
-            precedence="high"
-          />
+          {manifest?.['index.css'] && (
+            <link
+              rel="stylesheet"
+              href={manifest['index.css']}
+              precedence="high"
+            />
+          )}
         </head>
         <body>{element}</body>
       </html>

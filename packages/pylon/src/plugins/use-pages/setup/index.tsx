@@ -35,9 +35,38 @@ export type LayoutProps = PageProps & {
 }
 
 export const setup: NonNullable<Plugin['setup']> = async app => {
-  const cacheBustingSuffix = `?v=${Date.now()}`
+  // Read manifests securely from JSON
+  const pagesManifestPath = path.join(
+    process.cwd(),
+    '.pylon/__pylon/pages/manifest.json'
+  )
+  const staticManifestPath = path.join(
+    process.cwd(),
+    '.pylon/__pylon/static/manifest.json'
+  )
 
-  const routes = (await import(`${process.cwd()}/.pylon/__pylon/pages/app.js`))
+  let pagesManifest: Record<string, string> = {}
+  let staticManifest: Record<string, string> = {}
+
+  try {
+    pagesManifest = JSON.parse(
+      await fs.promises.readFile(pagesManifestPath, 'utf8')
+    )
+  } catch (err: any) {
+    throw new Error('Failed to read pages manifest.json:', err)
+  }
+
+  try {
+    staticManifest = JSON.parse(
+      await fs.promises.readFile(staticManifestPath, 'utf8')
+    )
+    // Inject into global so root layout can generate links
+    ;(globalThis as any).__PYLON_MANIFEST__ = staticManifest
+  } catch (err: any) {
+    throw new Error('Failed to read static manifest.json:', err)
+  }
+
+  const routes = (await import(`${process.cwd()}/${pagesManifest['app.js']}`))
     .default
   const _client = await import(`${process.cwd()}/.pylon/client/index.js`)
 
@@ -310,7 +339,9 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
         if (reactServer.renderToReadableStream) {
           try {
             const stream = await reactServer.renderToReadableStream(component, {
-              bootstrapModules: ['/__pylon/static/app.js' + cacheBustingSuffix]
+              bootstrapModules: staticManifest['app.js']
+                ? [staticManifest['app.js']]
+                : undefined
             })
             c.header('Content-Type', 'text/html')
             return c.body(stream)
@@ -323,9 +354,9 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
               component,
 
               {
-                bootstrapModules: [
-                  '/__pylon/static/app.js' + cacheBustingSuffix
-                ],
+                bootstrapModules: staticManifest['app.js']
+                  ? [staticManifest['app.js']]
+                  : undefined,
                 onShellReady: async () => {
                   c.header('Content-Type', 'text/html')
 
