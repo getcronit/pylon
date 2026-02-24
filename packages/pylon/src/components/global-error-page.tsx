@@ -1,6 +1,5 @@
-import {useEffect} from 'react'
 import Logo from '@/components/logo'
-import {Button} from '@/components/ui/button'
+import {useEffect} from 'react'
 
 interface GlobalErrorProps {
   error: Error & {digest?: string}
@@ -16,16 +15,20 @@ export default function GlobalError({error, ...rest}: GlobalErrorProps) {
     window.location.reload()
   }
 
+  const manifest = (globalThis as any).__PYLON_MANIFEST__
+
   return (
     <html lang="en">
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link
-          rel="stylesheet"
-          href="/__pylon/static/pylon.css"
-          precedence="high"
-        />
+        {manifest?.['index.css'] && (
+          <link
+            rel="stylesheet"
+            href={manifest['index.css']}
+            precedence="high"
+          />
+        )}
       </head>
       <body>
         <div className="fixed inset-0 bg-black/90 z-50 overflow-y-auto p-4 flex items-center justify-center">

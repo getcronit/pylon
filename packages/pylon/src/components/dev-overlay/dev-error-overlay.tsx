@@ -2,8 +2,8 @@
 
 import type React from 'react'
 
-import {useEffect, useState} from 'react'
 import {X} from 'lucide-react'
+import {useEffect, useState} from 'react'
 
 interface ErrorInfo {
   componentStack?: string
@@ -107,13 +107,13 @@ export default function DevErrorOverlay({
     }
   }
 
+  const manifest = (globalThis as any).__PYLON_MANIFEST__
+
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 overflow-y-auto p-4 flex items-start justify-center">
-      <link
-        rel="stylesheet"
-        href="/__pylon/static/pylon.css"
-        precedence="high"
-      />
+      {manifest?.['index.css'] && (
+        <link rel="stylesheet" href={manifest['index.css']} precedence="high" />
+      )}
       <div
         className={`w-full max-w-3xl bg-black border ${getErrorBorderColor()} rounded-lg mt-16 overflow-hidden text-white font-sans`}>
         {/* Header */}
