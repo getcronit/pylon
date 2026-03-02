@@ -99,7 +99,7 @@ describe('app-utils', () => {
           {
             path: undefined,
             index: true,
-            lazy: `async () => {const i = await import("./../pages/page").catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
+            lazy: `async () => {const i = await import("./../pages/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
             loader: 'loader()',
             HydrateFallback: 'HydrateFallback',
             errorElement: '<ErrorElement standalone={false} />'
@@ -121,7 +121,7 @@ describe('app-utils', () => {
           {
             path: undefined,
             index: true,
-            lazy: `async () => {const i = await import("./../pages/page").catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
+            lazy: `async () => {const i = await import("./../pages/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
             loader: 'loader()',
             HydrateFallback: 'HydrateFallback',
             errorElement: '<ErrorElement standalone={false} />'
@@ -156,7 +156,7 @@ describe('app-utils', () => {
           {
             path: undefined,
             index: true,
-            lazy: `async () => {const i = await import("./../pages/page").catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
+            lazy: `async () => {const i = await import("./../pages/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
             loader: 'loader()',
             HydrateFallback: 'HydrateFallback',
             errorElement: '<ErrorElement standalone={false} />'
@@ -167,7 +167,7 @@ describe('app-utils', () => {
               {
                 path: undefined,
                 index: true,
-                lazy: `async () => {const i = await import("./../pages/warehouse/page").catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
+                lazy: `async () => {const i = await import("./../pages/warehouse/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
                 loader: 'loader()',
                 HydrateFallback: 'HydrateFallback',
                 errorElement: '<ErrorElement standalone={false} />'
@@ -178,7 +178,7 @@ describe('app-utils', () => {
                   {
                     path: undefined,
                     index: true,
-                    lazy: `async () => {const i = await import("./../pages/warehouse/stock/page").catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
+                    lazy: `async () => {const i = await import("./../pages/warehouse/stock/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
                     loader: 'loader()',
                     HydrateFallback: 'HydrateFallback',
                     errorElement: '<ErrorElement standalone={false} />'
@@ -191,7 +191,7 @@ describe('app-utils', () => {
                   {
                     path: undefined,
                     index: true,
-                    lazy: `async () => {const i = await import("./../pages/warehouse/inventory/page").catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
+                    lazy: `async () => {const i = await import("./../pages/warehouse/inventory/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
                     loader: 'loader()',
                     HydrateFallback: 'HydrateFallback',
                     errorElement: '<ErrorElement standalone={false} />'
@@ -238,7 +238,7 @@ describe('app-utils', () => {
                 children: [
                   {
                     index: true,
-                    lazy: 'async () => {const i = await import("./../pages/posts/[id]/page").catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}',
+                    lazy: 'async () => {const i = await import("./../pages/posts/[id]/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}',
                     loader: 'loader()',
                     HydrateFallback: 'HydrateFallback',
                     errorElement: '<ErrorElement standalone={false} />'
@@ -277,7 +277,7 @@ describe('app-utils', () => {
       // Since it's a single catch-all child without layout, it should merge into the root
       expect(route).toEqual({
         path: '*',
-        lazy: `async () => {const i = await import("./../pages/[...slug]/page").catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, "slug")}}`,
+        lazy: `async () => {const i = await import("./../pages/[...slug]/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, "slug")}}`,
         HydrateFallback: 'HydrateFallback',
         loader: 'loader()',
         errorElement: '<ErrorElement standalone={false} />'
@@ -307,7 +307,7 @@ describe('app-utils', () => {
                 errorElement: '<ErrorElement standalone={false} />',
                 HydrateFallback: 'HydrateFallback',
                 // We check the specific generated lazy code for correct param handling, and ensure Component/element is not set (it's lazy)
-                lazy: `async () => {const i = await import("./../pages/posts/[id]/[...slug]/page").catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, "slug")}}`,
+                lazy: `async () => {const i = await import("./../pages/posts/[id]/[...slug]/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, "slug")}}`,
                 loader: 'loader()'
               },
               {
@@ -357,7 +357,7 @@ describe('app-utils', () => {
             children: [
               {
                 index: true,
-                lazy: `async () => {const i = await import("./../pages/contact/page").catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
+                lazy: `async () => {const i = await import("./../pages/contact/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
                 loader: 'loader()',
                 HydrateFallback: 'HydrateFallback',
                 errorElement: '<ErrorElement standalone={false} />'
@@ -388,7 +388,7 @@ describe('app-utils', () => {
             children: [
               {
                 index: true,
-                lazy: `async () => {const i = await import("./../pages/contact/page").catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
+                lazy: `async () => {const i = await import("./../pages/contact/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
                 loader: 'loader()',
                 HydrateFallback: 'HydrateFallback',
                 errorElement: '<ErrorElement standalone={false} />'
@@ -422,7 +422,7 @@ describe('app-utils', () => {
           {
             path: undefined,
             index: true,
-            lazy: `async () => {const i = await import("./../pages/page").catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
+            lazy: `async () => {const i = await import("./../pages/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
             loader: 'loader()',
             HydrateFallback: 'HydrateFallback',
             errorElement: '<ErrorElement standalone={false} />'
@@ -436,7 +436,7 @@ describe('app-utils', () => {
                   {
                     path: undefined,
                     index: true,
-                    lazy: `async () => {const i = await import("./../pages/auth/login/page").catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
+                    lazy: `async () => {const i = await import("./../pages/auth/login/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
                     loader: 'loader()',
                     HydrateFallback: 'HydrateFallback',
                     errorElement: '<ErrorElement standalone={false} />'
@@ -449,7 +449,7 @@ describe('app-utils', () => {
                   {
                     path: undefined,
                     index: true,
-                    lazy: `async () => {const i = await import("./../pages/auth/register/page").catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
+                    lazy: `async () => {const i = await import("./../pages/auth/register/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
                     loader: 'loader()',
                     HydrateFallback: 'HydrateFallback',
                     errorElement: '<ErrorElement standalone={false} />'
@@ -473,7 +473,7 @@ describe('app-utils', () => {
               {
                 path: undefined,
                 index: true,
-                lazy: `async () => {const i = await import("./../pages/dashboard/page").catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
+                lazy: `async () => {const i = await import("./../pages/dashboard/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
                 loader: 'loader()',
                 HydrateFallback: 'HydrateFallback',
                 errorElement: '<ErrorElement standalone={false} />'
@@ -484,7 +484,7 @@ describe('app-utils', () => {
                   {
                     path: undefined,
                     index: true,
-                    lazy: `async () => {const i = await import("./../pages/dashboard/settings/page").catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
+                    lazy: `async () => {const i = await import("./../pages/dashboard/settings/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
                     loader: 'loader()',
                     HydrateFallback: 'HydrateFallback',
                     errorElement: '<ErrorElement standalone={false} />'
@@ -497,7 +497,7 @@ describe('app-utils', () => {
                   {
                     path: undefined,
                     index: true,
-                    lazy: `async () => {const i = await import("./../pages/dashboard/[teamId]/page").catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
+                    lazy: `async () => {const i = await import("./../pages/dashboard/[teamId]/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
                     loader: 'loader()',
                     HydrateFallback: 'HydrateFallback',
                     errorElement: '<ErrorElement standalone={false} />'
@@ -508,7 +508,7 @@ describe('app-utils', () => {
                       {
                         path: undefined,
                         index: true,
-                        lazy: `async () => {const i = await import("./../pages/dashboard/[teamId]/[projectId]/page").catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
+                        lazy: `async () => {const i = await import("./../pages/dashboard/[teamId]/[projectId]/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
                         loader: 'loader()',
                         HydrateFallback: 'HydrateFallback',
                         errorElement: '<ErrorElement standalone={false} />'
@@ -539,7 +539,7 @@ describe('app-utils', () => {
           },
           {
             path: 'files/*',
-            lazy: `async () => {const i = await import("./../pages/files/[...id]/page").catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, "id")}}`,
+            lazy: `async () => {const i = await import("./../pages/files/[...id]/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, "id")}}`,
             loader: 'loader()',
             HydrateFallback: 'HydrateFallback',
             errorElement: '<ErrorElement standalone={false} />'

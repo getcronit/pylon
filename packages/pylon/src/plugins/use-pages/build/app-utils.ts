@@ -113,7 +113,7 @@ function processPageItem(
     path: undefined,
     index: true,
     errorElement: '<ErrorElement standalone={false} />',
-    lazy: `async () => {const i = await import(${importPath}).catch(() => {window.reload()}); return {Component: withLoaderData(i.default, undefined, ${catchAllParam ? `"${catchAllParam}"` : 'undefined'})}}`,
+    lazy: `async () => {const i = await import(${importPath}).catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, ${catchAllParam ? `"${catchAllParam}"` : 'undefined'})}}`,
     HydrateFallback: 'HydrateFallback',
     loader: `loader()`
   })
