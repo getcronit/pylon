@@ -155,11 +155,13 @@ const loader: (ref?: string) => __PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFuncti
 
 
 const RootLayout = (props: { children: React.ReactNode; [key: string]: any }) => {
+  const manifest = (globalThis as any).__PYLON_MANIFEST__;
+
   return (
     <Layout {...props}>
       <meta charSet="utf-8" />
-      <link rel="stylesheet" href="/__pylon/static/pylon.css" precedence="high" />
-      <link rel="stylesheet" href="/__pylon/static/app.css" precedence="high" />
+      {manifest?.['index.css'] && <link rel="stylesheet" href={manifest['index.css']} precedence="high" />}
+      {manifest?.['app.css'] && <link rel="stylesheet" href={manifest['app.css']} precedence="high" />}
       {props.children}
     </Layout>
   )
