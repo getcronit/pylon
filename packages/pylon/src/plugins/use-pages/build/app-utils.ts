@@ -60,6 +60,22 @@ export function getLayoutComponentName(filePath: string): string {
 }
 
 /**
+ * Converts a file path to a corresponding page component name.
+ * @param filePath - The file path to convert.
+ * @returns The generated page component name.
+ */
+export function getPageComponentName(filePath: string): string {
+  const segments = filePath
+    .replace(PAGES_DIR, '')
+    .replace(/\\/g, '/')
+    .replace(/page\.tsx$/, '')
+    .split('/')
+    .filter(Boolean)
+
+  return segments.map(formatSegment).join('') + 'Page'
+}
+
+/**
  * Converts dynamic route segments from [param] format to :param format.
  * @param segment - A segment of the route.
  * @returns The converted route segment.
@@ -87,10 +103,28 @@ function processLayoutItem(
     layoutComponentName === 'Layout' ? `RootLayout` : `${layoutComponentName}`
 
   const catchAllParam = relativePath.match(/\[\.\.\.(.+)\]/)?.[1]
+  const paramMatches = [...relativePath.matchAll(/\[(.+?)\]/g)].map(m =>
+    m[1].replace('...', '')
+  )
 
   route.Component = `withLoaderData((props) => <${componentName} children={<Outlet />} {...props} />, "${componentName}", ${catchAllParam ? `"${catchAllParam}"` : 'undefined'})`
   route.loader = `loader("${componentName}")`
-  route.shouldRevalidate = `(args) => args.defaultShouldRevalidate`
+  route.shouldRevalidate = `({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
+    // Revalidate if a form was submitted (standard behavior)
+    if (formData) return true;
+
+    // List of params this layout segment depends on
+    const relevantKeys = ${JSON.stringify(paramMatches)};
+    
+    // Check if any relevant URL parameter changed
+    const hasParamChanged = relevantKeys.some(key => 
+      JSON.stringify(currentParams[key]) !== JSON.stringify(nextParams[key])
+    );
+
+    // If it's the RootLayout, we might only want to revalidate on hard refreshes 
+    // or specific global triggers. Otherwise, follow param changes.
+    return hasParamChanged || (relevantKeys.length === 0 && defaultShouldRevalidate);
+  }`
 
   if (route.path === '/') {
     route.errorElement = '<ErrorElement standalone={true} />'
@@ -108,14 +142,15 @@ function processPageItem(
   route: Route
 ): void {
   const catchAllParam = relativePath.match(/\[\.\.\.(.+)\]/)?.[1]
+  const pageComponentName = getPageComponentName(relativePath)
 
   route.children!.push({
     path: undefined,
     index: true,
     errorElement: '<ErrorElement standalone={false} />',
-    lazy: `async () => {const i = await import(${importPath}).catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, ${catchAllParam ? `"${catchAllParam}"` : 'undefined'})}}`,
+    lazy: `async () => {const i = await import(${importPath}).catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "${pageComponentName}", ${catchAllParam ? `"${catchAllParam}"` : 'undefined'})}}`,
     HydrateFallback: 'HydrateFallback',
-    loader: `loader()`
+    loader: `loader("${pageComponentName}")`
   })
 }
 
