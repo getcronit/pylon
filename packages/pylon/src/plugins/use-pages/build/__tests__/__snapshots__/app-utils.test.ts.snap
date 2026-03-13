@@ -136,6 +136,7 @@ const loader: (ref?: string) => __PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFuncti
   }
 
   headers.set('Accept', 'application/json') // Ensure the internal request gets JSON
+  headers.set('X-Pylon-Internal', 'true')
   if(ref) {
     headers.set('X-Pylon-Route-Ref', ref)
   }
@@ -146,7 +147,13 @@ const loader: (ref?: string) => __PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFuncti
   })
 
   try {
-    const data = await response.json<object>()
+    const data = await response.json<any>()
+
+    // Check if the version returned by the server matches the client's version
+    if (data && data.version && typeof window !== 'undefined' && (window as any).__PYLON_VERSION__ && data.version !== (window as any).__PYLON_VERSION__) {
+      window.location.reload()
+    }
+
     return data
   } catch {
     return null
@@ -171,7 +178,52 @@ const NotFoundPage: React.FC<{standalone: boolean}> = ({standalone = false}) => 
   return <StatusPage code={404} title="Page Not Found" message="The page you are looking for does not exist." standalone={standalone} />
 }
 
-const routes = [{"path": "/", "children": [{"path": undefined, "index": true, "errorElement": <ErrorElement standalone={false} />, "lazy": async () => {const i = await import("./../pages/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}, "HydrateFallback": HydrateFallback, "loader": loader()}, {"path": "auth", "children": [{"path": "login", "children": [{"path": undefined, "index": true, "errorElement": <ErrorElement standalone={false} />, "lazy": async () => {const i = await import("./../pages/auth/login/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}, "HydrateFallback": HydrateFallback, "loader": loader()}]}, {"path": "*", "element": <NotFoundPage standalone={false} />}], "Component": withLoaderData((props) => <AuthLayout children={<Outlet />} {...props} />, "AuthLayout", undefined), "loader": loader("AuthLayout"), "shouldRevalidate": (args) => args.defaultShouldRevalidate, "HydrateFallback": HydrateFallback}, {"path": "dashboard", "children": [{"path": undefined, "index": true, "errorElement": <ErrorElement standalone={false} />, "lazy": async () => {const i = await import("./../pages/dashboard/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}, "HydrateFallback": HydrateFallback, "loader": loader()}, {"path": "settings", "children": [{"path": undefined, "index": true, "errorElement": <ErrorElement standalone={false} />, "lazy": async () => {const i = await import("./../pages/dashboard/settings/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}, "HydrateFallback": HydrateFallback, "loader": loader()}]}, {"path": "*", "element": <NotFoundPage standalone={false} />}], "Component": withLoaderData((props) => <DashboardLayout children={<Outlet />} {...props} />, "DashboardLayout", undefined), "loader": loader("DashboardLayout"), "shouldRevalidate": (args) => args.defaultShouldRevalidate, "HydrateFallback": HydrateFallback}, {"path": "*", "element": <NotFoundPage standalone={false} />}], "Component": withLoaderData((props) => <RootLayout children={<Outlet />} {...props} />, "RootLayout", undefined), "loader": loader("RootLayout"), "shouldRevalidate": (args) => args.defaultShouldRevalidate, "errorElement": <ErrorElement standalone={true} />, "HydrateFallback": HydrateFallback}, {"path": "*", "element": <NotFoundPage standalone={true} />}]
+const routes = [{"path": "/", "children": [{"path": undefined, "index": true, "errorElement": <ErrorElement standalone={false} />, "lazy": async () => {const i = await import("./../pages/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "Page", undefined)}}, "HydrateFallback": HydrateFallback, "loader": loader("Page")}, {"path": "auth", "children": [{"path": "login", "children": [{"path": undefined, "index": true, "errorElement": <ErrorElement standalone={false} />, "lazy": async () => {const i = await import("./../pages/auth/login/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "AuthLoginPage", undefined)}}, "HydrateFallback": HydrateFallback, "loader": loader("AuthLoginPage")}]}, {"path": "*", "element": <NotFoundPage standalone={false} />}], "Component": withLoaderData((props) => <AuthLayout children={<Outlet />} {...props} />, "AuthLayout", undefined), "loader": loader("AuthLayout"), "shouldRevalidate": ({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
+    // Revalidate if a form was submitted (standard behavior)
+    if (formData) return true;
+
+    // List of params this layout segment depends on
+    const relevantKeys = [];
+    
+    // Check if any relevant URL parameter changed
+    const hasParamChanged = relevantKeys.some(key => 
+      JSON.stringify(currentParams[key]) !== JSON.stringify(nextParams[key])
+    );
+
+    // If it's the RootLayout, we might only want to revalidate on hard refreshes 
+    // or specific global triggers. Otherwise, follow param changes.
+    return hasParamChanged || (relevantKeys.length === 0 && defaultShouldRevalidate);
+  }, "HydrateFallback": HydrateFallback}, {"path": "dashboard", "children": [{"path": undefined, "index": true, "errorElement": <ErrorElement standalone={false} />, "lazy": async () => {const i = await import("./../pages/dashboard/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "DashboardPage", undefined)}}, "HydrateFallback": HydrateFallback, "loader": loader("DashboardPage")}, {"path": "settings", "children": [{"path": undefined, "index": true, "errorElement": <ErrorElement standalone={false} />, "lazy": async () => {const i = await import("./../pages/dashboard/settings/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "DashboardSettingsPage", undefined)}}, "HydrateFallback": HydrateFallback, "loader": loader("DashboardSettingsPage")}]}, {"path": "*", "element": <NotFoundPage standalone={false} />}], "Component": withLoaderData((props) => <DashboardLayout children={<Outlet />} {...props} />, "DashboardLayout", undefined), "loader": loader("DashboardLayout"), "shouldRevalidate": ({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
+    // Revalidate if a form was submitted (standard behavior)
+    if (formData) return true;
+
+    // List of params this layout segment depends on
+    const relevantKeys = [];
+    
+    // Check if any relevant URL parameter changed
+    const hasParamChanged = relevantKeys.some(key => 
+      JSON.stringify(currentParams[key]) !== JSON.stringify(nextParams[key])
+    );
+
+    // If it's the RootLayout, we might only want to revalidate on hard refreshes 
+    // or specific global triggers. Otherwise, follow param changes.
+    return hasParamChanged || (relevantKeys.length === 0 && defaultShouldRevalidate);
+  }, "HydrateFallback": HydrateFallback}, {"path": "*", "element": <NotFoundPage standalone={false} />}], "Component": withLoaderData((props) => <RootLayout children={<Outlet />} {...props} />, "RootLayout", undefined), "loader": loader("RootLayout"), "shouldRevalidate": ({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
+    // Revalidate if a form was submitted (standard behavior)
+    if (formData) return true;
+
+    // List of params this layout segment depends on
+    const relevantKeys = [];
+    
+    // Check if any relevant URL parameter changed
+    const hasParamChanged = relevantKeys.some(key => 
+      JSON.stringify(currentParams[key]) !== JSON.stringify(nextParams[key])
+    );
+
+    // If it's the RootLayout, we might only want to revalidate on hard refreshes 
+    // or specific global triggers. Otherwise, follow param changes.
+    return hasParamChanged || (relevantKeys.length === 0 && defaultShouldRevalidate);
+  }, "errorElement": <ErrorElement standalone={true} />, "HydrateFallback": HydrateFallback}, {"path": "*", "element": <NotFoundPage standalone={true} />}]
 
 export default routes
 
