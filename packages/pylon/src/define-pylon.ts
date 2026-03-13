@@ -6,6 +6,7 @@ import {
   GraphQLError,
   GraphQLErrorExtensions,
   GraphQLInterfaceType,
+  GraphQLNamedType,
   GraphQLResolveInfo,
   GraphQLUnionType,
   isInterfaceType,
@@ -17,6 +18,13 @@ import {
 
 import {AsyncLocalStorage} from 'async_hooks'
 import {asyncContext, Context} from './context'
+
+// Global caches for performance
+const uniqueFieldsCache = new WeakMap<GraphQLNamedType, string[]>()
+const selectionSetCache = new WeakMap<
+  readonly SelectionNode[],
+  Map<any, any[]>
+>()
 
 export interface Resolvers {
   Query: Record<string, any>
@@ -59,6 +67,17 @@ export const getSelectedFields = (
   fieldNodes: readonly FieldNode[] = info.fieldNodes,
   parentType?: any
 ) => {
+  // 1. Check cache for this selection set and parent type
+  let parentCache = selectionSetCache.get(fieldNodes)
+  if (!parentCache) {
+    parentCache = new Map()
+    selectionSetCache.set(fieldNodes, parentCache)
+  }
+
+  if (parentCache.has(parentType)) {
+    return parentCache.get(parentType)!
+  }
+
   const fieldsMap = new Map<string, {nodes: FieldNode[]; returnType?: any}>()
 
   const extract = (selections: readonly SelectionNode[], currentType?: any) => {
@@ -124,16 +143,31 @@ export const getSelectedFields = (
     const possibleTypes = info.schema.getPossibleTypes(abstractType)
 
     for (const possibleType of possibleTypes) {
-      const typeFieldsMap = possibleType.getFields()
-      const typeFields = Object.keys(typeFieldsMap).filter(f =>
-        isNonNullType(typeFieldsMap[f].type)
-      )
-      const otherTypes = possibleTypes.filter(t => t.name !== possibleType.name)
-      const otherTypesFields = new Set(
-        otherTypes.flatMap(t => Object.keys(t.getFields()))
-      )
+      let uniqueField = uniqueFieldsCache.get(possibleType)?.[0]
 
-      const uniqueField = typeFields.find(f => !otherTypesFields.has(f))
+      const typeFieldsMap = possibleType.getFields()
+
+      if (uniqueField === undefined) {
+        const typeFields = Object.keys(typeFieldsMap).filter(f =>
+          isNonNullType(typeFieldsMap[f].type)
+        )
+        const otherTypes = possibleTypes.filter(
+          t => t.name !== possibleType.name
+        )
+        const otherTypesFields = new Set(
+          otherTypes.flatMap(t => Object.keys(t.getFields()))
+        )
+
+        const foundUniqueField = typeFields.find(f => !otherTypesFields.has(f))
+
+        if (foundUniqueField) {
+          uniqueFieldsCache.set(possibleType, [foundUniqueField])
+          uniqueField = foundUniqueField
+        } else {
+          uniqueFieldsCache.set(possibleType, [])
+          uniqueField = undefined
+        }
+      }
 
       if (uniqueField && !result.some(f => f.name === uniqueField)) {
         result.push({
@@ -144,6 +178,9 @@ export const getSelectedFields = (
       }
     }
   }
+
+  // 2. Cache the result before returning
+  parentCache.set(parentType, result)
 
   return result
 }
@@ -180,6 +217,8 @@ const wrapResolver = (
 
   // 4. COLLECTIONS: Arrays
   if (Array.isArray(resolver)) {
+    // If we have fieldNodes and parentType, pre-calculate selectedFields once for the whole array
+    // This avoids O(Array.length * getSelectedFields) complexity
     const results = resolver.map(item =>
       wrapResolver(item, context, fieldNodes, parentType)
     )
