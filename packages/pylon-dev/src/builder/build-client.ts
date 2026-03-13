@@ -120,6 +120,19 @@ const queryFetcher: QueryFetcher = async function (
     ...fetchOptions
   })
 
+  const serverVersion = response.headers.get('X-Pylon-Version')
+  if (
+    serverVersion &&
+    typeof window !== 'undefined' &&
+    (window as any).__PYLON_VERSION__ &&
+    serverVersion !== (window as any).__PYLON_VERSION__
+  ) {
+    const isMutation = query.trim().startsWith('mutation')
+    if (!isMutation) {
+      window.location.reload()
+    }
+  }
+
   return await defaultResponseHandler(response)
 }
 

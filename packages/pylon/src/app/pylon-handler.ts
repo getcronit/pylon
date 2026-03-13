@@ -1,4 +1,3 @@
-import {createSchema, createYoga} from 'graphql-yoga'
 import {GraphQLScalarType, Kind} from 'graphql'
 import {
   DateTimeISOResolver,
@@ -6,18 +5,19 @@ import {
   JSONObjectResolver,
   JSONResolver
 } from 'graphql-scalars'
+import {createSchema, createYoga} from 'graphql-yoga'
 
-import {useSentry} from '../plugins/use-sentry'
-import {Context} from '../context'
-import {resolversToGraphQLResolvers} from '../define-pylon'
-import {Plugin, PylonConfig} from '..'
+import {useDisableIntrospection} from '@graphql-yoga/plugin-disable-introspection'
 import {readFileSync} from 'fs'
+import {MiddlewareHandler} from 'hono'
 import path from 'path'
 import {app, pluginsMiddleware} from '.'
-import {useViewer} from '../plugins/use-viewer'
+import {Plugin, PylonConfig} from '..'
+import {Context} from '../context'
+import {resolversToGraphQLResolvers} from '../define-pylon'
+import {useSentry} from '../plugins/use-sentry'
 import {useUnhandledRoute} from '../plugins/use-unhandled-route'
-import {useDisableIntrospection} from '@graphql-yoga/plugin-disable-introspection'
-import {MiddlewareHandler} from 'hono'
+import {useViewer} from '../plugins/use-viewer'
 
 interface PylonHandlerOptions {
   graphql: {
@@ -193,6 +193,12 @@ export const handler = (options: PylonHandlerOptions) => {
 
     if (response.status === 404) {
       return next()
+    }
+
+    const version = (globalThis as any).__PYLON_VERSION__
+
+    if (version) {
+      c.header('X-Pylon-Version', version)
     }
 
     return c.newResponse(response.body, response)
