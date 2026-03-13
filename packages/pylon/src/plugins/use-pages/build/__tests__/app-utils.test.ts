@@ -99,8 +99,8 @@ describe('app-utils', () => {
           {
             path: undefined,
             index: true,
-            lazy: `async () => {const i = await import("./../pages/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
-            loader: 'loader()',
+            lazy: `async () => {const i = await import("./../pages/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "Page", undefined)}}`,
+            loader: 'loader("Page")',
             HydrateFallback: 'HydrateFallback',
             errorElement: '<ErrorElement standalone={false} />'
           }
@@ -121,8 +121,8 @@ describe('app-utils', () => {
           {
             path: undefined,
             index: true,
-            lazy: `async () => {const i = await import("./../pages/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
-            loader: 'loader()',
+            lazy: `async () => {const i = await import("./../pages/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "Page", undefined)}}`,
+            loader: 'loader("Page")',
             HydrateFallback: 'HydrateFallback',
             errorElement: '<ErrorElement standalone={false} />'
           },
@@ -134,7 +134,22 @@ describe('app-utils', () => {
         Component:
           'withLoaderData((props) => <RootLayout children={<Outlet />} {...props} />, "RootLayout", undefined)',
         loader: 'loader("RootLayout")',
-        shouldRevalidate: '(args) => args.defaultShouldRevalidate',
+        shouldRevalidate: `({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
+    // Revalidate if a form was submitted (standard behavior)
+    if (formData) return true;
+
+    // List of params this layout segment depends on
+    const relevantKeys = [];
+    
+    // Check if any relevant URL parameter changed
+    const hasParamChanged = relevantKeys.some(key => 
+      JSON.stringify(currentParams[key]) !== JSON.stringify(nextParams[key])
+    );
+
+    // If it's the RootLayout, we might only want to revalidate on hard refreshes 
+    // or specific global triggers. Otherwise, follow param changes.
+    return hasParamChanged || (relevantKeys.length === 0 && defaultShouldRevalidate);
+  }`,
         errorElement: '<ErrorElement standalone={true} />',
         HydrateFallback: 'HydrateFallback'
       })
@@ -156,8 +171,8 @@ describe('app-utils', () => {
           {
             path: undefined,
             index: true,
-            lazy: `async () => {const i = await import("./../pages/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
-            loader: 'loader()',
+            lazy: `async () => {const i = await import("./../pages/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "Page", undefined)}}`,
+            loader: 'loader("Page")',
             HydrateFallback: 'HydrateFallback',
             errorElement: '<ErrorElement standalone={false} />'
           },
@@ -167,8 +182,8 @@ describe('app-utils', () => {
               {
                 path: undefined,
                 index: true,
-                lazy: `async () => {const i = await import("./../pages/warehouse/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
-                loader: 'loader()',
+                lazy: `async () => {const i = await import("./../pages/warehouse/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "WarehousePage", undefined)}}`,
+                loader: 'loader("WarehousePage")',
                 HydrateFallback: 'HydrateFallback',
                 errorElement: '<ErrorElement standalone={false} />'
               },
@@ -178,8 +193,8 @@ describe('app-utils', () => {
                   {
                     path: undefined,
                     index: true,
-                    lazy: `async () => {const i = await import("./../pages/warehouse/stock/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
-                    loader: 'loader()',
+                    lazy: `async () => {const i = await import("./../pages/warehouse/stock/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "WarehouseStockPage", undefined)}}`,
+                    loader: 'loader("WarehouseStockPage")',
                     HydrateFallback: 'HydrateFallback',
                     errorElement: '<ErrorElement standalone={false} />'
                   }
@@ -191,8 +206,8 @@ describe('app-utils', () => {
                   {
                     path: undefined,
                     index: true,
-                    lazy: `async () => {const i = await import("./../pages/warehouse/inventory/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
-                    loader: 'loader()',
+                    lazy: `async () => {const i = await import("./../pages/warehouse/inventory/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "WarehouseInventoryPage", undefined)}}`,
+                    loader: 'loader("WarehouseInventoryPage")',
                     HydrateFallback: 'HydrateFallback',
                     errorElement: '<ErrorElement standalone={false} />'
                   }
@@ -207,7 +222,22 @@ describe('app-utils', () => {
         ],
         Component: `withLoaderData((props) => <RootLayout children={<Outlet />} {...props} />, "RootLayout", undefined)`,
         loader: `loader("RootLayout")`,
-        shouldRevalidate: '(args) => args.defaultShouldRevalidate',
+        shouldRevalidate: `({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
+    // Revalidate if a form was submitted (standard behavior)
+    if (formData) return true;
+
+    // List of params this layout segment depends on
+    const relevantKeys = [];
+    
+    // Check if any relevant URL parameter changed
+    const hasParamChanged = relevantKeys.some(key => 
+      JSON.stringify(currentParams[key]) !== JSON.stringify(nextParams[key])
+    );
+
+    // If it's the RootLayout, we might only want to revalidate on hard refreshes 
+    // or specific global triggers. Otherwise, follow param changes.
+    return hasParamChanged || (relevantKeys.length === 0 && defaultShouldRevalidate);
+  }`,
         errorElement: '<ErrorElement standalone={true} />',
         HydrateFallback: 'HydrateFallback'
       })
@@ -230,7 +260,22 @@ describe('app-utils', () => {
             Component:
               'withLoaderData((props) => <PostsLayout children={<Outlet />} {...props} />, "PostsLayout", undefined)',
             loader: 'loader("PostsLayout")',
-            shouldRevalidate: '(args) => args.defaultShouldRevalidate',
+            shouldRevalidate: `({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
+    // Revalidate if a form was submitted (standard behavior)
+    if (formData) return true;
+
+    // List of params this layout segment depends on
+    const relevantKeys = [];
+    
+    // Check if any relevant URL parameter changed
+    const hasParamChanged = relevantKeys.some(key => 
+      JSON.stringify(currentParams[key]) !== JSON.stringify(nextParams[key])
+    );
+
+    // If it's the RootLayout, we might only want to revalidate on hard refreshes 
+    // or specific global triggers. Otherwise, follow param changes.
+    return hasParamChanged || (relevantKeys.length === 0 && defaultShouldRevalidate);
+  }`,
             HydrateFallback: 'HydrateFallback',
             children: [
               {
@@ -238,8 +283,8 @@ describe('app-utils', () => {
                 children: [
                   {
                     index: true,
-                    lazy: 'async () => {const i = await import("./../pages/posts/[id]/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}',
-                    loader: 'loader()',
+                    lazy: 'async () => {const i = await import("./../pages/posts/[id]/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "PostsIdPage", undefined)}}',
+                    loader: 'loader("PostsIdPage")',
                     HydrateFallback: 'HydrateFallback',
                     errorElement: '<ErrorElement standalone={false} />'
                   }
@@ -259,7 +304,22 @@ describe('app-utils', () => {
         Component:
           'withLoaderData((props) => <RootLayout children={<Outlet />} {...props} />, "RootLayout", undefined)',
         loader: 'loader("RootLayout")',
-        shouldRevalidate: '(args) => args.defaultShouldRevalidate',
+        shouldRevalidate: `({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
+    // Revalidate if a form was submitted (standard behavior)
+    if (formData) return true;
+
+    // List of params this layout segment depends on
+    const relevantKeys = [];
+    
+    // Check if any relevant URL parameter changed
+    const hasParamChanged = relevantKeys.some(key => 
+      JSON.stringify(currentParams[key]) !== JSON.stringify(nextParams[key])
+    );
+
+    // If it's the RootLayout, we might only want to revalidate on hard refreshes 
+    // or specific global triggers. Otherwise, follow param changes.
+    return hasParamChanged || (relevantKeys.length === 0 && defaultShouldRevalidate);
+  }`,
         errorElement: '<ErrorElement standalone={true} />',
         HydrateFallback: 'HydrateFallback'
       })
@@ -277,9 +337,9 @@ describe('app-utils', () => {
       // Since it's a single catch-all child without layout, it should merge into the root
       expect(route).toEqual({
         path: '*',
-        lazy: `async () => {const i = await import("./../pages/[...slug]/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, "slug")}}`,
+        lazy: `async () => {const i = await import("./../pages/[...slug]/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "CatchAllSlugPage", "slug")}}`,
         HydrateFallback: 'HydrateFallback',
-        loader: 'loader()',
+        loader: 'loader("CatchAllSlugPage")',
         errorElement: '<ErrorElement standalone={false} />'
       })
     })
@@ -307,8 +367,8 @@ describe('app-utils', () => {
                 errorElement: '<ErrorElement standalone={false} />',
                 HydrateFallback: 'HydrateFallback',
                 // We check the specific generated lazy code for correct param handling, and ensure Component/element is not set (it's lazy)
-                lazy: `async () => {const i = await import("./../pages/posts/[id]/[...slug]/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, "slug")}}`,
-                loader: 'loader()'
+                lazy: `async () => {const i = await import("./../pages/posts/[id]/[...slug]/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "PostsIdCatchAllSlugPage", "slug")}}`,
+                loader: 'loader("PostsIdCatchAllSlugPage")'
               },
               {
                 path: '*',
@@ -318,7 +378,22 @@ describe('app-utils', () => {
             Component:
               'withLoaderData((props) => <PostsLayout children={<Outlet />} {...props} />, "PostsLayout", undefined)',
             loader: 'loader("PostsLayout")',
-            shouldRevalidate: '(args) => args.defaultShouldRevalidate',
+            shouldRevalidate: `({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
+    // Revalidate if a form was submitted (standard behavior)
+    if (formData) return true;
+
+    // List of params this layout segment depends on
+    const relevantKeys = [];
+    
+    // Check if any relevant URL parameter changed
+    const hasParamChanged = relevantKeys.some(key => 
+      JSON.stringify(currentParams[key]) !== JSON.stringify(nextParams[key])
+    );
+
+    // If it's the RootLayout, we might only want to revalidate on hard refreshes 
+    // or specific global triggers. Otherwise, follow param changes.
+    return hasParamChanged || (relevantKeys.length === 0 && defaultShouldRevalidate);
+  }`,
             HydrateFallback: 'HydrateFallback'
           },
           {
@@ -329,7 +404,22 @@ describe('app-utils', () => {
         Component:
           'withLoaderData((props) => <RootLayout children={<Outlet />} {...props} />, "RootLayout", undefined)',
         loader: 'loader("RootLayout")',
-        shouldRevalidate: '(args) => args.defaultShouldRevalidate',
+        shouldRevalidate: `({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
+    // Revalidate if a form was submitted (standard behavior)
+    if (formData) return true;
+
+    // List of params this layout segment depends on
+    const relevantKeys = [];
+    
+    // Check if any relevant URL parameter changed
+    const hasParamChanged = relevantKeys.some(key => 
+      JSON.stringify(currentParams[key]) !== JSON.stringify(nextParams[key])
+    );
+
+    // If it's the RootLayout, we might only want to revalidate on hard refreshes 
+    // or specific global triggers. Otherwise, follow param changes.
+    return hasParamChanged || (relevantKeys.length === 0 && defaultShouldRevalidate);
+  }`,
         errorElement: '<ErrorElement standalone={true} />',
         HydrateFallback: 'HydrateFallback'
       })
@@ -348,7 +438,22 @@ describe('app-utils', () => {
         Component:
           'withLoaderData((props) => <RootLayout children={<Outlet />} {...props} />, "RootLayout", undefined)',
         loader: 'loader("RootLayout")',
-        shouldRevalidate: '(args) => args.defaultShouldRevalidate',
+        shouldRevalidate: `({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
+    // Revalidate if a form was submitted (standard behavior)
+    if (formData) return true;
+
+    // List of params this layout segment depends on
+    const relevantKeys = [];
+    
+    // Check if any relevant URL parameter changed
+    const hasParamChanged = relevantKeys.some(key => 
+      JSON.stringify(currentParams[key]) !== JSON.stringify(nextParams[key])
+    );
+
+    // If it's the RootLayout, we might only want to revalidate on hard refreshes 
+    // or specific global triggers. Otherwise, follow param changes.
+    return hasParamChanged || (relevantKeys.length === 0 && defaultShouldRevalidate);
+  }`,
         HydrateFallback: 'HydrateFallback',
         errorElement: '<ErrorElement standalone={true} />',
         children: [
@@ -357,8 +462,8 @@ describe('app-utils', () => {
             children: [
               {
                 index: true,
-                lazy: `async () => {const i = await import("./../pages/contact/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
-                loader: 'loader()',
+                lazy: `async () => {const i = await import("./../pages/contact/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "ContactPage", undefined)}}`,
+                loader: 'loader("ContactPage")',
                 HydrateFallback: 'HydrateFallback',
                 errorElement: '<ErrorElement standalone={false} />'
               }
@@ -388,8 +493,8 @@ describe('app-utils', () => {
             children: [
               {
                 index: true,
-                lazy: `async () => {const i = await import("./../pages/contact/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
-                loader: 'loader()',
+                lazy: `async () => {const i = await import("./../pages/contact/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "ContactPage", undefined)}}`,
+                loader: 'loader("ContactPage")',
                 HydrateFallback: 'HydrateFallback',
                 errorElement: '<ErrorElement standalone={false} />'
               }
@@ -422,8 +527,8 @@ describe('app-utils', () => {
           {
             path: undefined,
             index: true,
-            lazy: `async () => {const i = await import("./../pages/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
-            loader: 'loader()',
+            lazy: `async () => {const i = await import("./../pages/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "Page", undefined)}}`,
+            loader: 'loader("Page")',
             HydrateFallback: 'HydrateFallback',
             errorElement: '<ErrorElement standalone={false} />'
           },
@@ -436,8 +541,8 @@ describe('app-utils', () => {
                   {
                     path: undefined,
                     index: true,
-                    lazy: `async () => {const i = await import("./../pages/auth/login/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
-                    loader: 'loader()',
+                    lazy: `async () => {const i = await import("./../pages/auth/login/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "AuthLoginPage", undefined)}}`,
+                    loader: 'loader("AuthLoginPage")',
                     HydrateFallback: 'HydrateFallback',
                     errorElement: '<ErrorElement standalone={false} />'
                   }
@@ -449,8 +554,8 @@ describe('app-utils', () => {
                   {
                     path: undefined,
                     index: true,
-                    lazy: `async () => {const i = await import("./../pages/auth/register/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
-                    loader: 'loader()',
+                    lazy: `async () => {const i = await import("./../pages/auth/register/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "AuthRegisterPage", undefined)}}`,
+                    loader: 'loader("AuthRegisterPage")',
                     HydrateFallback: 'HydrateFallback',
                     errorElement: '<ErrorElement standalone={false} />'
                   }
@@ -464,7 +569,22 @@ describe('app-utils', () => {
             Component:
               'withLoaderData((props) => <AuthLayout children={<Outlet />} {...props} />, "AuthLayout", undefined)',
             loader: 'loader("AuthLayout")',
-            shouldRevalidate: '(args) => args.defaultShouldRevalidate',
+            shouldRevalidate: `({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
+    // Revalidate if a form was submitted (standard behavior)
+    if (formData) return true;
+
+    // List of params this layout segment depends on
+    const relevantKeys = [];
+    
+    // Check if any relevant URL parameter changed
+    const hasParamChanged = relevantKeys.some(key => 
+      JSON.stringify(currentParams[key]) !== JSON.stringify(nextParams[key])
+    );
+
+    // If it's the RootLayout, we might only want to revalidate on hard refreshes 
+    // or specific global triggers. Otherwise, follow param changes.
+    return hasParamChanged || (relevantKeys.length === 0 && defaultShouldRevalidate);
+  }`,
             HydrateFallback: 'HydrateFallback'
           },
           {
@@ -473,8 +593,8 @@ describe('app-utils', () => {
               {
                 path: undefined,
                 index: true,
-                lazy: `async () => {const i = await import("./../pages/dashboard/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
-                loader: 'loader()',
+                lazy: `async () => {const i = await import("./../pages/dashboard/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "DashboardPage", undefined)}}`,
+                loader: 'loader("DashboardPage")',
                 HydrateFallback: 'HydrateFallback',
                 errorElement: '<ErrorElement standalone={false} />'
               },
@@ -484,8 +604,8 @@ describe('app-utils', () => {
                   {
                     path: undefined,
                     index: true,
-                    lazy: `async () => {const i = await import("./../pages/dashboard/settings/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
-                    loader: 'loader()',
+                    lazy: `async () => {const i = await import("./../pages/dashboard/settings/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "DashboardSettingsPage", undefined)}}`,
+                    loader: 'loader("DashboardSettingsPage")',
                     HydrateFallback: 'HydrateFallback',
                     errorElement: '<ErrorElement standalone={false} />'
                   }
@@ -497,8 +617,8 @@ describe('app-utils', () => {
                   {
                     path: undefined,
                     index: true,
-                    lazy: `async () => {const i = await import("./../pages/dashboard/[teamId]/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
-                    loader: 'loader()',
+                    lazy: `async () => {const i = await import("./../pages/dashboard/[teamId]/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "DashboardTeamIdPage", undefined)}}`,
+                    loader: 'loader("DashboardTeamIdPage")',
                     HydrateFallback: 'HydrateFallback',
                     errorElement: '<ErrorElement standalone={false} />'
                   },
@@ -508,8 +628,8 @@ describe('app-utils', () => {
                       {
                         path: undefined,
                         index: true,
-                        lazy: `async () => {const i = await import("./../pages/dashboard/[teamId]/[projectId]/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, undefined)}}`,
-                        loader: 'loader()',
+                        lazy: `async () => {const i = await import("./../pages/dashboard/[teamId]/[projectId]/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "DashboardTeamIdProjectIdPage", undefined)}}`,
+                        loader: 'loader("DashboardTeamIdProjectIdPage")',
                         HydrateFallback: 'HydrateFallback',
                         errorElement: '<ErrorElement standalone={false} />'
                       }
@@ -523,7 +643,22 @@ describe('app-utils', () => {
                 Component:
                   'withLoaderData((props) => <DashboardTeamIdLayout children={<Outlet />} {...props} />, "DashboardTeamIdLayout", undefined)',
                 loader: 'loader("DashboardTeamIdLayout")',
-                shouldRevalidate: '(args) => args.defaultShouldRevalidate',
+                shouldRevalidate: `({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
+    // Revalidate if a form was submitted (standard behavior)
+    if (formData) return true;
+
+    // List of params this layout segment depends on
+    const relevantKeys = ["teamId"];
+    
+    // Check if any relevant URL parameter changed
+    const hasParamChanged = relevantKeys.some(key => 
+      JSON.stringify(currentParams[key]) !== JSON.stringify(nextParams[key])
+    );
+
+    // If it's the RootLayout, we might only want to revalidate on hard refreshes 
+    // or specific global triggers. Otherwise, follow param changes.
+    return hasParamChanged || (relevantKeys.length === 0 && defaultShouldRevalidate);
+  }`,
                 HydrateFallback: 'HydrateFallback'
               },
               {
@@ -534,13 +669,28 @@ describe('app-utils', () => {
             Component:
               'withLoaderData((props) => <DashboardLayout children={<Outlet />} {...props} />, "DashboardLayout", undefined)',
             loader: 'loader("DashboardLayout")',
-            shouldRevalidate: '(args) => args.defaultShouldRevalidate',
+            shouldRevalidate: `({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
+    // Revalidate if a form was submitted (standard behavior)
+    if (formData) return true;
+
+    // List of params this layout segment depends on
+    const relevantKeys = [];
+    
+    // Check if any relevant URL parameter changed
+    const hasParamChanged = relevantKeys.some(key => 
+      JSON.stringify(currentParams[key]) !== JSON.stringify(nextParams[key])
+    );
+
+    // If it's the RootLayout, we might only want to revalidate on hard refreshes 
+    // or specific global triggers. Otherwise, follow param changes.
+    return hasParamChanged || (relevantKeys.length === 0 && defaultShouldRevalidate);
+  }`,
             HydrateFallback: 'HydrateFallback'
           },
           {
             path: 'files/*',
-            lazy: `async () => {const i = await import("./../pages/files/[...id]/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, undefined, "id")}}`,
-            loader: 'loader()',
+            lazy: `async () => {const i = await import("./../pages/files/[...id]/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "FilesCatchAllIdPage", "id")}}`,
+            loader: 'loader("FilesCatchAllIdPage")',
             HydrateFallback: 'HydrateFallback',
             errorElement: '<ErrorElement standalone={false} />'
           },
@@ -552,7 +702,22 @@ describe('app-utils', () => {
         Component:
           'withLoaderData((props) => <RootLayout children={<Outlet />} {...props} />, "RootLayout", undefined)',
         loader: 'loader("RootLayout")',
-        shouldRevalidate: '(args) => args.defaultShouldRevalidate',
+        shouldRevalidate: `({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
+    // Revalidate if a form was submitted (standard behavior)
+    if (formData) return true;
+
+    // List of params this layout segment depends on
+    const relevantKeys = [];
+    
+    // Check if any relevant URL parameter changed
+    const hasParamChanged = relevantKeys.some(key => 
+      JSON.stringify(currentParams[key]) !== JSON.stringify(nextParams[key])
+    );
+
+    // If it's the RootLayout, we might only want to revalidate on hard refreshes 
+    // or specific global triggers. Otherwise, follow param changes.
+    return hasParamChanged || (relevantKeys.length === 0 && defaultShouldRevalidate);
+  }`,
         errorElement: '<ErrorElement standalone={true} />',
         HydrateFallback: 'HydrateFallback'
       })
