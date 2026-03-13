@@ -34,15 +34,6 @@ app.use('*', async (c, next) => {
 
 app.use('*', skipInternal(except(['/__pylon/*'], logger())))
 
-app.use(
-  '*',
-  skipInternal((c, next) => {
-    // @ts-ignore
-    c.req.id = crypto.randomUUID()
-    return next()
-  })
-)
-
 export const pluginsMiddleware: MiddlewareHandler[] = []
 
 const pluginsMiddlewareLoader: MiddlewareHandler = async (c, next) => {
