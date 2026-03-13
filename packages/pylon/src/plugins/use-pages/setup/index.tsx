@@ -62,6 +62,10 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
     )
     // Inject into global so root layout can generate links
     ;(globalThis as any).__PYLON_MANIFEST__ = staticManifest
+
+    if (pagesManifest['version']) {
+      ;(globalThis as any).__PYLON_VERSION__ = pagesManifest['version']
+    }
   } catch (err: any) {
     throw new Error('Failed to read static manifest.json:', err)
   }
@@ -331,7 +335,8 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
 
         return c.json({
           cacheSnapshot,
-          context
+          context,
+          version: pagesManifest['version']
         })
       }
 

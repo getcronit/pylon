@@ -453,7 +453,13 @@ const loader: (ref?: string) => __PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFuncti
   })
 
   try {
-    const data = await response.json<object>()
+    const data = await response.json<any>()
+
+    // Check if the version returned by the server matches the client's version
+    if (data && data.version && typeof window !== 'undefined' && (window as any).__PYLON_VERSION__ && data.version !== (window as any).__PYLON_VERSION__) {
+      window.location.reload()
+    }
+
     return data
   } catch {
     return null

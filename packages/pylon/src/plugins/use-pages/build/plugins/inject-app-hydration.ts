@@ -1,8 +1,8 @@
 import {Plugin} from 'esbuild'
-import path from 'path'
 import fs from 'fs/promises'
+import path from 'path'
 
-export const injectAppHydrationPlugin: Plugin = {
+export const injectAppHydrationPlugin = (version: string): Plugin => ({
   name: 'inject-hydration',
   setup(build) {
     build.onLoad({filter: /.*/, namespace: 'file'}, async args => {
@@ -23,7 +23,8 @@ export const injectAppHydrationPlugin: Plugin = {
           import React, {useMemo, startTransition} from 'react'
           import * as Sentry from '@sentry/react'
 
-          
+          // @ts-ignore
+          window.__PYLON_VERSION__ = "${version}"
 
           async function hydrate() {
             // Determine if any of the initial routes are lazy
@@ -75,4 +76,4 @@ export const injectAppHydrationPlugin: Plugin = {
       }
     })
   }
-}
+})

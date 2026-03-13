@@ -33,6 +33,8 @@ async function updateFileIfChanged(
 }
 
 export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
+  const version = Math.random().toString(36).substring(7)
+
   const buildAppFile = async () => {
     const appFiles = makeAppFiles()
 
@@ -112,6 +114,8 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
           }
         }
 
+        manifest['version'] = version
+
         await updateFileIfChanged(
           path.join(build.initialOptions.outdir!, 'manifest.json'),
           Buffer.from(JSON.stringify(manifest, null, 2))
@@ -158,7 +162,7 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
     absWorkingDir: process.cwd(),
     plugins: [
       buildAppFilePlugin,
-      injectAppHydrationPlugin,
+      injectAppHydrationPlugin(version),
       imagePlugin,
       postcssPlugin,
       writeOnEndPlugin,
