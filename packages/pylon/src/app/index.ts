@@ -1,35 +1,47 @@
 import {sentry} from '@hono/sentry'
-import {Hono, MiddlewareHandler} from 'hono'
+import {Hono, MiddlewareHandler, Next} from 'hono'
 import {except} from 'hono/combine'
 import {compress} from 'hono/compress'
 import {logger} from 'hono/logger'
-import {asyncContext, Env} from '../context'
+import {asyncContext, Context, Env} from '../context'
 
 export const app = new Hono<Env>()
 
-app.use(compress())
+const skipInternal = (middleware: MiddlewareHandler) => {
+  return async (c: Context, next: Next) => {
+    if (c.req.header('X-Pylon-Internal') === 'true') {
+      return next()
+    }
+    return middleware(c, next)
+  }
+}
 
-app.use('*', sentry())
+app.use('*', skipInternal(compress()))
+
+app.use('*', skipInternal(sentry()))
 
 app.use('*', async (c, next) => {
   return new Promise((resolve, reject) => {
     asyncContext.run(c, async () => {
       try {
-        resolve(await next()) // You can pass the value you want to return here
+        resolve(await next())
       } catch (error) {
-        reject(error) // If an error occurs during the execution of `next()`, reject the Promise
+        reject(error)
       }
     })
   })
 })
 
-app.use('*', except(['/__pylon/*'], logger()))
+app.use('*', skipInternal(except(['/__pylon/*'], logger())))
 
-app.use((c, next) => {
-  // @ts-ignore
-  c.req.id = crypto.randomUUID()
-  return next()
-})
+app.use(
+  '*',
+  skipInternal((c, next) => {
+    // @ts-ignore
+    c.req.id = crypto.randomUUID()
+    return next()
+  })
+)
 
 export const pluginsMiddleware: MiddlewareHandler[] = []
 

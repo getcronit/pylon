@@ -103,6 +103,7 @@ const queryFetcher: QueryFetcher = async function (
 
       // Set Accept-Encoding header to identity so the internal fetch returns JSON
       headers.set('Accept-Encoding', 'identity')
+      headers.set('X-Pylon-Internal', 'true')
     }
   } catch {
     // 3. Pylon not available — fallback to default fetch (runs in browser)
