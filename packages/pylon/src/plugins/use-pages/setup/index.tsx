@@ -274,7 +274,7 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
 
   const requestStore = new AsyncLocalStorage<{client: any}>()
 
-  app.get('*', etag(), async c => {
+  app.get('*', async c => {
     const initCtx = requestStore.getStore() || {
       client: null
     }

@@ -442,6 +442,7 @@ const loader: (ref?: string) => __PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFuncti
   }
 
   headers.set('Accept', 'application/json') // Ensure the internal request gets JSON
+  headers.set('X-Pylon-Internal', 'true')
   if(ref) {
     headers.set('X-Pylon-Route-Ref', ref)
   }
