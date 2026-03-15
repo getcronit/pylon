@@ -10,9 +10,11 @@ type UpdateUser {
 id: String!
 username: String!
 }
+scalar String
 scalar ID
 scalar Int
 scalar Float
+scalar Boolean
 scalar Number
 scalar Any
 scalar Void
@@ -20,8 +22,6 @@ scalar JSONObject
 scalar File
 scalar Date
 scalar JSON
-scalar String
-scalar Boolean
 ",
 }
 `;
@@ -36,9 +36,11 @@ type CheckStatus {
 id: String!
 status: Status!
 }
+scalar String
 scalar ID
 scalar Int
 scalar Float
+scalar Boolean
 scalar Number
 scalar Any
 scalar Void
@@ -46,8 +48,6 @@ scalar JSONObject
 scalar File
 scalar Date
 scalar JSON
-scalar String
-scalar Boolean
 enum Status {
 	ACTIVE
 	INACTIVE
@@ -68,9 +68,11 @@ setup(id: String!, profile: SetupProfileInput!): Setup!
 type Setup {
 id: String!
 }
+scalar String
 scalar ID
 scalar Int
 scalar Float
+scalar Boolean
 scalar Number
 scalar Any
 scalar Void
@@ -78,8 +80,6 @@ scalar JSONObject
 scalar File
 scalar Date
 scalar JSON
-scalar String
-scalar Boolean
 ",
 }
 `;
@@ -109,9 +109,11 @@ createUser(args: CreateUserArgsInput!): CreateUser!
 type CreateUser {
 username: String!
 }
+scalar String
 scalar ID
 scalar Int
 scalar Float
+scalar Boolean
 scalar Number
 scalar Any
 scalar Void
@@ -119,8 +121,6 @@ scalar JSONObject
 scalar File
 scalar Date
 scalar JSON
-scalar String
-scalar Boolean
 ",
 }
 `;
@@ -131,9 +131,11 @@ exports[`Pylon Builder - Inputs and Arguments > should handle optional enums wit
   "typeDefs": "type Query {
 users(role: Role): [JSONObject!]!
 }
+scalar String
 scalar ID
 scalar Int
 scalar Float
+scalar Boolean
 scalar Number
 scalar Any
 scalar Void
@@ -141,8 +143,6 @@ scalar JSONObject
 scalar File
 scalar Date
 scalar JSON
-scalar String
-scalar Boolean
 enum Role {
 	ADMIN
 	USER
@@ -157,9 +157,11 @@ exports[`Pylon Builder - Inputs and Arguments > should handle rest parameters wi
   "typeDefs": "type Query {
 search(query: String!, limit: Number): [JSONObject!]!
 }
+scalar String
 scalar ID
 scalar Int
 scalar Float
+scalar Boolean
 scalar Number
 scalar Any
 scalar Void
@@ -167,8 +169,6 @@ scalar JSONObject
 scalar File
 scalar Date
 scalar JSON
-scalar String
-scalar Boolean
 ",
 }
 `;
@@ -186,9 +186,11 @@ createUser(input: CreateUserInput!): CreateUser!
 type CreateUser {
 username: String!
 }
+scalar String
 scalar ID
 scalar Int
 scalar Float
+scalar Boolean
 scalar Number
 scalar Any
 scalar Void
@@ -196,8 +198,6 @@ scalar JSONObject
 scalar File
 scalar Date
 scalar JSON
-scalar String
-scalar Boolean
 ",
 }
 `;

@@ -5,6 +5,8 @@ import {
   Enum as _Enum,
   Union as _Union
 } from './type-definition-builder.js'
+import { SCALAR_NAMES } from './scalars.js'
+
 import {
   getPromiseType,
   getPublicPropertiesOfType,
@@ -128,20 +130,7 @@ export class SchemaParser {
       interfaces: [],
       unions: [],
       enums: [],
-      scalars: [
-        'ID',
-        'Int',
-        'Float',
-        'Number',
-        'Any',
-        'Void',
-        'JSONObject',
-        'File',
-        'Date',
-        'JSON',
-        'String',
-        'Boolean'
-      ]
+      scalars: SCALAR_NAMES
     }
 
     this.checker = checker

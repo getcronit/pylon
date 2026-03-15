@@ -21,9 +21,11 @@ username: String!
 interface IUser {
 username: String!
 }
+scalar String
 scalar ID
 scalar Int
 scalar Float
+scalar Boolean
 scalar Number
 scalar Any
 scalar Void
@@ -31,8 +33,6 @@ scalar JSONObject
 scalar File
 scalar Date
 scalar JSON
-scalar String
-scalar Boolean
 ",
 }
 `;
@@ -59,9 +59,11 @@ username: String!
 interface IUser {
 username: String!
 }
+scalar String
 scalar ID
 scalar Int
 scalar Float
+scalar Boolean
 scalar Number
 scalar Any
 scalar Void
@@ -69,8 +71,6 @@ scalar JSONObject
 scalar File
 scalar Date
 scalar JSON
-scalar String
-scalar Boolean
 ",
 }
 `;
@@ -107,9 +107,11 @@ interface IMachineUser implements IUser {
 key: String!
 username: String!
 }
+scalar String
 scalar ID
 scalar Int
 scalar Float
+scalar Boolean
 scalar Number
 scalar Any
 scalar Void
@@ -117,8 +119,6 @@ scalar JSONObject
 scalar File
 scalar Date
 scalar JSON
-scalar String
-scalar Boolean
 ",
 }
 `;
@@ -155,9 +155,11 @@ username: String!
 interface IUser {
 username: String!
 }
+scalar String
 scalar ID
 scalar Int
 scalar Float
+scalar Boolean
 scalar Number
 scalar Any
 scalar Void
@@ -165,8 +167,6 @@ scalar JSONObject
 scalar File
 scalar Date
 scalar JSON
-scalar String
-scalar Boolean
 ",
 }
 `;
