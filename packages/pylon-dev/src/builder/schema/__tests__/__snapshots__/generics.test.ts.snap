@@ -24,9 +24,11 @@ id: String!
 type PageInfo {
 hasNextPage: Boolean!
 }
+scalar String
 scalar ID
 scalar Int
 scalar Float
+scalar Boolean
 scalar Number
 scalar Any
 scalar Void
@@ -34,8 +36,6 @@ scalar JSONObject
 scalar File
 scalar Date
 scalar JSON
-scalar String
-scalar Boolean
 ",
 }
 `;
@@ -64,9 +64,11 @@ hasPreviousPage: Boolean!
 startCursor: String!
 endCursor: String!
 }
+scalar String
 scalar ID
 scalar Int
 scalar Float
+scalar Boolean
 scalar Number
 scalar Any
 scalar Void
@@ -74,8 +76,6 @@ scalar JSONObject
 scalar File
 scalar Date
 scalar JSON
-scalar String
-scalar Boolean
 ",
 }
 `;

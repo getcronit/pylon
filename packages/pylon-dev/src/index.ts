@@ -13,6 +13,7 @@ import {
 } from './analytics'
 import {build} from './builder'
 import {buildClient} from './builder/build-client'
+import {generatePylonTypes} from './pull'
 import {treeKillSync} from './tree-kill'
 
 dotenv.config()
@@ -60,6 +61,38 @@ program
 
     await ctx.rebuild()
     await ctx.dispose()
+  })
+
+program
+  .command('pull')
+  .description(
+    'Fetch a remote GraphQL API and generate strictly-typed Pylon Gateway models.'
+  )
+  .argument('<url>', 'The remote GraphQL endpoint URL')
+  .option(
+    '-n, --name <name>',
+    'The name of the remote service (used for the generated filename)',
+    'remote'
+  )
+  .option(
+    '-o, --output <dir>',
+    'The directory to output the generated types',
+    './src/generated'
+  )
+  .action(async (url: string, options: {name: string; output: string}) => {
+    try {
+      // Constructs the full path, e.g., ./src/generated/remote.ts or ./src/generated/shopify.ts
+      const finalPath = `${options.output}/${options.name}.ts`
+
+      consola.start(`Pulling ${options.name} schema from ${url}...`)
+
+      await generatePylonTypes(url, finalPath)
+
+      consola.success(`Remote types generated successfully at ${finalPath}`)
+    } catch (error) {
+      consola.error(`Failed to pull ${options.name} remote schema:`, error)
+      process.exit(1)
+    }
   })
 
 program

@@ -46,3 +46,5 @@ export type PylonConfig = {
 export type ID = string & {readonly brand?: unique symbol}
 export type Int = number & {readonly brand?: unique symbol}
 export type Float = number & {readonly brand?: unique symbol}
+
+export {createGateway} from './gateway.js'
