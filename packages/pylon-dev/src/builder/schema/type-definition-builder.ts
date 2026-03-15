@@ -177,6 +177,25 @@ export class TypeDefinitionBuilder {
       type.aliasSymbol?.escapedName?.toString() ||
       type.symbol?.escapedName.toString()
 
+    const typenameSymbol = type.getProperty('__typename')
+    if (typenameSymbol) {
+      const locationNode =
+        typenameSymbol.valueDeclaration ??
+        type.aliasSymbol?.getDeclarations()?.[0] ??
+        type.symbol?.getDeclarations()?.[0]
+
+      if (locationNode) {
+        const typenameType = this.checker.getTypeOfSymbolAtLocation(
+          typenameSymbol,
+          locationNode
+        )
+        if (typenameType && typenameType.flags & ts.TypeFlags.StringLiteral) {
+          typeName = (typenameType as ts.StringLiteralType).value
+        }
+      }
+    }
+
+
     if (typeName === '__type' || typeName === '__object' || !typeName) {
       const symbol = type.aliasSymbol || type.symbol
 
