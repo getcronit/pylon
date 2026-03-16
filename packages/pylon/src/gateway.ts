@@ -31,11 +31,14 @@ type Primitive =
  */
 export type NeedsMap<T> = T extends Primitive
   ? boolean
-  : T extends Array<infer U>
-    ? NeedsMap<U>
-    : {
-        [K in keyof T]?: NeedsMap<T[K]> | boolean
-      } & {__args?: Record<string, any>}
+  : // Unwrap function signatures so we can select fields on their return type
+    T extends (...args: any[]) => infer Ret
+    ? NeedsMap<Awaited<Ret>>
+    : T extends Array<infer U>
+      ? NeedsMap<U>
+      : {
+          [K in keyof T]?: NeedsMap<T[K]> | boolean
+        } & {__args?: Record<string, any>}
 
 /**
  * Maps over the properties of the resolved type within the registry.
@@ -60,9 +63,13 @@ type MappedRegistry<R, P> = {
 
 type PatchSchema<T, P, R> = T extends Primitive
   ? T
-  : // Unwrap resolver function signatures to their awaited return types.
-    T extends (...args: any[]) => infer Ret
-    ? PatchSchema<Awaited<Ret>, P, R>
+  : // Preserve resolver function signatures & args, and patch their return types.
+    T extends (...args: infer Args) => infer Ret
+    ? (
+        ...args: Args
+      ) => Ret extends Promise<any>
+        ? Promise<PatchSchema<Awaited<Ret>, P, R>>
+        : PatchSchema<Awaited<Ret>, P, R>
     : // Recursively apply PatchSchema to array element types.
       T extends Array<infer U>
       ? Array<PatchSchema<U, P, R>>
