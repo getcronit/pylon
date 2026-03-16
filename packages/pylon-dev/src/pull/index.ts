@@ -13,8 +13,7 @@ import {
   isScalarType,
   isUnionType
 } from 'graphql'
-import { SCALARS } from '../builder/schema/scalars.js'
-
+import {SCALARS} from '../builder/schema/scalars.js'
 
 const resolveType = (
   type: GraphQLType
@@ -138,16 +137,45 @@ export async function generatePylonTypes(url: string, outputPath: string) {
   }
 
   let registry = `export interface RemoteRegistry {\n`
+  registry += `  delegate: {\n`
 
+  const rootTypes = ['Query', 'Mutation']
+  for (const typeName of rootTypes) {
+    const type = typeMap[typeName]
+    if (type && isObjectType(type)) {
+      for (const [fieldName, field] of Object.entries(type.getFields())) {
+        const {tsType, isNullable} = resolveType(field.type)
+        let argsType = '{}'
+        const args = field.args
+        if (args.length > 0) {
+          const params = args
+            .map(arg => {
+              const {tsType: argTsType, isNullable: argIsNullable} =
+                resolveType(arg.type)
+              return `${arg.name}${argIsNullable ? '?' : ''}: ${argTsType}`
+            })
+            .join('; ')
+          argsType = `{ ${params} }`
+        }
+        registry += `    '${typeName}.${fieldName}': {\n`
+        registry += `      args: ${argsType};\n`
+        registry += `      return: ${tsType}${isNullable ? ' | null' : ''};\n`
+        registry += `    };\n`
+      }
+    }
+  }
+  registry += `  };\n`
+
+  registry += `  types: {\n`
   for (const [typeName, type] of Object.entries(typeMap)) {
     if (typeName.startsWith('__')) continue
     if (['Query', 'Mutation', 'Subscription'].includes(typeName)) continue
 
     if (isObjectType(type) || isInterfaceType(type) || isUnionType(type)) {
-      registry += `  ${typeName}: ${typeName};\n`
+      registry += `    '${typeName}': ${typeName};\n`
     }
   }
-
+  registry += `  };\n`
   registry += `}\n`
 
   await fs.writeFile(outputPath, tsOutput + registry)
