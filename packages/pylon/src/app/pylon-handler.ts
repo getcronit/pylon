@@ -126,7 +126,13 @@ export const handler = (options: PylonHandlerOptions) => {
       ...graphqlResolvers,
       ...resolvers,
       // Transforms a date object to a timestamp
-      Date: DateTimeISOResolver,
+      Date: new GraphQLScalarType({
+        name: 'Date',
+        description: 'Date represented as an ISO-8601 string',
+        serialize: DateTimeISOResolver.serialize,
+        parseValue: DateTimeISOResolver.parseValue,
+        parseLiteral: DateTimeISOResolver.parseLiteral
+      }),
       JSON: JSONResolver,
       JSONObject: JSONObjectResolver,
       Void: GraphQLVoid,
