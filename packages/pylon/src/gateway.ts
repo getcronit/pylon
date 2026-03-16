@@ -2,7 +2,18 @@ import {Context, getContext, getResolveInfo} from '@getcronit/pylon'
 import {delegateToSchema, Transform} from '@graphql-tools/delegate'
 import {buildHTTPExecutor} from '@graphql-tools/executor-http'
 import {schemaFromExecutor, wrapSchema} from '@graphql-tools/wrap'
-import {Kind, visit} from 'graphql'
+import {
+  ArgumentNode,
+  BooleanValueNode,
+  FieldNode,
+  IntValueNode,
+  Kind,
+  OperationTypeNode,
+  SelectionNode,
+  SelectionSetNode,
+  StringValueNode,
+  visit
+} from 'graphql'
 
 type Primitive =
   | string
@@ -15,43 +26,185 @@ type Primitive =
   | Date
 
 /**
- * MappedRegistry intercepts the lookup and safely maps over the PROPERTIES
- * of the resolved type. This prevents the TS2589 infinite recursion error.
+ * Recursively maps a GraphQL return type to a selection map for the `needs` object.
+ * Allows boolean flags for selection and a special `__args` property for nested arguments.
  */
+export type NeedsMap<T> = T extends Primitive
+  ? boolean
+  : T extends Array<infer U>
+    ? NeedsMap<U>
+    : {
+        [K in keyof T]?: NeedsMap<T[K]> | boolean
+      } & {__args?: Record<string, any>}
+
+/**
+ * Maps over the properties of the resolved type within the registry.
+ * Intercepting the lookup at the property level mitigates TS2589
+ * (Type instantiation is excessively deep and possibly infinite) during recursive type inference.
+ */
+type MapValue<V, P, R> = V extends Primitive
+  ? V
+  : V extends Array<infer U>
+    ? Array<PatchSchema<U, P, R>>
+    : V extends {__typename: infer Name}
+      ? Name extends keyof P
+        ? P[Name & keyof P] extends (...args: any) => infer Res
+          ? {[Prop in keyof Res]: PatchSchema<Res[Prop], P, R>}
+          : never
+        : {[Prop in keyof V]: PatchSchema<V[Prop], P, R>}
+      : {[Prop in keyof V]: PatchSchema<V[Prop], P, R>}
+
 type MappedRegistry<R, P> = {
-  [K in keyof R]: R[K] extends {__typename: infer Name}
-    ? Name extends keyof P
-      ? P[Name & keyof P] extends (...args: any) => infer Res
-        ? {[Prop in keyof Res]: PatchSchema<Res[Prop], P, R>}
-        : never
-      : {[Prop in keyof R[K]]: PatchSchema<R[K][Prop], P, R>}
-    : {[Prop in keyof R[K]]: PatchSchema<R[K][Prop], P, R>}
+  [K in keyof R]: MapValue<R[K], P, R>
 }
 
 type PatchSchema<T, P, R> = T extends Primitive
   ? T
-  : // ✅ 1. Intercept resolver functions and unwrap them to their returned data
+  : // Unwrap resolver function signatures to their awaited return types.
     T extends (...args: any[]) => infer Ret
     ? PatchSchema<Awaited<Ret>, P, R>
-    : // ✅ 2. Handle Arrays
+    : // Recursively apply PatchSchema to array element types.
       T extends Array<infer U>
       ? Array<PatchSchema<U, P, R>>
-      : // ✅ 3. Safely map nested objects and typenames
+      : // Route schema objects through MappedRegistry via __typename to maintain
+        // type safety across graph boundaries without triggering circular reference limits.
         T extends {__typename: infer Name}
         ? Name extends keyof R
-          ? MappedRegistry<R, P>[Name & keyof R] // Safely bounces through MappedRegistry
+          ? MappedRegistry<R, P>[Name & keyof R]
           : {[K in keyof T]: PatchSchema<T[K], P, R>}
         : T extends object
           ? {[K in keyof T]: PatchSchema<T[K], P, R>}
           : T
 
-// ✅ Store a Promise in the cache to prevent concurrent introspection race conditions
+// Implements a Promise-based cache to synchronize remote schema introspection
+// and mitigate race conditions during concurrent initialization.
 const schemaCache = new Map<string, Promise<any>>()
 
-class PylonPatchTransform<TPatch> implements Transform {
-  constructor(private patches: TPatch) {}
+export interface GatewayContext<TRegistry extends {delegate: any; types: any}> {
+  delegate: <
+    K extends keyof TRegistry['delegate'],
+    TNeeds extends NeedsMap<TRegistry['delegate'][K]['return']> = NeedsMap<
+      TRegistry['delegate'][K]['return']
+    >
+  >(
+    key: K,
+    ...opts: {} extends TRegistry['delegate'][K]['args']
+      ? [options?: {args?: TRegistry['delegate'][K]['args']; needs?: TNeeds}]
+      : [options: {args: TRegistry['delegate'][K]['args']; needs?: TNeeds}]
+  ) => Promise<TRegistry['delegate'][K]['return']> // We return the base type, patches are applied downstream
+}
 
-  // 1. Force __typename into the request (Replacing our previous fix)
+// --- AST Builder Utilities ---
+
+function astFromJSValue(value: any): any {
+  if (typeof value === 'string')
+    return {kind: Kind.STRING, value} as StringValueNode
+  if (typeof value === 'number')
+    return {kind: Kind.INT, value: String(value)} as IntValueNode
+  if (typeof value === 'boolean')
+    return {kind: Kind.BOOLEAN, value} as BooleanValueNode
+  return {kind: Kind.STRING, value: String(value)}
+}
+
+function buildSelectionsFromNeeds(needs: Record<string, any>): SelectionNode[] {
+  const selections: SelectionNode[] = []
+
+  for (const [key, value] of Object.entries(needs)) {
+    if (key === '__args' || !value) continue
+
+    let selectionSet: SelectionSetNode | undefined = undefined
+    let argsNodes: ArgumentNode[] | undefined = undefined
+
+    if (typeof value === 'object') {
+      const nestedSelections = buildSelectionsFromNeeds(value)
+
+      if (nestedSelections.length > 0) {
+        selectionSet = {
+          kind: Kind.SELECTION_SET,
+          selections: nestedSelections
+        }
+      }
+
+      if (value.__args) {
+        argsNodes = Object.entries(value.__args).map(
+          ([argName, argVal]): ArgumentNode => ({
+            kind: Kind.ARGUMENT,
+            name: {kind: Kind.NAME, value: argName},
+            value: astFromJSValue(argVal)
+          })
+        )
+      }
+    }
+
+    selections.push({
+      kind: Kind.FIELD,
+      name: {kind: Kind.NAME, value: key},
+      ...(selectionSet ? {selectionSet} : {}),
+      ...(argsNodes ? {arguments: argsNodes} : {})
+    } as FieldNode)
+  }
+
+  return selections
+}
+
+// --- Transforms ---
+
+class InjectNeedsTransform implements Transform {
+  constructor(private needs?: Record<string, any>) {}
+
+  transformRequest(originalRequest: any) {
+    if (!this.needs || Object.keys(this.needs).length === 0) {
+      return originalRequest
+    }
+
+    const needsSelections = buildSelectionsFromNeeds(this.needs)
+    let rootFieldFound = false
+
+    const document = visit(originalRequest.document, {
+      Field(node) {
+        if (!rootFieldFound && node.selectionSet) {
+          rootFieldFound = true
+
+          const existingNames = new Set(
+            node.selectionSet.selections
+              .filter(s => s.kind === Kind.FIELD)
+              .map((s: any) => s.name.value)
+          )
+
+          const mergedSelections = [...node.selectionSet.selections]
+
+          for (const selection of needsSelections) {
+            if (
+              selection.kind === Kind.FIELD &&
+              !existingNames.has(selection.name.value)
+            ) {
+              mergedSelections.push(selection)
+            }
+          }
+
+          return {
+            ...node,
+            selectionSet: {
+              ...node.selectionSet,
+              selections: mergedSelections
+            }
+          }
+        }
+      }
+    })
+
+    return {...originalRequest, document}
+  }
+}
+
+class PylonPatchTransform<TPatch> implements Transform {
+  constructor(
+    private patches: TPatch,
+    private api: any
+  ) {}
+
+  // Injects __typename into all selection sets via AST traversal to ensure
+  // deterministic resolution of interface/union types for downstream runtime transformations.
   transformRequest(originalRequest: any) {
     const document = visit(originalRequest.document, {
       SelectionSet(node) {
@@ -75,7 +228,7 @@ class PylonPatchTransform<TPatch> implements Transform {
     return {...originalRequest, document}
   }
 
-  // 2. Apply your patches to the result automatically
+  // Intercepts the execution phase to recursively apply registered patches to the payload.
   transformResult(originalResult: any) {
     return this.applyTransforms(originalResult)
   }
@@ -91,50 +244,77 @@ class PylonPatchTransform<TPatch> implements Transform {
 
     const typeName = data.__typename
     const patchFn = (this.patches as any)[typeName]
-    if (patchFn) return patchFn(processedData)
+    if (patchFn) return patchFn(processedData, this.api)
 
     return processedData
   }
 }
 
+// --- Main Gateway Class ---
+
 class PylonGateway<
-  TRegistry,
-  TPatch extends Record<string, (data: any) => any>
+  TRegistry extends {delegate: any; types: any},
+  TPatch extends Record<string, (data: any, api: any) => any>
 > {
+  private apiContext: GatewayContext<TRegistry>
+
   constructor(
     private config: {
       url: string
       headers?: (ctx: any) => Record<string, string>
       patches: TPatch
     }
-  ) {}
-
-  private applyTransforms(data: any): any {
-    if (!data || typeof data !== 'object') return data
-    if (Array.isArray(data)) return data.map(item => this.applyTransforms(item))
-
-    const processedData = {...data}
-    for (const key in processedData) {
-      // Processes children bottom-up so patches receive fully transformed nested objects
-      processedData[key] = this.applyTransforms(processedData[key])
+  ) {
+    this.apiContext = {
+      delegate: this.delegate.bind(this) as any
     }
-
-    const typeName = data.__typename
-    const patchFn = this.config.patches[typeName as keyof TPatch]
-    if (patchFn) return patchFn(processedData)
-
-    return processedData
   }
 
-  public async delegate<K extends keyof TRegistry>(
+  public async delegate<
+    K extends keyof TRegistry['delegate'],
+    TNeeds extends NeedsMap<TRegistry['delegate'][K]['return']> = NeedsMap<
+      TRegistry['delegate'][K]['return']
+    >
+  >(
     key: K,
-    operationName: string,
-    args: Record<string, any> = {}
-  ): Promise<MappedRegistry<TRegistry, TPatch>[K]> {
+    ...opts: {} extends TRegistry['delegate'][K]['args']
+      ? [options?: {args?: TRegistry['delegate'][K]['args']; needs?: TNeeds}]
+      : [options: {args: TRegistry['delegate'][K]['args']; needs?: TNeeds}]
+  ): Promise<
+    PatchSchema<TRegistry['delegate'][K]['return'], TPatch, TRegistry['types']>
+  > {
     const {info} = getResolveInfo()
     const ctx = getContext()
 
     if (!info || !ctx) throw new Error('Pylon context missing')
+
+    // Extract args and needs from the unified options object
+    const options = opts[0] as {args?: any; needs?: any} | undefined
+    const args = options?.args || {}
+    const needs = options?.needs
+
+    const [rootType, fieldName] = String(key).split('.')
+
+    if (!rootType || !fieldName) {
+      throw new Error(
+        `Invalid delegate key format: ${String(key)}. Expected "Operation.field"`
+      )
+    }
+
+    const operationMap: Record<string, OperationTypeNode> = {
+      Query: OperationTypeNode.QUERY,
+      Mutation: OperationTypeNode.MUTATION,
+      Subscription: OperationTypeNode.SUBSCRIPTION
+    }
+
+    const operation = operationMap[rootType]
+
+    // Validate operation type against supported GraphQL root nodes.
+    if (!operation) {
+      throw new Error(
+        `Unsupported operation type "${rootType}" in key "${String(key)}"`
+      )
+    }
 
     if (!schemaCache.has(this.config.url)) {
       const executor = buildHTTPExecutor({
@@ -144,7 +324,6 @@ class PylonGateway<
         })
       })
 
-      // ✅ Cache the promise instantly so parallel requests await the same introspection
       const schemaPromise = schemaFromExecutor(executor).then(schema =>
         wrapSchema({schema, executor})
       )
@@ -155,51 +334,54 @@ class PylonGateway<
 
     const result = await delegateToSchema({
       schema,
-      operation: info.operation.operation,
-      fieldName: operationName,
-      args,
+      operation: operation,
+      fieldName: fieldName,
+      args: args,
       context: ctx,
       info,
-      transforms: [new PylonPatchTransform(this.config.patches)]
+      transforms: [
+        new InjectNeedsTransform(needs), // Injects requested AST fields
+        new PylonPatchTransform(this.config.patches, this.apiContext)
+      ]
     })
 
-    return result
+    return result as any
   }
 }
 
 /**
- * Creates a factory for configuring a strongly-typed PylonGateway.
+ * Instantiates a factory for configuring a strongly-typed PylonGateway.
  *
- * By providing a type registry (`TRegistry`) representing your remote GraphQL schema,
- * you ensure that all subsequent configurations, schema patches, and delegated queries
- * are fully type-safe.
+ * Utilizes a generated type registry (`TRegistry`) mapping remote GraphQL typenames
+ * to TypeScript interfaces, guaranteeing end-to-end type safety for configurations,
+ * schema patches, and delegated execution payloads.
  *
- * @template TRegistry - A type map/registry matching GraphQL typenames to their TypeScript interfaces.
- * @returns An object containing a `configure` method to initialize the gateway.
+ * @template TRegistry - Type map correlating GraphQL typenames to local TypeScript definitions.
+ * @returns Gateway configuration interface.
  *
  * @example
  *
- * Pull the remote schema using `pylon pull <url> -n <name>`
+ * // Provision remote schema via CLI: pylon pull <url> -n <name>
  *
  * ```typescript
  * import { createGateway } from '@getcronit/pylon';
- * import { RemoteRegistry } from './generated/remote'; // Generated by pylon-dev pull
+ * import { RemoteRegistry } from './generated/remote';
  *
  * const gateway = createGateway<RemoteRegistry>().configure({
- *   url: '[https://api.example.com/graphql](https://api.example.com/graphql)',
- *   headers: (ctx) => ({ Authorization: ctx.token }),
- *   patches: {
- *     User: (data) => ({ ...data, fullName: `${data.firstName} ${data.lastName}` })
- *   }
+ * url: '[https://api.example.com/graphql](https://api.example.com/graphql)',
+ * headers: (ctx) => ({ Authorization: ctx.token }),
+ * patches: {
+ * User: (data, api) => ({ ...data, fullName: `${data.firstName} ${data.lastName}` })
+ * }
  * });
  * ```
  */
-export function createGateway<TRegistry>() {
+export function createGateway<TRegistry extends {delegate: any; types: any}>() {
   return {
     configure: <
       TPatch extends {
-        [K in keyof TPatch]: K extends keyof TRegistry
-          ? (data: TRegistry[K]) => any
+        [K in keyof TPatch]: K extends keyof TRegistry['types']
+          ? (data: TRegistry['types'][K], api: GatewayContext<TRegistry>) => any
           : never
       }
     >(config: {
