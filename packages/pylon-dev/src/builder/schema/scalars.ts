@@ -10,9 +10,7 @@ export const SCALARS: Record<string, string> = {
   JSONObject: 'object',
   File: 'File',
   Date: 'Date',
-  JSON: 'object',
-  DateTime: 'Date',
-  DateTimeISO: 'Date'
+  JSON: 'object'
 } as const
 
 export const SCALAR_NAMES = Object.keys(SCALARS)
