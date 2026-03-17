@@ -98,7 +98,10 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
             }
           } else if (value.entryPoint?.endsWith('pylon/dist/pages/index.css')) {
             manifest['index.css'] = key
+          } else if (value.entryPoint?.endsWith('pages/sitemap.ts')) {
+            manifest['sitemap.js'] = key
           }
+
         }
 
         if (build.initialOptions.publicPath) {
@@ -154,7 +157,13 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
     }
   })
 
+  const sitemapExists = await fs
+    .access(path.join(process.cwd(), 'pages/sitemap.ts'))
+    .then(() => true)
+    .catch(() => false)
+
   const clientCtx = await esbuild.context({
+
     sourcemap: 'linked',
     write: false,
     metafile: true,
@@ -222,7 +231,12 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
     entryNames: './[name]-[hash]',
     format: 'esm',
     platform: 'node',
-    entryPoints: ['.pylon/app.tsx', pylonCssPath],
+    entryPoints: [
+      '.pylon/app.tsx',
+      pylonCssPath,
+      ...(sitemapExists ? ['./pages/sitemap.ts'] : [])
+    ],
+
     outdir: DIST_PAGES_DIR,
     bundle: true,
     splitting: false,

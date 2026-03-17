@@ -34,6 +34,29 @@ export type LayoutProps = PageProps & {
   children: React.ReactNode
 }
 
+export namespace MetadataRoute {
+  export type SitemapItem = {
+    url: string
+    lastmod?: string | Date
+    changefreq?:
+      | 'always'
+      | 'hourly'
+      | 'daily'
+      | 'weekly'
+      | 'monthly'
+      | 'yearly'
+      | 'never'
+    priority?: number
+  }
+  export type Sitemap = SitemapItem[]
+
+  export type SitemapIndexItem = {
+    url: string
+    lastmod?: string | Date
+  }
+  export type SitemapIndex = SitemapIndexItem[]
+}
+
 export const setup: NonNullable<Plugin['setup']> = async app => {
   // Read manifests securely from JSON
   const pagesManifestPath = path.join(
@@ -93,6 +116,128 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
     })
   } catch (error) {
     // Ignore error
+  }
+
+  const sitemapCache = new Map<string, {xml: string; expiresAt: number}>()
+
+  // Sitemap handlers
+
+  if (pagesManifest['sitemap.js']) {
+    try {
+      const sitemapModule = await import(
+        `${process.cwd()}/${pagesManifest['sitemap.js']}`
+      )
+
+      app.get('/sitemap.xml', async c => {
+        const cacheKey = 'sitemap.xml'
+        const cached = sitemapCache.get(cacheKey)
+        const now = Date.now()
+
+        const revalidate = sitemapModule.revalidate
+        if (revalidate === false || revalidate === 0) {
+          c.header(
+            'Cache-Control',
+            'no-store, no-cache, must-revalidate, proxy-revalidate'
+          )
+        } else if (typeof revalidate === 'number') {
+          c.header(
+            'Cache-Control',
+            `public, max-age=${revalidate}, s-maxage=${revalidate}, stale-while-revalidate`
+          )
+        }
+
+        if (cached && cached.expiresAt > now) {
+          c.header('Content-Type', 'application/xml')
+          return c.body(cached.xml)
+        }
+
+        let xml: string = ''
+        if (sitemapModule.generateSitemaps) {
+          const sitemaps = await sitemapModule.generateSitemaps()
+          const baseUrl = new URL(c.req.url)
+          const indexItems = sitemaps.map((s: any) => ({
+            url: `${baseUrl.origin}/sitemap/${s.id}.xml`
+          }))
+          xml = renderSitemapIndexXml(indexItems)
+        } else {
+          const sitemapFn = sitemapModule.sitemap || sitemapModule.default
+          if (sitemapFn) {
+            const items = await sitemapFn()
+            xml = renderSitemapXml(items)
+          } else {
+            return c.text('Sitemap not found', 404)
+          }
+        }
+
+        if (typeof revalidate === 'number' && revalidate > 0) {
+          sitemapCache.set(cacheKey, {
+            xml,
+            expiresAt: now + revalidate * 1000
+          })
+        }
+
+        c.header('Content-Type', 'application/xml')
+        return c.body(xml)
+      })
+
+
+
+      app.get('/sitemap/:id', async c => {
+        const idParam = c.req.param('id')
+        if (!idParam.endsWith('.xml')) {
+          return c.text('Sitemap not found', 404)
+        }
+        const id = idParam.replace('.xml', '')
+
+        const cacheKey = `sitemap-${id}.xml`
+        const cached = sitemapCache.get(cacheKey)
+        const now = Date.now()
+
+        const revalidate = sitemapModule.revalidate
+        if (revalidate === false || revalidate === 0) {
+          c.header(
+            'Cache-Control',
+            'no-store, no-cache, must-revalidate, proxy-revalidate'
+          )
+        } else if (typeof revalidate === 'number') {
+          c.header(
+            'Cache-Control',
+            `public, max-age=${revalidate}, s-maxage=${revalidate}, stale-while-revalidate`
+          )
+        }
+
+        if (cached && cached.expiresAt > now) {
+          c.header('Content-Type', 'application/xml')
+          return c.body(cached.xml)
+        }
+
+        let xml: string = ''
+        const sitemapFn = sitemapModule.sitemap || sitemapModule.default
+
+        if (sitemapFn) {
+          const items = await sitemapFn({id})
+          xml = renderSitemapXml(items)
+        } else {
+          return c.text('Sitemap not found', 404)
+        }
+
+        if (typeof revalidate === 'number' && revalidate > 0) {
+          sitemapCache.set(cacheKey, {
+            xml,
+            expiresAt: now + revalidate * 1000
+          })
+        }
+
+        c.header('Content-Type', 'application/xml')
+        return c.body(xml)
+      })
+
+
+
+
+    } catch (e) {
+      console.error('Failed to load sitemap module:', e)
+    }
   }
 
   app.on(
@@ -521,4 +666,67 @@ const downloadImage = async (url: string): Promise<string> => {
   await pipeline(response.body!, fileStream)
 
   return tempFilePath
+}
+
+function escapeXml(unsafe: string): string {
+  return unsafe.replace(/[<>&'"]/g, c => {
+    switch (c) {
+      case '<':
+        return '&lt;'
+      case '>':
+        return '&gt;'
+      case '&':
+        return '&amp;'
+      case "'":
+        return '&apos;'
+      case '"':
+        return '&quot;'
+    }
+    return c
+  })
+}
+
+function renderSitemapXml(items: MetadataRoute.SitemapItem[]): string {
+  let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`
+  xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`
+  for (const item of items) {
+    xml += `  <url>\n`
+    xml += `    <loc>${escapeXml(item.url)}</loc>\n`
+    if (item.lastmod) {
+      const date =
+        item.lastmod instanceof Date
+          ? item.lastmod.toISOString().split('T')[0]
+          : item.lastmod
+      xml += `    <lastmod>${escapeXml(String(date))}</lastmod>\n`
+    }
+    if (item.changefreq) {
+      xml += `    <changefreq>${escapeXml(item.changefreq)}</changefreq>\n`
+    }
+    if (item.priority !== undefined) {
+      xml += `    <priority>${item.priority}</priority>\n`
+    }
+    xml += `  </url>\n`
+  }
+  xml += `</urlset>`
+  return xml
+}
+
+function renderSitemapIndexXml(items: MetadataRoute.SitemapIndex): string {
+  let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`
+
+  xml += `<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`
+  for (const item of items) {
+    xml += `  <sitemap>\n`
+    xml += `    <loc>${escapeXml(item.url)}</loc>\n`
+    if (item.lastmod) {
+      const date =
+        item.lastmod instanceof Date
+          ? item.lastmod.toISOString().split('T')[0]
+          : item.lastmod
+      xml += `    <lastmod>${escapeXml(String(date))}</lastmod>\n`
+    }
+    xml += `  </sitemap>\n`
+  }
+  xml += `</sitemapindex>`
+  return xml
 }
