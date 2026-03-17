@@ -251,7 +251,25 @@ class PylonPatchTransform<TPatch> implements Transform {
 
     const typeName = data.__typename
     const patchFn = (this.patches as any)[typeName]
-    if (patchFn) return patchFn(processedData, this.api)
+    if (patchFn) {
+      const patchedData = patchFn(processedData, this.api)
+
+      // Safely merge the patched result WITH the original processedData.
+      // This ensures that any dynamically aliased keys (e.g., 'b5c5d1')
+      // are strictly preserved, even if the patch function forgets (or chooses not) to spread them.
+      if (
+        patchedData &&
+        typeof patchedData === 'object' &&
+        !Array.isArray(patchedData)
+      ) {
+        return {
+          ...processedData,
+          ...patchedData
+        }
+      }
+
+      return patchedData
+    }
 
     return processedData
   }
