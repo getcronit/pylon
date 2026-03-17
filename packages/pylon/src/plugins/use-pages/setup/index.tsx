@@ -132,6 +132,7 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
         const cacheKey = 'sitemap.xml'
         const cached = sitemapCache.get(cacheKey)
         const now = Date.now()
+        const baseUrl = new URL(c.req.url)
 
         const revalidate = sitemapModule.revalidate
         if (revalidate === false || revalidate === 0) {
@@ -154,7 +155,6 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
         let xml: string = ''
         if (sitemapModule.generateSitemaps) {
           const sitemaps = await sitemapModule.generateSitemaps()
-          const baseUrl = new URL(c.req.url)
           const indexItems = sitemaps.map((s: any) => ({
             url: `${baseUrl.origin}/sitemap/${s.id}.xml`
           }))
@@ -163,11 +163,12 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
           const sitemapFn = sitemapModule.sitemap || sitemapModule.default
           if (sitemapFn) {
             const items = await sitemapFn()
-            xml = renderSitemapXml(items)
+            xml = renderSitemapXml(items, baseUrl.origin)
           } else {
             return c.text('Sitemap not found', 404)
           }
         }
+
 
         if (typeof revalidate === 'number' && revalidate > 0) {
           sitemapCache.set(cacheKey, {
@@ -192,6 +193,7 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
         const cacheKey = `sitemap-${id}.xml`
         const cached = sitemapCache.get(cacheKey)
         const now = Date.now()
+        const baseUrl = new URL(c.req.url)
 
         const revalidate = sitemapModule.revalidate
         if (revalidate === false || revalidate === 0) {
@@ -216,8 +218,9 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
 
         if (sitemapFn) {
           const items = await sitemapFn({id})
-          xml = renderSitemapXml(items)
+          xml = renderSitemapXml(items, baseUrl.origin)
         } else {
+
           return c.text('Sitemap not found', 404)
         }
 
@@ -686,12 +689,22 @@ function escapeXml(unsafe: string): string {
   })
 }
 
-function renderSitemapXml(items: MetadataRoute.SitemapItem[]): string {
+function renderSitemapXml(
+  items: MetadataRoute.SitemapItem[],
+  baseUrl: string
+): string {
   let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`
   xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`
   for (const item of items) {
+    const isAbsolute =
+      item.url.startsWith('http://') || item.url.startsWith('https://')
+    const loc = isAbsolute
+      ? item.url
+      : `${baseUrl}/${item.url.replace(/^\//, '')}`
+
     xml += `  <url>\n`
-    xml += `    <loc>${escapeXml(item.url)}</loc>\n`
+    xml += `    <loc>${escapeXml(loc)}</loc>\n`
+
     if (item.lastmod) {
       const date =
         item.lastmod instanceof Date
