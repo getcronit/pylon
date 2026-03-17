@@ -278,11 +278,48 @@ const wrapResolver = (
   const result: Record<string, any> = {}
 
   for (const {name, fieldNodes: childNodes, returnType} of selectedFields) {
-    const rawValue = (resolver as any)[name]
-    if (rawValue !== undefined) {
-      result[name] = wrapResolver(rawValue, context, childNodes, returnType)
+    // Check if ANY of the requested nodes for this field use an alias
+    const hasAliases = childNodes.some(node => node.alias !== undefined)
+
+    if (hasAliases) {
+      // We have a mix of aliases/non-aliases, or purely aliases.
+      // We MUST return a function so we can dynamically route the data per execution.
+      result[name] = (
+        args: Record<string, any>,
+        ctx: any,
+        info: GraphQLResolveInfo
+      ) => {
+        const aliasKey = info.fieldNodes[0].alias?.value
+        const schemaKey = info.fieldName
+
+        // Priority 1: Check if this specific alias exists on the resolved object (Gateway data)
+        if (aliasKey && (resolver as any)[aliasKey] !== undefined) {
+          return wrapResolver(
+            (resolver as any)[aliasKey],
+            context,
+            info.fieldNodes,
+            returnType
+          )
+        }
+
+        // Priority 2: Fall back to the schema key (Local execution or unaliased Gateway data)
+        const schemaValue = (resolver as any)[schemaKey]
+        if (schemaValue !== undefined) {
+          return wrapResolver(schemaValue, context, info.fieldNodes, returnType)
+        }
+
+        return undefined
+      }
+    } else {
+      // Fast path: No aliases involved. Safely resolve statically.
+      const rawValue = (resolver as any)[name]
+      if (rawValue !== undefined) {
+        result[name] = wrapResolver(rawValue, context, childNodes, returnType)
+      }
     }
   }
+
+  return result
 
   return result
 }
