@@ -4,15 +4,17 @@ import {buildHTTPExecutor} from '@graphql-tools/executor-http'
 import {schemaFromExecutor, wrapSchema} from '@graphql-tools/wrap'
 import {
   ArgumentNode,
-  BooleanValueNode,
   FieldNode,
-  IntValueNode,
+  getNamedType,
+  isEnumType,
   Kind,
   OperationTypeNode,
   SelectionNode,
   SelectionSetNode,
-  StringValueNode,
-  visit
+  TypeInfo,
+  ValueNode,
+  visit,
+  visitWithTypeInfo
 } from 'graphql'
 
 type Primitive =
@@ -103,13 +105,42 @@ export interface GatewayContext<TRegistry extends {delegate: any; types: any}> {
 
 // --- AST Builder Utilities ---
 
-function astFromJSValue(value: any): any {
-  if (typeof value === 'string')
-    return {kind: Kind.STRING, value} as StringValueNode
-  if (typeof value === 'number')
-    return {kind: Kind.INT, value: String(value)} as IntValueNode
-  if (typeof value === 'boolean')
-    return {kind: Kind.BOOLEAN, value} as BooleanValueNode
+function astFromJSValue(value: any): ValueNode {
+  if (value === null || value === undefined) {
+    return {kind: Kind.NULL}
+  }
+  if (typeof value === 'string') {
+    return {kind: Kind.STRING, value}
+  }
+  if (typeof value === 'number') {
+    return Number.isInteger(value)
+      ? {kind: Kind.INT, value: String(value)}
+      : {kind: Kind.FLOAT, value: String(value)}
+  }
+  if (typeof value === 'boolean') {
+    return {kind: Kind.BOOLEAN, value}
+  }
+  if (Array.isArray(value)) {
+    return {
+      kind: Kind.LIST,
+      values: value.map(astFromJSValue)
+    }
+  }
+  if (typeof value === 'object') {
+    return {
+      kind: Kind.OBJECT,
+      fields: Object.entries(value)
+        // Filter out undefined keys so they aren't sent to the remote graph
+        .filter(([_, val]) => val !== undefined)
+        .map(([key, val]) => ({
+          kind: Kind.OBJECT_FIELD,
+          name: {kind: Kind.NAME, value: key},
+          value: astFromJSValue(val)
+        }))
+    }
+  }
+
+  // Fallback
   return {kind: Kind.STRING, value: String(value)}
 }
 
@@ -201,6 +232,70 @@ class InjectNeedsTransform implements Transform {
     })
 
     return {...originalRequest, document}
+  }
+}
+
+class InlineArgsTransform implements Transform {
+  constructor(private args: Record<string, any>) {}
+
+  // delegationContext is provided automatically by delegateToSchema
+  transformRequest(originalRequest: any, delegationContext: any) {
+    if (!this.args || Object.keys(this.args).length === 0) {
+      return originalRequest
+    }
+
+    // 1. Convert flat JS args into generic AST nodes (Everything defaults to Strings)
+    const inlineArguments = Object.entries(this.args)
+      .filter(([_, val]) => val !== undefined)
+      .map(([key, value]) => ({
+        kind: Kind.ARGUMENT,
+        name: {kind: Kind.NAME, value: key},
+        value: astFromJSValue(value)
+      }))
+
+    let rootFieldFound = false
+
+    // 2. Inject the generic AST into the document
+    const documentWithStrings = visit(originalRequest.document, {
+      OperationDefinition(node) {
+        return {...node, variableDefinitions: []}
+      },
+      Field(node) {
+        if (!rootFieldFound) {
+          rootFieldFound = true
+          return {...node, arguments: inlineArguments}
+        }
+      }
+    })
+
+    // 3. THE FIX: Use TypeInfo to cross-reference the AST with the remote schema
+    // and automatically fix Enums.
+    const schema = delegationContext.targetSchema
+    const typeInfo = new TypeInfo(schema)
+
+    const fixedDocument = visit(
+      documentWithStrings,
+      visitWithTypeInfo(typeInfo, {
+        StringValue(node) {
+          const inputType = typeInfo.getInputType()
+          if (inputType) {
+            // getNamedType unwraps Arrays and NonNulls (e.g., [TicketStatus!]! -> TicketStatus)
+            const namedType = getNamedType(inputType)
+
+            // If the remote schema expects an Enum here, rewrite the AST node
+            if (isEnumType(namedType)) {
+              return {kind: Kind.ENUM, value: node.value}
+            }
+          }
+        }
+      })
+    )
+
+    return {
+      ...originalRequest,
+      document: fixedDocument,
+      variables: {}
+    }
   }
 }
 
@@ -366,6 +461,7 @@ class PylonGateway<
       info,
       transforms: [
         new InjectNeedsTransform(needs), // Injects requested AST fields
+        new InlineArgsTransform(args), // Injects arguments into the AST
         new PylonPatchTransform(this.config.patches, this.apiContext)
       ]
     })
