@@ -266,7 +266,6 @@ class InlineArgsTransform implements Transform {
         if (!targetFieldFound && node.name.value === targetFieldName) {
           targetFieldFound = true
 
-          // Merge wrapper args with any existing AST arguments safely
           const existingArgs = node.arguments || []
           const mergedArgs = [...existingArgs]
 
@@ -282,16 +281,33 @@ class InlineArgsTransform implements Transform {
         }
       },
 
-      // B. THE FIX: Inline ALL nested client variables
-      // This turns `first: $foo2` directly into `first: 0`
-      Variable(node) {
-        const varName = node.name.value
-        if (varName in variables) {
-          return astFromJSValue(variables[varName])
+      // B. PRUNE missing arguments entirely
+      Argument(node) {
+        if (node.value.kind === Kind.VARIABLE) {
+          const varName = node.value.name.value
+          if (!(varName in variables) || variables[varName] === undefined) {
+            return null // Deletes `first: $a70fde` from the AST
+          }
         }
       },
 
-      // C. Safe to strip definitions since ALL variables are now inline AST literals
+      // C. PRUNE missing input object fields entirely (e.g. filters: { status: $missing })
+      ObjectField(node) {
+        if (node.value.kind === Kind.VARIABLE) {
+          const varName = node.value.name.value
+          if (!(varName in variables) || variables[varName] === undefined) {
+            return null // Deletes the field from the input object
+          }
+        }
+      },
+
+      // D. Inline all surviving variables (and safely fallback to NullNode just in case)
+      Variable(node) {
+        const varName = node.name.value
+        return astFromJSValue(variables[varName])
+      },
+
+      // E. Wipe variable definitions
       OperationDefinition(node) {
         return {...node, variableDefinitions: []}
       }
