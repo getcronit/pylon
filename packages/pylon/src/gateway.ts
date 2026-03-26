@@ -236,53 +236,77 @@ class InjectNeedsTransform implements Transform {
 }
 
 class InlineArgsTransform implements Transform {
-  constructor(private args: Record<string, any>) {}
+  constructor(private wrapperArgs: Record<string, any>) {}
 
-  // delegationContext is provided automatically by delegateToSchema
   transformRequest(originalRequest: any, delegationContext: any) {
-    if (!this.args || Object.keys(this.args).length === 0) {
-      return originalRequest
-    }
+    // 1. Parse the root args provided by your JS wrapper (if any)
+    const rootInlineArguments =
+      this.wrapperArgs && Object.keys(this.wrapperArgs).length > 0
+        ? Object.entries(this.wrapperArgs)
+            .filter(([_, val]) => val !== undefined)
+            // Add the explicit ArgumentNode return type here!
+            .map(
+              ([key, value]): ArgumentNode => ({
+                kind: Kind.ARGUMENT,
+                name: {kind: Kind.NAME, value: key},
+                value: astFromJSValue(value)
+              })
+            )
+        : []
 
-    // 1. Convert flat JS args into generic AST nodes (Everything defaults to Strings)
-    const inlineArguments = Object.entries(this.args)
-      .filter(([_, val]) => val !== undefined)
-      .map(([key, value]) => ({
-        kind: Kind.ARGUMENT,
-        name: {kind: Kind.NAME, value: key},
-        value: astFromJSValue(value)
-      }))
+    const targetFieldName = delegationContext.fieldName
+    let targetFieldFound = false
 
-    let rootFieldFound = false
+    // graphql-tools safely extracts nested variables into this object
+    const variables = originalRequest.variables || {}
 
-    // 2. Inject the generic AST into the document
-    const documentWithStrings = visit(originalRequest.document, {
+    let inlineDocument = visit(originalRequest.document, {
+      // A. Inject our wrapper args into the ROOT field
+      Field(node) {
+        if (!targetFieldFound && node.name.value === targetFieldName) {
+          targetFieldFound = true
+
+          // Merge wrapper args with any existing AST arguments safely
+          const existingArgs = node.arguments || []
+          const mergedArgs = [...existingArgs]
+
+          for (const newArg of rootInlineArguments) {
+            const existingIdx = mergedArgs.findIndex(
+              a => a.name.value === newArg.name.value
+            )
+            if (existingIdx > -1) mergedArgs[existingIdx] = newArg
+            else mergedArgs.push(newArg)
+          }
+
+          return {...node, arguments: mergedArgs}
+        }
+      },
+
+      // B. THE FIX: Inline ALL nested client variables
+      // This turns `first: $foo2` directly into `first: 0`
+      Variable(node) {
+        const varName = node.name.value
+        if (varName in variables) {
+          return astFromJSValue(variables[varName])
+        }
+      },
+
+      // C. Safe to strip definitions since ALL variables are now inline AST literals
       OperationDefinition(node) {
         return {...node, variableDefinitions: []}
-      },
-      Field(node) {
-        if (!rootFieldFound) {
-          rootFieldFound = true
-          return {...node, arguments: inlineArguments}
-        }
       }
     })
 
-    // 3. THE FIX: Use TypeInfo to cross-reference the AST with the remote schema
-    // and automatically fix Enums.
-    const schema = delegationContext.targetSchema
-    const typeInfo = new TypeInfo(schema)
-
-    const fixedDocument = visit(
-      documentWithStrings,
+    // 3. Run the TypeInfo pass over the FULL document.
+    // This ensures both root and nested string AST nodes are correctly coerced to Enums!
+    const typeInfo = new TypeInfo(delegationContext.targetSchema)
+    inlineDocument = visit(
+      inlineDocument,
       visitWithTypeInfo(typeInfo, {
         StringValue(node) {
           const inputType = typeInfo.getInputType()
           if (inputType) {
-            // getNamedType unwraps Arrays and NonNulls (e.g., [TicketStatus!]! -> TicketStatus)
             const namedType = getNamedType(inputType)
-
-            // If the remote schema expects an Enum here, rewrite the AST node
             if (isEnumType(namedType)) {
               return {kind: Kind.ENUM, value: node.value}
             }
@@ -293,8 +317,8 @@ class InlineArgsTransform implements Transform {
 
     return {
       ...originalRequest,
-      document: fixedDocument,
-      variables: {}
+      document: inlineDocument,
+      variables: {} // Wipe the payload, we don't need it anymore!
     }
   }
 }
