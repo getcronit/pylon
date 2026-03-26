@@ -57,9 +57,9 @@ export async function generatePylonTypes(url: string, outputPath: string) {
     if (
       tsType === 'Date' ||
       tsType === 'File' ||
-      tsType === 'ID' ||
-      tsType === 'Int' ||
-      tsType === 'Float'
+      scalarName === 'ID' ||
+      scalarName === 'Int' ||
+      scalarName === 'Float'
     ) {
       continue
     }
