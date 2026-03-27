@@ -16,8 +16,8 @@ import {
   SelectionNode
 } from 'graphql'
 
-import {AsyncLocalStorage} from 'async_hooks'
 import {asyncContext, Context} from './context'
+import {executionAsyncContext, ExecutionContext} from './resolve-info'
 
 // Global caches for performance
 const uniqueFieldsCache = new WeakMap<GraphQLNamedType, string[]>()
@@ -30,27 +30,6 @@ export interface Resolvers {
   Query: Record<string, any>
   Mutation?: Record<string, any>
   Subscription?: Record<string, any>
-}
-
-export interface ExecutionContext {
-  info: GraphQLResolveInfo
-  selectedFields: {
-    name: string
-    fieldNodes: FieldNode[]
-    returnType?: any
-  }[]
-}
-
-export const executionAsyncContext = new AsyncLocalStorage<ExecutionContext>()
-
-export const getResolveInfo = () => {
-  const store = executionAsyncContext.getStore()
-
-  if (!store) {
-    throw new Error('Resolve info is not available')
-  }
-
-  return store
 }
 
 type PrimitiveType = string | number | boolean | null | undefined

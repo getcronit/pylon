@@ -12,10 +12,11 @@ export {
   Variables
 } from './context.js'
 export {createDecorator} from './create-decorator.js'
-export {getResolveInfo, ServiceError} from './define-pylon.js'
+export {ServiceError} from './define-pylon.js'
 export {getEnv} from './get-env.js'
 export {authMiddleware, requireAuth, useAuth} from './plugins/use-auth/index.js'
 export {usePages} from './plugins/use-pages/index.js'
+export {getResolveInfo} from './resolve-info.js'
 export {pylonApp as app}
 
 import {app as pylonApp} from './app/index.js'

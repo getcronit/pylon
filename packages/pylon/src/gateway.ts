@@ -1,4 +1,3 @@
-import {Context, getContext, getResolveInfo} from '@getcronit/pylon'
 import {delegateToSchema, Transform} from '@graphql-tools/delegate'
 import {buildHTTPExecutor} from '@graphql-tools/executor-http'
 import {schemaFromExecutor, wrapSchema} from '@graphql-tools/wrap'
@@ -16,6 +15,9 @@ import {
   visit,
   visitWithTypeInfo
 } from 'graphql'
+import type {Context} from './context'
+import {getContext} from './context'
+import {getResolveInfo} from './resolve-info'
 
 type Primitive =
   | string
