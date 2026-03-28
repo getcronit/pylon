@@ -410,61 +410,105 @@ function withLoaderData<T>(Component: React.ComponentType<{ data: T }>, name?: s
   };
 }
 
-const loader: (ref?: string) => __PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFunction = (ref) => async ({ request, ...args }) => {
-  // 1. Skip if request is a JSON-only fetch (e.g., client-side route preloading)
-  const acceptHeader = request.headers.get('accept')
-  if (acceptHeader?.includes('application/json')) {
-    return null
-  }
-
-  const url = new URL(request.url)
-  const headers = new Headers()
-  let fetchToUse: typeof fetch = fetch
-
-  try {
-    // 2. Try importing Pylon — if this works, we're on the server
-    const moduleNameToPreventBundling = '@getcronit/pylon'
-    const { app, getContext } = await import(moduleNameToPreventBundling)
-    fetchToUse = app.request
-
-    // 3. Get headers from the original server request and forward them
-    const context = getContext()
-    for (const [key, value] of context.req.raw.headers.entries()) {
-      headers.append(key, value)
-    }
-
-    // Set Accept-Encoding header to identity so the internal fetch returns JSON
-    headers.set('Accept-Encoding', 'identity')
-    
-  } catch {
-    // 4. Pylon not available — fallback to default fetch (runs in browser)
-    // No additional headers are needed; browser sends cookies automatically
-  }
-
-  headers.set('Accept', 'application/json') // Ensure the internal request gets JSON
-  headers.set('X-Pylon-Internal', 'true')
-  if(ref) {
-    headers.set('X-Pylon-Route-Ref', ref)
-  }
-
-  const response = await fetchToUse(url.pathname + url.search, {
-      method: 'GET',
-      headers,
-  })
-
-  try {
-    const data = await response.json<any>()
-
-    // Check if the version returned by the server matches the client's version
-    if (data && data.version && typeof window !== 'undefined' && (window as any).__PYLON_VERSION__ && data.version !== (window as any).__PYLON_VERSION__) {
-      window.location.reload()
-    }
-
-    return data
-  } catch {
-    return null
-  }
+/**
+ * Dynamically imports the Pylon server context.
+ * * @description
+ * This function uses a dynamic import with a variable (\`moduleNameToPreventBundling\`) 
+ * to intentionally obscure the import path from bundlers like Webpack or Vite. 
+ * This prevents the bundler from mistakenly attempting to include server-side 
+ * Pylon code within the client-side bundle, which would cause build or runtime errors.
+ * * @returns {Promise<{ app: any, ctx: any }>} The Pylon application instance and context.
+ * @throws Will throw an error if executed in a browser environment where the module is unavailable.
+ */
+async function getPylonServerContext() {
+  const moduleNameToPreventBundling = '@getcronit/pylon';
+  const { app, getContext } = await import(moduleNameToPreventBundling);
+  return { app, ctx: getContext() };
 }
+
+/**
+ * Creates an isomorphic data loader for a specific route.
+ * * @description
+ * This factory function generates a loader capable of executing on both the server 
+ * and the client. It handles environment detection, header propagation, and 
+ * ensures the client stays synchronized with the server's application version.
+ * * @param {string} [ref] - An optional route reference identifier passed to the server via the \`X-Pylon-Route-Ref\` header.
+ * @returns {__PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFunction} An asynchronous loader function ready to handle requests.
+ */
+export const loader: (ref?: string) => __PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFunction = (ref) => async ({ request }) => {
+  const url = new URL(request.url);
+  const isJsonOnlyFetch = request.headers.get('accept')?.includes('application/json');
+
+  // 1. Handle Client-Side Preloading
+  // If the browser is pre-fetching route data (JSON only), we can bypass the full fetch
+  // and return the context directly if we are already on the server.
+  if (isJsonOnlyFetch) {
+    try {
+      const { ctx } = await getPylonServerContext();
+      return { context: ctx.get('pagesContext') };
+    } catch {
+      // Safely catches if a browser inadvertently triggers this path.
+      return null; 
+    }
+  }
+
+  // 2. Environment Setup (Server vs. Browser)
+  let fetcher: typeof fetch = fetch;
+  const headers = new Headers();
+
+  try {
+    // Attempt Server-Side Setup
+    // If successful, we swap the standard \`fetch\` for Pylon's internal request handler.
+    const { app, ctx } = await getPylonServerContext();
+    fetcher = app.request;
+
+    // Propagate original request headers to maintain session/auth state
+    for (const [key, value] of ctx.req.raw.headers.entries()) {
+      headers.append(key, value);
+    }
+    
+    // Prevent the server from returning compressed responses (like gzip) 
+    // so our internal fetch can parse the JSON immediately.
+    headers.set('Accept-Encoding', 'identity');
+  } catch {
+    // Fallback: Browser Environment
+    // Standard \`fetch\` is used. The browser will automatically handle cookies and standard headers.
+  }
+
+  // 3. Attach Internal Pylon Routing Headers
+  headers.set('Accept', 'application/json');
+  headers.set('X-Pylon-Internal', 'true');
+  if (ref) {
+    headers.set('X-Pylon-Route-Ref', ref);
+  }
+
+  // 4. Execute Fetch
+  const response = await fetcher(url.pathname + url.search, {
+    method: 'GET',
+    headers,
+  });
+
+  // 5. Process Response & Synchronization
+  try {
+    const data = await response.json<any>();
+
+    // Client-Side Version Sync Check:
+    // If the server returns a newer application version than what the client 
+    // is currently running, force a hard reload to fetch the latest assets.
+    if (typeof window !== 'undefined' && data?.version) {
+      const clientVersion = (window as any).__PYLON_VERSION__;
+      if (clientVersion && data.version !== clientVersion) {
+        window.location.reload();
+      }
+    }
+
+    return data;
+    
+  } catch (error) {
+    console.error("Pylon Loader Error: Failed to parse JSON response.", error);
+    return null;
+  }
+};
 
 
 const RootLayout = (props: { children: React.ReactNode; [key: string]: any }) => {
