@@ -444,6 +444,10 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
         return staticHandlerContext
       }
 
+      if (staticHandlerContext.statusCode) {
+        c.status(staticHandlerContext.statusCode as any)
+      }
+
       // X-Pylon-Route-Ref header stores the route ref of the current layout
       // This is used to remove the children of the layout to prevent
       // rendering overhead
