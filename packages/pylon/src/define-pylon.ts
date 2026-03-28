@@ -259,8 +259,12 @@ const wrapResolver = (
   for (const {name, fieldNodes: childNodes, returnType} of selectedFields) {
     // Check if ANY of the requested nodes for this field use an alias
     const hasAliases = childNodes.some(node => node.alias !== undefined)
+    // If the field is a pylon resolver, we just wrap it and return it
+    // If the field is not a pylon resolver, its gateway data and we need to choose the right key to resolve
+    const isPylonResolver =
+      resolver[name] && typeof resolver[name] === 'function'
 
-    if (hasAliases) {
+    if (hasAliases && !isPylonResolver) {
       // We have a mix of aliases/non-aliases, or purely aliases.
       // We MUST return a function so we can dynamically route the data per execution.
       result[name] = (
@@ -270,6 +274,8 @@ const wrapResolver = (
       ) => {
         const aliasKey = info.fieldNodes[0].alias?.value
         const schemaKey = info.fieldName
+
+        console.log(aliasKey, schemaKey, resolver, name)
 
         // Priority 1: Check if this specific alias exists on the resolved object (Gateway data)
         if (aliasKey && (resolver as any)[aliasKey] !== undefined) {
