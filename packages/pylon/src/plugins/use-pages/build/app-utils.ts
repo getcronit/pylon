@@ -249,7 +249,8 @@ export function scanDirectory(
   if (hasLayout) {
     const childNotFoundRoute: Route = {
       path: '*',
-      element: '<NotFoundPage standalone={false} />'
+      element: '<NotFoundPage standalone={false} />',
+      loader: '() => { return new Response("Not Found", { status: 404 }) }'
     }
     if (!route.children) {
       route.children = []
@@ -545,7 +546,8 @@ export function makeAppFiles() {
   const rootRoute = scanDirectory(PAGES_DIR, context)
   const notFoundRoute: Route = {
     path: '*',
-    element: '<NotFoundPage standalone={true} />'
+    element: '<NotFoundPage standalone={true} />',
+    loader: '() => { return new Response("Not Found", { status: 404 }) }'
   }
 
   const routes = generateRouteFileContent(context, rootRoute, notFoundRoute)
