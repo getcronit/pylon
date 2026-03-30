@@ -489,6 +489,13 @@ export const loader: (ref?: string) => __PYLON_ROUTER_INTERNALS_DO_NOT_USE.Loade
     headers,
   });
 
+  if([301, 302, 303, 307, 308].includes(response.status)) {
+    const location = response.headers.get('location');
+    if(location) {
+      throw __PYLON_ROUTER_INTERNALS_DO_NOT_USE.redirect(location, response.status);
+    }
+  }
+
   // 5. Process Response & Synchronization
   try {
     const data = await response.json<any>();
