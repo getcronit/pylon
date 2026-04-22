@@ -163,7 +163,15 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
     .then(() => true)
     .catch(() => false)
 
-  const analysisManager = new StaticAnalysisManager()
+  const tsConfigPath = path.join(process.cwd(), 'tsconfig.json')
+  const tsConfigExists = await fs
+    .access(tsConfigPath)
+    .then(() => true)
+    .catch(() => false)
+
+  const analysisManager = new StaticAnalysisManager({
+    tsConfigFilePath: tsConfigExists ? tsConfigPath : undefined
+  })
 
   const clientCtx = await esbuild.context({
     sourcemap: 'linked',
