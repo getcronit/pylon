@@ -123,10 +123,10 @@ declare module '@getcronit/pylon' {
 `
 
   if (features.includes('pages')) {
-    data += `import {useQuery} from './.pylon/client'
+    data += `import {Query} from './.pylon/client'
 
 declare module '@getcronit/pylon/pages' {
-  interface PageData extends ReturnType<typeof useQuery> {}
+  interface Data extends ReturnType<typeof Query> {}
 }`
   }
 
@@ -181,13 +181,14 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
     {
       path: 'pages/page.tsx',
       content: `import { Button } from '@/components/ui/button'
-import { PageProps } from '@getcronit/pylon/pages'
+import { PageProps, useData } from '@getcronit/pylon/pages'
 
 const Page: React.FC<PageProps> = props => {
+  const data = useData()
   return (
     <div className="container">
-      <title>{props.data.hello}</title>
-      <Button>Hello {props.data.hello}</Button>
+      <title>{data.hello}</title>
+      <Button>Hello {data.hello}</Button>
     </div>
   )
 }

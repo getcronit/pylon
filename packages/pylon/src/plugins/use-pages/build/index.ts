@@ -8,6 +8,7 @@ import {esmExternalsPlugin} from './plugins/external-esm-plugin'
 import {imagePlugin} from './plugins/image-plugin'
 import {injectAppHydrationPlugin} from './plugins/inject-app-hydration'
 import {postcssPlugin} from './plugins/postcss-plugin'
+import {useDataStaticAnalyzer} from './plugins/use-data-static-analyzer'
 
 const DIST_STATIC_DIR = path.join(process.cwd(), '.pylon/__pylon/static')
 const DIST_PAGES_DIR = path.join(process.cwd(), '.pylon/__pylon/pages')
@@ -101,7 +102,6 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
           } else if (value.entryPoint?.endsWith('pages/sitemap.ts')) {
             manifest['sitemap.js'] = key
           }
-
         }
 
         if (build.initialOptions.publicPath) {
@@ -163,7 +163,6 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
     .catch(() => false)
 
   const clientCtx = await esbuild.context({
-
     sourcemap: 'linked',
     write: false,
     metafile: true,
@@ -172,6 +171,7 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
     plugins: [
       buildAppFilePlugin,
       injectAppHydrationPlugin(version),
+      useDataStaticAnalyzer({debug: true}),
       imagePlugin,
       postcssPlugin,
       writeOnEndPlugin,
@@ -213,6 +213,7 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
     nodePaths,
     plugins: [
       buildAppFilePlugin,
+      useDataStaticAnalyzer({debug: true}),
       imagePlugin,
       postcssPlugin,
       writeOnEndPlugin,
