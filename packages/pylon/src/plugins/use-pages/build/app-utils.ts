@@ -353,8 +353,8 @@ const HydrateFallback = () => {
   return <div>Loading...</div>
 }
 
-function withLoaderData<T>(Component: React.ComponentType<{ data: T }>, name?: string, catchAllParam?: string) {
-  return function WithLoaderDataWrapper(props: T) {
+function withLoaderData(Component: React.ComponentType<any>, name?: string, catchAllParam?: string) {
+  return function WithLoaderDataWrapper(props: any) {
     const dataClient = __PYLON_INTERNALS_DO_NOT_USE.useDataClient()
     const pruningTarget = __PYLON_INTERNALS_DO_NOT_USE.useSSRPruning()
 
@@ -383,31 +383,32 @@ function withLoaderData<T>(Component: React.ComponentType<{ data: T }>, name?: s
       return <Outlet />
     }
 
-    const {useQuery, useHydrateCache} = useMemo(() => dataClient.pageClient(), [])
+    const pageClient = useMemo(() => dataClient.pageClient(), [])
 
     if(cacheSnapshot) {
-      useHydrateCache({cacheSnapshot})
+      pageClient.useHydrateCache({cacheSnapshot})
     }
 
-    const data = typeof window !== "undefined" ? useQuery() : dataClient.useQuery()
+    const useQuery = typeof window !== 'undefined' ? pageClient.useQuery : dataClient.useQuery
 
     const pageProps = useMemo(() => {
       return {
         path: location.pathname,
         params,
         searchParams: searchParamsObject,
-        data,
         context,
       }
-    }, [location.pathname, params, searchParamsObject, data, context])
+    }, [location.pathname, params, searchParamsObject, context])
 
     // 2. Handle Pruning Target
     // If THIS is the target, we render it but clear its children (the Outlet).
     const children = pruningTarget && name === pruningTarget ? null : <Outlet />
 
-    return <__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider props={pageProps} name={name}>
-      <Component {...(props as any)} {...pageProps} children={children} />
-    </__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider>
+    return <__PYLON_INTERNALS_DO_NOT_USE.DataQueryProvider useQuery={useQuery}>
+      <__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider props={pageProps} name={name}>
+        <Component {...(props as any)} {...pageProps} children={children} />
+      </__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider>
+    </__PYLON_INTERNALS_DO_NOT_USE.DataQueryProvider>
   };
 }
 

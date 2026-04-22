@@ -17,14 +17,11 @@ import {etag} from 'hono/etag'
 import {tmpdir} from 'os'
 import {pipeline} from 'stream/promises'
 
-export interface PageData {}
+export interface Data {}
 
 export type PageProps = {
   // @ts-expect-error
   context: Variables['pagesContext']
-  data: PageData & {
-    $refetch: () => Promise<void>
-  }
   params: Record<string, string | string[] | undefined>
   searchParams: Record<string, string>
   path: string
@@ -169,7 +166,6 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
           }
         }
 
-
         if (typeof revalidate === 'number' && revalidate > 0) {
           sitemapCache.set(cacheKey, {
             xml,
@@ -180,8 +176,6 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
         c.header('Content-Type', 'application/xml')
         return c.body(xml)
       })
-
-
 
       app.get('/sitemap/:id', async c => {
         const idParam = c.req.param('id')
@@ -220,7 +214,6 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
           const items = await sitemapFn({id})
           xml = renderSitemapXml(items, baseUrl.origin)
         } else {
-
           return c.text('Sitemap not found', 404)
         }
 
@@ -234,10 +227,6 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
         c.header('Content-Type', 'application/xml')
         return c.body(xml)
       })
-
-
-
-
     } catch (e) {
       console.error('Failed to load sitemap module:', e)
     }
