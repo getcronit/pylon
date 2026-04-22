@@ -42,6 +42,7 @@ export interface QueryLocation {
 interface AnalyzeOptions {
   rootObjectName?: string
   targetNodes?: Node[]
+  onFileAccess?: (sourceFile: SourceFile) => void
 }
 
 function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
@@ -599,6 +600,9 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
         ) {
           visitedDecls.set(fnDef, count + 1)
           currentDepth++
+          const sourceFile = fnDef.getSourceFile()
+          if (options.onFileAccess) options.onFileAccess(sourceFile)
+
           scopes.push({bindings: new Map()})
 
           fnDef.getParameters().forEach((param, i) => {
@@ -697,6 +701,8 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
         if (count < MAX_RECURSION_PER_DECL && currentDepth < MAX_DEPTH) {
           visitedDecls.set(decl, count + 1)
           currentDepth++
+          const sourceFile = decl.getSourceFile()
+          if (options.onFileAccess) options.onFileAccess(sourceFile)
 
           scopes.push({bindings: new Map()})
           const params = decl.getParameters()
@@ -988,7 +994,9 @@ export function extractQueries(
   filePath: string,
   project: Project,
   options: {pylonPackage?: string; hookName?: string} = {}
-): QueryLocation[] {
+): {queries: QueryLocation[]; dependencies: string[]} {
+  const accessedFiles = new Set<string>()
+  accessedFiles.add(filePath)
   const {pylonPackage = '@getcronit/pylon/pages', hookName = 'useData'} =
     options
   const sourceFile = project.getSourceFileOrThrow(filePath)
@@ -998,7 +1006,8 @@ export function extractQueries(
 
   const targetNodes = findUseQueries(sourceFile, pylonPackage, hookName)
   const {result, exportedFunctionReturns} = coreAnalyze(sourceFile, {
-    targetNodes
+    targetNodes,
+    onFileAccess: sf => accessedFiles.add(sf.getFilePath())
   })
 
   // Second pass: Find project-wide call sites of functions that return hook data (Breadth-First Search)
@@ -1032,8 +1041,10 @@ export function extractQueries(
         }
 
         if (call && Node.isCallExpression(call)) {
+          accessedFiles.add(call.getSourceFile().getFilePath())
           const callerAnalysis = coreAnalyze(call.getSourceFile(), {
-            targetNodes: [call]
+            targetNodes: [call],
+            onFileAccess: sf => accessedFiles.add(sf.getFilePath())
           })
 
           // Add any new returning functions discovered in this caller's file to the queue
@@ -1128,12 +1139,15 @@ export function extractQueries(
     }
   }
 
-  return targetNodes.map((node: any, idx) => ({
-    start: node.getStart(),
-    end: node.getEnd(),
-    selectors: result[`__target_${idx}`] || {},
-    node
-  }))
+  return {
+    queries: targetNodes.map((node: any, idx) => ({
+      start: node.getStart(),
+      end: node.getEnd(),
+      selectors: result[`__target_${idx}`] || {},
+      node
+    })),
+    dependencies: Array.from(accessedFiles)
+  }
 }
 
 function deepMerge(target: any, source: any) {
