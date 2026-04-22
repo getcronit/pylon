@@ -1,5 +1,5 @@
 import type {Plugin} from '@/index'
-export type {Data, LayoutProps, MetadataRoute, PageProps} from './setup'
+export type {Data, LayoutProps, MetadataRoute, PageProps} from './types'
 
 export function usePages(): Plugin {
   return {

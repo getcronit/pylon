@@ -37,7 +37,9 @@ async function buildAll() {
     format: 'esm',
     outdir: './dist',
     sourcemap: 'linked',
-    packages: 'external'
+    packages: 'external',
+    splitting: true,
+    chunkNames: 'chunks/[name]-[hash]'
   })
 
   const res2 = await esbuild.build({
