@@ -1,7 +1,7 @@
-import {registerRefetch, unregisterRefetch, useDataQuery} from './internals'
 import type {UseQueryOptions} from '@gqty/react'
 import {useEffect, useRef} from 'react'
 import type {Data} from './index'
+import {registerRefetch, unregisterRefetch, useDataQuery} from './internals'
 
 interface UseDataOptions extends Omit<
   UseQueryOptions<any>,
@@ -25,16 +25,10 @@ export const useData = (options?: UseDataOptions) => {
 
   useEffect(() => {
     if (operationName) {
-      registerRefetch(
-        operationName,
-        refetchFnRef.current
-      )
+      registerRefetch(operationName, refetchFnRef.current)
 
       return () => {
-        unregisterRefetch(
-          operationName,
-          refetchFnRef.current
-        )
+        unregisterRefetch(operationName, refetchFnRef.current)
       }
     }
   }, [operationName])

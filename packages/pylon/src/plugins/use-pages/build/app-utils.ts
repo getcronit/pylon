@@ -312,7 +312,7 @@ function generateRouteFileContent(
 ): string {
   return `${context.imports.join('\n')}
 
-import {useMemo} from 'react'
+import {useMemo, Suspense} from 'react'
 
 import {__PYLON_ROUTER_INTERNALS_DO_NOT_USE, __PYLON_INTERNALS_DO_NOT_USE, GlobalErrorPage, StatusPage} from '@getcronit/pylon/pages'
 const Outlet = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.Outlet
@@ -375,15 +375,9 @@ function withLoaderData(Component: React.ComponentType<any>, name?: string, catc
       return params
     }, [reactRouterParams, catchAllParam])
 
-    // 1. Handle Transparent Ancestors
-    // If we're optimized-rendering a specific layout, and THIS is not it,
-    // we just act as a passthrough to skip THIS layout's logic/queries.
-    // Exception: RootLayout is never skipped to preserve global providers.
-    if (pruningTarget && name !== pruningTarget && name !== 'RootLayout') {
-      return <Outlet />
-    }
-
-    const pageClient = useMemo(() => dataClient.pageClient(), [])
+    const pageClient = useMemo(() => {
+      return dataClient.pageClient()
+    }, [])
 
     if(cacheSnapshot) {
       pageClient.useHydrateCache({cacheSnapshot})
@@ -400,13 +394,23 @@ function withLoaderData(Component: React.ComponentType<any>, name?: string, catc
       }
     }, [location.pathname, params, searchParamsObject, context])
 
+    // 1. Handle Transparent Ancestors
+    // If we're optimized-rendering a specific layout, and THIS is not it,
+    // we just act as a passthrough to skip THIS layout's logic/queries.
+    // Exception: RootLayout is never skipped to preserve global providers.
+    if (pruningTarget && name !== pruningTarget && name !== 'RootLayout') {
+      return <Outlet />
+    }
+
     // 2. Handle Pruning Target
     // If THIS is the target, we render it but clear its children (the Outlet).
     const children = pruningTarget && name === pruningTarget ? null : <Outlet />
 
     return <__PYLON_INTERNALS_DO_NOT_USE.DataQueryProvider useQuery={useQuery}>
       <__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider props={pageProps} name={name}>
-        <Component {...(props as any)} {...pageProps} children={children} />
+        <Suspense fallback={<HydrateFallback />}>
+          <Component {...(props as any)} {...pageProps} children={children} />
+        </Suspense>
       </__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider>
     </__PYLON_INTERNALS_DO_NOT_USE.DataQueryProvider>
   };
