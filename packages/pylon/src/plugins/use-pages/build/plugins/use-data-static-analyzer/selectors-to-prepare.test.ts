@@ -4,13 +4,15 @@ import {generatePrepare} from './selectors-to-prepare'
 describe('generatePrepare', () => {
   it('should generate basic object access', () => {
     const output = generatePrepare({user: {name: true, age: true}})
-    expect(output).toBe('({ query }) => { query.user.name; query.user.age; }')
+    expect(output).toBe(
+      '({ query }) => { query?.user?.name; query?.user?.age; }'
+    )
   })
 
   it('should generate array mapping scopes', () => {
     const output = generatePrepare({posts: {__isList: true, title: true}})
     expect(output).toBe(
-      '({ query }) => { query.posts.map(i1 => { i1.title; }); }'
+      '({ query }) => { query?.posts?.map(i1 => { i1?.title; }); }'
     )
   })
 
@@ -19,7 +21,7 @@ describe('generatePrepare', () => {
       friends: {__args: '{ limit: 10, offset: 20 }', name: true}
     })
     expect(output).toBe(
-      '({ query }) => { query.friends({ limit: 10, offset: 20 }).name; }'
+      '({ query }) => { query?.friends?.({ limit: 10, offset: 20 })?.name; }'
     )
   })
 
@@ -28,7 +30,7 @@ describe('generatePrepare', () => {
       friends: {__args: '{ limit: 10 }', __isList: true, name: true}
     })
     expect(output).toBe(
-      '({ query }) => { query.friends({ limit: 10 }).map(i1 => { i1.name; }); }'
+      '({ query }) => { query?.friends?.({ limit: 10 })?.map(i1 => { i1?.name; }); }'
     )
   })
 
@@ -44,12 +46,12 @@ describe('generatePrepare', () => {
       }
     })
     expect(output).toBe(
-      '({ query }) => { query.feed.map(i1 => { i1.author.name; i1.comments.map(i2 => { i2.text; }); }); }'
+      '({ query }) => { query?.feed?.map(i1 => { i1?.author?.name; i1?.comments?.map(i2 => { i2?.text; }); }); }'
     )
   })
 
   it('should handle functions with arguments that return a primitive value', () => {
     const output = generatePrepare({user: {__args: '{id: 1}'}})
-    expect(output).toBe('({ query }) => { query.user({id: 1}); }')
+    expect(output).toBe('({ query }) => { query?.user?.({id: 1}); }')
   })
 })

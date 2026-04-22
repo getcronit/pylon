@@ -9,7 +9,7 @@ export function generatePrepare(selectors: SelectorNode): string {
     for (const [key, value] of Object.entries(node)) {
       if (key === '__args' || key === '__isList') continue
 
-      const base = `${accessPath}.${key}`
+      const base = `${accessPath}?.${key}`
 
       if (value === true) {
         lines.push(`${base};`)
@@ -20,7 +20,7 @@ export function generatePrepare(selectors: SelectorNode): string {
         for (const branch of value) {
           let branchAccess = base
           if (branch.__args) {
-            branchAccess += `(${branch.__args})`
+            branchAccess += `?.(${branch.__args})`
           }
 
           if (branch.__isList) {
@@ -31,7 +31,7 @@ export function generatePrepare(selectors: SelectorNode): string {
               lines.push(`${branchAccess};`)
             } else {
               lines.push(
-                `${branchAccess}.map(${iter} => { ${sub.join(' ')} });`
+                `${branchAccess}?.map(${iter} => { ${sub.join(' ')} });`
               )
             }
             depth--
@@ -47,7 +47,7 @@ export function generatePrepare(selectors: SelectorNode): string {
       } else if (typeof value === 'object') {
         let nodeAccess = base
         if (value.__args) {
-          nodeAccess += `(${value.__args})`
+          nodeAccess += `?.(${value.__args})`
         }
 
         if (value.__isList) {
@@ -57,7 +57,7 @@ export function generatePrepare(selectors: SelectorNode): string {
           if (sub.length === 0) {
             lines.push(`${nodeAccess};`)
           } else {
-            lines.push(`${nodeAccess}.map(${iter} => { ${sub.join(' ')} });`)
+            lines.push(`${nodeAccess}?.map(${iter} => { ${sub.join(' ')} });`)
           }
           depth--
         } else {
