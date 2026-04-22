@@ -1,5 +1,5 @@
-import {Project, SourceFile} from 'ts-morph'
 import * as crypto from 'crypto'
+import {Project, SourceFile} from 'ts-morph'
 
 export interface AnalysisResult {
   contents: string
@@ -13,8 +13,10 @@ export class StaticAnalysisManager {
   private sessionResults: Map<string, AnalysisResult> = new Map()
   private lastSessionReset: number = 0
 
-  constructor() {
+  constructor(options: {tsConfigFilePath?: string}) {
     this.project = new Project({
+      tsConfigFilePath: options.tsConfigFilePath,
+      skipAddingFilesFromTsConfig: true,
       compilerOptions: {
         allowJs: true,
         jsx: 4, // ReactJSX
@@ -43,7 +45,7 @@ export class StaticAnalysisManager {
 
   public getCachedResult(path: string, content: string): AnalysisResult | null {
     const hash = this.computeHash(content)
-    
+
     // Check session first (deduplicates client/server runs)
     const sessionResult = this.sessionResults.get(path)
     if (sessionResult && sessionResult.hash === hash) {
@@ -81,6 +83,3 @@ export class StaticAnalysisManager {
     return crypto.createHash('md5').update(content).digest('hex')
   }
 }
-
-// Singleton for cases where a shared instance isn't explicitly passed
-export const globalAnalysisManager = new StaticAnalysisManager()

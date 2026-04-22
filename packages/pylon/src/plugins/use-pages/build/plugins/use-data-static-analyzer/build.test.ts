@@ -2237,4 +2237,186 @@ describe('Realistic NextJS App with useData', () => {
     expect(minified).toContain('useData({prepare:({query})=>{')
     expect(minified).toContain('query?.user?.name')
   })
+
+  // --------------------------------------------------------------------------
+  // Test 35: Multiple file example with nodes array and sub-component
+  // --------------------------------------------------------------------------
+  it('should handle multiple files where nodes are passed to a task component', async () => {
+    // 1. Create a Task component in another file
+    fs.writeFileSync(
+      path.join(appDir, 'components', 'Task.tsx'),
+      `
+      export function Task({ node }) {
+        return (
+          <div>
+            <span>{node.id}</span>
+            <h1>{node.title}</h1>
+          </div>
+        );
+      }
+      `
+    )
+
+    // 2. Create the main page
+    const pageCode = `
+      import { useData } from "@getcronit/pylon/pages";
+      import { Task } from "../components/Task";
+
+      enum TaskStatus {
+        TODO = "TODO",
+        DONE = "DONE"
+      }
+
+      export default function TasksPage() {
+        const data = useData();
+        const tasks = data.tasks({
+          filters: {
+            status: TaskStatus.TODO,
+          },
+          first: 5,
+        }).nodes;
+
+        return (
+          <div>
+            {tasks.map(task => <Task node={task} />)}
+          </div>
+        );
+      }
+    `
+    const pagePath = path.join(appDir, 'pages', 'TasksPage.tsx')
+    fs.writeFileSync(pagePath, pageCode)
+
+    // 3. Build the page
+    const result = await esbuild.build({
+      entryPoints: [pagePath],
+      plugins: [useDataStaticAnalyzer()],
+      write: false,
+      bundle: true,
+      format: 'esm',
+      external: ['@getcronit/pylon/pages', 'react', 'react/jsx-runtime']
+    })
+
+    const outputCode = result.outputFiles[0].text
+    const minified = outputCode.replace(/\s+/g, '')
+
+    // 4. Verify selectors
+    expect(minified).toContain('query?.tasks?.({filters:{status:"TODO"')
+    expect(minified).toContain('first:5})?.nodes?.map(')
+    expect(minified).toContain('i1?.id;')
+    expect(minified).toContain('i1?.title;')
+  })
+
+  // --------------------------------------------------------------------------
+  // Test 36: Multiple file example with nodes array passed as a whole
+  // --------------------------------------------------------------------------
+  it('should handle multiple files where the whole nodes array is passed to a component', async () => {
+    // 1. Create a Tasks component in another file
+    fs.writeFileSync(
+      path.join(appDir, 'components', 'Tasks.tsx'),
+      `
+      export function Tasks({ nodes }) {
+        return (
+          <ul>
+            {nodes.map(node => (
+              <li key={node.id}>{node.title}</li>
+            ))}
+          </ul>
+        );
+      }
+      `
+    )
+
+    // 2. Create the main page
+    const pageCode = `
+      import { useData } from "@getcronit/pylon/pages";
+      import { Tasks } from "../components/Tasks";
+
+      export default function AllTasksPage() {
+        const data = useData();
+        const nodes = data.tasks({ first: 10 }).nodes;
+
+        return <Tasks nodes={nodes} />;
+      }
+    `
+    const pagePath = path.join(appDir, 'pages', 'AllTasksPage.tsx')
+    fs.writeFileSync(pagePath, pageCode)
+
+    // 3. Build the page
+    const result = await esbuild.build({
+      entryPoints: [pagePath],
+      plugins: [useDataStaticAnalyzer()],
+      write: false,
+      bundle: true,
+      format: 'esm',
+      external: ['@getcronit/pylon/pages', 'react', 'react/jsx-runtime']
+    })
+
+    const outputCode = result.outputFiles[0].text
+    const minified = outputCode.replace(/\s+/g, '')
+
+    // 4. Verify selectors
+    expect(minified).toContain('query?.tasks?.({first:10})?.nodes?.map(')
+    expect(minified).toContain('i1?.id;')
+    expect(minified).toContain('i1?.title;')
+  })
+
+  // --------------------------------------------------------------------------
+  // Test 37: Alias resolution via tsconfig.json
+  // --------------------------------------------------------------------------
+  it('should handle alias imports by loading tsconfig from esbuild options', async () => {
+    // 1. Setup directories
+    const aliasAppDir = path.join(tempDir, 'alias-app')
+    if (fs.existsSync(aliasAppDir))
+      fs.rmSync(aliasAppDir, {recursive: true, force: true})
+    fs.mkdirSync(path.join(aliasAppDir, 'components'), {recursive: true})
+    fs.mkdirSync(path.join(aliasAppDir, 'pages'), {recursive: true})
+
+    // 2. Create component
+    fs.writeFileSync(
+      path.join(aliasAppDir, 'components', 'UserBadge.tsx'),
+      `export function UserBadge({ user }) { return <span>{user.nickname}</span>; }`
+    )
+
+    // 3. Create page with alias import
+    const pageCode = `
+      import { useData } from "@getcronit/pylon/pages";
+      import { UserBadge } from "@/components/UserBadge";
+
+      export default function AliasPage() {
+        const data = useData();
+        return <UserBadge user={data.me} />;
+      }
+    `
+    const pagePath = path.join(aliasAppDir, 'pages', 'AliasPage.tsx')
+    fs.writeFileSync(pagePath, pageCode)
+
+    // 4. Create tsconfig.json
+    const tsconfig = {
+      compilerOptions: {
+        jsx: 'react-jsx',
+        baseUrl: '.',
+        paths: {
+          "@/*": ["./*"]
+        }
+      }
+    }
+    const tsconfigPath = path.join(aliasAppDir, 'tsconfig.json')
+    fs.writeFileSync(tsconfigPath, JSON.stringify(tsconfig))
+
+    // 5. Build with esbuild and provide tsconfig path
+    const result = await esbuild.build({
+      entryPoints: [pagePath],
+      plugins: [useDataStaticAnalyzer()],
+      write: false,
+      bundle: true,
+      format: 'esm',
+      tsconfig: tsconfigPath, // Pass the tsconfig path to esbuild
+      external: ['@getcronit/pylon/pages', 'react', 'react/jsx-runtime']
+    })
+
+    const out = result.outputFiles[0].text.replace(/\s+/g, '')
+
+    // Verify that me.nickname was collected from the aliased component
+    expect(out).toContain('query?.me?.nickname;')
+  })
 })

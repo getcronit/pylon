@@ -1,8 +1,8 @@
 import {Plugin} from 'esbuild'
 import * as fs from 'fs'
 import {extractQueries} from './analyze'
+import {StaticAnalysisManager} from './manager'
 import {generatePrepare} from './selectors-to-prepare'
-import {globalAnalysisManager, StaticAnalysisManager} from './manager'
 
 export interface UseDataStaticAnalyzerOptions {
   /**
@@ -44,7 +44,11 @@ export function useDataStaticAnalyzer(
   return {
     name: 'pylon-use-data-static-analyzer',
     async setup(build) {
-      const manager = options.manager || globalAnalysisManager
+      const manager =
+        options.manager ||
+        new StaticAnalysisManager({
+          tsConfigFilePath: build.initialOptions.tsconfig
+        })
       const project = manager.getProject()
 
       build.onStart(() => {
@@ -57,7 +61,9 @@ export function useDataStaticAnalyzer(
         const entryPaths: string[] = []
         if (Array.isArray(entries)) {
           for (const entry of entries) {
-            entryPaths.push(typeof entry === 'string' ? entry : (entry as any).in)
+            entryPaths.push(
+              typeof entry === 'string' ? entry : (entry as any).in
+            )
           }
         } else if (entries && typeof entries === 'object') {
           for (const key in entries) {
@@ -137,7 +143,9 @@ export function useDataStaticAnalyzer(
               }
             }
 
-            outputContents = project.getSourceFileOrThrow(args.path).getFullText()
+            outputContents = project
+              .getSourceFileOrThrow(args.path)
+              .getFullText()
 
             if (debug) {
               console.log(
