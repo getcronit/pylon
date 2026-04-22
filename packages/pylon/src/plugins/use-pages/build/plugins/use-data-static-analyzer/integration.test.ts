@@ -48,7 +48,7 @@ describe('Configurable Plugin Integration', () => {
     // Check that it injected the prepare function correctly
     // It should identify useGQL (aliased as query) and inject the selector
     expect(outputCode.replace(/\s+/g, '')).toContain(
-      'query({prepare:({query:query2})=>{query2.user.name;}})'
+      'query({prepare:({query:query2})=>{query2?.user?.name;}})'
     )
   })
 
@@ -77,7 +77,7 @@ describe('Configurable Plugin Integration', () => {
 
     const outputCode = result.outputFiles[0].text
     expect(outputCode.replace(/\s+/g, '')).toContain(
-      'useData({prepare:({query})=>{query.post.title;}})'
+      'useData({prepare:({query})=>{query?.post?.title;}})'
     )
   })
 })

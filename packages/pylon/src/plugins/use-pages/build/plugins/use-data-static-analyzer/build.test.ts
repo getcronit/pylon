@@ -38,7 +38,7 @@ describe('Esbuild useDataStaticAnalyzer', () => {
 
     const outputCode = result.outputFiles[0].text
     expect(outputCode.replace(/\s+/g, '')).toContain(
-      'useData({prepare:({query})=>{query.post.title;}})'
+      'useData({prepare:({query})=>{query?.post?.title;}})'
     )
   })
 
@@ -64,7 +64,9 @@ describe('Esbuild useDataStaticAnalyzer', () => {
 
     const outputCode = result.outputFiles[0].text
     const minified = outputCode.replace(/\s+/g, '')
-    expect(minified).toContain('useData({foo:"bar",prepare:({query})=>{query.author.name;}})')
+    expect(minified).toContain(
+      'useData({foo:"bar",prepare:({query})=>{query?.author?.name;}})'
+    )
   })
 
   it('should translate deep array mappings with arguments dynamically at build-time', async () => {
@@ -91,7 +93,7 @@ describe('Esbuild useDataStaticAnalyzer', () => {
 
     const outputCode = result.outputFiles[0].text
     expect(outputCode.replace(/\s+/g, '')).toContain(
-      'useData({prepare:({query})=>{query.friends({limit:10,offset:20}).map((i1)=>{i1.profile.username;});}})'
+      'useData({prepare:({query})=>{query?.friends?.({limit:10,offset:20})?.map((i1)=>{i1?.profile?.username;});}})'
     )
   })
 
@@ -134,7 +136,7 @@ describe('Esbuild useDataStaticAnalyzer', () => {
     // query.me.settings.theme;
     // query.users({ active: true }).map((i1) => { i1.status; i1.posts.map((i2) => { i2.title; i2.comments({ sort: "desc" }).map((i3) => { i3.body; }); }); });
     const expected =
-      'useData({prepare:({query})=>{query.me.id;query.me.settings.theme;query.users({active:true}).map((i1)=>{i1.status;i1.posts.map((i2)=>{i2.title;i2.comments({sort:"desc"}).map((i3)=>{i3.body;});});});}})'
+      'useData({prepare:({query})=>{query?.me?.id;query?.me?.settings?.theme;query?.users?.({active:true})?.map((i1)=>{i1?.status;i1?.posts?.map((i2)=>{i2?.title;i2?.comments?.({sort:"desc"})?.map((i3)=>{i3?.body;});});});}})'
 
     expect(outputCode.replace(/\s+/g, '')).toContain(expected)
   })
@@ -165,7 +167,7 @@ describe('Esbuild useDataStaticAnalyzer', () => {
 
     const outputCode = result.outputFiles[0].text
     expect(outputCode.replace(/\s+/g, '')).toContain(
-      'useData({prepare:({query})=>{query.friends({limit:myFetchLimit}).map((i1)=>{i1.profile.username;});}})'
+      'useData({prepare:({query})=>{query?.friends?.({limit:myFetchLimit})?.map((i1)=>{i1?.profile?.username;});}})'
     )
   })
 
@@ -197,7 +199,7 @@ describe('Esbuild useDataStaticAnalyzer', () => {
 
     const outputCode = result.outputFiles[0].text
     expect(outputCode.replace(/\s+/g, '')).toContain(
-      'useData({prepare:({query})=>{query.feed({offset:pageOffset,limit:10}).map((i1)=>{i1.title;});}})'
+      'useData({prepare:({query})=>{query?.feed?.({offset:pageOffset,limit:10})?.map((i1)=>{i1?.title;});}})'
     )
   })
 
@@ -223,7 +225,7 @@ describe('Esbuild useDataStaticAnalyzer', () => {
 
     const outputCode = result.outputFiles[0].text
     expect(outputCode.replace(/\s+/g, '')).toContain(
-      'useData({prepare:({query})=>{query.dyno({input});}})'
+      'useData({prepare:({query})=>{query?.dyno?.({input});}})'
     )
   })
 
@@ -269,7 +271,7 @@ describe('Esbuild useDataStaticAnalyzer', () => {
     // 4. Verify that the injected selectors in Page reflect usage in UserCard
     // Expected: query.user.name; query.user.bio.short;
     expect(outputCode.replace(/\s+/g, '')).toContain(
-      'useData({prepare:({query})=>{query.user.name;query.user.bio.short;}})'
+      'useData({prepare:({query})=>{query?.user?.name;query?.user?.bio?.short;}})'
     )
   })
 
@@ -322,7 +324,7 @@ describe('Esbuild useDataStaticAnalyzer', () => {
 
     // Expected selectors: user.name, user.meta.detail
     expect(outputCode.replace(/\s+/g, '')).toContain(
-      'useData({prepare:({query})=>{query.user.name;query.user.meta.detail;}})'
+      'useData({prepare:({query})=>{query?.user?.name;query?.user?.meta?.detail;}})'
     )
   })
 
@@ -369,10 +371,10 @@ describe('Esbuild useDataStaticAnalyzer', () => {
     // Verify Page's query (should contain currentUser.email)
     // Note: esbuild might rename useData to useData2 etc. to avoid collisions
     expect(outputCode).toContain(
-      '({prepare:({query})=>{query.currentUser.email;}})'
+      '({prepare:({query})=>{query?.currentUser?.email;}})'
     )
     // Verify SharedComponent's query (should contain timezone)
-    expect(outputCode).toContain('({prepare:({query})=>{query.timezone;}})')
+    expect(outputCode).toContain('({prepare:({query})=>{query?.timezone;}})')
   })
 })
 
@@ -602,28 +604,28 @@ describe('Realistic NextJS App with useData', () => {
     const out = result.outputFiles[0].text.replace(/\s+/g, '')
 
     // siteConfig -> siteName, logo.url, logo.alt, footerText (from Layout + Sidebar)
-    expect(out).toContain('query.siteConfig.siteName;')
-    expect(out).toContain('query.siteConfig.logo.url;')
-    expect(out).toContain('query.siteConfig.logo.alt;')
-    expect(out).toContain('query.siteConfig.footerText;')
+    expect(out).toContain('query?.siteConfig?.siteName;')
+    expect(out).toContain('query?.siteConfig?.logo?.url;')
+    expect(out).toContain('query?.siteConfig?.logo?.alt;')
+    expect(out).toContain('query?.siteConfig?.footerText;')
 
     // currentUser -> displayName, email, avatarUrl (from UserCard + Avatar)
-    expect(out).toContain('query.currentUser.displayName;')
-    expect(out).toContain('query.currentUser.email;')
-    expect(out).toContain('query.currentUser.avatarUrl;')
+    expect(out).toContain('query?.currentUser?.displayName;')
+    expect(out).toContain('query?.currentUser?.email;')
+    expect(out).toContain('query?.currentUser?.avatarUrl;')
 
     // dashboardStats({ period: "weekly" }) -> list -> label, value, trend.direction, trend.percentage
-    expect(out).toContain('query.dashboardStats({period:"weekly"}).map(')
-    expect(out).toContain('i1.label;')
-    expect(out).toContain('i1.value;')
-    expect(out).toContain('i1.trend.direction;')
-    expect(out).toContain('i1.trend.percentage;')
+    expect(out).toContain('query?.dashboardStats?.({period:"weekly"})?.map(')
+    expect(out).toContain('i1?.label;')
+    expect(out).toContain('i1?.value;')
+    expect(out).toContain('i1?.trend?.direction;')
+    expect(out).toContain('i1?.trend?.percentage;')
 
     // notifications({ unread: true }) -> list -> title, message, timestamp
-    expect(out).toContain('query.notifications({unread:true}).map(')
-    expect(out).toContain('i1.title;')
-    expect(out).toContain('i1.message;')
-    expect(out).toContain('i1.timestamp;')
+    expect(out).toContain('query?.notifications?.({unread:true})?.map(')
+    expect(out).toContain('i1?.title;')
+    expect(out).toContain('i1?.message;')
+    expect(out).toContain('i1?.timestamp;')
   })
 
   // --------------------------------------------------------------------------
@@ -665,18 +667,18 @@ describe('Realistic NextJS App with useData', () => {
     const out = result.outputFiles[0].text.replace(/\s+/g, '')
 
     // blogMeta
-    expect(out).toContain('query.blogMeta.title;')
-    expect(out).toContain('query.blogMeta.description;')
+    expect(out).toContain('query?.blogMeta?.title;')
+    expect(out).toContain('query?.blogMeta?.description;')
 
     // posts({ limit: 20, category: "tech" }) -> mapped
-    expect(out).toContain('query.posts({limit:20,category:"tech"}).map(')
+    expect(out).toContain('query?.posts?.({limit:20,category:"tech"})?.map(')
 
     // PostCard accesses: title, excerpt, author.name, tags.map -> name, color
-    expect(out).toContain('i1.title;')
-    expect(out).toContain('i1.excerpt;')
-    expect(out).toContain('i1.author.name;')
+    expect(out).toContain('i1?.title;')
+    expect(out).toContain('i1?.excerpt;')
+    expect(out).toContain('i1?.author?.name;')
     // tags is also mapped inside PostCard
-    expect(out).toContain('i1.tags.map(')
+    expect(out).toContain('i1?.tags?.map(')
   })
 
   // --------------------------------------------------------------------------
@@ -743,25 +745,25 @@ describe('Realistic NextJS App with useData', () => {
     const out = result.outputFiles[0].text.replace(/\s+/g, '')
 
     // ProfileHeader accesses of profile: avatarUrl, displayName, bio, location.city, location.country
-    expect(out).toContain('query.profile.avatarUrl;')
-    expect(out).toContain('query.profile.displayName;')
-    expect(out).toContain('query.profile.bio;')
-    expect(out).toContain('query.profile.location.city;')
-    expect(out).toContain('query.profile.location.country;')
+    expect(out).toContain('query?.profile?.avatarUrl;')
+    expect(out).toContain('query?.profile?.displayName;')
+    expect(out).toContain('query?.profile?.bio;')
+    expect(out).toContain('query?.profile?.location?.city;')
+    expect(out).toContain('query?.profile?.location?.country;')
 
     // profile.posts({ sort: "newest" }) -> mapped list
-    expect(out).toContain('query.profile.posts({sort:"newest"}).map(')
+    expect(out).toContain('query?.profile?.posts?.({sort:"newest"})?.map(')
 
     // Inside posts map: PostCard fields + nested comments
-    expect(out).toContain('i1.title;')
-    expect(out).toContain('i1.excerpt;')
-    expect(out).toContain('i1.author.name;')
+    expect(out).toContain('i1?.title;')
+    expect(out).toContain('i1?.excerpt;')
+    expect(out).toContain('i1?.author?.name;')
 
     // Nested comments({ limit: 5 }) -> CommentThread fields
-    expect(out).toContain('i1.comments({limit:5}).map(')
-    expect(out).toContain('i2.body;')
-    expect(out).toContain('i2.author.username;')
-    expect(out).toContain('i2.createdAt;')
+    expect(out).toContain('i1?.comments?.({limit:5})?.map(')
+    expect(out).toContain('i2?.body;')
+    expect(out).toContain('i2?.author?.username;')
+    expect(out).toContain('i2?.createdAt;')
   })
 
   // --------------------------------------------------------------------------
@@ -823,19 +825,19 @@ describe('Realistic NextJS App with useData', () => {
     const out = result.outputFiles[0].text.replace(/\s+/g, '')
 
     // First useData (userData) -> account.displayName, account.email, account.avatarUrl, account.createdAt
-    expect(out).toContain('query.account.displayName;')
-    expect(out).toContain('query.account.email;')
-    expect(out).toContain('query.account.avatarUrl;')
-    expect(out).toContain('query.account.createdAt;')
+    expect(out).toContain('query?.account?.displayName;')
+    expect(out).toContain('query?.account?.email;')
+    expect(out).toContain('query?.account?.avatarUrl;')
+    expect(out).toContain('query?.account?.createdAt;')
 
     // Second useData (appConfig) -> theme.primaryColor, theme.fontFamily, theme.borderRadius
-    expect(out).toContain('query.theme.primaryColor;')
-    expect(out).toContain('query.theme.fontFamily;')
-    expect(out).toContain('query.theme.borderRadius;')
+    expect(out).toContain('query?.theme?.primaryColor;')
+    expect(out).toContain('query?.theme?.fontFamily;')
+    expect(out).toContain('query?.theme?.borderRadius;')
 
     // locale fields
-    expect(out).toContain('query.locale.language;')
-    expect(out).toContain('query.locale.timezone;')
+    expect(out).toContain('query?.locale?.language;')
+    expect(out).toContain('query?.locale?.timezone;')
 
     // Both prepare blocks should exist
     const prepareCount = (out.match(/prepare:/g) || []).length
@@ -901,17 +903,17 @@ describe('Realistic NextJS App with useData', () => {
     const out = result.outputFiles[0].text.replace(/\s+/g, '')
 
     // AppPage's useData -> siteConfig fields + viewer fields
-    expect(out).toContain('query.siteConfig.siteName;')
-    expect(out).toContain('query.siteConfig.footerText;')
-    expect(out).toContain('query.viewer.displayName;')
-    expect(out).toContain('query.viewer.email;')
-    expect(out).toContain('query.viewer.avatarUrl;')
+    expect(out).toContain('query?.siteConfig?.siteName;')
+    expect(out).toContain('query?.siteConfig?.footerText;')
+    expect(out).toContain('query?.viewer?.displayName;')
+    expect(out).toContain('query?.viewer?.email;')
+    expect(out).toContain('query?.viewer?.avatarUrl;')
 
     // ActivityFeed's own useData -> recentActivity
-    expect(out).toContain('query.recentActivity({limit:10}).map(')
-    expect(out).toContain('i1.action;')
-    expect(out).toContain('i1.actor.name;')
-    expect(out).toContain('i1.performedAt;')
+    expect(out).toContain('query?.recentActivity?.({limit:10})?.map(')
+    expect(out).toContain('i1?.action;')
+    expect(out).toContain('i1?.actor?.name;')
+    expect(out).toContain('i1?.performedAt;')
 
     // Should inject two separate prepare blocks
     const prepareCount = (out.match(/prepare:/g) || []).length
@@ -963,8 +965,10 @@ describe('Realistic NextJS App with useData', () => {
 
     // esbuild renames the prepare param to query2 because the local state is also called `query`
     // The state var `query` inside prepare also becomes `query2` due to esbuild scoping
-    expect(out).toContain('query2.search({term:query2,offset:page,limit:25})')
-    expect(out).toContain('query2.searchMeta.totalCount;')
+    expect(out).toContain(
+      'query2?.search?.({term:query2,offset:page,limit:25})'
+    )
+    expect(out).toContain('query2?.searchMeta?.totalCount;')
   })
 
   // --------------------------------------------------------------------------
@@ -1054,19 +1058,19 @@ describe('Realistic NextJS App with useData', () => {
     const out = result.outputFiles[0].text.replace(/\s+/g, '')
 
     // Direct store fields
-    expect(out).toContain('query.store.name;')
-    expect(out).toContain('query.store.featuredLabel;')
+    expect(out).toContain('query?.store?.name;')
+    expect(out).toContain('query?.store?.featuredLabel;')
 
     // featuredProducts({ limit: 8 }) -> mapped -> ProductCard -> PriceTag
-    expect(out).toContain('query.store.featuredProducts({limit:8}).map(')
+    expect(out).toContain('query?.store?.featuredProducts?.({limit:8})?.map(')
     // ProductCard fields
-    expect(out).toContain('i1.name;')
-    expect(out).toContain('i1.description;')
-    expect(out).toContain('i1.image.thumbnail;')
+    expect(out).toContain('i1?.name;')
+    expect(out).toContain('i1?.description;')
+    expect(out).toContain('i1?.image?.thumbnail;')
     // PriceTag fields (4th level)
-    expect(out).toContain('i1.pricing.amount;')
-    expect(out).toContain('i1.pricing.currency;')
-    expect(out).toContain('i1.pricing.discount.percentage;')
+    expect(out).toContain('i1?.pricing?.amount;')
+    expect(out).toContain('i1?.pricing?.currency;')
+    expect(out).toContain('i1?.pricing?.discount?.percentage;')
   })
 
   // --------------------------------------------------------------------------
@@ -1114,11 +1118,11 @@ describe('Realistic NextJS App with useData', () => {
     expect(out).toContain('prepare:')
 
     // Selector validation
-    expect(out).toContain('query.dashboard.title;')
-    expect(out).toContain('query.dashboard.lastUpdated;')
-    expect(out).toContain('query.dashboard.widgets.map(')
-    expect(out).toContain('i1.type;')
-    expect(out).toContain('i1.content.value;')
+    expect(out).toContain('query?.dashboard?.title;')
+    expect(out).toContain('query?.dashboard?.lastUpdated;')
+    expect(out).toContain('query?.dashboard?.widgets?.map(')
+    expect(out).toContain('i1?.type;')
+    expect(out).toContain('i1?.content?.value;')
   })
 
   // --------------------------------------------------------------------------
@@ -1171,13 +1175,13 @@ describe('Realistic NextJS App with useData', () => {
     const outB = resultB.outputFiles[0].text.replace(/\s+/g, '')
 
     // Page A should only have user selectors, NOT product
-    expect(outA).toContain('query.user.firstName;')
-    expect(outA).toContain('query.user.lastName;')
+    expect(outA).toContain('query?.user?.firstName;')
+    expect(outA).toContain('query?.user?.lastName;')
     expect(outA).not.toContain('product')
 
     // Page B should only have product selectors, NOT user
-    expect(outB).toContain('query.product.sku;')
-    expect(outB).toContain('query.product.price;')
+    expect(outB).toContain('query?.product?.sku;')
+    expect(outB).toContain('query?.product?.price;')
     expect(outB).not.toContain('user')
   })
 
@@ -1228,22 +1232,22 @@ describe('Realistic NextJS App with useData', () => {
     const out = result.outputFiles[0].text.replace(/\s+/g, '')
 
     // Top level
-    expect(out).toContain('query.organization.name;')
+    expect(out).toContain('query?.organization?.name;')
 
     // First mapping: teams({ active: true })
-    expect(out).toContain('query.organization.teams({active:true}).map(')
-    expect(out).toContain('i1.name;')
-    expect(out).toContain('i1.lead.email;')
+    expect(out).toContain('query?.organization?.teams?.({active:true})?.map(')
+    expect(out).toContain('i1?.name;')
+    expect(out).toContain('i1?.lead?.email;')
 
     // Second mapping: members({ role: "engineer" })
-    expect(out).toContain('i1.members({role:"engineer"}).map(')
-    expect(out).toContain('i2.fullName;')
-    expect(out).toContain('i2.title;')
+    expect(out).toContain('i1?.members?.({role:"engineer"})?.map(')
+    expect(out).toContain('i2?.fullName;')
+    expect(out).toContain('i2?.title;')
 
     // Third mapping: contributions({ year: 2024 })
-    expect(out).toContain('i2.contributions({year:2024}).map(')
-    expect(out).toContain('i3.project;')
-    expect(out).toContain('i3.hours;')
+    expect(out).toContain('i2?.contributions?.({year:2024})?.map(')
+    expect(out).toContain('i3?.project;')
+    expect(out).toContain('i3?.hours;')
   })
 
   // --------------------------------------------------------------------------
@@ -1285,9 +1289,9 @@ describe('Realistic NextJS App with useData', () => {
     const out = result.outputFiles[0].text.replace(/\s+/g, '')
 
     // The prepare should contain currentUser.displayName, email, avatarUrl (from UserCard -> Avatar)
-    expect(out).toContain('query.currentUser.displayName;')
-    expect(out).toContain('query.currentUser.email;')
-    expect(out).toContain('query.currentUser.avatarUrl;')
+    expect(out).toContain('query?.currentUser?.displayName;')
+    expect(out).toContain('query?.currentUser?.email;')
+    expect(out).toContain('query?.currentUser?.avatarUrl;')
   })
 
   // --------------------------------------------------------------------------
@@ -1325,10 +1329,10 @@ describe('Realistic NextJS App with useData', () => {
     const out = result.outputFiles[0].text.replace(/\s+/g, '')
 
     // Both sender and receiver paths should be collected
-    expect(out).toContain('query.sender.displayName;')
-    expect(out).toContain('query.receiver.displayName;')
-    expect(out).toContain('query.sender.avatarUrl;')
-    expect(out).toContain('query.receiver.avatarUrl;')
+    expect(out).toContain('query?.sender?.displayName;')
+    expect(out).toContain('query?.receiver?.displayName;')
+    expect(out).toContain('query?.sender?.avatarUrl;')
+    expect(out).toContain('query?.receiver?.avatarUrl;')
   })
 
   // --------------------------------------------------------------------------
@@ -1373,14 +1377,14 @@ describe('Realistic NextJS App with useData', () => {
     const out = result.outputFiles[0].text.replace(/\s+/g, '')
 
     // profile (from UserCard)
-    expect(out).toContain('query.profile.displayName;')
+    expect(out).toContain('query?.profile?.displayName;')
     // featuredPost (from PostCard)
-    expect(out).toContain('query.featuredPost.title;')
+    expect(out).toContain('query?.featuredPost?.title;')
     // hasNotifications
-    expect(out).toContain('query.hasNotifications;')
+    expect(out).toContain('query?.hasNotifications;')
     // notifications (from manual access)
-    expect(out).toContain('query.notifications.map(') // marked as list due to [0]
-    expect(out).toContain('i1.title;')
+    expect(out).toContain('query?.notifications?.map(') // marked as list due to [0]
+    expect(out).toContain('i1?.title;')
   })
 
   // --------------------------------------------------------------------------
@@ -1436,8 +1440,8 @@ describe('Realistic NextJS App with useData', () => {
     const out = result.outputFiles[0].text.replace(/\s+/g, '')
 
     // Verify partA.fieldA and partB.fieldB are collected
-    expect(out).toContain('query.partA.fieldA;')
-    expect(out).toContain('query.partB.fieldB;')
+    expect(out).toContain('query?.partA?.fieldA;')
+    expect(out).toContain('query?.partB?.fieldB;')
   })
 
   // --------------------------------------------------------------------------
@@ -1470,7 +1474,7 @@ describe('Realistic NextJS App with useData', () => {
     // esbuild will minify it significantly, renaming variables
     const minified = out.replace(/\s+/g, '')
     expect(minified).toContain('prepare:')
-    expect(minified).toContain('user.name')
+    expect(minified).toContain('user?.name')
   })
 
   it('should handle GraphQL interfaces and unions via $on syntax', async () => {
@@ -1512,12 +1516,12 @@ describe('Realistic NextJS App with useData', () => {
     const minified = out.replace(/\s+/g, '')
 
     // Verify injected selectors include $on paths
-    expect(minified).toContain('query.me.name')
-    expect(minified).toContain('query.me.pets.map')
-    expect(minified).toContain('i1.__typename')
-    expect(minified).toContain('i1.id')
-    expect(minified).toContain('i1.name')
-    expect(minified).toContain('i1.$on.Dog.barks')
+    expect(minified).toContain('query?.me?.name')
+    expect(minified).toContain('query?.me?.pets?.map')
+    expect(minified).toContain('i1?.__typename')
+    expect(minified).toContain('i1?.id')
+    expect(minified).toContain('i1?.name')
+    expect(minified).toContain('i1?.$on?.Dog?.barks')
   })
 
   it('should handle polymorphic rendering with $on and sub-components', async () => {
@@ -1566,8 +1570,8 @@ describe('Realistic NextJS App with useData', () => {
     const minified = result.outputFiles[0].text.replace(/\s+/g, '')
 
     // Verify injected selectors follow into sub-components through $on
-    expect(minified).toContain('i1.$on.Cat.meows')
-    expect(minified).toContain('i1.$on.Dog.barks')
+    expect(minified).toContain('i1?.$on?.Cat?.meows')
+    expect(minified).toContain('i1?.$on?.Dog?.barks')
   })
 
   // --------------------------------------------------------------------------
@@ -1609,8 +1613,8 @@ describe('Realistic NextJS App with useData', () => {
     expect(hookOutputFile).toBeDefined()
     const hookOut = hookOutputFile!.text
 
-    expect(hookOut).toContain('query.user.name')
-    expect(hookOut).toContain('query.user.email')
+    expect(hookOut).toContain('query?.user?.name')
+    expect(hookOut).toContain('query?.user?.email')
 
     // Check transformation of the page file (should be valid JS)
     const pageOutputFile = result.outputFiles.find(f =>
@@ -1672,7 +1676,7 @@ describe('Realistic NextJS App with useData', () => {
       f.path.endsWith('api.js')
     )
     expect(apiOutputFile).toBeDefined()
-    expect(apiOutputFile!.text).toContain('query.me.displayName')
+    expect(apiOutputFile!.text).toContain('query?.me?.displayName')
 
     // hooks-chain.ts should also be processed
     const hooksOutputFile = result.outputFiles.find(f =>
@@ -1714,15 +1718,15 @@ describe('Realistic NextJS App with useData', () => {
     const outputCode = result.outputFiles[0].text
 
     // Check that name and updatedAt and type are tracked in the prepare block
-    expect(outputCode).toContain('query.me.name')
-    expect(outputCode).toContain('query.me.updatedAt')
-    expect(outputCode).toContain('query.me.type')
+    expect(outputCode).toContain('query?.me?.name')
+    expect(outputCode).toContain('query?.me?.updatedAt')
+    expect(outputCode).toContain('query?.me?.type')
 
     // Check that JS internals are NOT tracked as selectors in the prepare block
     // We check for the specific combination of selector + method
-    expect(outputCode).not.toContain('query.me.updatedAt.toLocaleString')
-    expect(outputCode).not.toContain('query.me.type.toString')
-    expect(outputCode).not.toContain('query.me.type.toLocaleString')
+    expect(outputCode).not.toContain('query?.me?.updatedAt?.toLocaleString')
+    expect(outputCode).not.toContain('query?.me?.type?.toString')
+    expect(outputCode).not.toContain('query?.me?.type?.toLocaleString')
   })
 
   // --------------------------------------------------------------------------
@@ -1761,12 +1765,12 @@ describe('Realistic NextJS App with useData', () => {
     const outputCode = result.outputFiles[0].text
 
     // Check that fields from the helper function are tracked
-    expect(outputCode).toContain('query.currentUser.firstName')
-    expect(outputCode).toContain('query.currentUser.lastName')
-    expect(outputCode).toContain('query.currentUser.email')
+    expect(outputCode).toContain('query?.currentUser?.firstName')
+    expect(outputCode).toContain('query?.currentUser?.lastName')
+    expect(outputCode).toContain('query?.currentUser?.email')
 
     // Check that fields from the main component are also tracked
-    expect(outputCode).toContain('query.currentUser.account.id')
+    expect(outputCode).toContain('query?.currentUser?.account?.id')
   })
 
   // --------------------------------------------------------------------------
@@ -1794,7 +1798,7 @@ describe('Realistic NextJS App with useData', () => {
 
     const outputCode = result.outputFiles[0].text
     expect(outputCode).toContain('uq({ prepare: ({ query }) => {')
-    expect(outputCode).toContain('query.user.id')
+    expect(outputCode).toContain('query?.user?.id')
   })
 
   // --------------------------------------------------------------------------
@@ -1844,7 +1848,7 @@ describe('Realistic NextJS App with useData', () => {
     })
 
     const outputCode = result.outputFiles[0].text
-    expect(outputCode).toContain('query.user.username')
+    expect(outputCode).toContain('query?.user?.username')
   })
 
   // --------------------------------------------------------------------------
@@ -1871,7 +1875,7 @@ describe('Realistic NextJS App with useData', () => {
     })
 
     const outputCode = result.outputFiles[0].text
-    expect(outputCode).toContain('query.currentUser.firstName')
+    expect(outputCode).toContain('query?.currentUser?.firstName')
   })
 
   // --------------------------------------------------------------------------
@@ -1908,8 +1912,8 @@ describe('Realistic NextJS App with useData', () => {
     })
 
     const outputCode = result.outputFiles[0].text
-    expect(outputCode).toContain('query.user.displayName')
-    expect(outputCode).not.toContain('query.user.source')
+    expect(outputCode).toContain('query?.user?.displayName')
+    expect(outputCode).not.toContain('query?.user?.source')
   })
 
   // --------------------------------------------------------------------------
@@ -1947,9 +1951,9 @@ describe('Realistic NextJS App with useData', () => {
 
     const outputCode = result.outputFiles[0].text
     // user.name should be tracked via the 'source' property
-    expect(outputCode).toContain('query.user.name')
+    expect(outputCode).toContain('query?.user?.name')
     // query.user.source should NOT be tracked because 'source' is a local property
-    expect(outputCode).not.toContain('query.user.source')
+    expect(outputCode).not.toContain('query?.user?.source')
   })
 
   // --------------------------------------------------------------------------
@@ -1976,7 +1980,7 @@ describe('Realistic NextJS App with useData', () => {
     })
 
     const outputCode = result.outputFiles[0].text
-    expect(outputCode).toContain('query.meta.version')
+    expect(outputCode).toContain('query?.meta?.version')
   })
 
   // --------------------------------------------------------------------------
@@ -2009,9 +2013,9 @@ describe('Realistic NextJS App with useData', () => {
     })
 
     const outputCode = result.outputFiles[0].text
-    expect(outputCode).toContain('query.posts.map')
-    expect(outputCode).toContain('i1.title')
-    expect(outputCode).toContain('i1.id')
+    expect(outputCode).toContain('query?.posts?.map')
+    expect(outputCode).toContain('i1?.title')
+    expect(outputCode).toContain('i1?.id')
   })
 
   // --------------------------------------------------------------------------
@@ -2038,7 +2042,7 @@ describe('Realistic NextJS App with useData', () => {
     })
 
     const outputCode = result.outputFiles[0].text
-    expect(outputCode).toContain('query.user.displayName')
+    expect(outputCode).toContain('query?.user?.displayName')
   })
 
   // --------------------------------------------------------------------------
@@ -2076,11 +2080,11 @@ describe('Realistic NextJS App with useData', () => {
     })
 
     const outputCode = result.outputFiles[0].text
-    expect(outputCode).toContain('query.posts.map')
-    expect(outputCode).toContain('i1.title')
-    expect(outputCode).toContain('i1.id')
-    expect(outputCode).toContain('i2.text')
-    expect(outputCode).toContain('i2.id')
+    expect(outputCode).toContain('query?.posts?.map')
+    expect(outputCode).toContain('i1?.title')
+    expect(outputCode).toContain('i1?.id')
+    expect(outputCode).toContain('i2?.text')
+    expect(outputCode).toContain('i2?.id')
   })
 
   // --------------------------------------------------------------------------
@@ -2117,7 +2121,7 @@ describe('Realistic NextJS App with useData', () => {
     })
 
     const outputCode = result.outputFiles[0].text
-    expect(outputCode).toContain('query.user.displayName')
+    expect(outputCode).toContain('query?.user?.displayName')
   })
 
   // --------------------------------------------------------------------------
@@ -2156,8 +2160,8 @@ describe('Realistic NextJS App with useData', () => {
     })
 
     const outputCode = result.outputFiles[0].text
-    expect(outputCode).toContain('query.user.firstName')
-    expect(outputCode).toContain('query.user.lastName')
+    expect(outputCode).toContain('query?.user?.firstName')
+    expect(outputCode).toContain('query?.user?.lastName')
   })
 
   // --------------------------------------------------------------------------
@@ -2198,9 +2202,9 @@ describe('Realistic NextJS App with useData', () => {
 
     const outputCode = result.outputFiles[0].text
     // Usage of .title on any item in the reduced map should track posts.title
-    expect(outputCode).toContain('query.posts.map')
-    expect(outputCode).toContain('i1.title')
-    expect(outputCode).toContain('i1.id')
+    expect(outputCode).toContain('query?.posts?.map')
+    expect(outputCode).toContain('i1?.title')
+    expect(outputCode).toContain('i1?.id')
   })
 
   // --------------------------------------------------------------------------
@@ -2231,6 +2235,6 @@ describe('Realistic NextJS App with useData', () => {
 
     // The prepare injection should match even with different formatting
     expect(minified).toContain('useData({prepare:({query})=>{')
-    expect(minified).toContain('query.user.name')
+    expect(minified).toContain('query?.user?.name')
   })
 })
