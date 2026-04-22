@@ -341,9 +341,9 @@ describe('useData Location Extraction', () => {
     `
     const project = new Project({useInMemoryFileSystem: true})
     project.createSourceFile('temp.tsx', input)
-    const result = extractQueries('temp.tsx', project)
-    expect(result.length).toBe(1)
-    expect(result[0].selectors).toEqual({user: {name: true}})
+    const {queries} = extractQueries('temp.tsx', project)
+    expect(queries.length).toBe(1)
+    expect(queries[0].selectors).toEqual({user: {name: true}})
   })
 
   it('should resolve aliased useData imports', () => {
@@ -356,9 +356,9 @@ describe('useData Location Extraction', () => {
     `
     const project = new Project({useInMemoryFileSystem: true})
     project.createSourceFile('temp.tsx', input)
-    const result = extractQueries('temp.tsx', project)
-    expect(result.length).toBe(1)
-    expect(result[0].selectors).toEqual({admin: {role: true}})
+    const {queries} = extractQueries('temp.tsx', project)
+    expect(queries.length).toBe(1)
+    expect(queries[0].selectors).toEqual({admin: {role: true}})
   })
 
   it('should ignore pylon internal $ prefixed properties', () => {
@@ -375,9 +375,9 @@ describe('useData Location Extraction', () => {
     `
     const project = new Project({useInMemoryFileSystem: true})
     project.createSourceFile('temp.tsx', input)
-    const result = extractQueries('temp.tsx', project)
-    expect(result.length).toBe(1)
-    expect(result[0].selectors).toEqual({user: {name: true}})
+    const {queries} = extractQueries('temp.tsx', project)
+    expect(queries.length).toBe(1)
+    expect(queries[0].selectors).toEqual({user: {name: true}})
   })
 
   it('should independently track multiple useData calls in the same file', () => {
@@ -400,11 +400,11 @@ describe('useData Location Extraction', () => {
     `
     const project = new Project({useInMemoryFileSystem: true})
     project.createSourceFile('temp.tsx', input)
-    const result = extractQueries('temp.tsx', project)
-    expect(result.length).toBe(3)
-    expect(result[0].selectors).toEqual({post: {title: true}})
-    expect(result[1].selectors).toEqual({author: {name: true}})
-    expect(result[2].selectors).toEqual({admin: {level: true}})
+    const {queries} = extractQueries('temp.tsx', project)
+    expect(queries.length).toBe(3)
+    expect(queries[0].selectors).toEqual({post: {title: true}})
+    expect(queries[1].selectors).toEqual({author: {name: true}})
+    expect(queries[2].selectors).toEqual({admin: {level: true}})
   })
 
   it('should handle data access inside JSX event handlers', () => {
@@ -417,8 +417,8 @@ describe('useData Location Extraction', () => {
     `
     const project = new Project({useInMemoryFileSystem: true})
     project.createSourceFile('temp.tsx', input)
-    const result = extractQueries('temp.tsx', project)
-    expect(result[0].selectors).toEqual({user: {email: true}})
+    const {queries} = extractQueries('temp.tsx', project)
+    expect(queries[0].selectors).toEqual({user: {email: true}})
   })
 
   it('should handle dynamic function calls with primitives in JSX', () => {
@@ -431,8 +431,8 @@ describe('useData Location Extraction', () => {
     `
     const project = new Project({useInMemoryFileSystem: true})
     project.createSourceFile('temp.tsx', input)
-    const result = extractQueries('temp.tsx', project)
-    expect(result[0].selectors).toEqual({dyno: {__args: '{input}'}})
+    const {queries} = extractQueries('temp.tsx', project)
+    expect(queries[0].selectors).toEqual({dyno: {__args: '{input}'}})
   })
 })
 
@@ -479,10 +479,9 @@ describe('Cross-File Analysis (In-Memory)', () => {
     )
 
     // Perform analysis
-    const results = extractQueries('/Parent.tsx', project)
-
-    expect(results).toHaveLength(1)
-    expect(results[0].selectors).toEqual({
+    const {queries} = extractQueries('/Parent.tsx', project)
+    expect(queries).toHaveLength(1)
+    expect(queries[0].selectors).toEqual({
       data: {
         status: true,
         user: {
@@ -535,9 +534,9 @@ describe('Cross-File Analysis (In-Memory)', () => {
     `
     )
 
-    const results = extractQueries('/Parent.tsx', project)
+    const {queries} = extractQueries('/Parent.tsx', project)
 
-    expect(results[0].selectors).toEqual({
+    expect(queries[0].selectors).toEqual({
       data: {
         user: {
           name: true,
@@ -547,6 +546,37 @@ describe('Cross-File Analysis (In-Memory)', () => {
         }
       }
     })
+  })
+
+  it('should track all accessed files in dependencies', () => {
+    const project = new Project({
+      compilerOptions: {allowJs: true, jsx: 4},
+      useInMemoryFileSystem: true
+    })
+
+    project.createSourceFile(
+      '/Child.tsx',
+      'export function Child({ user }) { return <h1>{user.name}</h1>; }'
+    )
+
+    project.createSourceFile(
+      '/Parent.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import { Child } from './Child';
+      export default function Page() {
+        const { data } = useData();
+        return <Child user={data.user} />;
+      }
+    `
+    )
+
+    const {queries, dependencies} = extractQueries('/Parent.tsx', project)
+
+    expect(queries).toHaveLength(1)
+    expect(dependencies).toContain('/Parent.tsx')
+    expect(dependencies).toContain('/Child.tsx')
+    expect(dependencies.length).toBe(2)
   })
 })
 

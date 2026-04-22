@@ -9,6 +9,7 @@ import {imagePlugin} from './plugins/image-plugin'
 import {injectAppHydrationPlugin} from './plugins/inject-app-hydration'
 import {postcssPlugin} from './plugins/postcss-plugin'
 import {useDataStaticAnalyzer} from './plugins/use-data-static-analyzer'
+import {StaticAnalysisManager} from './plugins/use-data-static-analyzer/manager'
 
 const DIST_STATIC_DIR = path.join(process.cwd(), '.pylon/__pylon/static')
 const DIST_PAGES_DIR = path.join(process.cwd(), '.pylon/__pylon/pages')
@@ -162,6 +163,8 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
     .then(() => true)
     .catch(() => false)
 
+  const analysisManager = new StaticAnalysisManager()
+
   const clientCtx = await esbuild.context({
     sourcemap: 'linked',
     write: false,
@@ -171,7 +174,7 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
     plugins: [
       buildAppFilePlugin,
       injectAppHydrationPlugin(version),
-      useDataStaticAnalyzer({debug: true}),
+      useDataStaticAnalyzer({debug: true, manager: analysisManager}),
       imagePlugin,
       postcssPlugin,
       writeOnEndPlugin,
@@ -213,7 +216,7 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
     nodePaths,
     plugins: [
       buildAppFilePlugin,
-      useDataStaticAnalyzer({debug: true}),
+      useDataStaticAnalyzer({debug: true, manager: analysisManager}),
       imagePlugin,
       postcssPlugin,
       writeOnEndPlugin,
