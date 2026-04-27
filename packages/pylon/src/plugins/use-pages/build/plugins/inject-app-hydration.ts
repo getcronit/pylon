@@ -18,9 +18,7 @@ export const injectAppHydrationPlugin = (version: string): Plugin => ({
           import {hydrateRoot} from 'react-dom/client'
           import * as client from './${pathToClient}'
           import { __PYLON_ROUTER_INTERNALS_DO_NOT_USE, __PYLON_INTERNALS_DO_NOT_USE, DevOverlay, onCaughtErrorProd, onRecoverableErrorProd, onUncaughtErrorProd } from '@getcronit/pylon/pages';
-          const {createBrowserRouter, RouterProvider, matchRoutes} = __PYLON_ROUTER_INTERNALS_DO_NOT_USE
-          const {DataClientProvider} = __PYLON_INTERNALS_DO_NOT_USE
-          import React, {useMemo, startTransition} from 'react'
+          import React, {startTransition} from 'react'
           import * as Sentry from '@sentry/react'
 
           // @ts-ignore
@@ -28,7 +26,7 @@ export const injectAppHydrationPlugin = (version: string): Plugin => ({
 
           async function hydrate() {
             // Determine if any of the initial routes are lazy
-            const lazyMatches = matchRoutes(routes, window.location)?.filter(
+            const lazyMatches = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.matchRoutes(routes, window.location)?.filter(
               (m) => m.route.lazy
             );
 
@@ -43,14 +41,18 @@ export const injectAppHydrationPlugin = (version: string): Plugin => ({
               );
             }
 
-            const router = createBrowserRouter(routes)
+            // @ts-ignore
+            const router = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.createBrowserRouter(routes)
+            const initialData = (window as any).__PYLON_INITIAL_DATA__
 
             startTransition(() => {
               hydrateRoot(
                 document,
-                <DataClientProvider client={client}>
-                  <RouterProvider router={router} />
-                </DataClientProvider>
+                <__PYLON_INTERNALS_DO_NOT_USE.InitialDataProvider value={initialData}>
+                  <__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider client={client}>
+                    <__PYLON_ROUTER_INTERNALS_DO_NOT_USE.RouterProvider router={router} />
+                  </__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider>
+                </__PYLON_INTERNALS_DO_NOT_USE.InitialDataProvider>
               , {
                 // Callback called when an error is thrown and not caught by an ErrorBoundary.
                 onUncaughtError: Sentry.reactErrorHandler((error, errorInfo) => {
