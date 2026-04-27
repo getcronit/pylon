@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import reactServer from 'react-dom/server'
 
-import {app, Variables, type Plugin} from '@/index'
+import {app, type Plugin} from '@/index'
 import {trimTrailingSlash} from 'hono/trailing-slash'
 import {
   createStaticHandler,
@@ -394,7 +394,19 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
 
       const client = initCtx.client
 
-      const staticHandlerContext = await handler.query(c.req.raw)
+      const pagesContext = c.get('pagesContext' as any) || {}
+      let cacheSnapshot: string | undefined
+
+      // X-Pylon-Route-Ref header stores the route ref of the current layout
+      // This is used to remove the children of the layout to prevent
+      // rendering overhead
+      const xPylonRouteRef = c.req.header('x-pylon-route-ref')
+
+      // Pass requestContext to handler.query() so the server-side loaders
+      // can access pagesContext directly (instead of re-importing @getcronit/pylon).
+      const staticHandlerContext = await handler.query(c.req.raw, {
+        requestContext: {pagesContext}
+      })
 
       if (staticHandlerContext instanceof Response) {
         return staticHandlerContext
@@ -403,11 +415,6 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
       if (staticHandlerContext.statusCode) {
         c.status(staticHandlerContext.statusCode as any)
       }
-
-      // X-Pylon-Route-Ref header stores the route ref of the current layout
-      // This is used to remove the children of the layout to prevent
-      // rendering overhead
-      const xPylonRouteRef = c.req.header('x-pylon-route-ref')
 
       const router = createStaticRouter(
         handler.dataRoutes,
@@ -426,45 +433,122 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
         </__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider>
       )
 
-      // Check if the request wants JSON, if so, prepare the data
-      if (c.req.header('accept')?.includes('application/json')) {
-        let cacheSnapshot
+      // Warm up the GQty cache by running prepareReactRender.
+      // If it throws a Response (e.g., a redirect), return it directly.
+      // If it throws an error, inject it into staticHandlerContext.errors
+      // so React Router's errorElement boundaries handle it during rendering.
+      const isStaticFile =
+        /\.(js|css|png|jpg|jpeg|gif|svg|ico|json|woff|woff2|ttf|otf|map|txt|xml|webmanifest)$/.test(
+          c.req.path
+        )
+
+      if (!isStaticFile) {
         try {
           const data = await client.prepareReactRender(component)
-
           cacheSnapshot = data.cacheSnapshot
         } catch (error) {
+          // If prepareReactRender throws a Response (e.g., redirect),
+          // handle it based on the request type.
           if (error instanceof Response) {
+            if (error.status >= 300 && error.status < 400) {
+              const location = error.headers.get('Location')
+              if (location) {
+                // For JSON requests (client-side navigation), return a 204
+                // with the redirect location in a header. We can't return a
+                // real 302 because fetch() would auto-follow it, causing a
+                // wasted round-trip to the redirect target.
+                if (c.req.header('accept')?.includes('application/json')) {
+                  c.header('X-Pylon-Redirect', location)
+                  return c.body(null, 204)
+                }
+
+                // For HTML requests (SSR), return a proper redirect
+                return c.redirect(
+                  location,
+                  error.status as RedirectStatusCode
+                )
+              }
+            }
             return error
           }
+
+          // For non-Response errors, inject the error into React Router's
+          // staticHandlerContext so errorElement boundaries handle it during
+          // rendering — no manual error page rendering needed.
+          console.error('prepareReactRender error:', error)
+
+          // Find the deepest matched route to assign the error to
+          const matchedRouteIds = Object.keys(
+            staticHandlerContext.loaderData || {}
+          )
+          const errorRouteId =
+            matchedRouteIds[matchedRouteIds.length - 1] ||
+            staticHandlerContext.matches?.[
+              staticHandlerContext.matches.length - 1
+            ]?.route?.id
+
+          if (errorRouteId) {
+            staticHandlerContext.errors = {
+              [errorRouteId]: error
+            }
+          }
         }
-
-        const context = c.get('pagesContext' as any) || {}
-
-        return c.json({
-          cacheSnapshot,
-          context,
-          version: pagesManifest['version']
-        })
       }
+
+      const initialData = {
+        cacheSnapshot,
+        context: pagesContext
+      }
+
+      // For client-side navigation: return JSON with the cache snapshot.
+      // Redirect errors have already been returned above as Response objects.
+      // Non-Response errors are injected into staticHandlerContext.errors
+      // and will be surfaced through the ErrorElement on the client.
+      if (c.req.header('accept')?.includes('application/json')) {
+        // Check if there were errors injected from prepareReactRender
+        if (staticHandlerContext.errors) {
+          const errorRouteId = Object.keys(staticHandlerContext.errors)[0]
+          const err = staticHandlerContext.errors[errorRouteId]
+          const message =
+            err?.message || 'An error occurred during data preparation.'
+          return c.json(
+            {
+              message,
+              stack:
+                process.env.NODE_ENV === 'development'
+                  ? err?.stack
+                  : undefined
+            },
+            500
+          )
+        }
+        return c.json(initialData)
+      }
+
+      // Final component with hydration data
+      const finalComponent = (
+        <__PYLON_INTERNALS_DO_NOT_USE.InitialDataProvider value={initialData}>
+          {component}
+        </__PYLON_INTERNALS_DO_NOT_USE.InitialDataProvider>
+      )
 
       try {
         if (reactServer.renderToReadableStream) {
-          try {
-            const stream = await reactServer.renderToReadableStream(component, {
+          const stream = await reactServer.renderToReadableStream(
+            finalComponent,
+            {
               bootstrapModules: staticManifest['app.js']
                 ? [staticManifest['app.js']]
                 : undefined
-            })
-            c.header('Content-Type', 'text/html')
-            return c.body(stream)
-          } catch (error) {
-            throw error
-          }
+            }
+          )
+
+          c.header('Content-Type', 'text/html')
+          return c.body(stream)
         } else if (reactServer.renderToPipeableStream) {
           return await new Promise<Response>((resolve, reject) => {
             const {pipe} = reactServer.renderToPipeableStream(
-              component,
+              finalComponent,
 
               {
                 bootstrapModules: staticManifest['app.js']
@@ -472,7 +556,6 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
                   : undefined,
                 onShellReady: async () => {
                   c.header('Content-Type', 'text/html')
-
                   const passThrough = new PassThrough()
 
                   pipe(passThrough)

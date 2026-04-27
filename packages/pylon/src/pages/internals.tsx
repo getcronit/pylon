@@ -126,7 +126,41 @@ const useRouteData = (): PageProps => {
 export {RouteDataProvider, useRouteData}
 
 // ====================================================================
-// 5. SSR PRUNING (Selective Rendering)
+// 5. INITIAL DATA (Hydration)
+// ====================================================================
+
+const InitialDataContext = createContext<any | null>(null)
+
+/**
+ * Provider for initial data passed from server to client.
+ */
+export const InitialDataProvider: React.FC<{
+  children: React.ReactNode
+  value: any
+}> = ({children, value}) => {
+  return (
+    <InitialDataContext.Provider value={value}>
+      {value && (
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `window.__PYLON_INITIAL_DATA__ = ${JSON.stringify(value)};`
+          }}
+        />
+      )}
+      {children}
+    </InitialDataContext.Provider>
+  )
+}
+
+/**
+ * Hook to access initial data.
+ */
+export const useInitialData = () => {
+  return useContext(InitialDataContext)
+}
+
+// ====================================================================
+// 6. SSR PRUNING (Selective Rendering)
 // ====================================================================
 
 const SSRPruningContext = createContext<string | null>(null)

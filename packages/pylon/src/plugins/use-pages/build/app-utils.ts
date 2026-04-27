@@ -176,13 +176,11 @@ function optimizeRouteStructure(route: Route, hasLayout: boolean): void {
   // the child page to avoid an empty middle route.
   if (route.path === '*' && !hasLayout && route.children?.length === 1) {
     const child = route.children[0]
-    if (child.index || child.path === '*') {
-      const currentPath = route.path
-      Object.assign(route, child)
-      route.path = currentPath
-      delete route.index
-      delete route.children
-    }
+    const currentPath = route.path
+    Object.assign(route, child)
+    route.path = currentPath
+    delete route.index
+    delete route.children
   }
 
   // If the route IS a catch-all route AND has a layout, the child page cannot be an index route.
@@ -249,8 +247,7 @@ export function scanDirectory(
   if (hasLayout) {
     const childNotFoundRoute: Route = {
       path: '*',
-      element: '<NotFoundPage standalone={false} />',
-      loader: '() => { return new Response("Not Found", { status: 404 }) }'
+      element: '<NotFoundPage standalone={false} />'
     }
     if (!route.children) {
       route.children = []
@@ -313,40 +310,53 @@ function generateRouteFileContent(
   return `${context.imports.join('\n')}
 
 import {useMemo, Suspense} from 'react'
-
 import {__PYLON_ROUTER_INTERNALS_DO_NOT_USE, __PYLON_INTERNALS_DO_NOT_USE, GlobalErrorPage, StatusPage} from '@getcronit/pylon/pages'
+const {DataClientProvider, InitialDataProvider, useInitialData} = __PYLON_INTERNALS_DO_NOT_USE
 const Outlet = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.Outlet
 
 const ErrorElement: React.FC<{standalone: boolean}> = ({standalone}) => {
   const error = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useRouteError()
+  console.log("ERROR", error)
 
 
-    if(error instanceof Response) {
-      // Check if the error is a redirect response
-      if(error.status > 300 && error.status < 400 && error.headers.get('Location')) {
-      return <__PYLON_ROUTER_INTERNALS_DO_NOT_USE.Navigate to={error.headers.get('Location')!} replace />
-      }
 
-      let message = 'An unexpected error occurred.'
+  let message = 'An unexpected error occurred.'
+
+  const isResponse = error instanceof Response || (error && typeof error === 'object' && 'status' in error);
+  if(isResponse) {
+    // Check if the error is a redirect response
+    if(error instanceof Response && error.status > 300 && error.status < 400 && error.headers.get('Location')) {
+    return <__PYLON_ROUTER_INTERNALS_DO_NOT_USE.Navigate to={error.headers.get('Location')!} replace />
+    }
 
     try {
-      const data = JSON.parse(error.data?.message || '{}')
-      if (data.message) {
-        message = data.message
+      const errorData = (error as any).data;
+      const rawMessage = typeof errorData === 'string' ? errorData : errorData?.message;
+      
+      if (rawMessage) {
+        try {
+          const parsed = JSON.parse(rawMessage);
+          message = parsed.message || rawMessage;
+        } catch (e) {
+          message = rawMessage;
+        }
       }
     } catch (e) {}
 
-    return (
-      <StatusPage
-        code={error.status}
-        title={error.statusText}
-        message={message}
-        standalone={standalone}
-      />
-    )
+    if ((error as any).status !== 500) {
+      return (
+        <StatusPage
+          code={(error as any).status}
+          title={(error as any).statusText}
+          message={message}
+          standalone={standalone}
+        />
+      )
+    }
   }
 
-  return <GlobalErrorPage error={error} />
+  const displayError = error instanceof Error ? error : new Error(message || (error && typeof error === 'object' && ((error as any).message || (error as any).statusText)) || 'A critical error occurred');
+  return <GlobalErrorPage error={displayError as any} standalone={standalone} />
 }
 
 const HydrateFallback = () => {
@@ -358,7 +368,6 @@ function withLoaderData(Component: React.ComponentType<any>, name?: string, catc
     const dataClient = __PYLON_INTERNALS_DO_NOT_USE.useDataClient()
     const pruningTarget = __PYLON_INTERNALS_DO_NOT_USE.useSSRPruning()
 
-    const {cacheSnapshot, context} = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useLoaderData() || {};
     const location = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useLocation()
     const [searchParams] = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useSearchParams()
     const searchParamsObject = useMemo(() => Object.fromEntries(searchParams.entries()), [searchParams])
@@ -375,15 +384,26 @@ function withLoaderData(Component: React.ComponentType<any>, name?: string, catc
       return params
     }, [reactRouterParams, catchAllParam])
 
+    const initialData = useInitialData() || (typeof window !== 'undefined' ? (window as any).__PYLON_INITIAL_DATA__ : null)
+
+    const loaderData = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useLoaderData()
+    
+    // Priority: loaderData (from navigation) > initialData (from script tag)
+    const activeData = (loaderData && loaderData.cacheSnapshot) ? loaderData : (initialData || loaderData || {})
+    const {cacheSnapshot, context} = activeData
+
+    const isServer = typeof window === 'undefined'
+
     const pageClient = useMemo(() => {
-      return dataClient.pageClient()
+       if(isServer) return dataClient
+       return dataClient.pageClient()
     }, [])
 
-    if(cacheSnapshot) {
+    if(cacheSnapshot && !isServer) {
       pageClient.useHydrateCache({cacheSnapshot})
     }
 
-    const useQuery = typeof window !== 'undefined' ? pageClient.useQuery : dataClient.useQuery
+    const useQuery = pageClient.useQuery
 
     const pageProps = useMemo(() => {
       return {
@@ -406,94 +426,57 @@ function withLoaderData(Component: React.ComponentType<any>, name?: string, catc
     // If THIS is the target, we render it but clear its children (the Outlet).
     const children = pruningTarget && name === pruningTarget ? null : <Outlet />
 
-    return <__PYLON_INTERNALS_DO_NOT_USE.DataQueryProvider useQuery={useQuery}>
-      <__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider props={pageProps} name={name}>
-        <Suspense fallback={<HydrateFallback />}>
-          <Component {...(props as any)} {...pageProps} children={children} />
-        </Suspense>
-      </__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider>
-    </__PYLON_INTERNALS_DO_NOT_USE.DataQueryProvider>
+    return <InitialDataProvider value={initialData}>
+      <DataClientProvider client={pageClient}>
+        <__PYLON_INTERNALS_DO_NOT_USE.DataQueryProvider useQuery={useQuery}>
+          <__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider props={pageProps} name={name}>
+              <Component {...(props as any)} {...pageProps} children={children} />
+          </__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider>
+        </__PYLON_INTERNALS_DO_NOT_USE.DataQueryProvider>
+      </DataClientProvider>
+    </InitialDataProvider>
   };
 }
 
 /**
- * Dynamically imports the Pylon server context.
- * * @description
- * This function uses a dynamic import with a variable (\`moduleNameToPreventBundling\`) 
- * to intentionally obscure the import path from bundlers like Webpack or Vite. 
- * This prevents the bundler from mistakenly attempting to include server-side 
- * Pylon code within the client-side bundle, which would cause build or runtime errors.
- * * @returns {Promise<{ app: any, ctx: any }>} The Pylon application instance and context.
- * @throws Will throw an error if executed in a browser environment where the module is unavailable.
- */
-async function getPylonServerContext() {
-  const moduleNameToPreventBundling = '@getcronit/pylon';
-  const { app, getContext } = await import(moduleNameToPreventBundling);
-  return { app, ctx: getContext() };
-}
-
-/**
  * Creates an isomorphic data loader for a specific route.
- * * @description
- * This factory function generates a loader capable of executing on both the server 
- * and the client. It handles environment detection, header propagation, and 
- * ensures the client stays synchronized with the server's application version.
- * * @param {string} [ref] - An optional route reference identifier passed to the server via the \`X-Pylon-Route-Ref\` header.
- * @returns {__PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFunction} An asynchronous loader function ready to handle requests.
+ * On the server: uses requestContext (passed from setup/index.tsx via handler.query())
+ *   to access pagesContext directly, avoiding dynamic imports.
+ * On the client: fetches JSON from the server with the cache snapshot.
  */
-export const loader: (ref?: string) => __PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFunction = (ref) => async ({ request }) => {
+export const loader: (ref?: string) => __PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFunction = (ref) => async ({ request, context }) => {
+  const isServer = typeof window === 'undefined';
+  
+  if (isServer) {
+    // The requestContext is passed from setup/index.tsx via handler.query().
+    // It contains { pagesContext } — the Hono context data for this request.
+    const { pagesContext } = (context as any) || {};
+    return { context: pagesContext || {} };
+  }
+
   const url = new URL(request.url);
-  const isJsonOnlyFetch = request.headers.get('accept')?.includes('application/json');
-
-  // 1. Handle Client-Side Preloading
-  // If the browser is pre-fetching route data (JSON only), we can bypass the full fetch
-  // and return the context directly if we are already on the server.
-  if (isJsonOnlyFetch) {
-    try {
-      const { ctx } = await getPylonServerContext();
-      return { context: ctx.get('pagesContext') };
-    } catch {
-      // Safely catches if a browser inadvertently triggers this path.
-      return null; 
-    }
-  }
-
-  // 2. Environment Setup (Server vs. Browser)
-  let fetcher: typeof fetch = fetch;
   const headers = new Headers();
-
-  try {
-    // Attempt Server-Side Setup
-    // If successful, we swap the standard \`fetch\` for Pylon's internal request handler.
-    const { app, ctx } = await getPylonServerContext();
-    fetcher = app.request;
-
-    // Propagate original request headers to maintain session/auth state
-    for (const [key, value] of ctx.req.raw.headers.entries()) {
-      headers.append(key, value);
-    }
-    
-    // Prevent the server from returning compressed responses (like gzip) 
-    // so our internal fetch can parse the JSON immediately.
-    headers.set('Accept-Encoding', 'identity');
-  } catch {
-    // Fallback: Browser Environment
-    // Standard \`fetch\` is used. The browser will automatically handle cookies and standard headers.
-  }
-
-  // 3. Attach Internal Pylon Routing Headers
   headers.set('Accept', 'application/json');
   headers.set('X-Pylon-Internal', 'true');
   if (ref) {
     headers.set('X-Pylon-Route-Ref', ref);
   }
 
-  // 4. Execute Fetch
-  const response = await fetcher(url.pathname + url.search, {
+  const response = await fetch(url.pathname + url.search, {
     method: 'GET',
     headers,
+    signal: request.signal
   });
 
+  // Check for server-side redirect signaled via header.
+  // The server returns a 204 with X-Pylon-Redirect instead of a real 302
+  // to prevent fetch() from auto-following it (which wastes a round-trip).
+  const redirectLocation = response.headers.get('X-Pylon-Redirect');
+  if (redirectLocation) {
+    throw __PYLON_ROUTER_INTERNALS_DO_NOT_USE.redirect(redirectLocation);
+  }
+
+  // Fallback: handle actual HTTP redirects (e.g. from middleware)
   if([301, 302, 303, 307, 308].includes(response.status)) {
     const location = response.headers.get('location');
     if(location) {
@@ -501,13 +484,21 @@ export const loader: (ref?: string) => __PYLON_ROUTER_INTERNALS_DO_NOT_USE.Loade
     }
   }
 
-  // 5. Process Response & Synchronization
+  if(!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    const message = data.message || response.statusText || 'An unexpected error occurred.';
+    throw {
+      status: response.status,
+      statusText: response.statusText,
+      data: data,
+      message: message
+    };
+  }
+
   try {
     const data = await response.json<any>();
 
     // Client-Side Version Sync Check:
-    // If the server returns a newer application version than what the client 
-    // is currently running, force a hard reload to fetch the latest assets.
     if (typeof window !== 'undefined' && data?.version) {
       const clientVersion = (window as any).__PYLON_VERSION__;
       if (clientVersion && data.version !== clientVersion) {
@@ -518,10 +509,11 @@ export const loader: (ref?: string) => __PYLON_ROUTER_INTERNALS_DO_NOT_USE.Loade
     return data;
     
   } catch (error) {
-    console.error("Pylon Loader Error: Failed to parse JSON response.", error);
-    return null;
+    throw error;
   }
 };
+
+
 
 
 const RootLayout = (props: { children: React.ReactNode; [key: string]: any }) => {
