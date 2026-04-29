@@ -7,6 +7,7 @@ const PAGES_DIR = './pages'
  * Interface representing a route configuration.
  */
 export interface Route {
+  id?: string
   path?: string
   Component?: string
   element?: string
@@ -107,8 +108,8 @@ function processLayoutItem(
     m[1].replace('...', '')
   )
 
-  route.Component = `withLoaderData((props) => <${componentName} children={<Outlet />} {...props} />, "${componentName}", ${catchAllParam ? `"${catchAllParam}"` : 'undefined'})`
-  route.loader = `loader("${componentName}")`
+  route.id = componentName
+  route.Component = `withRouteData((props) => <${componentName} children={<Outlet />} {...props} />, "${componentName}", ${catchAllParam ? `"${catchAllParam}"` : 'undefined'})`
   route.shouldRevalidate = `({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
     // Revalidate if a form was submitted (standard behavior)
     if (formData) return true;
@@ -145,12 +146,12 @@ function processPageItem(
   const pageComponentName = getPageComponentName(relativePath)
 
   route.children!.push({
+    id: pageComponentName,
     path: undefined,
     index: true,
     errorElement: '<ErrorElement standalone={false} />',
-    lazy: `async () => {const i = await import(${importPath}).catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "${pageComponentName}", ${catchAllParam ? `"${catchAllParam}"` : 'undefined'})}}`,
-    HydrateFallback: 'HydrateFallback',
-    loader: `loader("${pageComponentName}")`
+    lazy: `async () => {const i = await import(${importPath}).catch(() => {window.location.reload()}); return {Component: withRouteData(i.default, "${pageComponentName}", ${catchAllParam ? `"${catchAllParam}"` : 'undefined'})}}`,
+    HydrateFallback: 'HydrateFallback'
   })
 }
 
@@ -246,8 +247,11 @@ export function scanDirectory(
 
   if (hasLayout) {
     const childNotFoundRoute: Route = {
+      id: `${route.id}/NotFound`,
       path: '*',
-      element: '<NotFoundPage standalone={false} />'
+      element: '<NotFoundPage standalone={false} />',
+      loader:
+        '() => { console.log("EXECUTED LOADER 404"); return new Response("Not Found", { status: 404 }) }'
     }
     if (!route.children) {
       route.children = []
@@ -311,24 +315,32 @@ function generateRouteFileContent(
 
 import {useMemo, Suspense} from 'react'
 import {__PYLON_ROUTER_INTERNALS_DO_NOT_USE, __PYLON_INTERNALS_DO_NOT_USE, GlobalErrorPage, StatusPage} from '@getcronit/pylon/pages'
-const {DataClientProvider, InitialDataProvider, useInitialData} = __PYLON_INTERNALS_DO_NOT_USE
 const Outlet = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.Outlet
 
 const ErrorElement: React.FC<{standalone: boolean}> = ({standalone}) => {
-  const error = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useRouteError()
-  console.log("ERROR", error)
+  // Destructure for cleaner code
+  const { useRouteError, isRouteErrorResponse, Navigate } = __PYLON_ROUTER_INTERNALS_DO_NOT_USE;
+  
+  const error = useRouteError();
+  console.error(error);
+  
+  let message = 'An unexpected error occurred.';
 
+  // 1. Handle raw Response redirects (e.g., thrown directly during client render)
+  if (
+    error instanceof Response && 
+    error.status >= 300 && 
+    error.status < 400 && 
+    error.headers.get('Location')
+  ) {
+    return <Navigate to={error.headers.get('Location')!} replace />;
+  }
 
+  // 2. Use the official router check for handled data errors (404, 401, etc.)
+  // We check \`error.internal\` as a fallback just in case the server formatting is slightly off
+  const isRouteError = isRouteErrorResponse(error)
 
-  let message = 'An unexpected error occurred.'
-
-  const isResponse = error instanceof Response || (error && typeof error === 'object' && 'status' in error);
-  if(isResponse) {
-    // Check if the error is a redirect response
-    if(error instanceof Response && error.status > 300 && error.status < 400 && error.headers.get('Location')) {
-    return <__PYLON_ROUTER_INTERNALS_DO_NOT_USE.Navigate to={error.headers.get('Location')!} replace />
-    }
-
+  if (isRouteError) {
     try {
       const errorData = (error as any).data;
       const rawMessage = typeof errorData === 'string' ? errorData : errorData?.message;
@@ -343,30 +355,41 @@ const ErrorElement: React.FC<{standalone: boolean}> = ({standalone}) => {
       }
     } catch (e) {}
 
+    // Only render the StatusPage for non-500 HTTP errors
     if ((error as any).status !== 500) {
       return (
         <StatusPage
           code={(error as any).status}
-          title={(error as any).statusText}
           message={message}
+          error={error}
           standalone={standalone}
         />
-      )
+      );
     }
   }
 
-  const displayError = error instanceof Error ? error : new Error(message || (error && typeof error === 'object' && ((error as any).message || (error as any).statusText)) || 'A critical error occurred');
-  return <GlobalErrorPage error={displayError as any} standalone={standalone} />
+  // 3. Fallback for standard code crashes (e.g., TypeError) and explicit 500s
+  const displayError = error instanceof Error 
+    ? error 
+    : new Error(
+        message || 
+        (error && typeof error === 'object' && ((error as any).message || (error as any).statusText)) || 
+        'A critical error occurred'
+      );
+      
+  return <GlobalErrorPage error={displayError as any} standalone={standalone} />;
 }
 
 const HydrateFallback = () => {
   return <div>Loading...</div>
 }
 
-function withLoaderData(Component: React.ComponentType<any>, name?: string, catchAllParam?: string) {
-  return function WithLoaderDataWrapper(props: any) {
+// Replaced pageClientCache with central cache in DataClientProvider
+
+function withRouteData(Component: React.ComponentType<any>, id?: string, catchAllParam?: string) {
+  return function WithRouteDataWrapper(props: any) {
     const dataClient = __PYLON_INTERNALS_DO_NOT_USE.useDataClient()
-    const pruningTarget = __PYLON_INTERNALS_DO_NOT_USE.useSSRPruning()
+    const pagesContext = dataClient.pagesContext
 
     const location = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useLocation()
     const [searchParams] = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useSearchParams()
@@ -384,134 +407,23 @@ function withLoaderData(Component: React.ComponentType<any>, name?: string, catc
       return params
     }, [reactRouterParams, catchAllParam])
 
-    const initialData = useInitialData() || (typeof window !== 'undefined' ? (window as any).__PYLON_INITIAL_DATA__ : null)
-
-    const loaderData = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useLoaderData()
-    
-    // Priority: loaderData (from navigation) > initialData (from script tag)
-    const activeData = (loaderData && loaderData.cacheSnapshot) ? loaderData : (initialData || loaderData || {})
-    const {cacheSnapshot, context} = activeData
-
-    const isServer = typeof window === 'undefined'
-
-    const pageClient = useMemo(() => {
-       if(isServer) return dataClient
-       return dataClient.pageClient()
-    }, [])
-
-    if(cacheSnapshot && !isServer) {
-      pageClient.useHydrateCache({cacheSnapshot})
-    }
-
-    const useQuery = pageClient.useQuery
-
     const pageProps = useMemo(() => {
       return {
         path: location.pathname,
         params,
         searchParams: searchParamsObject,
-        context,
+        context: pagesContext,
       }
-    }, [location.pathname, params, searchParamsObject, context])
+    }, [location.pathname, params, searchParamsObject, pagesContext])
 
-    // 1. Handle Transparent Ancestors
-    // If we're optimized-rendering a specific layout, and THIS is not it,
-    // we just act as a passthrough to skip THIS layout's logic/queries.
-    // Exception: RootLayout is never skipped to preserve global providers.
-    if (pruningTarget && name !== pruningTarget && name !== 'RootLayout') {
-      return <Outlet />
-    }
-
-    // 2. Handle Pruning Target
-    // If THIS is the target, we render it but clear its children (the Outlet).
-    const children = pruningTarget && name === pruningTarget ? null : <Outlet />
-
-    return <InitialDataProvider value={initialData}>
-      <DataClientProvider client={pageClient}>
-        <__PYLON_INTERNALS_DO_NOT_USE.DataQueryProvider useQuery={useQuery}>
-          <__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider props={pageProps} name={name}>
-              <Component {...(props as any)} {...pageProps} children={children} />
-          </__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider>
-        </__PYLON_INTERNALS_DO_NOT_USE.DataQueryProvider>
-      </DataClientProvider>
-    </InitialDataProvider>
+    return (
+      <__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider props={pageProps} name={id}>
+        <Component {...(props as any)} {...pageProps} children={<Outlet />} />
+      </__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider>
+    )
   };
 }
 
-/**
- * Creates an isomorphic data loader for a specific route.
- * On the server: uses requestContext (passed from setup/index.tsx via handler.query())
- *   to access pagesContext directly, avoiding dynamic imports.
- * On the client: fetches JSON from the server with the cache snapshot.
- */
-export const loader: (ref?: string) => __PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFunction = (ref) => async ({ request, context }) => {
-  const isServer = typeof window === 'undefined';
-  
-  if (isServer) {
-    // The requestContext is passed from setup/index.tsx via handler.query().
-    // It contains { pagesContext } — the Hono context data for this request.
-    const { pagesContext } = (context as any) || {};
-    return { context: pagesContext || {} };
-  }
-
-  const url = new URL(request.url);
-  const headers = new Headers();
-  headers.set('Accept', 'application/json');
-  headers.set('X-Pylon-Internal', 'true');
-  if (ref) {
-    headers.set('X-Pylon-Route-Ref', ref);
-  }
-
-  const response = await fetch(url.pathname + url.search, {
-    method: 'GET',
-    headers,
-    signal: request.signal
-  });
-
-  // Check for server-side redirect signaled via header.
-  // The server returns a 204 with X-Pylon-Redirect instead of a real 302
-  // to prevent fetch() from auto-following it (which wastes a round-trip).
-  const redirectLocation = response.headers.get('X-Pylon-Redirect');
-  if (redirectLocation) {
-    throw __PYLON_ROUTER_INTERNALS_DO_NOT_USE.redirect(redirectLocation);
-  }
-
-  // Fallback: handle actual HTTP redirects (e.g. from middleware)
-  if([301, 302, 303, 307, 308].includes(response.status)) {
-    const location = response.headers.get('location');
-    if(location) {
-      throw __PYLON_ROUTER_INTERNALS_DO_NOT_USE.redirect(location, response.status);
-    }
-  }
-
-  if(!response.ok) {
-    const data = await response.json().catch(() => ({}));
-    const message = data.message || response.statusText || 'An unexpected error occurred.';
-    throw {
-      status: response.status,
-      statusText: response.statusText,
-      data: data,
-      message: message
-    };
-  }
-
-  try {
-    const data = await response.json<any>();
-
-    // Client-Side Version Sync Check:
-    if (typeof window !== 'undefined' && data?.version) {
-      const clientVersion = (window as any).__PYLON_VERSION__;
-      if (clientVersion && data.version !== clientVersion) {
-        window.location.reload();
-      }
-    }
-
-    return data;
-    
-  } catch (error) {
-    throw error;
-  }
-};
 
 
 
@@ -530,7 +442,7 @@ const RootLayout = (props: { children: React.ReactNode; [key: string]: any }) =>
 }
 
 const NotFoundPage: React.FC<{standalone: boolean}> = ({standalone = false}) => {
-  return <StatusPage code={404} title="Page Not Found" message="The page you are looking for does not exist." standalone={standalone} />
+  return <StatusPage code={404} message="The page you are looking for does not exist." standalone={standalone} />
 }
 
 const routes = ${serialize([rootRoute, notFoundRoute].filter(Boolean))}
@@ -549,6 +461,7 @@ export function makeAppFiles() {
 
   const rootRoute = scanDirectory(PAGES_DIR, context)
   const notFoundRoute: Route = {
+    id: 'NotFound',
     path: '*',
     element: '<NotFoundPage standalone={true} />',
     loader: '() => { return new Response("Not Found", { status: 404 }) }'

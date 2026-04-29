@@ -7,17 +7,25 @@ import {trimTrailingSlash} from 'hono/trailing-slash'
 import {
   createStaticHandler,
   createStaticRouter,
-  StaticRouterProvider
+  StaticRouterProvider,
+  type StaticHandlerContext
 } from 'react-router'
 import {PassThrough, Readable} from 'stream'
 
 import ErrorPage from '@/components/global-error-page'
-import {StatusPage} from '@/components/status-page'
 import {etag} from 'hono/etag'
 import {tmpdir} from 'os'
 import {pipeline} from 'stream/promises'
 
 import {Data, LayoutProps, MetadataRoute, PageProps} from '../types'
+
+function isResponse(value: any): value is Response {
+  return (
+    value != null &&
+    typeof value.status === 'number' &&
+    typeof value.clone === 'function'
+  )
+}
 
 export type {Data, LayoutProps, MetadataRoute, PageProps}
 
@@ -59,7 +67,6 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
 
   const routes = (await import(`${process.cwd()}/${pagesManifest['app.js']}`))
     .default
-  const _client = await import(`${process.cwd()}/.pylon/client/index.js`)
 
   const handler = createStaticHandler(routes)
 
@@ -380,242 +387,164 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
     }
   })
 
-  const requestStore = new AsyncLocalStorage<{client: any}>()
+  const _client = await import(
+    `${process.cwd()}/.pylon/client/index.js?t=${Date.now()}`
+  )
 
   app.get('*', async c => {
-    const initCtx = requestStore.getStore() || {
-      client: null
+    const pagesContext = c.get('pagesContext' as any) || {}
+    const pagesClient = _client.createPylonPagesClient()
+
+    // =====================================================================
+    // PHASE 1: Route Matching & Loader Execution
+    // =====================================================================
+    const staticHandlerContext = await handler.query(c.req.raw, {
+      requestContext: {pagesContext}
+    })
+
+    // Handle redirects or raw responses thrown by standard React Router loaders
+    if (isResponse(staticHandlerContext)) {
+      const status = staticHandlerContext.status
+      if (status >= 300 && status < 400) {
+        const location = staticHandlerContext.headers.get('Location')
+        if (location) return c.redirect(location, status as any)
+      }
+      c.status(status as any)
+      return c.body(await staticHandlerContext.text())
     }
 
-    return requestStore.run(initCtx, async () => {
-      if (!initCtx.client) {
-        initCtx.client = _client.pageClient()
-      }
+    const context = staticHandlerContext as StaticHandlerContext
+    const router = createStaticRouter(handler.dataRoutes, context)
 
-      const client = initCtx.client
+    const prerenderComponent = (
+      <__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider
+        client={pagesClient}
+        staticData={{
+          context: pagesContext
+        }}>
+        <StaticRouterProvider router={router} context={context} />
+      </__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider>
+    )
 
-      const pagesContext = c.get('pagesContext' as any) || {}
-      let cacheSnapshot: string | undefined
+    let cacheSnapshot: object | undefined = undefined
 
-      // X-Pylon-Route-Ref header stores the route ref of the current layout
-      // This is used to remove the children of the layout to prevent
-      // rendering overhead
-      const xPylonRouteRef = c.req.header('x-pylon-route-ref')
+    // =====================================================================
+    // PHASE 2: Component Render & Data Probing
+    // =====================================================================
+    try {
+      // Execute a "dry run" to trigger component-level data fetching
+      const result = await pagesClient.prepareReactRender(prerenderComponent)
+      cacheSnapshot = result.cacheSnapshot
+    } catch (errorOrResponse) {
+      if (isResponse(errorOrResponse)) {
+        const status = errorOrResponse.status
 
-      // Pass requestContext to handler.query() so the server-side loaders
-      // can access pagesContext directly (instead of re-importing @getcronit/pylon).
-      const staticHandlerContext = await handler.query(c.req.raw, {
-        requestContext: {pagesContext}
-      })
+        // 1. Intercept component-level Redirects (e.g., Auth checks)
+        if (status >= 300 && status < 400) {
+          const location = errorOrResponse.headers.get('Location')
+          if (location) return c.redirect(location, status as any)
+        }
 
-      if (staticHandlerContext instanceof Response) {
-        return staticHandlerContext
-      }
+        // 2. Intercept component-level Data Errors (e.g., 404, 403)
+        const leafMatch = context.matches[context.matches.length - 1]
 
-      if (staticHandlerContext.statusCode) {
-        c.status(staticHandlerContext.statusCode as any)
-      }
+        if (leafMatch) {
+          // Unpack the stream so the client can serialize it during hydration
+          let errorData = errorOrResponse.statusText
+          try {
+            errorData = await errorOrResponse.text()
+          } catch {}
 
-      const router = createStaticRouter(
-        handler.dataRoutes,
-        staticHandlerContext
-      )
+          context.errors = context.errors || {}
 
-      const component = (
-        <__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider client={client}>
-          <__PYLON_INTERNALS_DO_NOT_USE.SSRPruningProvider
-            target={xPylonRouteRef || null}>
-            <StaticRouterProvider
-              router={router}
-              context={staticHandlerContext}
-            />
-          </__PYLON_INTERNALS_DO_NOT_USE.SSRPruningProvider>
-        </__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider>
-      )
-
-      // Warm up the GQty cache by running prepareReactRender.
-      // If it throws a Response (e.g., a redirect), return it directly.
-      // If it throws an error, inject it into staticHandlerContext.errors
-      // so React Router's errorElement boundaries handle it during rendering.
-      const isStaticFile =
-        /\.(js|css|png|jpg|jpeg|gif|svg|ico|json|woff|woff2|ttf|otf|map|txt|xml|webmanifest)$/.test(
-          c.req.path
-        )
-
-      if (!isStaticFile) {
-        try {
-          const data = await client.prepareReactRender(component)
-          cacheSnapshot = data.cacheSnapshot
-        } catch (error) {
-          // If prepareReactRender throws a Response (e.g., redirect),
-          // handle it based on the request type.
-          if (error instanceof Response) {
-            if (error.status >= 300 && error.status < 400) {
-              const location = error.headers.get('Location')
-              if (location) {
-                // For JSON requests (client-side navigation), return a 204
-                // with the redirect location in a header. We can't return a
-                // real 302 because fetch() would auto-follow it, causing a
-                // wasted round-trip to the redirect target.
-                if (c.req.header('accept')?.includes('application/json')) {
-                  c.header('X-Pylon-Redirect', location)
-                  return c.body(null, 204)
-                }
-
-                // For HTML requests (SSR), return a proper redirect
-                return c.redirect(
-                  location,
-                  error.status as RedirectStatusCode
-                )
-              }
-            }
-            return error
+          // Format the error exactly how React Router's internals expect it
+          context.errors[leafMatch.route.id] = {
+            status: status,
+            statusText: errorOrResponse.statusText,
+            data: errorData,
+            internal: true
           }
 
-          // For non-Response errors, inject the error into React Router's
-          // staticHandlerContext so errorElement boundaries handle it during
-          // rendering — no manual error page rendering needed.
-          console.error('prepareReactRender error:', error)
-
-          // Find the deepest matched route to assign the error to
-          const matchedRouteIds = Object.keys(
-            staticHandlerContext.loaderData || {}
-          )
-          const errorRouteId =
-            matchedRouteIds[matchedRouteIds.length - 1] ||
-            staticHandlerContext.matches?.[
-              staticHandlerContext.matches.length - 1
-            ]?.route?.id
-
-          if (errorRouteId) {
-            staticHandlerContext.errors = {
-              [errorRouteId]: error
-            }
-          }
+          context.statusCode = status
         }
-      }
+      } else {
+        // 3. Intercept standard application crashes (e.g., TypeErrors)
+        const leafMatch = context.matches[context.matches.length - 1]
 
-      const initialData = {
-        cacheSnapshot,
-        context: pagesContext
-      }
-
-      // For client-side navigation: return JSON with the cache snapshot.
-      // Redirect errors have already been returned above as Response objects.
-      // Non-Response errors are injected into staticHandlerContext.errors
-      // and will be surfaced through the ErrorElement on the client.
-      if (c.req.header('accept')?.includes('application/json')) {
-        // Check if there were errors injected from prepareReactRender
-        if (staticHandlerContext.errors) {
-          const errorRouteId = Object.keys(staticHandlerContext.errors)[0]
-          const err = staticHandlerContext.errors[errorRouteId]
-          const message =
-            err?.message || 'An error occurred during data preparation.'
-          return c.json(
-            {
-              message,
-              stack:
-                process.env.NODE_ENV === 'development'
-                  ? err?.stack
-                  : undefined
-            },
-            500
-          )
-        }
-        return c.json(initialData)
-      }
-
-      // Final component with hydration data
-      const finalComponent = (
-        <__PYLON_INTERNALS_DO_NOT_USE.InitialDataProvider value={initialData}>
-          {component}
-        </__PYLON_INTERNALS_DO_NOT_USE.InitialDataProvider>
-      )
-
-      try {
-        if (reactServer.renderToReadableStream) {
-          const stream = await reactServer.renderToReadableStream(
-            finalComponent,
-            {
-              bootstrapModules: staticManifest['app.js']
-                ? [staticManifest['app.js']]
-                : undefined
-            }
-          )
-
-          c.header('Content-Type', 'text/html')
-          return c.body(stream)
-        } else if (reactServer.renderToPipeableStream) {
-          return await new Promise<Response>((resolve, reject) => {
-            const {pipe} = reactServer.renderToPipeableStream(
-              finalComponent,
-
-              {
-                bootstrapModules: staticManifest['app.js']
-                  ? [staticManifest['app.js']]
-                  : undefined,
-                onShellReady: async () => {
-                  c.header('Content-Type', 'text/html')
-                  const passThrough = new PassThrough()
-
-                  pipe(passThrough)
-
-                  resolve(c.body(Readable.toWeb(passThrough) as any))
-                },
-                onShellError: async error => {
-                  reject(error)
-                }
-              }
-            )
-          })
+        if (leafMatch) {
+          context.errors = context.errors || {}
+          context.errors[leafMatch.route.id] = errorOrResponse
+          context.statusCode = 500
         } else {
-          throw new Error('Environment not supported')
+          throw errorOrResponse
         }
-      } catch (errorOrResponse) {
-        c.header('Content-Type', 'text/html')
-
-        if (errorOrResponse instanceof Response) {
-          c.status(errorOrResponse.status as StatusCode)
-
-          // Redirect if the response is a redirect
-          if (errorOrResponse.status >= 300 && errorOrResponse.status < 400) {
-            const location = errorOrResponse.headers.get('Location')
-            if (location) {
-              return c.redirect(
-                location,
-                errorOrResponse.status as RedirectStatusCode
-              )
-            }
-          }
-
-          return c.html(
-            reactServer.renderToString(
-              <StatusPage
-                code={errorOrResponse.status}
-                title={errorOrResponse.statusText}
-                message={errorOrResponse.statusText}
-                standalone
-              />
-            )
-          )
-        }
-
-        c.status(500)
-
-        return c.html(
-          reactServer.renderToString(
-            <ErrorPage error={errorOrResponse as Error} />
-          )
-        )
       }
-    })
+    }
+
+    // =====================================================================
+    // PHASE 3: Final Stream Output
+    // =====================================================================
+    const finalComponent = (
+      <__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider
+        client={pagesClient}
+        staticData={{
+          cache: cacheSnapshot,
+          context: pagesContext
+        }}>
+        <StaticRouterProvider router={router} context={context} />
+      </__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider>
+    )
+
+    try {
+      if (reactServer.renderToReadableStream) {
+        const stream = await reactServer.renderToReadableStream(
+          finalComponent,
+          {
+            bootstrapModules: staticManifest['app.js']
+              ? [staticManifest['app.js']]
+              : undefined
+          }
+        )
+
+        // Apply the finalized status code to the HTTP response header
+        c.status(context.statusCode as any)
+        c.header('Content-Type', 'text/html')
+        return c.body(stream)
+      } else if (reactServer.renderToPipeableStream) {
+        return await new Promise<Response>((resolve, reject) => {
+          const {pipe} = reactServer.renderToPipeableStream(finalComponent, {
+            bootstrapModules: staticManifest['app.js']
+              ? [staticManifest['app.js']]
+              : undefined,
+            onShellReady: async () => {
+              c.status(context.statusCode as any)
+              c.header('Content-Type', 'text/html')
+              const passThrough = new PassThrough()
+              pipe(passThrough)
+              resolve(c.body(Readable.toWeb(passThrough) as any))
+            },
+            onShellError: async error => {
+              reject(error)
+            }
+          })
+        })
+      } else {
+        throw new Error('Environment not supported')
+      }
+    } catch (criticalError) {
+      // Failsafe for catastrophic streaming errors
+      console.error('CRITICAL STREAM ERROR', criticalError)
+      c.status(500)
+      c.header('Content-Type', 'text/html')
+      return c.html(
+        reactServer.renderToString(<ErrorPage error={criticalError as Error} />)
+      )
+    }
   })
 }
 
 import {__PYLON_INTERNALS_DO_NOT_USE} from '@getcronit/pylon/pages'
-import {AsyncLocalStorage} from 'async_hooks'
 import {createHash} from 'crypto'
-import {RedirectStatusCode, StatusCode} from 'hono/utils/http-status'
 import type {FormatEnum} from 'sharp'
 import glob from 'tiny-glob/sync.js'
 import {serveFilePath} from './serve-file-path'

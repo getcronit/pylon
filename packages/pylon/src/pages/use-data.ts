@@ -1,7 +1,12 @@
 import type {UseQueryOptions} from '@gqty/react'
 import {useEffect, useRef} from 'react'
 import type {Data} from './index'
-import {registerRefetch, unregisterRefetch, useDataQuery} from './internals'
+import {
+  registerRefetch,
+  unregisterRefetch,
+  useDataClient,
+  useRouteId
+} from './internals'
 
 interface UseDataOptions extends Omit<
   UseQueryOptions<any>,
@@ -9,10 +14,13 @@ interface UseDataOptions extends Omit<
 > {}
 
 export const useData = (options?: UseDataOptions) => {
-  const useQuery = useDataQuery()
+  const routeId = useRouteId()
+  const dataClient = useDataClient()
+  const useQuery = dataClient.client.useQuery
 
   const data = useQuery({
     ...options,
+    operationName: undefined,
     suspense: true
   }) as Data
 

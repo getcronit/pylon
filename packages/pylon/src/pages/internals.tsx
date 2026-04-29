@@ -1,14 +1,61 @@
-import {createContext, useContext} from 'react'
+import {createContext, useContext, useEffect, useMemo} from 'react'
 import {PageProps} from '.'
 
-const dataClientContext = createContext<any | null>(null)
+const dataClientContext = createContext<{
+  client: any
+  pagesContext?: any
+} | null>(null)
 
 const DataClientProvider: React.FC<{
   client: any
+  staticData?: {
+    cache?: any
+    context?: any
+  }
   children: React.ReactNode
-}> = ({children, client}) => {
+}> = ({children, client, staticData}) => {
+  const isServer = typeof window === 'undefined'
+
+  useEffect(() => {
+    console.log('DataClientProvider mounted')
+    return () => {
+      console.log('DataClientProvider unmounted')
+    }
+  }, [])
+
+  // Hydrate the cache and context on the client.
+  const payload = useMemo(() => {
+    if (typeof window !== 'undefined') {
+      return (window as any).__pylonStaticData
+    }
+    return staticData
+  }, [staticData])
+
+  // On the server, we hydrate the cache if a snapshot is provided (e.g. from a prerender pass)
+  // On the client, hydration is handled globally in inject-app-hydration.ts
+  const coreClient = client.client || client
+  if (isServer && payload?.cache && coreClient && coreClient.cache) {
+    coreClient.cache.restore(payload.cache)
+  }
+
+  const pagesContext = payload?.context
+
+  const contextValue = useMemo(() => {
+    return {
+      client,
+      pagesContext
+    }
+  }, [client, pagesContext])
+
   return (
-    <dataClientContext.Provider value={client}>
+    <dataClientContext.Provider value={contextValue}>
+      {isServer && payload && (
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `window.__pylonStaticData = ${JSON.stringify(payload)}`
+          }}
+        />
+      )}
       {children}
     </dataClientContext.Provider>
   )
@@ -24,32 +71,7 @@ const useDataClient = () => {
   return context
 }
 
-const dataQueryContext = createContext<any | null>(null)
-
-const DataQueryProvider: React.FC<{
-  useQuery: any
-  children: React.ReactNode
-}> = ({children, useQuery}) => {
-  return (
-    <dataQueryContext.Provider value={useQuery}>
-      {children}
-    </dataQueryContext.Provider>
-  )
-}
-
-const useDataQuery = () => {
-  const query = useContext(dataQueryContext)
-
-  if (query) {
-    return query
-  }
-
-  const client = useDataClient()
-
-  return client.useQuery
-}
-
-export {DataClientProvider, DataQueryProvider, useDataClient, useDataQuery}
+export {DataClientProvider, useDataClient}
 
 // A simple alias for the refetch function type
 type RefetchFunction = (ignoreCache?: boolean) => Promise<any>
@@ -88,7 +110,10 @@ export const unregisterRefetch = (name: string, fn: RefetchFunction) => {
 // 3. CORE CONTEXT AND PROVIDER
 // ====================================================================
 
-const RouteDataContext = createContext<PageProps | null>(null)
+const RouteDataContext = createContext<{
+  props: PageProps
+  name?: string
+} | null>(null)
 
 /**
  * Provides the route data to components. If a 'name' is provided, it
@@ -98,9 +123,11 @@ const RouteDataProvider: React.FC<{
   children: React.ReactNode
   props: PageProps
   name?: string // Optional name property
-}> = ({children, props}) => {
+}> = ({children, props, name}) => {
+  const value = useMemo(() => ({props, name}), [props, name])
+
   return (
-    <RouteDataContext.Provider value={props}>
+    <RouteDataContext.Provider value={value}>
       {children}
     </RouteDataContext.Provider>
   )
@@ -116,73 +143,16 @@ const useRouteData = (): PageProps => {
     throw new Error('useRouteData must be used within a RouteDataProvider')
   }
 
-  return context
+  return context.props
+}
+
+const useRouteId = (): string | undefined => {
+  const context = useContext(RouteDataContext)
+  return context?.name
 }
 
 // ====================================================================
 // 4. THE REFRESH HOOK (The consumer)
 // ====================================================================
 
-export {RouteDataProvider, useRouteData}
-
-// ====================================================================
-// 5. INITIAL DATA (Hydration)
-// ====================================================================
-
-const InitialDataContext = createContext<any | null>(null)
-
-/**
- * Provider for initial data passed from server to client.
- */
-export const InitialDataProvider: React.FC<{
-  children: React.ReactNode
-  value: any
-}> = ({children, value}) => {
-  return (
-    <InitialDataContext.Provider value={value}>
-      {value && (
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `window.__PYLON_INITIAL_DATA__ = ${JSON.stringify(value)};`
-          }}
-        />
-      )}
-      {children}
-    </InitialDataContext.Provider>
-  )
-}
-
-/**
- * Hook to access initial data.
- */
-export const useInitialData = () => {
-  return useContext(InitialDataContext)
-}
-
-// ====================================================================
-// 6. SSR PRUNING (Selective Rendering)
-// ====================================================================
-
-const SSRPruningContext = createContext<string | null>(null)
-
-/**
- * Provider to signal which layout should be the "pruning target" during SSR.
- * Components matching this target will skip rendering their children.
- */
-export const SSRPruningProvider: React.FC<{
-  target: string | null
-  children: React.ReactNode
-}> = ({children, target}) => {
-  return (
-    <SSRPruningContext.Provider value={target}>
-      {children}
-    </SSRPruningContext.Provider>
-  )
-}
-
-/**
- * Hook to consume the SSR pruning target.
- */
-export const useSSRPruning = () => {
-  return useContext(SSRPruningContext)
-}
+export {RouteDataProvider, useRouteData, useRouteId}

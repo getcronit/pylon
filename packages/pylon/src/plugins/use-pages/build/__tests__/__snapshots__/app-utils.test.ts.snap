@@ -5,53 +5,62 @@ exports[`app-utils > makeAppFiles > should generate the correct app files conten
 import AuthLayout from "./../pages/auth/layout";
 import DashboardLayout from "./../pages/dashboard/layout";
 
-import {useMemo} from 'react'
-
+import {useMemo, Suspense} from 'react'
 import {__PYLON_ROUTER_INTERNALS_DO_NOT_USE, __PYLON_INTERNALS_DO_NOT_USE, GlobalErrorPage, StatusPage} from '@getcronit/pylon/pages'
 const Outlet = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.Outlet
 
 const ErrorElement: React.FC<{standalone: boolean}> = ({standalone}) => {
   const error = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useRouteError()
+  let message = 'An unexpected error occurred.'
 
-
-    if(error instanceof Response) {
-      // Check if the error is a redirect response
-      if(error.status > 300 && error.status < 400 && error.headers.get('Location')) {
-      return <__PYLON_ROUTER_INTERNALS_DO_NOT_USE.Navigate to={error.headers.get('Location')!} replace />
-      }
-
-      let message = 'An unexpected error occurred.'
+  const isResponse = error instanceof Response || (error && typeof error === 'object' && 'status' in error);
+  if(isResponse) {
+    // Check if the error is a redirect response
+    if(error instanceof Response && error.status > 300 && error.status < 400 && error.headers.get('Location')) {
+    return <__PYLON_ROUTER_INTERNALS_DO_NOT_USE.Navigate to={error.headers.get('Location')!} replace />
+    }
 
     try {
-      const data = JSON.parse(error.data?.message || '{}')
-      if (data.message) {
-        message = data.message
+      const errorData = (error as any).data;
+      const rawMessage = typeof errorData === 'string' ? errorData : errorData?.message;
+      
+      if (rawMessage) {
+        try {
+          const parsed = JSON.parse(rawMessage);
+          message = parsed.message || rawMessage;
+        } catch (e) {
+          message = rawMessage;
+        }
       }
     } catch (e) {}
 
-    return (
-      <StatusPage
-        code={error.status}
-        title={error.statusText}
-        message={message}
-        standalone={standalone}
-      />
-    )
+    if ((error as any).status !== 500) {
+      return (
+        <StatusPage
+          code={(error as any).status}
+          message={message}
+          error={error}
+          standalone={standalone}
+        />
+      )
+    }
   }
 
-  return <GlobalErrorPage error={error} />
+  const displayError = error instanceof Error ? error : new Error(message || (error && typeof error === 'object' && ((error as any).message || (error as any).statusText)) || 'A critical error occurred');
+  return <GlobalErrorPage error={displayError as any} standalone={standalone} />
 }
 
 const HydrateFallback = () => {
   return <div>Loading...</div>
 }
 
-function withLoaderData<T>(Component: React.ComponentType<{ data: T }>, name?: string, catchAllParam?: string) {
-  return function WithLoaderDataWrapper(props: T) {
+// Replaced pageClientCache with central cache in DataClientProvider
+
+function withLoaderData(Component: React.ComponentType<any>, id?: string, catchAllParam?: string) {
+  return function WithLoaderDataWrapper(props: any) {
     const dataClient = __PYLON_INTERNALS_DO_NOT_USE.useDataClient()
     const pruningTarget = __PYLON_INTERNALS_DO_NOT_USE.useSSRPruning()
 
-    const {cacheSnapshot, context} = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useLoaderData() || {};
     const location = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useLocation()
     const [searchParams] = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useSearchParams()
     const searchParamsObject = useMemo(() => Object.fromEntries(searchParams.entries()), [searchParams])
@@ -68,97 +77,126 @@ function withLoaderData<T>(Component: React.ComponentType<{ data: T }>, name?: s
       return params
     }, [reactRouterParams, catchAllParam])
 
-    // 1. Handle Transparent Ancestors
-    // If we're optimized-rendering a specific layout, and THIS is not it,
-    // we just act as a passthrough to skip THIS layout's logic/queries.
-    // Exception: RootLayout is never skipped to preserve global providers.
-    if (pruningTarget && name !== pruningTarget && name !== 'RootLayout') {
-      return <Outlet />
-    }
+    // Loader data is now populated by the dataStrategy in setup/index.tsx,
+    // which includes the GQty cacheSnapshot and the route context.
+    // On the initial load, this is hydrated via the hydrationData option
+    // in createBrowserRouter (see inject-app-hydration.ts).
+    const loaderData = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useLoaderData()
+    const {cacheSnapshot, context} = loaderData || {}
 
-    const {useQuery, useHydrateCache} = useMemo(() => dataClient.pageClient(), [])
+    const pageClient = dataClient.getPagesClient(id)
 
-    if(cacheSnapshot) {
-      useHydrateCache({cacheSnapshot})
-    }
-
-    const data = typeof window !== "undefined" ? useQuery() : dataClient.useQuery()
+    pageClient.useHydrateCache({cacheSnapshot})
 
     const pageProps = useMemo(() => {
       return {
         path: location.pathname,
         params,
         searchParams: searchParamsObject,
-        data,
         context,
       }
-    }, [location.pathname, params, searchParamsObject, data, context])
+    }, [location.pathname, params, searchParamsObject, context])
+
+    // 1. Handle Transparent Ancestors
+    // If we're optimized-rendering a specific layout, and THIS is not it,
+    // we just act as a passthrough to skip THIS layout's logic/queries.
+    // Exception: RootLayout is never skipped to preserve global providers.
+    if (pruningTarget && id !== pruningTarget && id !== 'RootLayout') {
+      return <Outlet />
+    }
 
     // 2. Handle Pruning Target
     // If THIS is the target, we render it but clear its children (the Outlet).
-    const children = pruningTarget && name === pruningTarget ? null : <Outlet />
+    const children = pruningTarget && id === pruningTarget ? null : <Outlet />
 
-    return <__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider props={pageProps} name={name}>
-      <Component {...(props as any)} {...pageProps} children={children} />
-    </__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider>
+    return (
+      <__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider props={pageProps} name={id}>
+        <Component {...(props as any)} {...pageProps} children={children} />
+      </__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider>
+    )
   };
 }
 
-const loader: (ref?: string) => __PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFunction = (ref) => async ({ request, ...args }) => {
-  // 1. Skip if request is a JSON-only fetch (e.g., client-side route preloading)
-  const acceptHeader = request.headers.get('accept')
-  if (acceptHeader?.includes('application/json')) {
-    return null
+/**
+ * Creates an isomorphic data loader for a specific route.
+ * On the server: uses requestContext (passed from setup/index.tsx via handler.query())
+ *   to access pagesContext directly, avoiding dynamic imports.
+ * On the client: fetches JSON from the server with the cache snapshot.
+ */
+export const loader: (ref?: string) => __PYLON_ROUTER_INTERNALS_DO_NOT_USE.LoaderFunction = (ref) => async ({ request, context }) => {
+  const isServer = typeof window === 'undefined';
+  
+  if (isServer) {
+    // The requestContext is passed from setup/index.tsx via handler.query().
+    // It contains { pagesContext } — the Hono context data for this request.
+    const { pagesContext } = (context as any) || {};
+    return { context: pagesContext || {} };
   }
 
-  const url = new URL(request.url)
-  const headers = new Headers()
-  let fetchToUse: typeof fetch = fetch
+  const url = new URL(request.url);
+  const headers = new Headers();
+  headers.set('Accept', 'application/json');
+  headers.set('X-Pylon-Internal', 'true');
+  if (ref) {
+    headers.set('X-Pylon-Route-Ref', ref);
+  }
 
-  try {
-    // 2. Try importing Pylon — if this works, we're on the server
-    const moduleNameToPreventBundling = '@getcronit/pylon'
-    const { app, getContext } = await import(moduleNameToPreventBundling)
-    fetchToUse = app.request
+  const response = await fetch(url.pathname + url.search, {
+    method: 'GET',
+    headers,
+    signal: request.signal
+  });
 
-    // 3. Get headers from the original server request and forward them
-    const context = getContext()
-    for (const [key, value] of context.req.raw.headers.entries()) {
-      headers.append(key, value)
+  // Check for server-side redirect signaled via header.
+  // The server returns a 204 with X-Pylon-Redirect instead of a real 302
+  // to prevent fetch() from auto-following it (which wastes a round-trip).
+  const redirectLocation = response.headers.get('X-Pylon-Redirect');
+  if (redirectLocation) {
+    throw __PYLON_ROUTER_INTERNALS_DO_NOT_USE.redirect(redirectLocation);
+  }
+
+  // Fallback: handle actual HTTP redirects (e.g. from middleware)
+  if([301, 302, 303, 307, 308].includes(response.status)) {
+    const location = response.headers.get('location');
+    if(location) {
+      throw __PYLON_ROUTER_INTERNALS_DO_NOT_USE.redirect(location, response.status);
     }
+  }
 
-    // Set Accept-Encoding header to identity so the internal fetch returns JSON
-    headers.set('Accept-Encoding', 'identity')
+  if(!response.ok) {
+    const data = await response.json().catch(() => ({}));
+
+    console.log("STATU TEXT", response.statusText)
     
-  } catch {
-    // 4. Pylon not available — fallback to default fetch (runs in browser)
-    // No additional headers are needed; browser sends cookies automatically
+    // Throw a Response object so React Router treats it as a proper error response
+    // (e.g. triggers the correct ErrorBoundary/NotFound page).
+    throw new Response(JSON.stringify(data.data || data), {
+      status: response.status,
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
   }
-
-  headers.set('Accept', 'application/json') // Ensure the internal request gets JSON
-  headers.set('X-Pylon-Internal', 'true')
-  if(ref) {
-    headers.set('X-Pylon-Route-Ref', ref)
-  }
-
-  const response = await fetchToUse(url.pathname + url.search, {
-      method: 'GET',
-      headers,
-  })
 
   try {
-    const data = await response.json<any>()
+    const data = await response.json<any>();
 
-    // Check if the version returned by the server matches the client's version
-    if (data && data.version && typeof window !== 'undefined' && (window as any).__PYLON_VERSION__ && data.version !== (window as any).__PYLON_VERSION__) {
-      window.location.reload()
+    // Client-Side Version Sync Check:
+    if (typeof window !== 'undefined' && data?.version) {
+      const clientVersion = (window as any).__PYLON_VERSION__;
+      if (clientVersion && data.version !== clientVersion) {
+        window.location.reload();
+      }
     }
 
-    return data
-  } catch {
-    return null
+    return data;
+    
+  } catch (error) {
+    throw error;
   }
-}
+};
+
+
 
 
 const RootLayout = (props: { children: React.ReactNode; [key: string]: any }) => {
@@ -175,10 +213,10 @@ const RootLayout = (props: { children: React.ReactNode; [key: string]: any }) =>
 }
 
 const NotFoundPage: React.FC<{standalone: boolean}> = ({standalone = false}) => {
-  return <StatusPage code={404} title="Page Not Found" message="The page you are looking for does not exist." standalone={standalone} />
+  return <StatusPage code={404} message="The page you are looking for does not exist." standalone={standalone} />
 }
 
-const routes = [{"path": "/", "children": [{"path": undefined, "index": true, "errorElement": <ErrorElement standalone={false} />, "lazy": async () => {const i = await import("./../pages/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "Page", undefined)}}, "HydrateFallback": HydrateFallback, "loader": loader("Page")}, {"path": "auth", "children": [{"path": "login", "children": [{"path": undefined, "index": true, "errorElement": <ErrorElement standalone={false} />, "lazy": async () => {const i = await import("./../pages/auth/login/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "AuthLoginPage", undefined)}}, "HydrateFallback": HydrateFallback, "loader": loader("AuthLoginPage")}]}, {"path": "*", "element": <NotFoundPage standalone={false} />}], "Component": withLoaderData((props) => <AuthLayout children={<Outlet />} {...props} />, "AuthLayout", undefined), "loader": loader("AuthLayout"), "shouldRevalidate": ({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
+const routes = [{"path": "/", "children": [{"id": "Page", "path": undefined, "index": true, "errorElement": <ErrorElement standalone={false} />, "lazy": async () => {const i = await import("./../pages/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "Page", undefined)}}, "HydrateFallback": HydrateFallback, "loader": loader("Page")}, {"path": "auth", "children": [{"path": "login", "children": [{"id": "AuthLoginPage", "path": undefined, "index": true, "errorElement": <ErrorElement standalone={false} />, "lazy": async () => {const i = await import("./../pages/auth/login/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "AuthLoginPage", undefined)}}, "HydrateFallback": HydrateFallback, "loader": loader("AuthLoginPage")}]}, {"id": "AuthLayout/NotFound", "path": "*", "element": <NotFoundPage standalone={false} />}], "id": "AuthLayout", "Component": withLoaderData((props) => <AuthLayout children={<Outlet />} {...props} />, "AuthLayout", undefined), "loader": loader("AuthLayout"), "shouldRevalidate": ({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
     // Revalidate if a form was submitted (standard behavior)
     if (formData) return true;
 
@@ -193,7 +231,7 @@ const routes = [{"path": "/", "children": [{"path": undefined, "index": true, "e
     // If it's the RootLayout, we might only want to revalidate on hard refreshes 
     // or specific global triggers. Otherwise, follow param changes.
     return hasParamChanged || (relevantKeys.length === 0 && defaultShouldRevalidate);
-  }, "HydrateFallback": HydrateFallback}, {"path": "dashboard", "children": [{"path": undefined, "index": true, "errorElement": <ErrorElement standalone={false} />, "lazy": async () => {const i = await import("./../pages/dashboard/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "DashboardPage", undefined)}}, "HydrateFallback": HydrateFallback, "loader": loader("DashboardPage")}, {"path": "settings", "children": [{"path": undefined, "index": true, "errorElement": <ErrorElement standalone={false} />, "lazy": async () => {const i = await import("./../pages/dashboard/settings/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "DashboardSettingsPage", undefined)}}, "HydrateFallback": HydrateFallback, "loader": loader("DashboardSettingsPage")}]}, {"path": "*", "element": <NotFoundPage standalone={false} />}], "Component": withLoaderData((props) => <DashboardLayout children={<Outlet />} {...props} />, "DashboardLayout", undefined), "loader": loader("DashboardLayout"), "shouldRevalidate": ({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
+  }, "HydrateFallback": HydrateFallback}, {"path": "dashboard", "children": [{"id": "DashboardPage", "path": undefined, "index": true, "errorElement": <ErrorElement standalone={false} />, "lazy": async () => {const i = await import("./../pages/dashboard/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "DashboardPage", undefined)}}, "HydrateFallback": HydrateFallback, "loader": loader("DashboardPage")}, {"path": "settings", "children": [{"id": "DashboardSettingsPage", "path": undefined, "index": true, "errorElement": <ErrorElement standalone={false} />, "lazy": async () => {const i = await import("./../pages/dashboard/settings/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "DashboardSettingsPage", undefined)}}, "HydrateFallback": HydrateFallback, "loader": loader("DashboardSettingsPage")}]}, {"id": "DashboardLayout/NotFound", "path": "*", "element": <NotFoundPage standalone={false} />}], "id": "DashboardLayout", "Component": withLoaderData((props) => <DashboardLayout children={<Outlet />} {...props} />, "DashboardLayout", undefined), "loader": loader("DashboardLayout"), "shouldRevalidate": ({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
     // Revalidate if a form was submitted (standard behavior)
     if (formData) return true;
 
@@ -208,7 +246,7 @@ const routes = [{"path": "/", "children": [{"path": undefined, "index": true, "e
     // If it's the RootLayout, we might only want to revalidate on hard refreshes 
     // or specific global triggers. Otherwise, follow param changes.
     return hasParamChanged || (relevantKeys.length === 0 && defaultShouldRevalidate);
-  }, "HydrateFallback": HydrateFallback}, {"path": "*", "element": <NotFoundPage standalone={false} />}], "Component": withLoaderData((props) => <RootLayout children={<Outlet />} {...props} />, "RootLayout", undefined), "loader": loader("RootLayout"), "shouldRevalidate": ({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
+  }, "HydrateFallback": HydrateFallback}, {"id": "RootLayout/NotFound", "path": "*", "element": <NotFoundPage standalone={false} />}], "id": "RootLayout", "Component": withLoaderData((props) => <RootLayout children={<Outlet />} {...props} />, "RootLayout", undefined), "loader": loader("RootLayout"), "shouldRevalidate": ({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
     // Revalidate if a form was submitted (standard behavior)
     if (formData) return true;
 
@@ -223,7 +261,7 @@ const routes = [{"path": "/", "children": [{"path": undefined, "index": true, "e
     // If it's the RootLayout, we might only want to revalidate on hard refreshes 
     // or specific global triggers. Otherwise, follow param changes.
     return hasParamChanged || (relevantKeys.length === 0 && defaultShouldRevalidate);
-  }, "errorElement": <ErrorElement standalone={true} />, "HydrateFallback": HydrateFallback}, {"path": "*", "element": <NotFoundPage standalone={true} />}]
+  }, "errorElement": <ErrorElement standalone={true} />, "HydrateFallback": HydrateFallback}, {"id": "NotFound", "path": "*", "element": <NotFoundPage standalone={true} />, "loader": () => { return new Response("Not Found", { status: 404 }) }}]
 
 export default routes
 

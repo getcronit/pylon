@@ -103,7 +103,6 @@ const queryFetcher: QueryFetcher = async function (
 
       // Set Accept-Encoding header to identity so the internal fetch returns JSON
       headers.set('Accept-Encoding', 'identity')
-      headers.set('X-Pylon-Internal', 'true')
     }
   } catch {
     // 3. Pylon not available — fallback to default fetch (runs in browser)
@@ -203,31 +202,30 @@ export const client = createClient<GeneratedSchema>({
   }
 })
 
-export const pageClient = () => {
+export const createPylonPagesClient = () => {
   const client = createClient<GeneratedSchema>({
-  schema: generatedSchema,
-  scalars: scalarsEnumsHash,
-  cache: new Cache(
-  undefined,
-  {
-    maxAge: Infinity,
-    staleWhileRevalidate: 5 * 60 * 1000,
-    normalization: true
-  }
-),
-  fetchOptions: {
-    fetcher: queryFetcher
-  }
+    schema: generatedSchema,
+    scalars: scalarsEnumsHash,
+    cache: new Cache(
+      undefined,
+      {
+        maxAge: Infinity,
+        staleWhileRevalidate: 5 * 60 * 1000,
+        normalization: true
+      }
+    ),
+    fetchOptions: {
+      fetcher: queryFetcher
+    }
 })
 
-const react = createReactClient(client, {
-  defaults: {
-    suspense: false
+  return createReactClient(client, {
+      defaults: {
+        suspense: true
+      }
+    })
   }
-})
 
-return {client, ...react, pageClient}
-}
 
 // Core functions
 export const {resolve, subscribe, schema} = client
