@@ -2,9 +2,9 @@ import {MiddlewareHandler} from 'hono'
 import {env} from 'hono/adapter'
 import {HTTPException} from 'hono/http-exception'
 import {ContentfulStatusCode} from 'hono/utils/http-status'
-import {ServiceError} from '../../define-pylon'
 import {Env, getContext} from '../../context'
 import {createDecorator} from '../../create-decorator'
+import {ServiceError} from '../../define-pylon'
 
 export type AuthRequireChecks = {
   roles?: string[]
@@ -35,7 +35,6 @@ export const authMiddleware = (checks: AuthRequireChecks = {}) => {
       if (!hasRole) {
         const resError = new Response('Forbidden', {
           status: 403,
-          statusText: 'Forbidden',
           headers: {
             'Missing-Roles': checks.roles.join(','),
             'Obtained-Roles': roles.join(',')
@@ -70,7 +69,7 @@ export function requireAuth(checks?: AuthRequireChecks) {
         } else if (e.status === 403) {
           const res = e.getResponse()
 
-          throw new ServiceError(res.statusText, {
+          throw new ServiceError(e.message, {
             statusCode: res.status,
             code: 'AUTHORIZATION_REQUIRED',
             details: {

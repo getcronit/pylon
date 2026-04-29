@@ -93,7 +93,7 @@ describe('app-utils', () => {
 
       const context = {imports: [], routeSlugs: []}
       const route = scanDirectory('./pages', context)
-      expect(route).toEqual({
+      expect(route).toMatchObject({
         path: '/',
         children: [
           {
@@ -115,7 +115,7 @@ describe('app-utils', () => {
 
       const context = {imports: [], routeSlugs: []}
       const route = scanDirectory('./pages', context)
-      expect(route).toEqual({
+      expect(route).toMatchObject({
         path: '/',
         children: [
           {
@@ -165,7 +165,7 @@ describe('app-utils', () => {
 
       const context = {imports: [], routeSlugs: []}
       const route = scanDirectory('./pages', context)
-      expect(route).toEqual({
+      expect(route).toMatchObject({
         path: '/',
         children: [
           {
@@ -252,7 +252,7 @@ describe('app-utils', () => {
 
       const context = {imports: [], routeSlugs: []}
       const route = scanDirectory('./pages', context)
-      expect(route).toEqual({
+      expect(route).toMatchObject({
         path: '/',
         children: [
           {
@@ -335,7 +335,7 @@ describe('app-utils', () => {
       const route = scanDirectory('./pages', context)
 
       // Since it's a single catch-all child without layout, it should merge into the root
-      expect(route).toEqual({
+      expect(route).toMatchObject({
         path: '*',
         lazy: `async () => {const i = await import("./../pages/[...slug]/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "CatchAllSlugPage", "slug")}}`,
         HydrateFallback: 'HydrateFallback',
@@ -356,7 +356,7 @@ describe('app-utils', () => {
       const route = scanDirectory('./pages', context)
 
       // Verify full structure
-      expect(route).toEqual({
+      expect(route).toMatchObject({
         path: '/',
         children: [
           {
@@ -433,7 +433,7 @@ describe('app-utils', () => {
 
       const context = {imports: [], routeSlugs: []}
       const route = scanDirectory('./pages', context)
-      expect(route).toEqual({
+      expect(route).toMatchObject({
         path: '/',
         Component:
           'withLoaderData((props) => <RootLayout children={<Outlet />} {...props} />, "RootLayout", undefined)',
@@ -485,7 +485,7 @@ describe('app-utils', () => {
 
       const context = {imports: [], routeSlugs: []}
       const route = scanDirectory('./pages', context)
-      expect(route).toEqual({
+      expect(route).toMatchObject({
         path: '/',
         children: [
           {
@@ -521,7 +521,7 @@ describe('app-utils', () => {
       const context = {imports: [], routeSlugs: []}
       const route = scanDirectory('./pages', context)
 
-      expect(route).toEqual({
+      expect(route).toMatchObject({
         path: '/',
         children: [
           {

@@ -2,8 +2,8 @@ import {Button} from './ui/button'
 
 export interface StatusPageProps {
   code: number
-  title: string
-  message: string
+  message?: string
+  error?: any
   standalone?: boolean
   returnText?: string
   returnUrl?: string
@@ -11,20 +11,33 @@ export interface StatusPageProps {
 
 export const StatusPage = ({
   code,
-  title,
-  message,
+  message: initialMessage,
+  error,
   standalone = false,
   returnText = 'Return to home',
   returnUrl = '/'
 }: StatusPageProps) => {
+  let message = initialMessage || 'An unexpected error occurred'
+
+  if (error) {
+    const errorData = (error as any).data
+    if (errorData) {
+      try {
+        const parsed =
+          typeof errorData === 'string' ? JSON.parse(errorData) : errorData
+        message = parsed.message || message
+      } catch (e) {
+        // Fallback to initial message
+      }
+    }
+  }
   const element = (
     <div className="flex min-h-screen w-full flex-col items-center justify-center bg-white p-4 text-center">
-      <title>{title}</title>
+      <title>{message}</title>
       <h1 className="mb-2 text-9xl font-thin tracking-tight text-gray-900">
         {code}
       </h1>
-      <h2 className="mb-6 text-xl font-light text-gray-600">{title}</h2>
-      <p className="mb-8 max-w-md text-sm text-gray-500">{message}</p>
+      <h2 className="mb-6 text-xl font-light text-gray-600">{message}</h2>
       <Button asChild>
         <a href={returnUrl}>{returnText}</a>
       </Button>

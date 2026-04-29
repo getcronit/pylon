@@ -7,18 +7,9 @@ import {asyncContext, Context, Env} from '../context'
 
 export const app = new Hono<Env>()
 
-const skipInternal = (middleware: MiddlewareHandler) => {
-  return async (c: Context, next: Next) => {
-    if (c.req.header('X-Pylon-Internal') === 'true') {
-      return next()
-    }
-    return middleware(c, next)
-  }
-}
+app.use('*', compress())
 
-app.use('*', skipInternal(compress()))
-
-app.use('*', skipInternal(sentry()))
+app.use('*', sentry())
 
 app.use('*', async (c, next) => {
   return new Promise((resolve, reject) => {
@@ -32,7 +23,7 @@ app.use('*', async (c, next) => {
   })
 })
 
-app.use('*', skipInternal(except(['/__pylon/*'], logger())))
+app.use('*', except(['/__pylon/*'], logger()))
 
 export const pluginsMiddleware: MiddlewareHandler[] = []
 

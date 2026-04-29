@@ -41,18 +41,27 @@ export const injectAppHydrationPlugin = (version: string): Plugin => ({
               );
             }
 
+            const payload = (window as any).__pylonStaticData
+            if (payload?.cache) {
+              const coreClient = (client as any).client || client
+              if (coreClient && coreClient.cache) {
+                console.log('Hydrating cache with payload', payload.cache, coreClient)
+                coreClient.hydrateCache({cacheSnapshot: payload.cache, shouldRefetch: false})
+              }
+            }
+
             // @ts-ignore
             const router = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.createBrowserRouter(routes)
-            const initialData = (window as any).__PYLON_INITIAL_DATA__
+
+            // @ts-ignore
+            window.__PYLON_NAVIGATE__ = router.navigate
 
             startTransition(() => {
               hydrateRoot(
                 document,
-                <__PYLON_INTERNALS_DO_NOT_USE.InitialDataProvider value={initialData}>
                   <__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider client={client}>
                     <__PYLON_ROUTER_INTERNALS_DO_NOT_USE.RouterProvider router={router} />
                   </__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider>
-                </__PYLON_INTERNALS_DO_NOT_USE.InitialDataProvider>
               , {
                 // Callback called when an error is thrown and not caught by an ErrorBoundary.
                 onUncaughtError: Sentry.reactErrorHandler((error, errorInfo) => {
