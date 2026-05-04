@@ -386,6 +386,8 @@ describe('Realistic NextJS App with useData', () => {
   const appDir = path.join(__dirname, 'temp_nextjs_app')
 
   beforeAll(() => {
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir)
+
     fs.mkdirSync(appDir, {recursive: true})
     fs.mkdirSync(path.join(appDir, 'components'), {recursive: true})
     fs.mkdirSync(path.join(appDir, 'hooks'), {recursive: true})
@@ -414,6 +416,8 @@ describe('Realistic NextJS App with useData', () => {
 
   afterAll(() => {
     if (fs.existsSync(appDir)) fs.rmSync(appDir, {recursive: true, force: true})
+    if (fs.existsSync(tempDir))
+      fs.rmSync(tempDir, {recursive: true, force: true})
   })
 
   // --------------------------------------------------------------------------
@@ -2396,7 +2400,7 @@ describe('Realistic NextJS App with useData', () => {
         jsx: 'react-jsx',
         baseUrl: '.',
         paths: {
-          "@/*": ["./*"]
+          '@/*': ['./*']
         }
       }
     }
@@ -2418,5 +2422,79 @@ describe('Realistic NextJS App with useData', () => {
 
     // Verify that me.nickname was collected from the aliased component
     expect(out).toContain('query?.me?.nickname;')
+  })
+
+  // --------------------------------------------------------------------------
+  // Test 38: Custom hook in separate file with cross-file aggregation
+  // --------------------------------------------------------------------------
+  it('should handle a custom hook in a separate file with alias and index re-export', async () => {
+    // 1. Create the hook in another file
+    const hookCode = `
+      export function useTicketInfo({pageInfo}: {pageInfo: {totalCount: number}}) {
+        pageInfo.totalCount;
+        return null
+      }
+    `
+    fs.writeFileSync(path.join(appDir, 'hooks', 'useTicketInfo.ts'), hookCode)
+
+    // 2. Create the index file in the hooks folder
+    fs.writeFileSync(
+      path.join(appDir, 'hooks', 'index.ts'),
+      `export * from "./useTicketInfo";`
+    )
+
+    // 3. Update tsconfig.json to include the alias
+    const tsconfigPath = path.join(appDir, 'tsconfig.json')
+    fs.writeFileSync(
+      tsconfigPath,
+      JSON.stringify(
+        {
+          compilerOptions: {
+            jsx: 'react-jsx',
+            baseUrl: '.',
+            paths: {
+              '@/*': ['./*']
+            }
+          }
+        },
+        null,
+        2
+      )
+    )
+
+    // 4. Create the main page that imports and uses the hook via alias
+    const pageCode = `
+      import { useData } from "@getcronit/pylon/pages";
+      import { useTicketInfo } from "@/hooks";
+
+      export default function TicketsPage() {
+        const data = useData();
+        const {pageInfo} = data.tickets({})
+        const total = useTicketInfo({pageInfo});
+        return <div>Total tickets: {total}</div>;
+      }
+    `
+    const pagePath = path.join(appDir, 'pages', 'TicketsPage.tsx')
+    fs.writeFileSync(pagePath, pageCode)
+
+    // 5. Build the page
+    const result = await esbuild.build({
+      entryPoints: [pagePath],
+      plugins: [useDataStaticAnalyzer()],
+      write: false,
+      bundle: true,
+      format: 'esm',
+      tsconfig: tsconfigPath,
+      external: ['@getcronit/pylon/pages', 'react']
+    })
+
+    const outputCode = result.outputFiles[0].text
+    const minified = outputCode.replace(/\s+/g, '')
+
+    console.log(outputCode)
+
+    // 6. Verify that the injected selectors reflect usage in the custom hook
+    // Expected: query.tickets({}).pageInfo.totalCount;
+    expect(minified).toContain('query?.tickets?.({})?.pageInfo?.totalCount;')
   })
 })

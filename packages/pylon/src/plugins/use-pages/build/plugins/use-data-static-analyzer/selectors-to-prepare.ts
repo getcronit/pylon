@@ -19,7 +19,7 @@ export function generatePrepare(selectors: SelectorNode): string {
       if (Array.isArray(value)) {
         for (const branch of value) {
           let branchAccess = base
-          if (branch.__args) {
+          if (branch.__args !== undefined) {
             branchAccess += `?.(${branch.__args})`
           }
 
@@ -46,7 +46,7 @@ export function generatePrepare(selectors: SelectorNode): string {
         }
       } else if (typeof value === 'object') {
         let nodeAccess = base
-        if (value.__args) {
+        if (value.__args !== undefined) {
           nodeAccess += `?.(${value.__args})`
         }
 

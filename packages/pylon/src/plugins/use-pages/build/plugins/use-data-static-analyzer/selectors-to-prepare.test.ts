@@ -25,6 +25,11 @@ describe('generatePrepare', () => {
     )
   })
 
+  it('should handle empty function arguments', () => {
+    const output = generatePrepare({user: {__args: '', name: true}})
+    expect(output).toBe('({ query }) => { query?.user?.()?.name; }')
+  })
+
   it('should handle array mapping scopes with arguments', () => {
     const output = generatePrepare({
       friends: {__args: '{ limit: 10 }', __isList: true, name: true}
