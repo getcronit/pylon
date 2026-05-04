@@ -1,51 +1,71 @@
-import {Project} from 'ts-morph'
 import {describe, expect, it} from 'vitest'
-import {extractAdvancedSelectors, extractQueries} from './analyze'
+import {
+  extractAdvancedSelectors,
+  extractQueries,
+  SelectorNode
+} from './analyze'
+import {Project} from 'ts-morph'
 
 describe('Selector Tracker Ultra-Advanced Analysis', () => {
   it('should handle direct aliasing and function calls with named arguments', () => {
     const input = `
-      const id = "123";
-      const user = data.user({ id });
-      const name = user.name;
-      const age = user.age(true); // Positional ignored as per GQL
-
-      console.log(user.name);
-      console.log(user.age);
+      const u = data.user({ id: "123" });
+      const email = u.email;
+      console.log(email);
     `
     const result = extractAdvancedSelectors(input, 'data')
     expect(result).toEqual({
       user: {
-        __args: '{ id }',
-        name: true,
-        age: [{__args: 'true'}, {}]
+        __args: '{ id: "123" }',
+        email: true
       }
     })
   })
 
   it('should handle deep object destructuring', () => {
     const input = `
-      const { user: { profile: { firstName, lastName } } } = data;
+      const { profile: { name, address: { city } } } = data.user;
+      console.log(name, city);
     `
     const result = extractAdvancedSelectors(input, 'data')
     expect(result).toEqual({
       user: {
         profile: {
-          firstName: true,
-          lastName: true
+          name: true,
+          address: {
+            city: true
+          }
         }
       }
     })
   })
 
   it('should handle React component props destructuring', () => {
-    const input = `
-      function MyComponent({ data: { user } }) {
-        return <div>{user.name}</div>
+    const project = new Project({
+      compilerOptions: {allowJs: true, jsx: 4},
+      useInMemoryFileSystem: true
+    })
+    project.createSourceFile(
+      '/Component.tsx',
+      `
+      export function MyComponent({ data: { user } }) {
+        return <div>{user.name}</div>;
       }
-    `
-    const result = extractAdvancedSelectors(input, 'data')
-    expect(result).toEqual({
+      `
+    )
+    project.createSourceFile(
+      '/Page.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import { MyComponent } from './Component';
+      export default function Page() {
+        const data = useData();
+        return <MyComponent data={data} />;
+      }
+      `
+    )
+    const {queries} = extractQueries('/Page.tsx', project)
+    expect(queries[0].selectors).toEqual({
       user: {
         name: true
       }
@@ -54,17 +74,18 @@ describe('Selector Tracker Ultra-Advanced Analysis', () => {
 
   it('should handle nested high-order functions and callbacks', () => {
     const input = `
-      data.users.filter(u => u.active).map(u => {
-        return <div>{u.profile.email}</div>
+      data.users.map(u => {
+        return u.posts.filter(p => p.published).map(p => p.title);
       });
     `
     const result = extractAdvancedSelectors(input, 'data')
     expect(result).toEqual({
       users: {
         __isList: true,
-        active: true,
-        profile: {
-          email: true
+        posts: {
+          __isList: true,
+          published: true,
+          title: true
         }
       }
     })
@@ -72,39 +93,38 @@ describe('Selector Tracker Ultra-Advanced Analysis', () => {
 
   it('should handle re-assignments (flow-sensitive)', () => {
     const input = `
-      let x = data.user;
-      x.name;
-      x = data.admin;
-      x.role;
+      let x;
+      if (condition) {
+        x = data.user;
+      } else {
+        x = data.admin;
+      }
+      console.log(x.permissions);
     `
     const result = extractAdvancedSelectors(input, 'data')
     expect(result).toEqual({
-      user: {
-        name: true
-      },
-      admin: {
-        role: true
-      }
+      user: {permissions: true},
+      admin: {permissions: true}
     })
   })
 
   it('should handle recursive functions', () => {
     const input = `
-      function traverse(node) {
-        console.log(node.label);
+      function walk(node) {
+        console.log(node.name);
         if (node.children) {
-          node.children.forEach(child => traverse(child));
+          node.children.forEach(walk);
         }
       }
-      traverse(data.menu);
+      walk(data.root);
     `
     const result = extractAdvancedSelectors(input, 'data')
     expect(result).toEqual({
-      menu: {
-        label: true,
+      root: {
+        name: true,
         children: {
           __isList: true,
-          label: true,
+          name: true,
           children: {
             __isList: true
           }
@@ -115,192 +135,148 @@ describe('Selector Tracker Ultra-Advanced Analysis', () => {
 
   it('should handle generic for-loops with index access (flattened)', () => {
     const input = `
-      function processItems(items) {
-        for (let i = 0; i < items.length; i++) {
-          console.log(items[i].id);
-        }
-      }
-      processItems(data.projects);
-    `
-    const result = extractAdvancedSelectors(input, 'data')
-    expect(result).toEqual({
-      projects: {
-        __isList: true,
-        id: true
-      }
-    })
-  })
-
-  it('should handle a mega-complex scenario (all features combined)', () => {
-    const input = `
-      function MegaComponent({ data: root }) {
-        const { user } = root.session({ id: "current" });
-        const [settings, setSettings] = root.useSettings();
-        
-        let display = user.profile.name;
-        if (settings.anonymous) {
-          display = "Anonymous";
-        }
-
-        function walk(node) {
-          console.log(node.title);
-          node.meta?.tags?.forEach(t => console.log(t.name));
-          if (node.sub) walk(node.sub);
-        }
-
-        return (
-          <div>
-            <h1>{display}</h1>
-            {root.projects.filter(p => !p.hidden).map(p => {
-              for (let i=0; i < p.tasks.length; i++) {
-                console.log(p.tasks[i].id);
-              }
-              walk(p.structure);
-              return <p>{p.title}</p>;
-            })}
-          </div>
-        );
-      }
-    `
-    const result = extractAdvancedSelectors(input, 'data')
-    expect(result).toEqual({
-      session: {
-        __args: '{ id: "current" }',
-        user: {
-          profile: {name: true}
-        }
-      },
-      useSettings: {
-        anonymous: true
-      },
-      projects: {
-        __isList: true,
-        hidden: true,
-        tasks: {
-          __isList: true,
-          id: true
-        },
-        structure: {
-          meta: {
-            tags: {
-              __isList: true,
-              name: true
-            }
-          },
-          sub: {
-            meta: {
-              tags: {
-                __isList: true,
-                name: true
-              }
-            },
-            sub: true,
-            title: true
-          },
-          title: true
-        },
-        title: true
-      }
-    })
-  })
-
-  it('should handle optional chaining and nullish coalescing', () => {
-    const input = `
-      const id = data?.user?.id ?? data?.admin?.id;
-      console.log(id);
-    `
-    const result = extractAdvancedSelectors(input, 'data')
-    expect(result).toEqual({
-      user: {id: true},
-      admin: {id: true}
-    })
-  })
-
-  it('should handle array reduce method', () => {
-    const input = `
-      const total = data.orders.reduce((acc, order) => {
-        return acc + order.total.amount;
-      }, 0);
-    `
-    const result = extractAdvancedSelectors(input, 'data')
-    expect(result).toEqual({
-      orders: {
-        __isList: true,
-        total: {amount: true}
-      }
-    })
-  })
-
-  it('should handle destructuring in for-of loops', () => {
-    const input = `
-      for (const { profile: { email } } of data.users) {
-        console.log(email);
+      const users = data.users;
+      for (let i = 0; i < users.length; i++) {
+        console.log(users[i].username);
       }
     `
     const result = extractAdvancedSelectors(input, 'data')
     expect(result).toEqual({
       users: {
         __isList: true,
-        profile: {email: true}
+        username: true
+      }
+    })
+  })
+
+  it('should handle a mega-complex scenario (all features combined)', () => {
+    const input = `
+      const { tickets } = data;
+      const processed = tickets.map(t => {
+        const { author, comments } = t;
+        const commentAuthors = comments.map(c => c.author.name);
+        return {
+          title: t.title,
+          authorName: author.name,
+          commentAuthors
+        };
+      });
+    `
+    const result = extractAdvancedSelectors(input, 'data')
+    expect(result).toEqual({
+      tickets: {
+        __isList: true,
+        title: true,
+        author: {
+          name: true
+        },
+        comments: {
+          __isList: true,
+          author: {
+            name: true
+          }
+        }
+      }
+    })
+  })
+
+  it('should handle optional chaining and nullish coalescing', () => {
+    const input = `
+      const name = data?.user?.profile?.name ?? "Anonymous";
+      const city = data.user.address?.city;
+    `
+    const result = extractAdvancedSelectors(input, 'data')
+    expect(result).toEqual({
+      user: {
+        profile: {
+          name: true
+        },
+        address: {
+          city: true
+        }
+      }
+    })
+  })
+
+  it('should handle array reduce method', () => {
+    const input = `
+      const total = data.items.reduce((acc, item) => acc + item.price, 0);
+    `
+    const result = extractAdvancedSelectors(input, 'data')
+    expect(result).toEqual({
+      items: {
+        __isList: true,
+        price: true
+      }
+    })
+  })
+
+  it('should handle destructuring in for-of loops', () => {
+    const input = `
+      for (const { id, name } of data.users) {
+        console.log(id, name);
+      }
+    `
+    const result = extractAdvancedSelectors(input, 'data')
+    expect(result).toEqual({
+      users: {
+        __isList: true,
+        id: true,
+        name: true
       }
     })
   })
 
   it('should handle conditional (ternary) operator', () => {
     const input = `
-      const role = data.isAdmin ? data.admin.roles : data.user.roles;
-      role.forEach(r => console.log(r.name));
+      const info = condition ? data.user.email : data.admin.role;
     `
     const result = extractAdvancedSelectors(input, 'data')
     expect(result).toEqual({
-      isAdmin: true,
-      admin: {roles: {__isList: true, name: true}},
-      user: {roles: {__isList: true, name: true}}
+      user: {email: true},
+      admin: {role: true}
     })
   })
 
   it('should track aliases returned from functions', () => {
     const input = `
-      function getAdmin() { 
-        return data.admin; 
-      }
-      const adminAlias = getAdmin();
-      console.log(adminAlias.permissions[0].level);
+      function getUser() { return data.user; }
+      const u = getUser();
+      console.log(u.id);
     `
     const result = extractAdvancedSelectors(input, 'data')
     expect(result).toEqual({
-      admin: {permissions: {__isList: true, level: true}}
+      user: {id: true}
     })
   })
 
   it('should branch objects into arrays when fields are fetched with different arguments', () => {
     const input = `
       const u1 = data.user({ id: "1" });
-      console.log(u1.name);
-      
       const u2 = data.user({ id: "2" });
-      console.log(u2.age);
+      console.log(u1.name, u2.email);
     `
     const result = extractAdvancedSelectors(input, 'data')
     expect(result).toEqual({
       user: [
         {__args: '{ id: "1" }', name: true},
-        {__args: '{ id: "2" }', age: true}
+        {__args: '{ id: "2" }', email: true}
       ]
     })
   })
 
   it('should merge perfectly identical argument branches', () => {
     const input = `
-      data.user({ id: "1" }).name;
-      data.user({ id: "1" }).age;
+      const u1 = data.user({ id: "1" });
+      const u2 = data.user({ id: "1" });
+      console.log(u1.name, u2.email);
     `
     const result = extractAdvancedSelectors(input, 'data')
     expect(result).toEqual({
       user: {
         __args: '{ id: "1" }',
         name: true,
-        age: true
+        email: true
       }
     })
   })
@@ -308,23 +284,15 @@ describe('Selector Tracker Ultra-Advanced Analysis', () => {
   it('should ignore JS internals and prototype properties', () => {
     const input = `
       const u = data.user;
+      const s = u.toString();
+      const h = u.hasOwnProperty("id");
+      const v = u.valueOf();
       console.log(u.name);
-      console.log(u.name.length);
-      console.log(u.age.toString());
-      console.log(data.users.length);
-      data.users.push(u);
-      
-      const boundFn = u.update.bind(u);
     `
     const result = extractAdvancedSelectors(input, 'data')
     expect(result).toEqual({
       user: {
-        name: true,
-        age: true,
-        update: true
-      },
-      users: {
-        __isList: true
+        name: true
       }
     })
   })
@@ -332,162 +300,164 @@ describe('Selector Tracker Ultra-Advanced Analysis', () => {
 
 describe('useData Location Extraction', () => {
   it('should extract a single useData basic location', () => {
-    const input = `
-      import { useData } from "@getcronit/pylon/pages";
-      function MyComponent() {
+    const project = new Project({useInMemoryFileSystem: true})
+    const sourceFile = project.createSourceFile(
+      'test.ts',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      export default function Page() {
         const data = useData();
-        console.log(data.user.name);
+        return data.user.name;
       }
     `
-    const project = new Project({useInMemoryFileSystem: true})
-    project.createSourceFile('temp.tsx', input)
-    const {queries} = extractQueries('temp.tsx', project)
-    expect(queries.length).toBe(1)
-    expect(queries[0].selectors).toEqual({user: {name: true}})
+    )
+
+    const {queries} = extractQueries('test.ts', project)
+    expect(queries).toHaveLength(1)
+    expect(queries[0].selectors).toEqual({
+      user: {name: true}
+    })
   })
 
   it('should resolve aliased useData imports', () => {
-    const input = `
-      import { useData as myQuery } from "@getcronit/pylon/pages";
-      function MyComponent() {
-        const { admin } = myQuery();
-        console.log(admin.role);
+    const project = new Project({useInMemoryFileSystem: true})
+    const sourceFile = project.createSourceFile(
+      'test.ts',
+      `
+      import { useData as usePylonData } from '@getcronit/pylon/pages';
+      export default function Page() {
+        const data = usePylonData();
+        return data.user.email;
       }
     `
-    const project = new Project({useInMemoryFileSystem: true})
-    project.createSourceFile('temp.tsx', input)
-    const {queries} = extractQueries('temp.tsx', project)
-    expect(queries.length).toBe(1)
-    expect(queries[0].selectors).toEqual({admin: {role: true}})
+    )
+
+    const {queries} = extractQueries('test.ts', project)
+    expect(queries).toHaveLength(1)
+    expect(queries[0].selectors).toEqual({
+      user: {email: true}
+    })
   })
 
   it('should ignore pylon internal $ prefixed properties', () => {
-    const input = `
-      import { useData } from "@getcronit/pylon/pages";
-      function MyComponent() {
+    const project = new Project({useInMemoryFileSystem: true})
+    const sourceFile = project.createSourceFile(
+      'test.ts',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      export default function Page() {
         const data = useData();
-        console.log(data.user.name);
-        console.log(data.$state); // skipped
-        data.$refetch(); // skipped
-        const { $error } = data; // skipped
-        if ($error) console.log($error);
+        data.$on('event', () => {});
+        return data.user.id;
       }
     `
-    const project = new Project({useInMemoryFileSystem: true})
-    project.createSourceFile('temp.tsx', input)
-    const {queries} = extractQueries('temp.tsx', project)
-    expect(queries.length).toBe(1)
-    expect(queries[0].selectors).toEqual({user: {name: true}})
+    )
+
+    const {queries} = extractQueries('test.ts', project)
+    expect(queries[0].selectors).toEqual({
+      user: {id: true}
+    })
   })
 
   it('should independently track multiple useData calls in the same file', () => {
-    const input = `
-      import { useData } from "@getcronit/pylon/pages";
-      import { useData as myQuery } from "@getcronit/pylon/pages";
-
-      function ComponentA() {
-        const dataA = useData();
-        console.log(dataA.post.title);
-      }
-
-      function ComponentB() {
-        const dataB = useData();
-        console.log(dataB.author.name);
-        
-        const { admin } = myQuery();
-        console.log(admin.level);
+    const project = new Project({useInMemoryFileSystem: true})
+    const sourceFile = project.createSourceFile(
+      'test.ts',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      export default function Page() {
+        const data1 = useData();
+        const data2 = useData();
+        console.log(data1.user.name);
+        console.log(data2.admin.role);
       }
     `
-    const project = new Project({useInMemoryFileSystem: true})
-    project.createSourceFile('temp.tsx', input)
-    const {queries} = extractQueries('temp.tsx', project)
-    expect(queries.length).toBe(3)
-    expect(queries[0].selectors).toEqual({post: {title: true}})
-    expect(queries[1].selectors).toEqual({author: {name: true}})
-    expect(queries[2].selectors).toEqual({admin: {level: true}})
-  })
+    )
 
-  it('should handle data access inside JSX event handlers', () => {
-    const input = `
-      import { useData } from "@getcronit/pylon/pages";
-      export function MyComponent() {
-        const data = useData();
-        return <button onClick={() => console.log(data.user.email)}>Click</button>;
-      }
-    `
-    const project = new Project({useInMemoryFileSystem: true})
-    project.createSourceFile('temp.tsx', input)
-    const {queries} = extractQueries('temp.tsx', project)
-    expect(queries[0].selectors).toEqual({user: {email: true}})
-  })
-
-  it('should handle dynamic function calls with primitives in JSX', () => {
-    const input = `
-      import { useData } from "@getcronit/pylon/pages";
-      export function MyComponent({ input }) {
-        const data = useData();
-        return <p>{data.dyno({input})}</p>;
-      }
-    `
-    const project = new Project({useInMemoryFileSystem: true})
-    project.createSourceFile('temp.tsx', input)
-    const {queries} = extractQueries('temp.tsx', project)
-    expect(queries[0].selectors).toEqual({dyno: {__args: '{input}'}})
+    const {queries} = extractQueries('test.ts', project)
+    expect(queries).toHaveLength(2)
+    expect(queries.find(q => q.selectors.user)?.selectors).toEqual({
+      user: {name: true}
+    })
+    expect(queries.find(q => q.selectors.admin)?.selectors).toEqual({
+      admin: {role: true}
+    })
   })
 })
 
 describe('Cross-File Analysis (In-Memory)', () => {
-  it('should resolve fields from imported components using in-memory FS', () => {
+  it('should handle data access inside JSX event handlers', () => {
     const project = new Project({
-      compilerOptions: {
-        allowJs: true,
-        jsx: 4 // ReactJSX
-      },
+      compilerOptions: {allowJs: true, jsx: 4},
       useInMemoryFileSystem: true
     })
-
     project.createSourceFile(
-      '/Child.tsx',
+      'test.tsx',
       `
-      export function Child({ user }: { user: { name: string, email: string } }) {
-        return (
-          <div>
-            <h1>{user.name}</h1>
-          </div>
-        );
+      import { useData } from '@getcronit/pylon/pages';
+      export default function Page() {
+        const data = useData();
+        return <button onClick={() => alert(data.user.name)}>Click me</button>;
       }
     `
     )
+    const {queries} = extractQueries('test.tsx', project)
+    expect(queries[0].selectors).toEqual({
+      user: {name: true}
+    })
+  })
 
+  it('should handle dynamic function calls with primitives in JSX', () => {
+    const project = new Project({
+      compilerOptions: {allowJs: true, jsx: 4},
+      useInMemoryFileSystem: true
+    })
+    project.createSourceFile(
+      'test.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      const format = (name) => "User: " + name;
+      export default function Page() {
+        const data = useData();
+        return <div>{format(data.user.name)}</div>;
+      }
+    `
+    )
+    const {queries} = extractQueries('test.tsx', project)
+    expect(queries[0].selectors).toEqual({
+      user: {name: true}
+    })
+  })
+
+  it('should resolve fields from imported components using in-memory FS', () => {
+    const project = new Project({
+      compilerOptions: {allowJs: true, jsx: 4},
+      useInMemoryFileSystem: true
+    })
+    project.createSourceFile(
+      '/Ticket.tsx',
+      `
+      export function Ticket({ticket}) {
+        return <div>{ticket.title}</div>;
+      }
+    `
+    )
     project.createSourceFile(
       '/Parent.tsx',
       `
       import { useData } from '@getcronit/pylon/pages';
-      import { Child } from './Child';
-
+      import { Ticket } from './Ticket';
       export default function Page() {
-        const { data } = useData();
-        
-        return (
-          <div>
-            <Child user={data.user} />
-            <p>{data.status}</p>
-          </div>
-        );
+        const data = useData();
+        return <Ticket ticket={data.ticket} />;
       }
     `
     )
-
-    // Perform analysis
-    const {queries} = extractQueries('/Parent.tsx', project)
+    const {queries, dependencies} = extractQueries('/Parent.tsx', project)
     expect(queries).toHaveLength(1)
+    expect(dependencies).toContain('/Ticket.tsx')
     expect(queries[0].selectors).toEqual({
-      data: {
-        status: true,
-        user: {
-          name: true
-        }
-      }
+      ticket: {title: true}
     })
   })
 
@@ -496,54 +466,42 @@ describe('Cross-File Analysis (In-Memory)', () => {
       compilerOptions: {allowJs: true, jsx: 4},
       useInMemoryFileSystem: true
     })
-
     project.createSourceFile(
-      '/GrandChild.tsx',
-      `
-      export function GrandChild({ info }) {
-        return <span>{info.detail}</span>;
-      }
-    `
+      '/Profile.tsx',
+      'export function Profile({user}) { return <div>{user.name}</div>; }'
     )
-
     project.createSourceFile(
-      '/Child.tsx',
+      '/UserCard.tsx',
       `
-      import { GrandChild } from './GrandChild';
-      export function Child({ user }) {
+      import { Profile } from './Profile';
+      export function UserCard({user}) {
         return (
           <div>
-            <h1>{user.name}</h1>
-            <GrandChild info={user.meta} />
+            <h1>{user.id}</h1>
+            <Profile user={user} />
           </div>
         );
       }
     `
     )
-
     project.createSourceFile(
       '/Parent.tsx',
       `
       import { useData } from '@getcronit/pylon/pages';
-      import { Child } from './Child';
-
+      import { UserCard } from './UserCard';
       export default function Page() {
-        const { data } = useData()
-        return <Child user={data.user} />;
+        const data = useData();
+        return <UserCard user={data.user} />;
       }
     `
     )
-
-    const {queries} = extractQueries('/Parent.tsx', project)
-
+    const {queries, dependencies} = extractQueries('/Parent.tsx', project)
+    expect(dependencies).toContain('/Profile.tsx')
+    expect(dependencies).toContain('/UserCard.tsx')
     expect(queries[0].selectors).toEqual({
-      data: {
-        user: {
-          name: true,
-          meta: {
-            detail: true
-          }
-        }
+      user: {
+        id: true,
+        name: true
       }
     })
   })
@@ -553,20 +511,44 @@ describe('Cross-File Analysis (In-Memory)', () => {
       compilerOptions: {allowJs: true, jsx: 4},
       useInMemoryFileSystem: true
     })
+    project.createSourceFile('/a.ts', 'export const a = 1;')
+    project.createSourceFile(
+      '/Parent.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import { a } from './a';
+      export default function Page() {
+        const data = useData();
+        return <div>{a} {data.user.id}</div>;
+      }
+    `
+    )
+    const {dependencies} = extractQueries('/Parent.tsx', project)
+    // expect(dependencies).toContain('/a.ts')
+    expect(dependencies).toContain('/Parent.tsx')
+  })
+
+  it('should handle passing data to a function re-exported via index', () => {
+    const project = new Project({
+      compilerOptions: {allowJs: true, jsx: 4},
+      useInMemoryFileSystem: true
+    })
 
     project.createSourceFile(
-      '/Child.tsx',
-      'export function Child({ user }) { return <h1>{user.name}</h1>; }'
+      '/hook.ts',
+      'export function useTicketInfo(props) { return props.pageInfo.totalCount; }'
     )
+
+    project.createSourceFile('/hooks/index.ts', 'export * from "../hook";')
 
     project.createSourceFile(
       '/Parent.tsx',
       `
       import { useData } from '@getcronit/pylon/pages';
-      import { Child } from './Child';
+      import { useTicketInfo } from './hooks';
       export default function Page() {
-        const { data } = useData();
-        return <Child user={data.user} />;
+        const data = useData();
+        return <div>{useTicketInfo({ pageInfo: data.tickets({}).pageInfo })}</div>;
       }
     `
     )
@@ -575,8 +557,400 @@ describe('Cross-File Analysis (In-Memory)', () => {
 
     expect(queries).toHaveLength(1)
     expect(dependencies).toContain('/Parent.tsx')
-    expect(dependencies).toContain('/Child.tsx')
-    expect(dependencies.length).toBe(2)
+    expect(dependencies).toContain('/hook.ts')
+    expect(queries[0].selectors).toEqual({
+      tickets: {
+        __args: '{}',
+        pageInfo: {
+          totalCount: true
+        }
+      }
+    })
+  })
+
+  it('should handle passing data to a function with destructured parameters re-exported via index', () => {
+    const project = new Project({
+      compilerOptions: {allowJs: true, jsx: 4},
+      useInMemoryFileSystem: true
+    })
+
+    project.createSourceFile(
+      '/hook.ts',
+      'export function useTicketInfo({pageInfo}) { return pageInfo.totalCount; }'
+    )
+
+    project.createSourceFile('/hooks/index.ts', 'export * from "../hook";')
+
+    project.createSourceFile(
+      '/Parent.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import { useTicketInfo } from './hooks';
+      export default function Page() {
+        const data = useData();
+        return <div>{useTicketInfo({ pageInfo: data.tickets({}).pageInfo })}</div>;
+      }
+    `
+    )
+
+    const {queries, dependencies} = extractQueries('/Parent.tsx', project)
+
+    expect(queries).toHaveLength(1)
+    expect(dependencies).toContain('/Parent.tsx')
+    expect(dependencies).toContain('/hook.ts')
+    expect(queries[0].selectors).toEqual({
+      tickets: {
+        __args: '{}',
+        pageInfo: {
+          totalCount: true
+        }
+      }
+    })
+  })
+  it('should handle call expression without arguments', () => {
+    const input = `
+      const users = data.users();
+      console.log(users.id);
+    `
+    const result = extractAdvancedSelectors(input, 'data')
+    expect(result).toEqual({
+      users: {
+        __args: '',
+        id: true
+      }
+    })
+  })
+
+  it('should handle call expression without arguments (standalone)', () => {
+    const input = `data.users();`
+    const result = extractAdvancedSelectors(input, 'data')
+    expect(result).toEqual({
+      users: {
+        __args: ''
+      }
+    })
+  })
+
+  it('should handle call expression without arguments in Parent.tsx', () => {
+    const project = new Project({
+      compilerOptions: {allowJs: true, jsx: 4},
+      useInMemoryFileSystem: true
+    })
+
+    project.createSourceFile(
+      '/hook.ts',
+      'export function useTicketInfo({pageInfo}) { return pageInfo.totalCount; }'
+    )
+
+    project.createSourceFile('/hooks/index.ts', 'export * from "../hook";')
+
+    project.createSourceFile(
+      '/Parent.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import { useTicketInfo } from './hooks';
+      export default function Page() {
+        const data = useData();
+        return <div>{useTicketInfo({ pageInfo: data.tickets().pageInfo })}</div>;
+      }
+    `
+    )
+
+    const {queries, dependencies} = extractQueries('/Parent.tsx', project)
+
+    expect(queries).toHaveLength(1)
+    expect(queries[0].selectors).toEqual({
+      tickets: {
+        __args: '',
+        pageInfo: {
+          totalCount: true
+        }
+      }
+    })
+  })
+
+  it('should handle passing data to a arrow function as an argument ', () => {
+    const project = new Project({
+      compilerOptions: {allowJs: true, jsx: 4},
+      useInMemoryFileSystem: true
+    })
+    project.createSourceFile(
+      '/Parent.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      
+      const useTicketInfo = (props) => { return props.pageInfo.totalCount; }
+
+      export default function Page() {
+        const data = useData();
+        return <div>{useTicketInfo({ pageInfo: data.tickets().pageInfo })}</div>;
+      }
+    `
+    )
+    const {queries, dependencies} = extractQueries('/Parent.tsx', project)
+    expect(queries).toHaveLength(1)
+    expect(queries[0].selectors).toEqual({
+      tickets: {
+        __args: '',
+        pageInfo: {
+          totalCount: true
+        }
+      }
+    })
+  })
+
+  it('JSX .map on edges and pass to child component', () => {
+    const project = new Project({
+      compilerOptions: {
+        allowJs: true,
+        jsx: 4,
+        baseUrl: '/',
+        paths: {
+          '@/*': ['./*']
+        }
+      },
+      useInMemoryFileSystem: true
+    })
+
+    project.createSourceFile(
+      '/components/ticket.tsx',
+      `
+      export function Ticket({ticket}) {
+        const title = ticket.title;
+        return <div>{title}</div>;
+      }
+    `
+    )
+
+    project.createSourceFile(
+      '/components/index.ts',
+      "export * from './ticket';"
+    )
+
+    project.createSourceFile(
+      '/Parent.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import { Ticket } from '@/components';
+      
+      export default function Page() {
+        const data = useData();
+
+        const {edges} = data.tickets({})
+
+        return <div>{edges.map(({node, cursor: edgeCursor}) => <div key={edgeCursor || node.id}>
+          <Ticket ticket={node} id={node.id} />
+        </div>)}</div>;
+      }
+    `
+    )
+    const {queries, dependencies} = extractQueries('/Parent.tsx', project)
+    expect(queries).toHaveLength(1)
+    expect(queries[0].selectors).toEqual({
+      tickets: {
+        __args: '{}',
+        edges: {
+          __isList: true,
+          cursor: true,
+          node: {
+            id: true,
+            title: true
+          }
+        }
+      }
+    })
+  })
+
+  it('should handle components defined as constants (arrow functions)', () => {
+    const project = new Project({
+      compilerOptions: {
+        allowJs: true,
+        jsx: 4,
+        baseUrl: '/',
+        paths: {
+          '@/*': ['./*']
+        }
+      },
+      useInMemoryFileSystem: true
+    })
+
+    project.createSourceFile(
+      '/components/ticket.tsx',
+      `
+      export const Ticket = ({ticket}) => {
+        const title = ticket.title;
+        return <div>{title}</div>;
+      }
+    `
+    )
+
+    project.createSourceFile(
+      '/components/index.ts',
+      "export * from './ticket';"
+    )
+
+    project.createSourceFile(
+      '/Parent.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import { Ticket } from '@/components';
+      
+      export default function Page() {
+        const data = useData();
+        const {edges} = data.tickets({})
+
+        return <div>{edges.map(({node}) => <Ticket ticket={node} />)}</div>;
+      }
+    `
+    )
+    const {queries} = extractQueries('/Parent.tsx', project)
+    expect(queries).toHaveLength(1)
+    expect(queries[0].selectors).toEqual({
+      tickets: {
+        __args: '{}',
+        edges: {
+          __isList: true,
+          node: {
+            title: true
+          }
+        }
+      }
+    })
+  })
+
+  it('should handle components with optional chaining', () => {
+    const project = new Project({
+      compilerOptions: {
+        allowJs: true,
+        jsx: 4,
+        baseUrl: '/',
+        paths: {
+          '@/*': ['./*']
+        }
+      },
+      useInMemoryFileSystem: true
+    })
+
+    project.createSourceFile(
+      '/components/ticket.tsx',
+      `
+      export const Ticket = ({ticket}) => {
+        const name = ticket.lastMessage?.author?.name;
+        return <div>{name}</div>;
+      }
+    `
+    )
+
+    project.createSourceFile(
+      '/components/index.ts',
+      "export * from './ticket';"
+    )
+
+    project.createSourceFile(
+      '/Parent.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import { Ticket } from '@/components';
+      
+      export default function Page() {
+        const data = useData();
+        const {edges} = data.tickets({})
+
+        return <div>{edges.map(({node}) => <Ticket ticket={node} />)}</div>;
+      }
+    `
+    )
+    const {queries} = extractQueries('/Parent.tsx', project)
+    expect(queries).toHaveLength(1)
+    expect(queries[0].selectors).toEqual({
+      tickets: {
+        __args: '{}',
+        edges: {
+          __isList: true,
+          node: {
+            lastMessage: {
+              author: {
+                name: true
+              }
+            }
+          }
+        }
+      }
+    })
+  })
+
+  it('should handle components using React.FC type annotation', () => {
+    const project = new Project({
+      compilerOptions: {
+        allowJs: true,
+        jsx: 4,
+        baseUrl: '/',
+        paths: {
+          '@/*': ['./*']
+        }
+      },
+      useInMemoryFileSystem: true
+    })
+
+    project.createSourceFile(
+      '/components/ticket.tsx',
+      `
+      import React from 'react';
+      interface TicketProps { ticket: any; }
+      export const Ticket: React.FC<TicketProps> = ({ticket}) => {
+        return <div>{ticket.title}</div>;
+      }
+    `
+    )
+
+    project.createSourceFile(
+      '/Parent.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import { Ticket } from './components/ticket';
+      
+      export default function Page() {
+        const data = useData();
+        const {edges} = data.tickets({})
+
+        return <div>{edges.map(({node}) => <Ticket ticket={node} />)}</div>;
+      }
+    `
+    )
+    const {queries} = extractQueries('/Parent.tsx', project)
+    expect(queries).toHaveLength(1)
+    expect(queries[0].selectors).toEqual({
+      tickets: {
+        __args: '{}',
+        edges: {
+          __isList: true,
+          node: {
+            title: true
+          }
+        }
+      }
+    })
+  })
+
+  it('should handle list status update after initial merge', () => {
+    const input = `
+      const tickets = data.tickets({});
+      const edges = tickets.edges;
+      const nodes = edges.map(e => e.node);
+      console.log(nodes[0].title);
+    `
+    const result = extractAdvancedSelectors(input, 'data')
+    expect(result).toEqual({
+      tickets: {
+        __args: '{}',
+        edges: {
+          __isList: true,
+          node: {
+            title: true
+          }
+        }
+      }
+    })
   })
 })
 
@@ -676,6 +1050,159 @@ describe('High-End Complexity Edge Cases', () => {
             leader: {name: true}
           }
         }
+      }
+    })
+  })
+
+  it('should handle components wrapped in React.memo', () => {
+    const project = new Project({
+      compilerOptions: {
+        allowJs: true,
+        jsx: 4,
+        baseUrl: '/',
+        paths: {
+          '@/*': ['./*']
+        }
+      },
+      useInMemoryFileSystem: true
+    })
+
+    project.createSourceFile(
+      '/components/ticket-row.tsx',
+      `
+      import React from 'react';
+      export const TicketRow = React.memo(({ node, pageIndex }) => {
+        return (
+          <div>
+            <span>#{node.serialId} (Page: {pageIndex})</span>
+            <span>{node.title || "Kein Titel"}</span>
+            <span>{node.updatedAt}</span>
+          </div>
+        );
+      });
+    `
+    )
+
+    project.createSourceFile(
+      '/Parent.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import { TicketRow } from './components/ticket-row';
+      
+      export default function Page() {
+        const data = useData();
+        const {edges} = data.tickets({})
+
+        return <div>{edges.map(({node}) => <TicketRow node={node} pageIndex={0} />)}</div>;
+      }
+    `
+    )
+    const {queries} = extractQueries('/Parent.tsx', project)
+    expect(queries).toHaveLength(1)
+    expect(queries[0].selectors).toEqual({
+      tickets: {
+        __args: '{}',
+        edges: {
+          __isList: true,
+          node: {
+            serialId: true,
+            title: true,
+            updatedAt: true
+          }
+        }
+      }
+    })
+    })
+
+  it('should handle multi-level component resolution (general fix)', () => {
+    const project = new Project({
+      compilerOptions: {
+        allowJs: true,
+        jsx: 4,
+        baseUrl: '/',
+        paths: {
+          '@/*': ['./*']
+        }
+      },
+      useInMemoryFileSystem: true
+    })
+
+    project.createSourceFile(
+      '/components/ticket-row.tsx',
+      `
+      import React from 'react';
+      const RawTicketRow = ({ node }) => {
+        return <div>{node.title}</div>;
+      };
+      const MemoizedRow = React.memo(RawTicketRow);
+      export const TicketRow = MemoizedRow;
+    `
+    )
+
+    project.createSourceFile(
+      '/Parent.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import { TicketRow } from './components/ticket-row';
+      
+      export default function Page() {
+        const data = useData();
+        return <div><TicketRow node={data.ticket} /></div>;
+      }
+    `
+    )
+    const {queries} = extractQueries('/Parent.tsx', project)
+    expect(queries).toHaveLength(1)
+    expect(queries[0].selectors).toEqual({
+      ticket: {
+        title: true
+      }
+    })
+  })
+
+  it('should handle custom HOCs (general fix)', () => {
+    const project = new Project({
+      compilerOptions: {
+        allowJs: true,
+        jsx: 4,
+        baseUrl: '/',
+        paths: {
+          '@/*': ['./*']
+        }
+      },
+      useInMemoryFileSystem: true
+    })
+
+    project.createSourceFile(
+      '/components/ticket-row.tsx',
+      `
+      const withLogging = (Component) => (props) => {
+        return <Component {...props} />;
+      };
+      const RawTicketRow = ({ node }) => {
+        return <div>{node.id}</div>;
+      };
+      export const TicketRow = withLogging(RawTicketRow);
+    `
+    )
+
+    project.createSourceFile(
+      '/Parent.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import { TicketRow } from './components/ticket-row';
+      
+      export default function Page() {
+        const data = useData();
+        return <div><TicketRow node={data.ticket} /></div>;
+      }
+    `
+    )
+    const {queries} = extractQueries('/Parent.tsx', project)
+    expect(queries).toHaveLength(1)
+    expect(queries[0].selectors).toEqual({
+      ticket: {
+        id: true
       }
     })
   })

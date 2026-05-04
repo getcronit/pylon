@@ -45,8 +45,9 @@ interface AnalyzeOptions {
   onFileAccess?: (sourceFile: SourceFile) => void
 }
 
-function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
+  function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
   const result: Record<string, SelectorNode> = {}
+  const checker = sourceFile.getProject().getTypeChecker()
 
   function mergePathAndArgs(
     tree: Record<string, SelectorNode>,
@@ -57,98 +58,87 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
     let current: any = tree
 
     for (let i = 0; i < path.length; i++) {
-      const {name: key, args} = path[i]
+      const step = path[i]
+      const key = step.name
+      const args = step.args
       const isLast = i === path.length - 1
-      // console.log(`Merging ${key} (args: ${args}), isLast: ${isLast}`);
+      const segmentIsList =
+        (!!(step as any).__isList || (isLast && isList)) &&
+        !(step as any).__isVirtual
 
-      // Ensure current[key] can hold properties if we are not at the leaf
       if (current[key] === true && !isLast) {
         current[key] = {}
       }
 
-      if (current[key] === undefined || current[key] === true) {
-        if (args) {
-          const newNode: any = {__args: args}
-          if (isLast && isList) newNode.__isList = true
-          current[key] = newNode
-          current = newNode
+      let node = current[key]
+
+      if (node === undefined || node === true) {
+        if (args !== undefined) {
+          node = {__args: args}
+          current[key] = node
         } else {
-          if (isLast) {
-            if (isList) {
-              current[key] = {__isList: true}
-              current = current[key]
-            } else {
-              current[key] = true
-            }
+          if (isLast && !segmentIsList) {
+            current[key] = true
+            node = true
           } else {
-            current[key] = {}
-            current = current[key]
+            node = {}
+            current[key] = node
           }
         }
-      } else {
-        let targetNode: any
-        if (Array.isArray(current[key])) {
-          targetNode = current[key].find((n: any) => deepEqual(n.__args, args))
-          if (!targetNode) {
-            targetNode = args ? {__args: args} : {}
-            current[key].push(targetNode)
-          }
+      }
+
+      if (node === true) {
+        if (isLast && !segmentIsList) return
+        node = {}
+        current[key] = node
+      }
+
+      // If it's an array, find or create the matching args branch
+      if (Array.isArray(node)) {
+        let branch = node.find((n: any) => deepEqual(n.__args, args))
+        if (!branch) {
+          branch = args !== undefined ? {__args: args} : {}
+          node.push(branch)
+        }
+        node = branch
+      } else if (
+        args !== undefined &&
+        node.__args !== undefined &&
+        !deepEqual(node.__args, args)
+      ) {
+        // Convert to array for branching
+        const oldNode = node
+        const newNode = {__args: args}
+        current[key] = [oldNode, newNode]
+        node = newNode
+      } else if (args === undefined && node.__args !== undefined) {
+        // Node has args but we are accessing it without args.
+        // Branch it.
+        const oldNode = node
+        const newNode = {}
+        current[key] = [oldNode, newNode]
+        node = newNode
+      } else if (
+        args !== undefined &&
+        node.__args === undefined &&
+        Object.keys(node).filter(k => k !== '__isList').length > 0
+      ) {
+        // Node has children but no args, and we now have args?
+        // Add args to the existing node
+        node.__args = args
+      }
+
+      if (segmentIsList) {
+        if (typeof node === 'object') {
+          node.__isList = true
         } else {
-          if (args) {
-            if (deepEqual(current[key].__args, args)) {
-              targetNode = current[key]
-            } else {
-              const oldNode = current[key]
-              targetNode = {__args: args}
-              current[key] = [oldNode, targetNode]
-            }
-          } else {
-            if (current[key].__args) {
-              const oldNode = current[key]
-              targetNode = {}
-              current[key] = [oldNode, targetNode]
-            } else {
-              targetNode = current[key]
-            }
-          }
+          current[key] = {__isList: true}
+          node = current[key]
         }
+      }
 
-        // Handle case where targetNode was a boolean leaf but we need to go deeper
-        if (targetNode === true && !isLast) {
-          // If it was in an array, we find its index and update it
-          if (Array.isArray(current[key])) {
-            const idx = current[key].indexOf(targetNode)
-            if (idx !== -1) {
-              current[key][idx] = {}
-              targetNode = current[key][idx]
-            }
-          } else {
-            current[key] = {}
-            targetNode = current[key]
-          }
-        }
-
-        if (isLast && isList && targetNode === true) {
-          if (Array.isArray(current[key])) {
-            const idx = current[key].indexOf(true)
-            if (idx !== -1) {
-              current[key][idx] = {__isList: true}
-              targetNode = current[key][idx]
-            }
-          } else {
-            current[key] = {__isList: true}
-            targetNode = current[key]
-          }
-        } else if (
-          isLast &&
-          isList &&
-          targetNode &&
-          typeof targetNode === 'object'
-        ) {
-          targetNode.__isList = true
-        }
-
-        current = targetNode
+      if (!isLast) {
+        current = node
       }
     }
   }
@@ -169,7 +159,6 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
     paths: Path[],
     isDeclaration = false
   ) {
-    // console.log(`Setting binding for ${identifier}:`, paths);
     if (!isDeclaration) {
       // Search for existing binding in scope chain to update it
       for (let i = scopes.length - 1; i >= 0; i--) {
@@ -211,7 +200,6 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
       }
       return []
     })()
-    // console.log(`Resolved binding for ${identifier}:`, paths);
     return paths
   }
 
@@ -220,6 +208,12 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
   function markAsList(paths: Path[]) {
     paths.forEach(path => {
       mergePathAndArgs(result, path, true)
+      if (path.length > 0) {
+        const lastSegment = path[path.length - 1] as any
+        if (!lastSegment.__isVirtual) {
+          lastSegment.__isList = true
+        }
+      }
     })
   }
 
@@ -254,8 +248,16 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
         }
 
         if (propName) {
-          const nextPaths = paths.map(p => [...p, {name: propName}])
           if (propName.startsWith('$') && propName !== '$on') continue
+
+          const propPrefix = `__prop_${propName}`
+          const matches = paths.filter(p => p[0]?.name === propPrefix)
+          let nextPaths: Path[]
+          if (matches.length > 0) {
+            nextPaths = matches.map(p => p.slice(1))
+          } else {
+            nextPaths = paths.map(p => [...p, {name: propName}])
+          }
 
           nextPaths.forEach(p => mergePathAndArgs(result, p))
 
@@ -302,6 +304,108 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
   let currentDepth = 0
   const MAX_DEPTH = 5
   const MAX_RECURSION_PER_DECL = 2
+
+  function resolveFunctionDefinition(
+    symbol: any,
+    onFileAccess?: (sf: SourceFile) => void
+  ): any {
+    if (!symbol) return undefined
+
+    let currentSym = symbol
+    const visitedSyms = new Set<any>()
+
+    while (currentSym && !visitedSyms.has(currentSym)) {
+      visitedSyms.add(currentSym)
+      const prevSym = currentSym
+      const decls = currentSym.getDeclarations()
+      if (onFileAccess && decls) {
+        decls.forEach((d: any) => onFileAccess(d.getSourceFile()))
+      }
+
+      let decl = decls?.find(
+        (d: any) =>
+          Node.isFunctionDeclaration(d) ||
+          Node.isArrowFunction(d) ||
+          Node.isFunctionExpression(d)
+      )
+
+      if (!decl) {
+        const varDecl = decls?.find((d: any) => Node.isVariableDeclaration(d))
+        if (varDecl) {
+          let initializer = varDecl.getInitializer()
+          while (initializer) {
+            if (
+              Node.isAsExpression(initializer) ||
+              Node.isParenthesizedExpression(initializer)
+            ) {
+              initializer = initializer.getExpression()
+              continue
+            }
+            if (Node.isCallExpression(initializer)) {
+              const args = initializer.getArguments()
+              // Heuristic: If it's a HOC call, the component is likely one of the arguments.
+              // We look for the first argument that resolves to a function.
+              let foundSubDecl = false
+              for (const arg of args) {
+                const argSym =
+                  arg.getSymbol() || checker.getSymbolAtLocation(arg)
+                if (argSym) {
+                  const subDecl = resolveFunctionDefinition(argSym, onFileAccess)
+                  if (subDecl) {
+                    initializer = subDecl as any
+                    foundSubDecl = true
+                    break
+                  }
+                } else if (
+                  Node.isArrowFunction(arg) ||
+                  Node.isFunctionExpression(arg)
+                ) {
+                  initializer = arg
+                  foundSubDecl = true
+                  break
+                }
+              }
+              if (foundSubDecl) continue
+            }
+            if (Node.isIdentifier(initializer)) {
+              const sym =
+                initializer.getSymbol() ||
+                checker.getSymbolAtLocation(initializer)
+              if (sym && !visitedSyms.has(sym)) {
+                currentSym = sym
+                break // Continue while loop with new symbol
+              }
+            }
+            break
+          }
+
+          if (initializer && !Node.isIdentifier(initializer)) {
+            if (
+              Node.isArrowFunction(initializer) ||
+              Node.isFunctionExpression(initializer)
+            ) {
+              decl = initializer
+            }
+          }
+          if (decl) return decl
+          if (currentSym !== prevSym) continue
+        }
+      }
+
+      if (decl) return decl
+
+      try {
+        const aliased = currentSym.getAliasedSymbol()
+        if (aliased && aliased !== currentSym) {
+          currentSym = aliased
+          continue
+        }
+      } catch (e) {}
+
+      break
+    }
+    return undefined
+  }
 
   function evaluateExpression(node: Node): Path[] {
     if (!node) return []
@@ -446,7 +550,12 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
           methodName === 'findIndex'
         ) {
           markAsList(basePaths)
-          node.getArguments().forEach(arg => {
+          let callbackPaths: Path[] = []
+          node.getArguments().forEach(originalArg => {
+            let arg = originalArg
+            while (Node.isParenthesizedExpression(arg)) {
+              arg = arg.getExpression() as any
+            }
             if (Node.isArrowFunction(arg) || Node.isFunctionExpression(arg)) {
               scopes.push({bindings: new Map()})
 
@@ -482,15 +591,68 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
                 if (Node.isBlock(body)) {
                   body.getStatements().forEach(analyzeStatement)
                 } else {
-                  evaluateExpression(body)
+                  callbackPaths = evaluateExpression(body)
                 }
               }
               scopes.pop()
+            } else if (Node.isIdentifier(arg)) {
+              // It's a reference to a function, e.g. .map(myFn)
+              const symbol = arg.getSymbol() || arg.getType().getSymbol()
+              const fnDef = resolveFunctionDefinition(symbol, options.onFileAccess)
+              if (fnDef) {
+                const count = visitedDecls.get(fnDef) || 0
+                if (
+                  count < MAX_RECURSION_PER_DECL &&
+                  currentDepth < MAX_DEPTH
+                ) {
+                  visitedDecls.set(fnDef, count + 1)
+                  currentDepth++
+                  scopes.push({bindings: new Map()})
+
+                  const params = fnDef.getParameters()
+                  if (methodName === 'reduce') {
+                    if (params.length > 1) {
+                      const paramNameNode = params[1].getNameNode()
+                      if (Node.isIdentifier(paramNameNode)) {
+                        setBinding(paramNameNode.getText(), basePaths)
+                      }
+                    }
+                  } else {
+                    if (params.length > 0) {
+                      const paramNameNode = params[0].getNameNode()
+                      if (Node.isIdentifier(paramNameNode)) {
+                        setBinding(paramNameNode.getText(), basePaths)
+                      }
+                    }
+                  }
+
+                  const body = fnDef.getBody()
+                  if (body) {
+                    if (Node.isBlock(body)) {
+                      body.getStatements().forEach(analyzeStatement)
+                    } else {
+                      callbackPaths = evaluateExpression(body)
+                    }
+                  }
+
+                  scopes.pop()
+                  currentDepth--
+                  const newCount = (visitedDecls.get(fnDef) || 1) - 1
+                  if (newCount <= 0) visitedDecls.delete(fnDef)
+                  else visitedDecls.set(fnDef, newCount)
+                }
+              }
             } else {
               evaluateExpression(arg)
             }
           })
-          return basePaths
+          return methodName === 'map' && callbackPaths.length > 0
+            ? callbackPaths.map(p =>
+                p.map((s, idx) =>
+                  idx === p.length - 1 ? {...s, __isVirtual: true} : s
+                )
+              )
+            : basePaths
         }
 
         const JS_ARRAY_METHODS = new Set([
@@ -547,7 +709,7 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
 
         const newPaths: Path[] = []
         for (const path of basePaths) {
-          const args = argsString ? argsString : undefined
+          const args = argsString !== undefined ? argsString : ''
           const nextPath = [...path, {name: methodName, args}]
           mergePathAndArgs(result, nextPath)
           newPaths.push(nextPath)
@@ -560,32 +722,8 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
         let fnDef = functionRegistry.get(fnName)
 
         if (!fnDef) {
-          // Try to resolve from imports/symbols
           const symbol = expr.getSymbol() || expr.getType().getSymbol()
-          if (symbol) {
-            let decls = symbol.getDeclarations()
-            fnDef = decls.find(
-              d =>
-                Node.isFunctionDeclaration(d) ||
-                Node.isArrowFunction(d) ||
-                Node.isFunctionExpression(d)
-            ) as any
-
-            if (!fnDef) {
-              try {
-                const aliased = symbol.getAliasedSymbol()
-                if (aliased) {
-                  const aliasedDecls = aliased.getDeclarations()
-                  fnDef = aliasedDecls.find(
-                    d =>
-                      Node.isFunctionDeclaration(d) ||
-                      Node.isArrowFunction(d) ||
-                      Node.isFunctionExpression(d)
-                  ) as any
-                }
-              } catch (e) {}
-            }
-          }
+          fnDef = resolveFunctionDefinition(symbol, options.onFileAccess)
         }
 
         const argsPaths = node
@@ -650,34 +788,7 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
     if (Node.isJsxOpeningElement(node) || Node.isJsxSelfClosingElement(node)) {
       const tagName = node.getTagNameNode()
       const symbol = tagName.getSymbol() || tagName.getType().getSymbol()
-
-      let decl
-      if (symbol) {
-        let decls = symbol.getDeclarations()
-        decl = decls.find(
-          d =>
-            Node.isFunctionDeclaration(d) ||
-            Node.isArrowFunction(d) ||
-            Node.isFunctionExpression(d)
-        )
-
-        if (!decl) {
-          try {
-            const aliased = symbol.getAliasedSymbol()
-            if (aliased) {
-              const aliasedDecls = aliased.getDeclarations()
-              decl = aliasedDecls.find(
-                d =>
-                  Node.isFunctionDeclaration(d) ||
-                  Node.isArrowFunction(d) ||
-                  Node.isFunctionExpression(d)
-              )
-            }
-          } catch (e) {
-            // Some symbols might not be aliases despite being imports
-          }
-        }
-      }
+      const decl = resolveFunctionDefinition(symbol, options.onFileAccess)
 
       const attributes = node.getAttributes()
       const propsPaths: Map<string, Path[]> = new Map()
@@ -726,7 +837,17 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
                 }
               }
             } else if (Node.isIdentifier(propsParam)) {
-              setBinding(propsParam.getText(), [[]])
+              const allPaths: Path[] = []
+              propsPaths.forEach((paths, name) => {
+                paths.forEach(p => {
+                  allPaths.push([{name: `__prop_${name}`}, ...p])
+                })
+              })
+              setBinding(
+                propsParam.getText(),
+                allPaths.length > 0 ? allPaths : [[]],
+                true
+              )
             }
           }
 
@@ -1110,29 +1231,50 @@ export function extractQueries(
             let parent: any = result
             let lastKey = targetKey
 
-            for (const step of subPath) {
-              if (currentLevel[step.name] === true) {
+            for (let i = 0; i < subPath.length; i++) {
+              const step = subPath[i]
+              const isLast = i === subPath.length - 1
+
+              if (currentLevel[step.name] === true && !isLast) {
                 currentLevel[step.name] = {}
               }
+
               parent = currentLevel
               lastKey = step.name
+
+              if (isLast) {
+                // If it's the last step, we handle it specially based on currentExt
+                if (currentExt === true) {
+                  if (
+                    !currentLevel[step.name] ||
+                    currentLevel[step.name] === true
+                  ) {
+                    currentLevel[step.name] = true
+                  }
+                } else if (
+                  typeof currentExt === 'object' &&
+                  Object.keys(currentExt).length > 0
+                ) {
+                  if (
+                    !currentLevel[step.name] ||
+                    currentLevel[step.name] === true
+                  ) {
+                    currentLevel[step.name] = {}
+                  }
+                  deepMerge(currentLevel[step.name], currentExt)
+                } else {
+                  // currentExt is empty object or other, preserve existing leaf if it's true
+                  if (currentLevel[step.name] === undefined) {
+                    currentLevel[step.name] = true
+                  }
+                }
+                break
+              }
+
               currentLevel =
                 currentLevel[step.name] || (currentLevel[step.name] = {})
             }
-
-            // Deeply merge the transposed selectors
-            if (currentExt === true) {
-              // If it's used as a primitive externally, ensure it's at least 'true' internally
-              // Only if it's currently empty (don't downgrade objects) and not a root marker
-              if (
-                Object.keys(currentLevel).length === 0 &&
-                !lastKey.startsWith('__target_')
-              ) {
-                parent[lastKey] = true
-              }
-            } else if (typeof currentExt === 'object') {
-              deepMerge(currentLevel, currentExt)
-            }
+            continue // Skip the old merge logic below as we handled it in the loop
           }
         }
       }
