@@ -73,39 +73,6 @@ const useDataClient = () => {
 
 export {DataClientProvider, useDataClient}
 
-// A simple alias for the refetch function type
-type RefetchFunction = (ignoreCache?: boolean) => Promise<any>
-
-// ====================================================================
-// 2. THE GLOBAL REGISTRY (The bridge)
-// ====================================================================
-
-/**
- * ⚠️ DANGER ZONE: This global Map serves as the central registry for named
- * RouteDataProviders and individual useData hooks. It MUST be managed meticulously
- * with strict cleanup inside useEffect to prevent memory leaks and stale references.
- */
-export const refetchRegistry = new Map<string, Set<RefetchFunction>>()
-
-export const registerRefetch = (name: string, fn: RefetchFunction) => {
-  let set = refetchRegistry.get(name)
-  if (!set) {
-    set = new Set()
-    refetchRegistry.set(name, set)
-  }
-  set.add(fn)
-}
-
-export const unregisterRefetch = (name: string, fn: RefetchFunction) => {
-  const set = refetchRegistry.get(name)
-  if (set) {
-    set.delete(fn)
-    if (set.size === 0) {
-      refetchRegistry.delete(name)
-    }
-  }
-}
-
 // ====================================================================
 // 3. CORE CONTEXT AND PROVIDER
 // ====================================================================
@@ -116,8 +83,7 @@ const RouteDataContext = createContext<{
 } | null>(null)
 
 /**
- * Provides the route data to components. If a 'name' is provided, it
- * registers the $refetch function in the global registry for remote calls.
+ * Provides the route data to components.
  */
 const RouteDataProvider: React.FC<{
   children: React.ReactNode
