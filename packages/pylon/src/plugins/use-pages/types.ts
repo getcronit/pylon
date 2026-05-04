@@ -1,7 +1,9 @@
-import {Variables} from '@/index'
+import type {Variables} from '@/index'
 import type React from 'react'
 
-export interface Data {}
+export interface Data {
+  $refetch: (ignoreCache?: boolean) => Promise<void>
+}
 
 export type PageProps = {
   // @ts-expect-error

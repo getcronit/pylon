@@ -1,45 +1,65 @@
 import type {UseQueryOptions} from '@gqty/react'
-import {useEffect, useRef} from 'react'
+import mitt from 'mitt'
+import {useEffect} from 'react'
 import type {Data} from './index'
-import {
-  registerRefetch,
-  unregisterRefetch,
-  useDataClient,
-  useRouteId
-} from './internals'
+import {useDataClient} from './internals'
+
+// 1. Define your events and initialize the mitt emitter
+type Events = {
+  refetch: string[]
+}
+
+const emitter = mitt<Events>()
 
 interface UseDataOptions extends Omit<
   UseQueryOptions<any>,
   'prepare' | 'suspense'
-> {}
+> {
+  tags?: string[]
+}
 
 export const useData = (options?: UseDataOptions) => {
-  const routeId = useRouteId()
   const dataClient = useDataClient()
   const useQuery = dataClient.client.useQuery
 
+  // Assuming your gqty Data proxy exposes $refetch
   const data = useQuery({
     ...options,
     operationName: undefined,
     suspense: true
-  }) as Data
+  }) as Data & {$refetch: () => void}
 
-  const operationName = options?.operationName
-
-  const refetchFn: () => Promise<any> = (data as any).$refetch
-
-  const refetchFnRef = useRef(refetchFn)
-  refetchFnRef.current = refetchFn
-
+  // 2. Set up the listener inside a useEffect
   useEffect(() => {
-    if (operationName) {
-      registerRefetch(operationName, refetchFnRef.current)
+    const handleRefetch = (refetchTags: string[]) => {
+      // If the hook has no tags, we can ignore the refetch request
+      if (!options?.tags || options.tags.length === 0) return
 
-      return () => {
-        unregisterRefetch(operationName, refetchFnRef.current)
+      // Check if there is an intersection between the emitted tags and this hook's tags
+      const shouldRefetch = options.tags.some(tag => refetchTags.includes(tag))
+
+      if (shouldRefetch && typeof data.$refetch === 'function') {
+        data.$refetch()
       }
     }
-  }, [operationName])
+
+    // Subscribe to the event
+    emitter.on('refetch', handleRefetch)
+
+    // Cleanup the subscription on unmount
+    return () => {
+      emitter.off('refetch', handleRefetch)
+    }
+    // We stringify the tags array so the effect doesn't re-run infinitely
+    // if options.tags is passed as an inline array like `tags={['user']}`
+  }, [options?.tags?.join(','), data])
 
   return data
+}
+
+// 3. Emit the event from the standalone function
+export const dataRefetch = (tags: string[]) => {
+  if (tags && tags.length > 0) {
+    emitter.emit('refetch', tags)
+  }
 }
