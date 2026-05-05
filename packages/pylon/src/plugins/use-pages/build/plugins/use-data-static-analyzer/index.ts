@@ -1,5 +1,6 @@
 import {Plugin} from 'esbuild'
 import * as fs from 'fs'
+import {Node} from 'ts-morph'
 import {extractQueries} from './analyze'
 import {StaticAnalysisManager} from './manager'
 import {generatePrepare} from './selectors-to-prepare'
@@ -112,13 +113,13 @@ export function useDataStaticAnalyzer(
         try {
           const {queries, dependencies} = extractQueries(args.path, project, {
             pylonPackage,
-            hookName
+            hookName,
+            skipDependencyResolution: true
           })
 
           let outputContents = contents
 
           if (queries.length > 0) {
-            const {Node} = await import('ts-morph')
 
             for (const query of queries) {
               const node = query.node
