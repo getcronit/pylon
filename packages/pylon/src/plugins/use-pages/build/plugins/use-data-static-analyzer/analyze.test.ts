@@ -1,10 +1,6 @@
-import {describe, expect, it} from 'vitest'
-import {
-  extractAdvancedSelectors,
-  extractQueries,
-  SelectorNode
-} from './analyze'
 import {Project} from 'ts-morph'
+import {describe, expect, it} from 'vitest'
+import {extractAdvancedSelectors, extractQueries} from './analyze'
 
 describe('Selector Tracker Ultra-Advanced Analysis', () => {
   it('should handle direct aliasing and function calls with named arguments', () => {
@@ -1112,7 +1108,7 @@ describe('High-End Complexity Edge Cases', () => {
         }
       }
     })
-    })
+  })
 
   it('should handle multi-level component resolution (general fix)', () => {
     const project = new Project({
@@ -1203,6 +1199,317 @@ describe('High-End Complexity Edge Cases', () => {
     expect(queries[0].selectors).toEqual({
       ticket: {
         id: true
+      }
+    })
+  })
+
+  it('should handle complex array transformations inside useMemo', () => {
+    const input = `
+      const messagesByDate = useMemo(() => {
+        const groups = [];
+        [...data.messages].reverse().forEach((msg) => {
+          const lastGroup = groups[groups.length - 1];
+          if (lastGroup && lastGroup.date === msg.createdAt) {
+            lastGroup.messages.push(msg);
+          } else {
+            groups.push({ date: msg.createdAt, messages: [msg] });
+          }
+        });
+        return groups;
+      }, [data.messages]);
+    `
+    const result = extractAdvancedSelectors(input, 'data')
+    expect(result).toEqual({
+      messages: {
+        __isList: true,
+        createdAt: true
+      }
+    })
+  })
+
+  it('should handle selecting from a memoized array that was built via push', () => {
+    const input = `
+      const messagesByDate = useMemo(() => {
+        const groups = [];
+        [...data.messages].reverse().forEach((msg) => {
+          const lastGroup = groups[groups.length - 1];
+          if (lastGroup && lastGroup.date === msg.createdAt) {
+            lastGroup.messages.push(msg);
+          } else {
+            groups.push({ date: msg.createdAt, messages: [msg] });
+          }
+        });
+        return groups;
+      }, [data.messages]);
+
+      console.log(messagesByDate[0].messages[0].id);
+    `
+    const result = extractAdvancedSelectors(input, 'data')
+    expect(result).toEqual({
+      messages: {
+        __isList: true,
+        createdAt: true,
+        id: true
+      }
+    })
+  })
+
+  it('should handle logical OR with empty array (Issue 1)', () => {
+    const input = `
+      const attachments = data.message.attachments || [];
+      console.log(attachments[0].id);
+    `
+    const result = extractAdvancedSelectors(input, 'data')
+    expect(result).toEqual({
+      message: {
+        attachments: {
+          __isList: true,
+          id: true
+        }
+      }
+    })
+  })
+
+  it('should not mark properties as lists when calling string methods like startsWith (Issue 2)', () => {
+    const input = `
+      const attachments = data.message.attachments || [];
+      attachments.forEach(attachment => {
+        if (attachment.mimeType.startsWith('image/')) {
+          console.log(attachment.id);
+        }
+      });
+    `
+    const result = extractAdvancedSelectors(input, 'data')
+    // mimeType should NOT be a list
+    expect(result.message.attachments.mimeType).toBe(true)
+    expect(result.message.attachments.id).toBe(true)
+  })
+
+  it('should handle nested function calls and closures inside .map', () => {
+    const input = `
+      const getFileIcon = (mimeType) => {
+        if (mimeType?.startsWith('image/')) return 'image-icon';
+        return 'file-icon';
+      };
+
+      const opener = (file) => () => {
+        console.log(file.links.map(l => l.url));
+      };
+
+      const render = () => {
+        const files = data.files || [];
+        return (
+          <div>
+            {files.map((file) => {
+              const mimeType = "mimeType" in file ? file.mimeType : undefined;
+              const Icon = getFileIcon(mimeType);
+              const openFilePreview = opener(file);
+              
+              return (
+                <div onClick={openFilePreview} key={file.id}>
+                  {file.name}
+                </div>
+              );
+            })}
+          </div>
+        );
+      };
+    `
+    const result = extractAdvancedSelectors(input, 'data')
+    expect(result).toEqual({
+      files: {
+        __isList: true,
+        id: true,
+        name: true,
+        mimeType: true,
+        links: {
+          __isList: true,
+          url: true
+        }
+      }
+    })
+  })
+
+  it('should handle nested function returns from custom hooks in other files (useFilePreview)', () => {
+    const project = new Project({
+      compilerOptions: {allowJs: true, jsx: 4},
+      useInMemoryFileSystem: true
+    })
+    project.createSourceFile(
+      'hooks.ts',
+      `
+      import { createContext, useContext } from 'react';
+      
+      const FilePreviewContext = createContext({
+        opener: (vaultItem) => {
+          vaultItem.id;
+          vaultItem.createdAt;
+          vaultItem.links?.forEach((link) => {
+            link.id;
+            link.title;
+            link.type;
+          });
+          return (config) => console.log(vaultItem.id);
+        }
+      });
+
+      const useFilePreviewContext = () => {
+        return useContext(FilePreviewContext);
+      }
+
+      export const useFilePreview = () => {
+        return useFilePreviewContext();
+      }
+    `
+    )
+    project.createSourceFile(
+      'FileAttachmentList.tsx',
+      `
+      import { useFilePreview } from './hooks';
+
+      export const FileAttachmentList = ({files}) => {
+        const preview = useFilePreview();
+        return (
+          <>
+            {files.map(file => (
+              <div onClick={preview.opener(file)}>
+                Test
+              </div>
+            ))}
+          </>
+        )
+      }
+      `
+    )
+    const mainFile = project.createSourceFile(
+      'main.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import { FileAttachmentList } from './FileAttachmentList';
+      
+      const Component = () => {
+        const data = useData();
+        const files = data.files || [];
+
+        return (
+          <div>
+            <FileAttachmentList files={files} />
+          </div>
+        )
+      }
+    `
+    )
+
+    project.resolveSourceFileDependencies()
+
+    const {queries} = extractQueries('main.tsx', project)
+
+    expect(queries[0].selectors).toEqual({
+      files: {
+        __isList: true,
+        id: true,
+        createdAt: true,
+        links: {
+          __isList: true,
+          id: true,
+          title: true,
+          type: true
+        }
+      }
+    })
+  })
+
+  it('should trace data through a Context Provider and follow callback arguments', () => {
+    const project = new Project({
+      compilerOptions: {allowJs: true, jsx: 4},
+      useInMemoryFileSystem: true
+    })
+
+    project.createSourceFile(
+      'context.tsx',
+      `
+      import { createContext, useContext } from 'react';
+      
+      export const FilePreviewContext = createContext<any>(undefined);
+
+      function prepareFile(file: any) {
+        file.id
+        file.links.forEach(l => l.id);
+      }
+
+      export const FilePreviewProvider = ({ children }) => {
+        const value = {
+          opener: (item: any) => {
+            prepareFile(item);
+          }
+        };
+        return (
+          <FilePreviewContext.Provider value={value}>
+            {children}
+          </FilePreviewContext.Provider>
+        );
+      }
+
+      export function useFilePreview() {
+        const context = useContext(FilePreviewContext);
+        if (context === undefined) {
+          throw new Error("useFilePreview must be used within a FilePreviewProvider");
+        }
+        return context;
+      }
+      `
+    )
+
+    project.createSourceFile(
+      'Component.tsx',
+      `
+      import { useFilePreview } from './context';
+
+      export const FileAttachmentList = ({files}) => {
+        const config = useFilePreview();
+        return (
+          <>
+            {files.map(file => (
+              <div onClick={() => config.opener(file)}>
+                Test
+              </div>
+            ))}
+          </>
+        )
+      }
+      `
+    )
+
+    project.createSourceFile(
+      'main.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import { FilePreviewProvider } from './context';
+      import { FileAttachmentList } from './Component';
+      
+      const Page = () => {
+        const data = useData();
+
+        return (
+          <FilePreviewProvider>
+            <FileAttachmentList files={data.files || []} />
+          </FilePreviewProvider>
+        )
+      }
+    `
+    )
+
+    project.resolveSourceFileDependencies()
+    const {queries} = extractQueries('main.tsx', project)
+
+    expect(queries[0].selectors).toEqual({
+      files: {
+        __isList: true,
+        id: true,
+        links: {
+          __isList: true,
+          id: true
+        }
       }
     })
   })
