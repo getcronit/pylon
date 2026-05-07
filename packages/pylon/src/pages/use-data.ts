@@ -16,6 +16,13 @@ interface UseDataOptions extends Omit<
   'prepare' | 'suspense'
 > {
   tags?: string[]
+  /**
+   * By default, this page will use pylon's build time query analysis to fetch the data.
+   * This improves the runtime performance and allows you to use conditional logic,
+   * such as if-conditions, in your data fetching logic.
+   * Set this to false to disable this feature.
+   */
+  disableBuildTimeGeneration?: boolean
 }
 
 export const useData = (options?: UseDataOptions) => {
@@ -25,6 +32,8 @@ export const useData = (options?: UseDataOptions) => {
   // Assuming your gqty Data proxy exposes $refetch
   const data = useQuery({
     ...options,
+    // @ts-expect-error
+    prepare: options?.disableBuildTimeGeneration ? undefined : options.prepare,
     operationName: undefined,
     suspense: true
   }) as Data & {$refetch: () => void}

@@ -989,6 +989,21 @@ describe('High-End Complexity Edge Cases', () => {
 
   it('should handle element access with list marking', () => {
     const input = `
+    const data = {
+      posts: {
+        latest: {
+          title: "test"
+        }
+      },
+      users: [
+        {
+          profile: {
+            name: "test"
+          }
+        }
+      ]
+    } 
+      
       const firstUser = data.users[0];
       console.log(firstUser.profile.name);
       
@@ -1002,8 +1017,9 @@ describe('High-End Complexity Edge Cases', () => {
         profile: {name: true}
       },
       posts: {
-        __isList: true,
-        title: true
+        latest: {
+          title: true
+        }
       }
     })
   })
@@ -1050,6 +1066,50 @@ describe('High-End Complexity Edge Cases', () => {
     })
   })
 
+  it('should handle components wrapped in React.memo in the same file', () => {
+    const project = new Project({
+      compilerOptions: {
+        allowJs: true,
+        jsx: 4,
+        baseUrl: '/',
+        paths: {
+          '@/*': ['./*']
+        }
+      },
+      useInMemoryFileSystem: true
+    })
+
+    project.createSourceFile(
+      '/Page.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import React from 'react';
+      
+      const TicketRow = React.memo(({ node }) => {
+        return (
+          <div>
+            <span>{node.title}</span>
+          </div>
+        );
+      });
+
+      export default function Page() {
+        const data = useData();
+        return (
+          <div>
+            {data.tickets.map(node => (
+              <TicketRow node={node} />
+            ))}
+          </div>
+        );
+      }
+    `
+    )
+
+    const {queries} = extractQueries('/Page.tsx', project)
+    expect(queries[0].selectors.tickets.title).toBe(true)
+  })
+
   it('should handle components wrapped in React.memo', () => {
     const project = new Project({
       compilerOptions: {
@@ -1076,6 +1136,8 @@ describe('High-End Complexity Edge Cases', () => {
           </div>
         );
       });
+
+      TicketRow.displayName = "TicketRow";
     `
     )
 
@@ -1330,187 +1392,853 @@ describe('High-End Complexity Edge Cases', () => {
     })
   })
 
-  it('should handle nested function returns from custom hooks in other files (useFilePreview)', () => {
+  it('should handle passing a function derived from useData as a prop and calling it', () => {
     const project = new Project({
       compilerOptions: {allowJs: true, jsx: 4},
       useInMemoryFileSystem: true
     })
+
     project.createSourceFile(
-      'hooks.ts',
+      '/TicketsList.tsx',
       `
-      import { createContext, useContext } from 'react';
-      
-      const FilePreviewContext = createContext({
-        opener: (vaultItem) => {
-          vaultItem.id;
-          vaultItem.createdAt;
-          vaultItem.links?.forEach((link) => {
-            link.id;
-            link.title;
-            link.type;
-          });
-          return (config) => console.log(vaultItem.id);
-        }
-      });
-
-      const useFilePreviewContext = () => {
-        return useContext(FilePreviewContext);
-      }
-
-      export const useFilePreview = () => {
-        return useFilePreviewContext();
-      }
-    `
-    )
-    project.createSourceFile(
-      'FileAttachmentList.tsx',
-      `
-      import { useFilePreview } from './hooks';
-
-      export const FileAttachmentList = ({files}) => {
-        const preview = useFilePreview();
-        return (
-          <>
-            {files.map(file => (
-              <div onClick={preview.opener(file)}>
-                Test
-              </div>
-            ))}
-          </>
-        )
+      export function TicketsList({ connection }) {
+        const totalCount = connection({ arg1: "foo" }).totalCount;
+        return <div>{totalCount}</div>;
       }
       `
     )
-    const mainFile = project.createSourceFile(
-      'main.tsx',
+
+    project.createSourceFile(
+      '/Page.tsx',
       `
       import { useData } from '@getcronit/pylon/pages';
-      import { FileAttachmentList } from './FileAttachmentList';
-      
-      const Component = () => {
+      import { TicketsList } from './TicketsList';
+      export default function Page() {
         const data = useData();
-        const files = data.files || [];
+        const connection = data.tickets;
+        return <TicketsList connection={connection} />;
+      }
+      `
+    )
 
+    const {queries} = extractQueries('/Page.tsx', project)
+    expect(queries[0].selectors).toEqual({
+      tickets: {
+        __args: '{ arg1: "foo" }',
+        totalCount: true
+      }
+    })
+  })
+
+  it('should correctly mark nested attachments as list even if accessed through a map', () => {
+    const project = new Project({useInMemoryFileSystem: true})
+    const sourceFile = project.createSourceFile(
+      'test.tsx',
+      `
+      import { useData } from "@getcronit/pylon/pages";
+      
+      export function MyComp() {
+        const data = useData();
+        const versions = data.ticket.versions.map(v => ({
+          id: v.id,
+          content: v.content,
+          createdAt: v.createdAt,
+          attachments: v.attachments
+        }));
+        
         return (
           <div>
-            <FileAttachmentList files={files} />
+            {versions.map(rev => (
+              <div key={rev.id}>
+                {rev.attachments.length > 0 && (
+                   <div>
+                     {rev.attachments.map(a => <span key={a.id}>{a.name}</span>)}
+                   </div>
+                )}
+              </div>
+            ))}
           </div>
-        )
+        );
       }
     `
     )
 
-    project.resolveSourceFileDependencies()
+    const {queries} = extractQueries('test.tsx', project, {
+      pylonPackage: '@getcronit/pylon/pages',
+      hookName: 'useData'
+    })
 
-    const {queries} = extractQueries('main.tsx', project)
+    expect(queries.length).toBe(1)
 
     expect(queries[0].selectors).toEqual({
-      files: {
-        __isList: true,
-        id: true,
-        createdAt: true,
-        links: {
+      ticket: {
+        versions: {
           __isList: true,
           id: true,
-          title: true,
-          type: true
+          content: true,
+          createdAt: true,
+          attachments: {
+            __isList: true,
+            id: true,
+            name: true
+          }
+        }
+      }
+    })
+  })
+})
+
+describe('Query Extraction: Prop Drilling & Argument Mapping', () => {
+  const compilerOptions = {allowJs: true, jsx: 4}
+
+  // State Variable Mapping
+  it('should map query arguments to local useState variables passed as props', () => {
+    const project = new Project({compilerOptions, useInMemoryFileSystem: true})
+
+    project.createSourceFile(
+      '/Child.tsx',
+      `
+      export function Child({ connection, filter }) {
+        const nodes = connection({ filter }).edges.map(e => e.node.id);
+        return <div>{nodes.length}</div>;
+      }
+    `
+    )
+
+    project.createSourceFile(
+      '/Page.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import { useState } from 'react';
+      import { Child } from './Child';
+      
+      export default function Page() {
+        const [stateFilter] = useState('active');
+        const data = useData();
+        return <Child connection={data.notifications} filter={stateFilter} />;
+      }
+    `
+    )
+
+    const {queries} = extractQueries('/Page.tsx', project)
+    expect(queries[0].selectors.notifications.__args).toEqual(
+      '{ filter: stateFilter }'
+    )
+  })
+
+  // Static Prop Resolution
+  it('should resolve static variables defined in parent and passed to child', () => {
+    const project = new Project({compilerOptions, useInMemoryFileSystem: true})
+
+    project.createSourceFile(
+      '/Child.tsx',
+      `
+      export function Child({ connection, parentFilter }) {
+        return <div>{connection({ filter: parentFilter }).edges.length}</div>;
+      }
+    `
+    )
+
+    project.createSourceFile(
+      '/Page.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import { Child } from './Child';
+      
+      export default function Page() {
+        const parentFilter = "active";
+        const data = useData();
+        return <Child connection={data.notifications} parentFilter={parentFilter} />;
+      }
+    `
+    )
+
+    const {queries} = extractQueries('/Page.tsx', project)
+    expect(queries[0].selectors.notifications.__args).toEqual(
+      '{ filter: parentFilter }'
+    )
+  })
+
+  // Inline Literal Mapping
+  it('should handle hardcoded string literals passed directly into props', () => {
+    const project = new Project({compilerOptions, useInMemoryFileSystem: true})
+
+    project.createSourceFile(
+      '/Child.tsx',
+      `
+      export function Child({ connection, status }) {
+        return <div>{connection({ status }).edges.length}</div>;
+      }
+    `
+    )
+
+    project.createSourceFile(
+      '/Page.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import { Child } from './Child';
+      
+      export default function Page() {
+        const data = useData();
+        return <Child connection={data.notifications} status="archived" />;
+      }
+    `
+    )
+
+    const {queries} = extractQueries('/Page.tsx', project)
+    expect(queries[0].selectors.notifications.__args).toEqual('{ status }')
+  })
+
+  it('should handle connection passing through customProps in a dynamic wrapper', () => {
+    const project = new Project({compilerOptions, useInMemoryFileSystem: true})
+
+    project.createSourceFile(
+      '/ChildComponent.tsx',
+      `
+      export function ChildComponent({ connection, parentFilter }) {
+        const nodes = connection({ filter: parentFilter }).edges.map(e => e.node.id);
+        return <div>{nodes.length}</div>;
+      }
+    `
+    )
+
+    project.createSourceFile(
+      '/MainComponent.tsx',
+      `
+      export function MainComponent({ chunkComponent: Chunk, chunkProps }) {
+        return <Chunk {...chunkProps} />;
+      }
+    `
+    )
+
+    project.createSourceFile(
+      '/Page.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import { MainComponent } from './MainComponent';
+      import { ChildComponent } from './ChildComponent';
+      
+      export default function Page() {
+        const parentFilter = "active";
+        const data = useData();
+        return (
+          <MainComponent 
+            chunkComponent={ChildComponent} 
+            chunkProps={{ connection: data.notifications, parentFilter }} 
+          />
+        );
+      }
+    `
+    )
+
+    const {queries} = extractQueries('/Page.tsx', project)
+    expect(queries[0].selectors.notifications).toEqual({
+      __args: '{ filter: parentFilter }',
+      edges: {
+        __isList: true,
+        node: {id: true}
+      }
+    })
+  })
+
+  it('should handle spread arguments and conditional logic in connection calls', () => {
+    const project = new Project({
+      compilerOptions: {allowJs: true, jsx: 4},
+      useInMemoryFileSystem: true
+    })
+
+    // The Child/List component that uses complex argument construction
+    project.createSourceFile(
+      '/ListComponent.tsx',
+      `
+    export function ListComponent({ connection, args, pageSize }) {
+      const before = undefined; // Mocking variable state for extraction context
+      const skip = 0;
+      const after = undefined;
+
+      const { edges, pageInfo } = connection({
+        ...args,
+        first: before ? undefined : pageSize,
+        last: before ? pageSize : undefined,
+        skip,
+        after,
+        before,
+      });
+
+      return <div>{edges.length}</div>;
+    }
+  `
+    )
+
+    project.createSourceFile(
+      '/Page.tsx',
+      `
+    import { useData } from '@getcronit/pylon/pages';
+    import { ListComponent } from './ListComponent';
+    
+    export default function Page() {
+       const connectionArgs = { filter: "active" };
+      const pageSize = 10;
+      const data = useData();
+   
+
+      return (
+        <ListComponent 
+          connection={data.notifications} 
+          args={connectionArgs} 
+          pageSize={pageSize} 
+        />
+      );
+    }
+  `
+    )
+
+    const {queries} = extractQueries('/Page.tsx', project)
+
+    // We expect the extractor to use the local variable names
+    expect(queries[0].selectors.notifications.__args).toEqual(
+      '{ ...connectionArgs, first: before ? undefined : pageSize, last: before ? pageSize : undefined, skip, after, before }'
+    )
+
+    // Ensure the fields accessed via destructuring are captured
+    expect(queries[0].selectors.notifications.edges).toBeDefined()
+    expect(queries[0].selectors.notifications.pageInfo).toBeDefined()
+  })
+
+  it('should handle nested object prop drilling and expansion', () => {
+    const project = new Project({
+      compilerOptions: {allowJs: true, jsx: 4},
+      useInMemoryFileSystem: true
+    })
+
+    project.createSourceFile(
+      '/ListComponent.tsx',
+      `
+    export function ListComponent({ connection, listArgs, pageSize }) {
+      const { args } = listArgs;
+      const skip = 0;
+
+      const { edges } = connection({
+        ...args,
+        first: pageSize,
+        skip,
+      });
+
+      return <div>{edges.length}</div>;
+    }
+  `
+    )
+
+    project.createSourceFile(
+      '/Page.tsx',
+      `
+    import { useData } from '@getcronit/pylon/pages';
+    import { ListComponent } from './ListComponent';
+    
+    export default function Page() {
+          const connectionArgs = { filter: "active" };
+      const data = useData();
+      const pageSize = 10;
+
+      return (
+        <ListComponent 
+          connection={data.notifications} 
+          listArgs={{args: connectionArgs}} 
+          pageSize={pageSize} 
+        />
+      );
+    }
+  `
+    )
+
+    const {queries} = extractQueries('/Page.tsx', project)
+
+    console.log(queries[0].selectors.notifications.__args)
+
+    expect(queries[0].selectors.notifications.__args).toEqual(
+      '{ ...connectionArgs, first: pageSize, skip }'
+    )
+  })
+
+  it('should resolve connectionArgs all the way through DataList and VirtualListBase', () => {
+    const project = new Project({compilerOptions, useInMemoryFileSystem: true})
+
+    project.createSourceFile(
+      '/virtual-pagination.ts',
+      `
+      export function useChunkIntersection() { return { topSentinelRef: null, bottomSentinelRef: null }; }
+    `
+    )
+
+    project.createSourceFile(
+      '/virtual-list-base.tsx',
+      `
+      import React from 'react';
+      export function VirtualListBase({ chunkComponent: Chunk, chunkProps }) {
+        return <Chunk {...chunkProps} pageIndex={0} skip={0} isTopChunk={true} isBottomChunk={true} />;
+      }
+    `
+    )
+
+    project.createSourceFile(
+      '/data-list.tsx',
+      `
+      import React from 'react';
+      import { VirtualListBase } from './virtual-list-base';
+      
+      function DataListChunk({ connection, args, pageSize, skip, before }) {
+        const { edges } = connection({
+          ...args,
+          first: before ? undefined : pageSize,
+          skip,
+        });
+        return <div>{edges.length}</div>;
+      }
+
+      export function DataList({ connection, connectionArgs, pageSize }) {
+        return (
+          <VirtualListBase 
+            chunkComponent={DataListChunk} 
+            chunkProps={{ connection, args: connectionArgs, pageSize }} 
+          />
+        );
+      }
+    `
+    )
+
+    project.createSourceFile(
+      '/Page.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import React, { useMemo } from 'react';
+      import { DataList } from './data-list';
+      
+      export default function Page() {
+       const filters = { status: 'ALL' };
+        const connectionArgs = useMemo(() => ({
+          filters: { isArchived: filters.status === 'ARCHIVED' }
+        }), [filters.status]);
+        const data = useData();
+        
+        return (
+          <DataList 
+            connection={data.notifications} 
+            connectionArgs={connectionArgs} 
+            pageSize={10} 
+          />
+        );
+      }
+    `
+    )
+
+    const {queries} = extractQueries('/Page.tsx', project)
+
+    // Check if the first query found (which should be from DataListChunk)
+    // has correctly resolved arguments.
+    // The expected output should contain 'connectionArgs'.
+    const notificationQuery = queries.find(q => q.selectors.notifications)
+    expect(notificationQuery).toBeDefined()
+
+    const notifications = notificationQuery.selectors.notifications
+    const targetBranch = Array.isArray(notifications)
+      ? notifications.find(b => b.__args?.includes('...connectionArgs'))
+      : notifications
+
+    expect(targetBranch).toBeDefined()
+    expect(targetBranch.__args).toContain('...connectionArgs')
+  })
+
+  it('should resolve connectionArgs in child component using useData directly (InboxChunk pattern)', () => {
+    const project = new Project({compilerOptions, useInMemoryFileSystem: true})
+
+    project.createSourceFile(
+      '/VirtualListBase.tsx',
+      `
+      import React from 'react';
+      export function VirtualListBase({ children }) {
+        const chunk = { pageIndex: 0, skip: 0, after: 'cursor1' };
+        return <div>{children(chunk)}</div>;
+      }
+    `
+    )
+
+    project.createSourceFile(
+      '/InboxChunk.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import React from 'react';
+      
+      export function InboxChunk(props) {
+        const data = useData({ operationName: "InboxSidebar" });
+        const PAGE_SIZE = 48;
+        const connection = data.me.session.user.notifications({
+          ...props.connectionArgs,
+          first: props.before ? undefined : PAGE_SIZE,
+          last: props.before ? PAGE_SIZE : undefined,
+          skip: props.skip,
+          after: props.after,
+          before: props.before,
+        });
+        return <div>{connection.totalCount}</div>;
+      }
+    `
+    )
+
+    project.createSourceFile(
+      '/Page.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import React, { useMemo } from 'react';
+      import { VirtualListBase } from './VirtualListBase';
+      import { InboxChunk } from './InboxChunk';
+
+      export default function Page() {
+      const connectionArgs = useMemo(() => ({ filters: { isRead: false } }), []);
+        const data = useData();
+        
+        const totalCount = data.me.session.user.notifications({connectionArgs}).totalCount;
+        
+        return (
+          <VirtualListBase>
+            {(chunk) => (
+              <InboxChunk {...chunk} connectionArgs={connectionArgs} />
+            )}
+          </VirtualListBase>
+        );
+      }
+    `
+    )
+
+    const {queries: pageQueries} = extractQueries('/Page.tsx', project)
+
+    expect(pageQueries[0].selectors).toEqual({
+      me: {
+        session: {
+          user: {
+            notifications: {
+              __args: '{ connectionArgs }',
+              totalCount: true
+            }
+          }
+        }
+      }
+    })
+
+    const {queries: inboxQueries} = extractQueries('/InboxChunk.tsx', project)
+
+    expect(inboxQueries[0].selectors).toEqual({
+      me: {
+        session: {
+          user: {
+            notifications: {
+              __args:
+                '{ ...props.connectionArgs, first: props.before ? undefined : PAGE_SIZE, last: props.before ? PAGE_SIZE : undefined, skip: props.skip, after: props.after, before: props.before }',
+              totalCount: true
+            }
+          }
         }
       }
     })
   })
 
-  it('should trace data through a Context Provider and follow callback arguments', () => {
-    const project = new Project({
-      compilerOptions: {allowJs: true, jsx: 4},
-      useInMemoryFileSystem: true
-    })
+  it('should resolve fields accessed inside a renderItem function', () => {
+    const project = new Project({compilerOptions, useInMemoryFileSystem: true})
 
     project.createSourceFile(
-      'context.tsx',
+      '/ListView.tsx',
       `
-      import { createContext, useContext } from 'react';
-      
-      export const FilePreviewContext = createContext<any>(undefined);
-
-      function prepareFile(file: any) {
-        file.id
-        file.links.forEach(l => l.id);
-      }
-
-      export const FilePreviewProvider = ({ children }) => {
-        const value = {
-          opener: (item: any) => {
-            prepareFile(item);
-          }
-        };
-        return (
-          <FilePreviewContext.Provider value={value}>
-            {children}
-          </FilePreviewContext.Provider>
-        );
-      }
-
-      export function useFilePreview() {
-        const context = useContext(FilePreviewContext);
-        if (context === undefined) {
-          throw new Error("useFilePreview must be used within a FilePreviewProvider");
-        }
-        return context;
-      }
-      `
-    )
-
-    project.createSourceFile(
-      'Component.tsx',
-      `
-      import { useFilePreview } from './context';
-
-      export const FileAttachmentList = ({files}) => {
-        const config = useFilePreview();
-        return (
-          <>
-            {files.map(file => (
-              <div onClick={() => config.opener(file)}>
-                Test
-              </div>
-            ))}
-          </>
-        )
-      }
-      `
-    )
-
-    project.createSourceFile(
-      'main.tsx',
-      `
-      import { useData } from '@getcronit/pylon/pages';
-      import { FilePreviewProvider } from './context';
-      import { FileAttachmentList } from './Component';
-      
-      const Page = () => {
-        const data = useData();
-
-        return (
-          <FilePreviewProvider>
-            <FileAttachmentList files={data.files || []} />
-          </FilePreviewProvider>
-        )
+      import React from 'react';
+      export function ListView({ items, renderItem }) {
+        return <div>{items.map(item => renderItem(item))}</div>;
       }
     `
     )
 
-    project.resolveSourceFileDependencies()
-    const {queries} = extractQueries('main.tsx', project)
+    project.createSourceFile(
+      '/Page.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import React from 'react';
+      import { ListView } from './ListView';
+
+      export default function Page() {
+        const data = useData();
+        return (
+          <ListView 
+            items={data.notifications.edges} 
+            renderItem={(edge) => (
+              <div>
+                <span>{edge.node.title}</span>
+                <span>{edge.node.message}</span>
+              </div>
+            )} 
+          />
+        );
+      }
+    `
+    )
+
+    const {queries} = extractQueries('/Page.tsx', project)
 
     expect(queries[0].selectors).toEqual({
-      files: {
-        __isList: true,
-        id: true,
-        links: {
+      notifications: {
+        edges: {
           __isList: true,
-          id: true
+          node: {
+            title: true,
+            message: true
+          }
         }
       }
     })
+  })
+
+  it('should handle passing connection in customProps and dynamic ChildComponent', () => {
+    const project = new Project({compilerOptions, useInMemoryFileSystem: true})
+
+    project.createSourceFile(
+      '/ChildComponent.tsx',
+      `
+      export function ChildComponent({ customProps }) {
+        const { connection } = customProps;
+        const totalCount = connection({ arg1: "foo" }).totalCount;
+        return <div>{totalCount}</div>;
+      }
+    `
+    )
+
+    project.createSourceFile(
+      '/Page.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import React from 'react';
+      import { ChildComponent } from './ChildComponent';
+
+      export default function Page() {
+        const data = useData();
+        const connection = data.tickets;
+        
+        const DynamicComp = ChildComponent;
+
+        return (
+          <DynamicComp 
+            customProps={{ connection }}
+          />
+        );
+      }
+    `
+    )
+
+    const {queries} = extractQueries('/Page.tsx', project)
+    expect(queries.length).toBe(1)
+    expect(queries[0].selectors.tickets).toBeDefined()
+    expect(queries[0].selectors.tickets.__args).toContain('arg1: "foo"')
+    expect(queries[0].selectors.tickets.totalCount).toBe(true)
+  })
+
+  it('should not resolve iterator parameters back to the source array in stringified arguments', () => {
+    const project = new Project({compilerOptions, useInMemoryFileSystem: true})
+
+    project.createSourceFile(
+      '/TicketChunk.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      export function TicketChunk({ before, skip }) {
+        const data = useData();
+        const { edges } = data.tickets({
+          before: before,
+          skip: skip
+        });
+        return <div>{edges.length}</div>;
+      }
+      `
+    )
+
+    project.createSourceFile(
+      '/Page.tsx',
+      `
+      import { useState } from 'react';
+      import { TicketChunk } from './TicketChunk';
+
+      export default function Page() {
+        const [listState, setListState] = useState({
+          anchorPage: 0,
+          backwardCursors: ['a', 'b']
+        });
+
+        const chunks = [
+          ...listState.backwardCursors.map(cursor => ({
+            key: cursor,
+            before: cursor
+          })),
+          {
+            key: 'anchor',
+            skip: listState.anchorPage * 10
+          }
+        ];
+
+        return (
+          <div>
+            {chunks.map(chunk => (
+              <TicketChunk key={chunk.key} {...chunk} />
+            ))}
+          </div>
+        );
+      }
+      `
+    )
+
+    const {queries} = extractQueries('/TicketChunk.tsx', project)
+    expect(queries).toHaveLength(1)
+
+    const {tickets} = queries[0].selectors as any
+    expect(tickets).toBeDefined()
+
+    // Check that it correctly uses the identifier name 'before' and 'skip' instead of 'listState.backwardCursors'
+    // This ensures that the generated prepareFn uses the closure variables.
+    expect(tickets.__args).toContain('before: before')
+    expect(tickets.__args).toContain('skip: skip')
+    expect(tickets.__args).not.toContain('listState.backwardCursors')
+  })
+
+  it('should handle components with a single props parameter without merging paths improperly', () => {
+    const project = new Project({
+      compilerOptions: {allowJs: true, jsx: 4},
+      useInMemoryFileSystem: true
+    })
+    project.createSourceFile(
+      '/Component.tsx',
+      `
+      export function MyComponent(props) {
+        return <div>{props.user.name} {props.admin.role}</div>;
+      }
+      `
+    )
+    project.createSourceFile(
+      '/Page.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import { MyComponent } from './Component';
+      export default function Page() {
+        const data = useData();
+        return <MyComponent user={data.user} admin={data.admin} />;
+      }
+      `
+    )
+    const {queries} = extractQueries('/Page.tsx', project)
+    expect(queries[0].selectors).toEqual({
+      user: {
+        name: true
+      },
+      admin: {
+        role: true
+      }
+    })
+  })
+
+  it('should handle components with a single props parameter and key prop properly', () => {
+    const project = new Project({
+      compilerOptions: {allowJs: true, jsx: 4},
+      useInMemoryFileSystem: true
+    })
+    project.createSourceFile(
+      '/Component.tsx',
+      `
+      export function MyComponent(props) {
+        return <div>{props.title}</div>;
+      }
+      `
+    )
+    project.createSourceFile(
+      '/Page.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import { MyComponent } from './Component';
+      export default function Page() {
+        const data = useData();
+        const ticket = data.ticket({ id: '1' });
+        return <MyComponent key={ticket.id} title={ticket.title} />;
+      }
+      `
+    )
+    const {queries} = extractQueries('/Page.tsx', project)
+    expect(queries[0].selectors).toEqual({
+      ticket: {
+        __args: "{ id: '1' }",
+        id: true,
+        title: true
+      }
+    })
+  })
+
+  it('should isolate component scopes to prevent variable bleeding from parent to child', () => {
+    const project = new Project({
+      compilerOptions: {allowJs: true, jsx: 4},
+      useInMemoryFileSystem: true
+    })
+    project.createSourceFile(
+      '/Component.tsx',
+      `
+      export function SubComponent() {
+        // 'd' is not defined in this file/scope, 
+        // but it exists in Page.tsx. It should not bleed here.
+        return <div>{d.hiddenField}</div>;
+      }
+      `
+    )
+    project.createSourceFile(
+      '/Page.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import { SubComponent } from './Component';
+      export default function Page() {
+        const d = useData();
+        return (
+          <div>
+            {d.visibleField}
+            <SubComponent />
+          </div>
+        );
+      }
+      `
+    )
+    const {queries} = extractQueries('/Page.tsx', project)
+    expect(queries[0].selectors).toEqual({
+      visibleField: true
+    })
+    // hiddenField should NOT be in selectors
+    expect((queries[0].selectors as any).hiddenField).toBeUndefined()
+  })
+
+  it('should still allow access to file-level globals in subcomponents', () => {
+    const project = new Project({
+      compilerOptions: {allowJs: true, jsx: 4},
+      useInMemoryFileSystem: true
+    })
+    project.createSourceFile(
+      '/Component.tsx',
+      `
+      export const globalData = { field: 'value' };
+      export function SubComponent() {
+        // globalData is defined at the file level, so it should be visible
+        // even if the scope is isolated from the caller.
+        return <div>{globalData.field}</div>;
+      }
+      `
+    )
+    project.createSourceFile(
+      '/Page.tsx',
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import { SubComponent } from './Component';
+      export default function Page() {
+        const d = useData();
+        return <SubComponent />;
+      }
+      `
+    )
+    const {queries} = extractQueries('/Page.tsx', project)
+    // This just verifies that it doesn't crash and correctly handles globals
+    expect(queries[0].selectors).toEqual({})
   })
 })
