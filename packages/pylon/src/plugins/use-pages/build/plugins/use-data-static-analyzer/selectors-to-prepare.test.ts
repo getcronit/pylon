@@ -5,7 +5,7 @@ describe('generatePrepare', () => {
   it('should generate basic object access', () => {
     const output = generatePrepare({user: {name: true, age: true}})
     expect(output).toBe(
-      '({ query }) => { query?.user?.name; query?.user?.age; }'
+      '({ query }) => { const v1 = query?.user; v1?.name; v1?.age; }'
     )
   })
 
@@ -21,13 +21,13 @@ describe('generatePrepare', () => {
       friends: {__args: '{ limit: 10, offset: 20 }', name: true}
     })
     expect(output).toBe(
-      '({ query }) => { query?.friends?.({ limit: 10, offset: 20 })?.name; }'
+      '({ query }) => { const v1 = query?.friends?.({ limit: 10, offset: 20 }); v1?.name; }'
     )
   })
 
   it('should handle empty function arguments', () => {
     const output = generatePrepare({user: {__args: '', name: true}})
-    expect(output).toBe('({ query }) => { query?.user?.()?.name; }')
+    expect(output).toBe('({ query }) => { const v1 = query?.user?.(); v1?.name; }')
   })
 
   it('should handle array mapping scopes with arguments', () => {

@@ -120,7 +120,6 @@ export function useDataStaticAnalyzer(
           let outputContents = contents
 
           if (queries.length > 0) {
-
             for (const query of queries) {
               const node = query.node
               const args = node.getArguments()
