@@ -360,12 +360,19 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
 
     if (Node.isIdentifier(node)) {
       const name = node.getText()
-      const paths = resolveBinding(name)
-      if (paths.length > 0) {
-        const path = paths[0]
+      const binding = resolveBindingInfo(name)
+      if (binding && binding.paths.length > 0) {
+        const path = binding.paths[0]
         const first = path[0]
 
         if ((first as any)?.sourceName) {
+          // If it resolves to a tracked data path (sourceName) from a useData call (__target_),
+          // we prefer using the identifier itself to keep the query generic
+          // and avoid leaking data-flow paths from other useData calls.
+          if (first.name.startsWith('__target_')) {
+            return name
+          }
+
           if (path.some(p => p.isElement)) return name
           let result = (first as any).sourceName
           for (let i = 1; i < path.length; i++) {
@@ -425,7 +432,7 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
   }
 
   interface Scope {
-    bindings: Map<string, Path[]>
+    bindings: Map<string, {paths: Path[]; isParam?: boolean}>
   }
   let scopes: Scope[] = [{bindings: new Map()}]
   function currentScope() {
@@ -438,7 +445,8 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
   function setBinding(
     identifier: string,
     paths: Path[],
-    isDeclaration = false
+    isDeclaration = false,
+    isParam = false
   ) {
     let finalPaths = paths
     if (isDeclaration) {
@@ -447,7 +455,7 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
         identifier === options.rootObjectName &&
         !finalPaths.some(p => p.length > 0 && (p[0] as any).sourceName)
       ) {
-        currentScope().bindings.set(identifier, [[]])
+        currentScope().bindings.set(identifier, {paths: [[]], isParam})
         trackedNames.add(identifier)
         return
       }
@@ -465,10 +473,11 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
     if (!isDeclaration) {
       // Search for existing binding in scope chain to update it
       for (let i = scopes.length - 1; i >= 0; i--) {
-        if (scopes[i].bindings.has(identifier)) {
+        const existingBinding = scopes[i].bindings.get(identifier)
+        if (existingBinding) {
           if (branchDepth > 0) {
             // Merge paths if inside a conditional branch (phi node behavior)
-            const existing = scopes[i].bindings.get(identifier)!
+            const existing = existingBinding.paths
             const combined = [...existing]
             const seen = new Set(combined.map(pathKey))
             for (const p of finalPaths) {
@@ -478,17 +487,20 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
                 combined.push(p)
               }
             }
-            scopes[i].bindings.set(identifier, combined)
+            scopes[i].bindings.set(identifier, {
+              paths: combined,
+              isParam: existingBinding.isParam
+            })
           } else {
             // Sequential re-assignment replaces paths
-            scopes[i].bindings.set(identifier, finalPaths)
+            scopes[i].bindings.set(identifier, {paths: finalPaths, isParam})
           }
           return
         }
       }
     }
     // If not found in any scope or is a fresh declaration, set in current scope
-    currentScope().bindings.set(identifier, finalPaths)
+    currentScope().bindings.set(identifier, {paths: finalPaths, isParam})
     // Opt C: Track new aliases for pre-filtering
     if (finalPaths.length > 0) trackedNames.add(identifier)
   }
@@ -504,11 +516,20 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
 
   function resolveBinding(identifier: string): Path[] {
     for (let i = scopes.length - 1; i >= 0; i--) {
-      if (scopes[i].bindings.has(identifier)) {
-        return scopes[i].bindings.get(identifier)!
-      }
+      const b = scopes[i].bindings.get(identifier)
+      if (b) return b.paths
     }
     return []
+  }
+
+  function resolveBindingInfo(
+    identifier: string
+  ): {paths: Path[]; isParam?: boolean} | undefined {
+    for (let i = scopes.length - 1; i >= 0; i--) {
+      const b = scopes[i].bindings.get(identifier)
+      if (b) return b
+    }
+    return undefined
   }
 
   let lastReturnedPaths: Path[] = []
@@ -534,7 +555,7 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
     isDeclaration = false
   ) {
     if (Node.isIdentifier(paramNameNode)) {
-      setBinding(paramNameNode.getText(), paths, isDeclaration)
+      setBinding(paramNameNode.getText(), paths, isDeclaration, true)
     } else if (
       Node.isObjectBindingPattern(paramNameNode) ||
       Node.isArrayBindingPattern(paramNameNode)
@@ -1709,7 +1730,11 @@ export function extractAdvancedSelectors(
       return
     }
     for (const key in obj) {
-      if (key.startsWith('__prop_') || key === '__decl') {
+      if (
+        key.startsWith('__prop_') ||
+        key === '__decl' ||
+        key === '__element'
+      ) {
         delete obj[key]
       } else {
         clean(obj[key])
@@ -2047,6 +2072,14 @@ function deepMerge(target: any, source: any) {
   if (!source || typeof source !== 'object') return
 
   for (const key in source) {
+    if (
+      key === '__element' ||
+      key.startsWith('__prop_') ||
+      key === '__decl'
+    ) {
+      continue
+    }
+
     if (
       source[key] &&
       typeof source[key] === 'object' &&
