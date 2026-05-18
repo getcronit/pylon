@@ -36,19 +36,28 @@ describe('extractQueries: Multi-Column Analysis', () => {
             id: "email",
             accessorKey: "email",
             cell: (contact) => <a>{contact.emailAddress}</a>
+          },
+          {
+           id: "address",
+           accessorKey: "address",
           }
         ], []);
 
         return (
           <table>
             <tbody>
-              {data.contacts.map(row => (
-                <tr>
-                  {columns.map(col => (
-                    <td>{col.cell(row)}</td>
-                  ))}
+              {data.contacts.map(row => {
+                return (
+                  <tr>
+                    {columns.map(col => {
+                      const cellContent = col.cell
+                        ? col.cell(row, {})
+                        : String((row as any)[col.accessorKey] ?? "");
+
+                      return <td>{cellContent}</td>
+                    })}
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         );
@@ -70,7 +79,8 @@ describe('extractQueries: Multi-Column Analysis', () => {
         company: {
           name: true
         },
-        emailAddress: true
+        emailAddress: true,
+        address: true
       }
     })
   })

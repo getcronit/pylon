@@ -995,11 +995,16 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
     if (Node.isArrayLiteralExpression(node)) {
       const paths: Path[] = []
       node.getElements().forEach(el => {
+        let elPaths: Path[];
         if (Node.isSpreadElement(el)) {
-          paths.push(...evaluateExpression(el.getExpression()))
+          elPaths = evaluateExpression(el.getExpression())
         } else {
-          paths.push(...evaluateExpression(el))
+          elPaths = evaluateExpression(el)
         }
+        
+        elPaths.forEach(p => {
+          paths.push([...p, { name: '__element', isElement: true, __isVirtual: true } as any])
+        })
       })
       return paths
     }
