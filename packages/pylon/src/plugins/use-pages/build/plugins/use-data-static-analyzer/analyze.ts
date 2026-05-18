@@ -7,7 +7,8 @@ import {
   Node,
   Project,
   SourceFile,
-  SyntaxKind
+  SyntaxKind,
+  ts
 } from 'ts-morph'
 
 export type SelectorNode = {
@@ -132,14 +133,20 @@ interface AnalyzeOptions {
 
 function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
   const result: Record<string, SelectorNode> = {}
-  const checker = sourceFile.getProject().getTypeChecker()
+
+  // OPTIMIZATION: Strictly lazy TypeChecker. Only spins up the TS Compiler if absolutely necessary.
+  let _checker: any = undefined
+  const getChecker = () => {
+    if (!_checker) _checker = sourceFile.getProject().getTypeChecker()
+    return _checker
+  }
 
   // ── Memoized symbol / type lookups (Opt 4) ──
   const symbolCache = new WeakMap<Node, any>()
   function getSymbol(node: Node): any {
     let sym = symbolCache.get(node)
     if (sym !== undefined) return sym
-    sym = (node as any).getSymbol?.() || checker.getSymbolAtLocation(node)
+    sym = (node as any).getSymbol?.() || getChecker().getSymbolAtLocation(node)
     symbolCache.set(node, sym ?? null)
     return sym ?? undefined
   }
@@ -189,50 +196,46 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
     'RegExp',
     'Intl',
     'Uint8Array',
-    'Buffer'
+    'Buffer',
+    'React',
+    'document',
+    'window'
   ])
 
   function needsTypeChecker(node: Node): boolean {
     if (!Node.isIdentifier(node)) return true
     const name = node.getText()
-    // If it's a known global, we don't need the checker to know it's not our data
     if (WELL_KNOWN_GLOBALS.has(name)) return false
-    // If it's a known local function, we don't need the checker
     if (functionRegistry.has(name)) return false
 
     const paths = resolveBinding(name)
-    // If it has NO tracked paths, we might need the checker (e.g. HOCs, imports)
     if (paths.length === 0) return true
-
-    // If it has paths, it's our data flow, skip checker
     return false
   }
 
-  // (constant Sets are now at module level)
-
-  // ── Opt C: AST pre-filtering — skip subtrees that don't mention tracked identifiers ──
-  // Build initial set of names that could carry data flow.
-  // This set is grown as new aliases are discovered via setBinding.
   const trackedNames = new Set<string>()
   if (options.rootObjectName) {
     trackedNames.add(options.rootObjectName)
   }
-  // For targetNodes mode, we need the text of identifiers around the target calls
-  // (e.g. the variable that binds useData()'s return). We'll populate this lazily
-  // as setBinding creates new aliases.
 
   /**
-   * Fast check: does the raw text of a node mention any tracked identifier?
-   * Used to skip entire AST subtrees that can't possibly affect data flow.
-   * Only applied to blocks with >3 statements to amortize getText() cost.
+   * OPTIMIZED: textMentionsTracked
+   * Avoids expensive `node.getText()` allocations. Drops into native TS AST
+   * to do a lightning-fast scan for matching identifier tokens.
    */
   function textMentionsTracked(node: Node): boolean {
-    if (trackedNames.size === 0) return true // can't filter if nothing tracked yet
-    const text = node.getText()
-    for (const name of trackedNames) {
-      if (text.includes(name)) return true
+    if (trackedNames.size === 0) return true
+    let found = false
+    const walkNative = (n: ts.Node) => {
+      if (found) return
+      if (ts.isIdentifier(n) && trackedNames.has(n.text)) {
+        found = true
+        return
+      }
+      ts.forEachChild(n, walkNative)
     }
-    return false
+    walkNative(node.compilerNode)
+    return found
   }
 
   function mergePathAndArgs(
@@ -282,7 +285,6 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
         current[key] = node
       }
 
-      // If it's an array, find or create the matching args branch
       if (Array.isArray(node)) {
         let branch = node.find((n: any) => n.__args === args)
         if (!branch) {
@@ -295,21 +297,16 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
         node.__args !== undefined &&
         node.__args !== args
       ) {
-        // Convert to array for branching
         const oldNode = node
         const newNode = {__args: args}
         current[key] = [oldNode, newNode]
         node = newNode
       } else if (args === undefined && node.__args !== undefined) {
-        // Node has args but we are accessing it without args.
-        // Branch it.
         const oldNode = node
         const newNode = {}
         current[key] = [oldNode, newNode]
         node = newNode
       } else if (args !== undefined && node.__args === undefined) {
-        // Node exists but has no args, and we now have args?
-        // Add args to the existing node
         node.__args = args
       }
 
@@ -330,7 +327,7 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
 
   function stringifyArgument(node: Node): string {
     if (Node.isObjectLiteralExpression(node)) {
-      const props = node.getProperties().map(prop => {
+      const props = node.getProperties().map((prop: any) => {
         if (Node.isPropertyAssignment(prop)) {
           const keyNode = prop.getNameNode()
           const key = Node.isComputedPropertyName(keyNode)
@@ -366,13 +363,7 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
         const first = path[0]
 
         if ((first as any)?.sourceName) {
-          // If it resolves to a tracked data path (sourceName) from a useData call (__target_),
-          // we prefer using the identifier itself to keep the query generic
-          // and avoid leaking data-flow paths from other useData calls.
-          if (first.name.startsWith('__target_')) {
-            return name
-          }
-
+          if (first.name.startsWith('__target_')) return name
           if (path.some(p => p.isElement)) return name
           let result = (first as any).sourceName
           for (let i = 1; i < path.length; i++) {
@@ -424,7 +415,6 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
       ) {
         return whenFalse
       }
-
       return `${condition} ? ${whenTrue} : ${whenFalse}`
     }
 
@@ -471,12 +461,10 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
     }
 
     if (!isDeclaration) {
-      // Search for existing binding in scope chain to update it
       for (let i = scopes.length - 1; i >= 0; i--) {
         const existingBinding = scopes[i].bindings.get(identifier)
         if (existingBinding) {
           if (branchDepth > 0) {
-            // Merge paths if inside a conditional branch (phi node behavior)
             const existing = existingBinding.paths
             const combined = [...existing]
             const seen = new Set(combined.map(pathKey))
@@ -492,16 +480,13 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
               isParam: existingBinding.isParam
             })
           } else {
-            // Sequential re-assignment replaces paths
             scopes[i].bindings.set(identifier, {paths: finalPaths, isParam})
           }
           return
         }
       }
     }
-    // If not found in any scope or is a fresh declaration, set in current scope
     currentScope().bindings.set(identifier, {paths: finalPaths, isParam})
-    // Opt C: Track new aliases for pre-filtering
     if (finalPaths.length > 0) trackedNames.add(identifier)
   }
 
@@ -546,9 +531,6 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
     })
   }
 
-  /**
-   * Dispatch param binding: identifier → setBinding, binding pattern → handleDestructuring.
-   */
   function bindParam(
     paramNameNode: Node,
     paths: Path[],
@@ -564,10 +546,6 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
     }
   }
 
-  /**
-   * Execute a function body (block or expression), returning the paths from return statements.
-   * Saves and restores lastReturnedPaths around block bodies.
-   */
   function executeFunctionBody(
     body: Node | undefined,
     bindParams?: () => void,
@@ -603,10 +581,6 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
     return paths
   }
 
-  /**
-   * Bind the iterator element parameter for array methods.
-   * For `reduce`, the element is the 2nd param; for all others it's the 1st.
-   */
   function bindIteratorParam(
     params: any[],
     basePaths: Path[],
@@ -622,12 +596,6 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
     }
   }
 
-  /**
-   * Guard against infinite recursion when entering a function/component body.
-   * Manages visitedDecls count, currentDepth, and scope push/pop.
-   * Returns undefined if the guard blocks (too deep / too many visits);
-   * otherwise returns the result of `fn()`.
-   */
   function withRecursionGuard<T>(
     decl:
       | FunctionDeclaration
@@ -671,7 +639,6 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
         const propertyNameNode = element.getPropertyNameNode()
         const nameNode = element.getNameNode()
 
-        // Handle rest operator: const { a, ...rest } = obj;
         if (element.getDotDotDotToken()) {
           if (Node.isIdentifier(nameNode)) {
             setBinding(nameNode.getText(), paths, isDeclaration)
@@ -720,7 +687,6 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
             .filter(p => p[0]?.name === indexPrefix)
             .map(p => p.slice(1))
 
-          // Fallback to original paths if no indexed paths found (backward compatibility)
           const finalPaths = elementPaths.length > 0 ? elementPaths : paths
 
           if (Node.isIdentifier(nameNode)) {
@@ -793,21 +759,17 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
             }
             if (Node.isCallExpression(initializer)) {
               const args = initializer.getArguments()
-              // Heuristic: If it's a HOC call, the component is likely one of the arguments.
-              // We look for the first argument that resolves to a function.
               let foundSubDecl = false
               for (const arg of args) {
                 const argSym = getSymbol(arg)
+                let subDecl
                 if (argSym) {
-                  const subDecl = resolveFunctionDefinition(
-                    argSym,
-                    onFileAccess
-                  )
-                  if (subDecl) {
-                    initializer = subDecl as any
-                    foundSubDecl = true
-                    break
-                  }
+                  subDecl = resolveFunctionDefinition(argSym, onFileAccess)
+                }
+                if (subDecl) {
+                  initializer = subDecl as any
+                  foundSubDecl = true
+                  break
                 } else if (
                   Node.isArrowFunction(arg) ||
                   Node.isFunctionExpression(arg)
@@ -823,7 +785,7 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
               const sym = getSymbol(initializer)
               if (sym && !visitedSyms.has(sym)) {
                 currentSym = sym
-                break // Continue while loop with new symbol
+                break
               }
             }
             break
@@ -856,6 +818,7 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
     }
     return undefined
   }
+
   function executeIfFunction(
     paths: Path[],
     argsPaths: Path[][],
@@ -892,16 +855,19 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
     return found ? allRetPaths : undefined
   }
 
-  function evaluateExpression(node: Node): Path[] {
-    if (!node) return []
+  function evaluateExpression(originalNode: Node): Path[] {
+    if (!originalNode) return []
 
-    if (
-      Node.isParenthesizedExpression(node) ||
-      Node.isAsExpression(node) ||
-      Node.isTypeAssertion(node) ||
-      Node.isNonNullExpression(node)
+    let node = originalNode
+    let k = node.getKind()
+    while (
+      k === SyntaxKind.ParenthesizedExpression ||
+      k === SyntaxKind.AsExpression ||
+      k === SyntaxKind.TypeAssertionExpression ||
+      k === SyntaxKind.NonNullExpression
     ) {
-      return evaluateExpression(node.getExpression())
+      node = (node as any).getExpression()
+      k = node.getKind()
     }
 
     if (options.targetNodes) {
@@ -930,7 +896,6 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
         return resolveBinding(name)
       }
 
-      // If it's a known function/component, return a virtual path to it
       if (needsTypeChecker(node)) {
         const sym = getSymbol(node)
         const decl = resolveFunctionDefinition(sym, options.onFileAccess)
@@ -946,7 +911,6 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
       const basePaths = evaluateExpression(node.getExpression())
       const name = node.getName()
 
-      // Check for virtual property matches from object returns
       const propPrefix = `__prop_${name}`
       const matchingPaths = basePaths.filter(p => p[0]?.name === propPrefix)
       if (matchingPaths.length > 0) {
@@ -960,7 +924,9 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
 
       const parent = node.getParent()
       const isCallExpr =
-        Node.isCallExpression(parent) && parent.getExpression() === node
+        parent &&
+        parent.getKind() === SyntaxKind.CallExpression &&
+        (parent as any).getExpression() === node
 
       const newPaths: Path[] = []
       for (const path of basePaths) {
@@ -1047,15 +1013,12 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
       const argExpr = node.getArgumentExpression()
 
       if (argExpr) {
-        // Fast path: String literals are property access
         if (
           Node.isStringLiteral(argExpr) ||
           Node.isNoSubstitutionTemplateLiteral(argExpr)
         ) {
           const propName = argExpr.getLiteralText()
 
-          // Heuristic: If it's not a valid identifier (e.g. "123", "my-id"),
-          // it's likely a dictionary/index access. Treat as element access.
           if (/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(propName)) {
             const newPaths: Path[] = []
             for (const path of basePaths) {
@@ -1065,11 +1028,8 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
             }
             return newPaths
           }
-
-          // Fall through to markAsList logic below
         }
 
-        // Accurate path: Only mark as list if the base is an array/tuple or the key is a number
         const baseType = getNodeType(node.getExpression())
         const argType = getNodeType(argExpr)
 
@@ -1090,7 +1050,6 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
 
     if (Node.isCallExpression(node)) {
       const args = node.getArguments()
-      // Lazy: only compute argsString when actually needed (method calls with args)
       let argsString: string | undefined
       const getArgsString = () => {
         if (argsString === undefined) {
@@ -1104,7 +1063,6 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
 
       const expr = node.getExpression()
 
-      // Special handling for common React hooks
       const hookName = Node.isIdentifier(expr)
         ? expr.getText()
         : Node.isPropertyAccessExpression(expr)
@@ -1138,7 +1096,7 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
               ])
             : [[{name: '__index_0'}, {name: '__state'} as any]]
 
-        return [...statePaths, [{name: '__index_1'}]] // index 1 is setter
+        return [...statePaths, [{name: '__index_1'}]]
       }
 
       if (Node.isPropertyAccessExpression(expr)) {
@@ -1170,7 +1128,6 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
                 bindIteratorParam(arg.getParameters(), basePaths, methodName)
               })
             } else if (Node.isIdentifier(arg)) {
-              // It's a reference to a function, e.g. .map(myFn)
               const fnName = arg.getText()
               let fnDef = functionRegistry.get(fnName)
 
@@ -1196,9 +1153,9 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
               }
               if (fnDef) {
                 const result = withRecursionGuard(fnDef, () => {
-                  return executeFunctionBody(fnDef.getBody(), () => {
+                  return executeFunctionBody(fnDef!.getBody(), () => {
                     bindIteratorParam(
-                      fnDef.getParameters(),
+                      fnDef!.getParameters(),
                       basePaths,
                       methodName
                     )
@@ -1255,13 +1212,8 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
           return methodName === 'bind' ? basePaths : []
         }
 
-        // Before treating as a GraphQL field call, check if this method
-        // resolves to a local function definition (e.g. preview.opener(file))
-
-        // Strategy 1: Check if method name is in the function registry
         let methodFnDef = functionRegistry.get(methodName)
 
-        // Strategy 2: Try to resolve via the property access symbol/type
         if (!methodFnDef) {
           if (needsTypeChecker(expr)) {
             const methodSymbol = getSymbol(expr)
@@ -1272,8 +1224,6 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
           }
         }
 
-        // Strategy 3: Check if basePaths have __prop_ entries pointing to
-        // function paths — resolve via the property name in the expression
         if (!methodFnDef) {
           const nameNode = expr.getNameNode()
           if (nameNode && needsTypeChecker(nameNode)) {
@@ -1295,7 +1245,6 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
         const retPaths = executeIfFunction(callPaths, methodArgsPaths)
         if (retPaths !== undefined) return retPaths
 
-        // Fallthrough: treat as a GraphQL field call with arguments
         const newPaths: Path[] = []
         for (const path of basePaths) {
           const nextPath = [...path, {name: methodName, args: getArgsString()}]
@@ -1327,8 +1276,8 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
 
         if (fnDef) {
           const retPaths = withRecursionGuard(fnDef, () => {
-            return executeFunctionBody(fnDef.getBody(), () => {
-              fnDef.getParameters().forEach((param, i) => {
+            return executeFunctionBody(fnDef!.getBody(), () => {
+              fnDef!.getParameters().forEach((param, i) => {
                 if (i < argsPaths.length) {
                   bindParam(param.getNameNode(), argsPaths[i], true)
                 }
@@ -1364,39 +1313,45 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
 
     if (Node.isJsxOpeningElement(node) || Node.isJsxSelfClosingElement(node)) {
       const tagNameNode = node.getTagNameNode()
+      const tagNameString = tagNameNode.getText()
+
       let decl: any
 
-      if (Node.isIdentifier(tagNameNode)) {
-        const name = tagNameNode.getText()
-        decl = functionRegistry.get(name)
+      // OPTIMIZATION: Only try to resolve definitions for Custom Components.
+      // Bypass expensive DOM lib lookups for intrinsic tags like <div>,
+      // but DO NOT return early so we can still process their onClick/onChange attributes!
+      if (!/^[a-z]/.test(tagNameString)) {
+        if (Node.isIdentifier(tagNameNode)) {
+          decl = functionRegistry.get(tagNameString)
 
-        if (!decl) {
-          const paths = resolveBinding(name)
-          for (const p of paths) {
-            for (const s of p) {
-              if (s.name === '__decl' && (s as any).decl) {
-                decl = (s as any).decl
-                break
+          if (!decl) {
+            const paths = resolveBinding(tagNameString)
+            for (const p of paths) {
+              for (const s of p) {
+                if (s.name === '__decl' && (s as any).decl) {
+                  decl = (s as any).decl
+                  break
+                }
               }
+              if (decl) break
             }
-            if (decl) break
           }
         }
-      }
 
-      if (!decl) {
-        let symbol: any
-        if (needsTypeChecker(tagNameNode)) {
-          symbol =
-            getSymbol(tagNameNode) || getNodeType(tagNameNode).getSymbol()
+        if (!decl) {
+          let symbol: any
+          if (needsTypeChecker(tagNameNode)) {
+            symbol =
+              getSymbol(tagNameNode) || getNodeType(tagNameNode).getSymbol()
+          }
+          decl = resolveFunctionDefinition(symbol, options.onFileAccess)
         }
-        decl = resolveFunctionDefinition(symbol, options.onFileAccess)
       }
 
+      // ⬇️ ALWAYS runs, processing onClick, onChange, etc. for BOTH custom and HTML elements
       const attributes = node.getAttributes()
       const propsPaths: Map<string, Path[]> = new Map()
 
-      // ALWAYS evaluate attributes, whether it's a custom component or intrinsic HTML
       attributes.forEach(attr => {
         if (Node.isJsxAttribute(attr)) {
           const name = attr.getNameNode().getText()
@@ -1407,7 +1362,6 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
               : evaluateExpression(initializer)
             propsPaths.set(name, valPaths)
 
-            // Simulation: attempt to execute the prop for side effects (covers event handlers, etc)
             executeIfFunction(valPaths, [])
           }
         } else if (Node.isJsxSpreadAttribute(attr)) {
@@ -1440,7 +1394,6 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
                     bindParam(element.getNameNode(), paths, true)
                   }
                 } else {
-                  // Bind the entire props object using virtual property markers
                   const allPaths: Path[] = []
                   propsPaths.forEach((paths, name) => {
                     paths.forEach(p => {
@@ -1451,7 +1404,7 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
                 }
               }
             },
-            true // ISOLATE component execution
+            true
           )
         })
       }
@@ -1494,7 +1447,6 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
       return [...left, ...right]
     }
 
-    // Fallback: evaluate all children for side effects
     node.forEachChild(child => {
       evaluateExpression(child)
     })
@@ -1579,7 +1531,6 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
       analyzeStatement(stmt.getStatement())
       scopes.pop()
     } else if (Node.isBlock(stmt)) {
-      // Opt C: Skip blocks with many statements that don't mention tracked identifiers
       const stmts = stmt.getStatements()
       if (stmts.length > 5 && !textMentionsTracked(stmt)) return
       scopes.push({bindings: new Map()})
@@ -1590,7 +1541,6 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
       if (expr) {
         lastReturnedPaths = evaluateExpression(expr)
 
-        // Track if an exported function returns our tracked paths
         if (lastReturnedPaths.length > 0) {
           let parent: Node | undefined = stmt.getParent()
           while (
@@ -1664,7 +1614,6 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
       }
     }
 
-    // Opt C: Skip function declarations whose bodies don't mention any tracked identifier
     if (Node.isFunctionDeclaration(node) && !options.targetNodes) {
       const body = node.getBody()
       if (body && !textMentionsTracked(body)) return
@@ -1687,20 +1636,34 @@ export interface AnalysisResult {
   exportedFunctionReturns: Map<Node, Path[]>
 }
 
+// OPTIMIZED: Cache the Project globally. Reinstantiating Project and loading default libs takes ~50-100ms.
+let _sharedProject: Project | undefined
+
+// Exported utility to clear the project/cache when builds restart (used by esbuild)
+export function clearAnalyzeCache() {
+  _sharedProject = undefined
+  // ADD THIS LINE:
+  projectImporterGraphCache = new WeakMap()
+}
+
 export function extractAdvancedSelectors(
   sourceText: string,
   objectName: string = 'data'
 ): SelectorNode {
-  const project = new Project({
-    compilerOptions: {
-      allowJs: true,
-      jsx: 4 // ReactJSX
-    },
-    useInMemoryFileSystem: true
-  })
-  const sourceFile = project.createSourceFile('temp.tsx', sourceText)
+  if (!_sharedProject) {
+    _sharedProject = new Project({
+      compilerOptions: {
+        allowJs: true,
+        jsx: 4, // ReactJSX
+        skipLibCheck: true
+      },
+      useInMemoryFileSystem: true
+    })
+  }
+  const project = _sharedProject
+  const fileName = `temp_${Math.random().toString(36).substring(7)}.tsx`
+  const sourceFile = project.createSourceFile(fileName, sourceText)
 
-  // Inject implicit declaration if missing (to satisfy strict scope tracking in tests)
   const isDeclared =
     sourceFile.getVariableDeclaration(objectName) ||
     sourceFile.getFunction(objectName) ||
@@ -1743,8 +1706,17 @@ export function extractAdvancedSelectors(
   }
   clean(result)
 
+  // OPTIMIZED: Remove temp file to prevent memory leaks in shared project
+  project.removeSourceFile(sourceFile)
+
   return result
 }
+
+// OPTIMIZED: Cache the importer graph per project so esbuild doesn't rebuild it exponentially.
+let projectImporterGraphCache = new WeakMap<
+  Project,
+  Map<string, Set<SourceFile>>
+>()
 
 export function extractQueries(
   filePath: string,
@@ -1761,26 +1733,28 @@ export function extractQueries(
     options
   const sourceFile = project.getSourceFileOrThrow(filePath)
 
-  // Opt 3: Only resolve dependencies if not already done by the caller
   if (!options.skipDependencyResolution) {
     project.resolveSourceFileDependencies()
   }
 
+  // OPTIMIZED: Early abort utilizing strict text inclusions logic. Bypasses ts-morph entirely for native files.
   const targetNodes = findUseQueries(sourceFile, pylonPackage, hookName)
+  if (targetNodes.length === 0) {
+    return {queries: [], dependencies: Array.from(accessedFiles)}
+  }
+
   const {result, exportedFunctionReturns} = coreAnalyze(sourceFile, {
     targetNodes,
     onFileAccess: sf => accessedFiles.add(sf.getFilePath())
   })
 
-  // Second pass: Find project-wide call sites of functions that return hook data (Breadth-First Search)
   const processedCallSites = new Set<Node>()
   const functionQueue: Array<[Node, Path[]]> = Array.from(
     exportedFunctionReturns.entries()
   )
   const processedFunctions = new Set<Node>()
 
-  // Opt A: Build a syntactic import graph lazily to avoid project-wide findReferences()
-  let directImporterGraph: Map<string, Set<SourceFile>> | undefined
+  let directImporterGraph = projectImporterGraphCache.get(project)
 
   function buildImporterGraph() {
     if (directImporterGraph) return
@@ -1796,6 +1770,10 @@ export function extractQueries(
     }
 
     project.getSourceFiles().forEach(sf => {
+      // OPTIMIZED: Fast filter to avoid evaluating AST declarations for unrelated utility files.
+      const text = sf.compilerNode.text
+      if (!text.includes('import') && !text.includes('export')) return
+
       sf.getImportDeclarations().forEach(imp => {
         const moduleSF = imp.getModuleSpecifierSourceFile()
         if (moduleSF) addToGraph(moduleSF.getFilePath(), sf)
@@ -1805,9 +1783,10 @@ export function extractQueries(
         if (moduleSF) addToGraph(moduleSF.getFilePath(), sf)
       })
     })
+
+    projectImporterGraphCache.set(project, directImporterGraph)
   }
 
-  /** Transitive closure: find all files that eventually import sfPath */
   function getTransitiveImporters(
     sfPath: string,
     visited = new Set<string>()
@@ -1828,8 +1807,11 @@ export function extractQueries(
     return result
   }
 
-  // Opt A: Helper to find call sites of a function in a specific file without TypeChecker
   function findCallSitesInFile(sf: SourceFile, fnName: string): Node[] {
+    // OPTIMIZED: Native fast-path string check. If the exact function string
+    // isn't in the raw text, don't waste time walking the descendants.
+    if (!sf.compilerNode.text.includes(fnName)) return []
+
     return sf.getDescendantsOfKind(SyntaxKind.CallExpression).filter(call => {
       const expr = call.getExpression()
       const name = Node.isIdentifier(expr)
@@ -1841,9 +1823,6 @@ export function extractQueries(
     })
   }
 
-  // Opt 2: Memoize findReferences() per function node — avoids O(N²) project scans
-  // (In Opt A, we only use this for symbols that aren't easily resolved via import graph,
-  // or as a fallback. But primarily we'll use targeted scan.)
   const referencesCache = new Map<Node, any[]>()
   function getCachedReferences(fn: Node): any[] {
     let refs = referencesCache.get(fn)
@@ -1853,10 +1832,8 @@ export function extractQueries(
     return refs
   }
 
-  // Opt 1: Cache coreAnalyze results per (filePath, targetNodeKey)
   const analysisCache = new Map<string, AnalysisResult>()
   function getCachedAnalysis(sf: SourceFile, targets: Node[]): AnalysisResult {
-    // Key by file path + target node positions for identity
     const cacheKey =
       sf.getFilePath() +
       ':' +
@@ -1881,10 +1858,8 @@ export function extractQueries(
     )
     if (targetPaths.length === 0) continue
 
-    // Ensure the import graph is built before we start searching for callers
     buildImporterGraph()
 
-    // Opt A: Instead of findReferences(), use our targeted importer graph
     const callNodes: Node[] = []
 
     if (
@@ -1896,12 +1871,10 @@ export function extractQueries(
       const sf = fn.getSourceFile()
       const sfPath = sf.getFilePath()
 
-      // 1. Search in the same file (internal calls)
       if (name) {
         callNodes.push(...findCallSitesInFile(sf, name))
       }
 
-      // 2. Search in all files that (transitively) import this file
       const importers = getTransitiveImporters(sfPath)
       if (importers.size > 0 && name) {
         for (const importer of importers) {
@@ -1910,7 +1883,6 @@ export function extractQueries(
       }
     }
 
-    // Fallback if targeted scan found nothing but we have paths (e.g. anonymous or complex exports)
     if (callNodes.length === 0) {
       const references = getCachedReferences(fn)
       for (const refSymbol of references) {
@@ -1924,7 +1896,6 @@ export function extractQueries(
       if (processedCallSites.has(node)) continue
       processedCallSites.add(node)
 
-      // Find the call expression that uses this function
       let call: Node | undefined = node
       while (call && !Node.isCallExpression(call)) {
         call = call.getParent()
@@ -1934,7 +1905,6 @@ export function extractQueries(
         accessedFiles.add(call.getSourceFile().getFilePath())
         const callerAnalysis = getCachedAnalysis(call.getSourceFile(), [call])
 
-        // Add any new returning functions discovered in this caller's file to the queue
         for (const [
           newFn,
           newPaths
@@ -1952,7 +1922,6 @@ export function extractQueries(
         }
 
         for (const tp of targetPaths) {
-          // Find where __target_ is in the path
           const targetIdx = tp.findIndex(step =>
             step.name.startsWith('__target_')
           )
@@ -1961,7 +1930,6 @@ export function extractQueries(
           const prefixes = tp.slice(0, targetIdx)
           const suffixes = tp.slice(targetIdx + 1)
 
-          // 1. Dive into externalSelectors using prefixes (stripping "__prop_")
           let currentExt: any = externalSelectors
           let skip = false
           for (const pref of prefixes) {
@@ -1981,11 +1949,9 @@ export function extractQueries(
 
           if (suffixes.length > 0 && typeof currentExt === 'object') {
             currentExt = {...currentExt}
-            delete currentExt.__args // Prevent function args from bleeding into return value fields
+            delete currentExt.__args
           }
 
-          // 2. Handle property shadowing: If we are at the top-level spread/return,
-          // we must filter out any properties that are explicitly shadowed by the function's return object.
           if (prefixes.length === 0 && typeof currentExt === 'object') {
             const filtered = {...currentExt}
             for (const shadow of shadowedProperties) {
@@ -2020,7 +1986,6 @@ export function extractQueries(
             lastKey = step.name
 
             if (isLast) {
-              // If it's the last step, we handle it specially based on currentExt
               if (currentExt === true) {
                 if (
                   !currentLevel[step.name] ||
@@ -2040,7 +2005,6 @@ export function extractQueries(
                 }
                 deepMerge(currentLevel[step.name], currentExt)
               } else {
-                // currentExt is empty object or other, preserve existing leaf if it's true
                 if (currentLevel[step.name] === undefined) {
                   currentLevel[step.name] = true
                 }
@@ -2051,7 +2015,7 @@ export function extractQueries(
             currentLevel =
               currentLevel[step.name] || (currentLevel[step.name] = {})
           }
-          continue // Skip the old merge logic below as we handled it in the loop
+          continue
         }
       }
     }
@@ -2072,11 +2036,7 @@ function deepMerge(target: any, source: any) {
   if (!source || typeof source !== 'object') return
 
   for (const key in source) {
-    if (
-      key === '__element' ||
-      key.startsWith('__prop_') ||
-      key === '__decl'
-    ) {
+    if (key === '__element' || key.startsWith('__prop_') || key === '__decl') {
       continue
     }
 
@@ -2090,8 +2050,6 @@ function deepMerge(target: any, source: any) {
       }
       deepMerge(target[key], source[key])
     } else {
-      // If we are setting a leaf but target[key] is already an object,
-      // we don't want to overwrite the object with 'true' (losing selectors).
       if (source[key] === true && typeof target[key] === 'object') {
         continue
       }
@@ -2099,11 +2057,15 @@ function deepMerge(target: any, source: any) {
     }
   }
 }
+
 function findUseQueries(
   sourceFile: SourceFile,
   pylonPackage: string,
   hookName: string
 ): Node[] {
+  // OPTIMIZED: Instant abort if the hook name isn't even in the file text.
+  if (!sourceFile.compilerNode.text.includes(hookName)) return []
+
   const useQueryAliases = new Set<string>()
   const targetNodes: Node[] = []
 

@@ -1,34 +1,15 @@
 import {Plugin} from 'esbuild'
 import * as fs from 'fs'
-import {Node} from 'ts-morph'
-import {extractQueries} from './analyze'
+import {Node, SyntaxKind} from 'ts-morph'
+import {clearAnalyzeCache, extractQueries} from './analyze'
 import {StaticAnalysisManager} from './manager'
 import {generatePrepare} from './selectors-to-prepare'
 
 export interface UseDataStaticAnalyzerOptions {
-  /**
-   * Filter for files to process.
-   * @default /\.(ts|tsx)$/
-   */
   filter?: RegExp
-  /**
-   * The package name to check for Pylon imports.
-   * @default "@getcronit/pylon/pages"
-   */
   pylonPackage?: string
-  /**
-   * The name of the hook to track.
-   * @default "useData"
-   */
   hookName?: string
-  /**
-   * Enable debug logging.
-   * @default false
-   */
   debug?: boolean
-  /**
-   * Optional existing StaticAnalysisManager instance.
-   */
   manager?: StaticAnalysisManager
 }
 
@@ -54,9 +35,9 @@ export function useDataStaticAnalyzer(
 
       build.onStart(() => {
         manager.resetSession()
+        clearAnalyzeCache() // Flushes internal analyze memoization
       })
 
-      // Pre-populate the project with the build entry points if provided.
       const entries = build.initialOptions.entryPoints
       if (entries) {
         const entryPaths: string[] = []
@@ -74,6 +55,7 @@ export function useDataStaticAnalyzer(
 
         if (entryPaths.length > 0) {
           project.addSourceFilesAtPaths(entryPaths)
+          // We can leave this, but the TS compiler will only parse when asked now.
           project.resolveSourceFileDependencies()
         }
       }
@@ -81,7 +63,6 @@ export function useDataStaticAnalyzer(
       build.onLoad({filter}, async args => {
         const contents = await fs.promises.readFile(args.path, 'utf8')
 
-        // Check cache first
         const cached = manager.getCachedResult(args.path, contents)
         if (cached) {
           return {
@@ -91,7 +72,7 @@ export function useDataStaticAnalyzer(
           }
         }
 
-        // High-speed pre-flight check
+        // ESBuild pre-flight check bypasses ts-morph parse overhead entirely
         if (
           !contents.includes(pylonPackage) ||
           (!contents.includes(hookName) && !contents.includes('from'))
@@ -120,32 +101,59 @@ export function useDataStaticAnalyzer(
           let outputContents = contents
 
           if (queries.length > 0) {
-            for (const query of queries) {
+            // OPTIMIZATION: Sort descending so string slice replacements don't offset index paths
+            const sortedQueries = [...queries].sort((a, b) => b.start - a.start)
+
+            for (const query of sortedQueries) {
               const node = query.node
               const args = node.getArguments()
               const prepareFn = generatePrepare(query.selectors)
 
               if (args.length === 0) {
-                node.addArgument(`{ prepare: ${prepareFn} }`)
+                // Find closing parenthesis character position
+                const closeParen = node.getLastChildByKind(
+                  SyntaxKind.CloseParenToken
+                )
+                const pos = closeParen
+                  ? closeParen.getStart()
+                  : node.getEnd() - 1
+
+                outputContents =
+                  outputContents.slice(0, pos) +
+                  `{\n  prepare: ${prepareFn}\n}` +
+                  outputContents.slice(pos)
               } else {
                 const firstArg = args[0]
                 if (Node.isObjectLiteralExpression(firstArg)) {
-                  firstArg.addPropertyAssignment({
-                    name: 'prepare',
-                    initializer: prepareFn
-                  })
+                  // Direct injection at the start of the object
+                  const startPos = firstArg.getStart() + 1
+                  const text = firstArg.getText()
+                  const isEmpty = text.replace(/\s/g, '') === '{}'
+
+                  // If the object has existing properties (e.g., \n  foo: "bar"),
+                  // we inject our property followed by a comma. The existing newline
+                  // and indentation from the next property will naturally flow after it!
+                  const injection = isEmpty
+                    ? `\n  prepare: ${prepareFn}\n`
+                    : `\n  prepare: ${prepareFn},`
+
+                  outputContents =
+                    outputContents.slice(0, startPos) +
+                    injection +
+                    outputContents.slice(startPos)
                 } else {
-                  const existing = firstArg.getText()
-                  firstArg.replaceWithText(
-                    `{ ...${existing}, prepare: ${prepareFn} }`
-                  )
+                  // Argument wrapping
+                  const startPos = firstArg.getStart()
+                  const endPos = firstArg.getEnd()
+                  const existingText = outputContents.slice(startPos, endPos)
+
+                  outputContents =
+                    outputContents.slice(0, startPos) +
+                    `{\n  ...${existingText},\n  prepare: ${prepareFn}\n}` +
+                    outputContents.slice(endPos)
                 }
               }
             }
-
-            outputContents = project
-              .getSourceFileOrThrow(args.path)
-              .getFullText()
 
             if (debug) {
               console.log(

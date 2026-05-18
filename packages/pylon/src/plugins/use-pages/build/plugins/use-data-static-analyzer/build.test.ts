@@ -35,9 +35,11 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       "// temp_tests/testA.tsx
       import { useData } from "@getcronit/pylon/pages";
       function Component() {
-        const data = useData({ prepare: ({ query }) => {
-          query?.post?.title;
-        } });
+        const data = useData({
+          prepare: ({ query }) => {
+            query?.post?.title;
+          }
+        });
         console.log(data.post.title);
       }
       export {
@@ -70,10 +72,10 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       import { useData } from "@getcronit/pylon/pages";
       function Component() {
         const data = useData({
-          foo: "bar",
           prepare: ({ query }) => {
             query?.author?.name;
-          }
+          },
+          foo: "bar"
         });
         console.log(data.author.name);
       }
@@ -108,11 +110,13 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       "// temp_tests/testC.tsx
       import { useData } from "@getcronit/pylon/pages";
       function Component() {
-        const data = useData({ prepare: ({ query }) => {
-          query?.friends?.({ limit: 10, offset: 20 })?.map((i1) => {
-            i1?.profile?.username;
-          });
-        } });
+        const data = useData({
+          prepare: ({ query }) => {
+            query?.friends?.({ limit: 10, offset: 20 })?.map((i1) => {
+              i1?.profile?.username;
+            });
+          }
+        });
         return data.friends({ limit: 10, offset: 20 }).map((friend) => {
           return friend.profile.username;
         });
@@ -186,11 +190,13 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       import { useData } from "@getcronit/pylon/pages";
       function Component() {
         const myFetchLimit = 50;
-        const data = useData({ prepare: ({ query }) => {
-          query?.friends?.({ limit: myFetchLimit })?.map((i1) => {
-            i1?.profile?.username;
-          });
-        } });
+        const data = useData({
+          prepare: ({ query }) => {
+            query?.friends?.({ limit: myFetchLimit })?.map((i1) => {
+              i1?.profile?.username;
+            });
+          }
+        });
         return data.friends({ limit: myFetchLimit }).map((friend) => {
           return friend.profile.username;
         });
@@ -230,11 +236,13 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       import { useData } from "@getcronit/pylon/pages";
       function Component() {
         const [pageOffset, setPageOffset] = useState(0);
-        const data = useData({ prepare: ({ query }) => {
-          query?.feed?.({ offset: pageOffset, limit: 10 })?.map((i1) => {
-            i1?.title;
-          });
-        } });
+        const data = useData({
+          prepare: ({ query }) => {
+            query?.feed?.({ offset: pageOffset, limit: 10 })?.map((i1) => {
+              i1?.title;
+            });
+          }
+        });
         return data.feed({ offset: pageOffset, limit: 10 }).map((item) => {
           return item.title;
         });
@@ -1524,9 +1532,11 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
       import { useData } from "@getcronit/pylon/pages";
       function Component({ input }) {
-        const data = useData({ prepare: ({ query }) => {
-          query?.dyno?.({ input });
-        } });
+        const data = useData({
+          prepare: ({ query }) => {
+            query?.dyno?.({ input });
+          }
+        });
         return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: data.dyno({ input }) });
       }
       export {
@@ -1609,11 +1619,13 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       // temp_tests/Page.tsx
       import { jsx as jsx2 } from "react/jsx-runtime";
       function Page() {
-        const data = useData({ prepare: ({ query }) => {
-          const v1 = query?.user;
-          v1?.name;
-          v1?.bio?.short;
-        } });
+        const data = useData({
+          prepare: ({ query }) => {
+            const v1 = query?.user;
+            v1?.name;
+            v1?.bio?.short;
+          }
+        });
         return /* @__PURE__ */ jsx2(UserCard, { user: data.user });
       }
       export {
@@ -1685,11 +1697,13 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       // temp_tests/Parent.tsx
       import { jsx as jsx3 } from "react/jsx-runtime";
       function Parent() {
-        const data = useData({ prepare: ({ query }) => {
-          const v1 = query?.user;
-          v1?.name;
-          v1?.meta?.detail;
-        } });
+        const data = useData({
+          prepare: ({ query }) => {
+            const v1 = query?.user;
+            v1?.name;
+            v1?.meta?.detail;
+          }
+        });
         return /* @__PURE__ */ jsx3(Child, { user: data.user });
       }
       export {
@@ -1744,9 +1758,11 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       import { useData } from "@getcronit/pylon/pages";
       import { jsx, jsxs } from "react/jsx-runtime";
       function SharedComponent({ user }) {
-        const settings = useData({ prepare: ({ query }) => {
-          query?.timezone;
-        } });
+        const settings = useData({
+          prepare: ({ query }) => {
+            query?.timezone;
+          }
+        });
         return /* @__PURE__ */ jsxs("div", { children: [
           /* @__PURE__ */ jsx("p", { children: user.email }),
           /* @__PURE__ */ jsx("p", { children: settings.timezone })
@@ -1756,9 +1772,11 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       // temp_tests/AppPage.tsx
       import { jsx as jsx2 } from "react/jsx-runtime";
       function Page() {
-        const data = useData2({ prepare: ({ query }) => {
-          query?.currentUser?.email;
-        } });
+        const data = useData2({
+          prepare: ({ query }) => {
+            query?.currentUser?.email;
+          }
+        });
         return /* @__PURE__ */ jsx2(SharedComponent, { user: data.currentUser });
       }
       export {
@@ -2038,30 +2056,32 @@ describe('Realistic NextJS App with useData', () => {
       // temp_nextjs_app/pages/Dashboard.tsx
       import { jsx as jsx7, jsxs as jsxs6 } from "react/jsx-runtime";
       function DashboardPage() {
-        const data = useData({ prepare: ({ query }) => {
-          const v1 = query?.siteConfig;
-          v1?.siteName;
-          const v2 = v1?.logo;
-          v2?.url;
-          v2?.alt;
-          v1?.footerText;
-          const v3 = query?.currentUser;
-          v3?.avatarUrl;
-          v3?.displayName;
-          v3?.email;
-          query?.dashboardStats?.({ period: "weekly" })?.map((i1) => {
-            i1?.label;
-            i1?.value;
-            const v4 = i1?.trend;
-            v4?.direction;
-            v4?.percentage;
-          });
-          query?.notifications?.({ unread: true })?.map((i1) => {
-            i1?.title;
-            i1?.message;
-            i1?.timestamp;
-          });
-        } });
+        const data = useData({
+          prepare: ({ query }) => {
+            const v1 = query?.siteConfig;
+            v1?.siteName;
+            const v2 = v1?.logo;
+            v2?.url;
+            v2?.alt;
+            v1?.footerText;
+            const v3 = query?.currentUser;
+            v3?.avatarUrl;
+            v3?.displayName;
+            v3?.email;
+            query?.dashboardStats?.({ period: "weekly" })?.map((i1) => {
+              i1?.label;
+              i1?.value;
+              const v4 = i1?.trend;
+              v4?.direction;
+              v4?.percentage;
+            });
+            query?.notifications?.({ unread: true })?.map((i1) => {
+              i1?.title;
+              i1?.message;
+              i1?.timestamp;
+            });
+          }
+        });
         return /* @__PURE__ */ jsxs6(Layout, { siteConfig: data.siteConfig, children: [
           /* @__PURE__ */ jsx7(UserCard, { user: data.currentUser }),
           data.dashboardStats({ period: "weekly" }).map((stat) => /* @__PURE__ */ jsx7(StatCard, { stat })),
@@ -2130,20 +2150,22 @@ describe('Realistic NextJS App with useData', () => {
       // temp_nextjs_app/pages/Blog.tsx
       import { jsx as jsx3, jsxs as jsxs2 } from "react/jsx-runtime";
       function BlogPage() {
-        const data = useData({ prepare: ({ query }) => {
-          const v1 = query?.blogMeta;
-          v1?.title;
-          v1?.description;
-          query?.posts?.({ limit: 20, category: "tech" })?.map((i1) => {
-            i1?.title;
-            i1?.excerpt;
-            i1?.author?.name;
-            i1?.tags?.map((i2) => {
-              i2?.name;
-              i2?.color;
+        const data = useData({
+          prepare: ({ query }) => {
+            const v1 = query?.blogMeta;
+            v1?.title;
+            v1?.description;
+            query?.posts?.({ limit: 20, category: "tech" })?.map((i1) => {
+              i1?.title;
+              i1?.excerpt;
+              i1?.author?.name;
+              i1?.tags?.map((i2) => {
+                i2?.name;
+                i2?.color;
+              });
             });
-          });
-        } });
+          }
+        });
         return /* @__PURE__ */ jsxs2("div", { children: [
           /* @__PURE__ */ jsx3("h1", { children: data.blogMeta.title }),
           /* @__PURE__ */ jsx3("p", { children: data.blogMeta.description }),
@@ -2264,29 +2286,31 @@ describe('Realistic NextJS App with useData', () => {
       // temp_nextjs_app/pages/Profile.tsx
       import { jsx as jsx6, jsxs as jsxs4 } from "react/jsx-runtime";
       function ProfilePage() {
-        const data = useData({ prepare: ({ query }) => {
-          const v1 = query?.profile;
-          v1?.avatarUrl;
-          v1?.displayName;
-          v1?.bio;
-          const v2 = v1?.location;
-          v2?.city;
-          v2?.country;
-          v1?.posts?.({ sort: "newest" })?.map((i1) => {
-            i1?.title;
-            i1?.excerpt;
-            i1?.author?.name;
-            i1?.tags?.map((i2) => {
-              i2?.name;
-              i2?.color;
+        const data = useData({
+          prepare: ({ query }) => {
+            const v1 = query?.profile;
+            v1?.avatarUrl;
+            v1?.displayName;
+            v1?.bio;
+            const v2 = v1?.location;
+            v2?.city;
+            v2?.country;
+            v1?.posts?.({ sort: "newest" })?.map((i1) => {
+              i1?.title;
+              i1?.excerpt;
+              i1?.author?.name;
+              i1?.tags?.map((i2) => {
+                i2?.name;
+                i2?.color;
+              });
+              i1?.comments?.({ limit: 5 })?.map((i2) => {
+                i2?.body;
+                i2?.author?.username;
+                i2?.createdAt;
+              });
             });
-            i1?.comments?.({ limit: 5 })?.map((i2) => {
-              i2?.body;
-              i2?.author?.username;
-              i2?.createdAt;
-            });
-          });
-        } });
+          }
+        });
         return /* @__PURE__ */ jsxs4("div", { children: [
           /* @__PURE__ */ jsx6(ProfileHeader, { user: data.profile }),
           data.profile.posts({ sort: "newest" }).map((post) => /* @__PURE__ */ jsxs4("div", { children: [
@@ -2383,22 +2407,26 @@ describe('Realistic NextJS App with useData', () => {
       // temp_nextjs_app/pages/Settings.tsx
       import { jsx as jsx4, jsxs as jsxs3 } from "react/jsx-runtime";
       function SettingsPage() {
-        const userData = useData({ prepare: ({ query }) => {
-          const v1 = query?.account;
-          v1?.avatarUrl;
-          v1?.displayName;
-          v1?.email;
-          v1?.createdAt;
-        } });
-        const appConfig = useData({ prepare: ({ query }) => {
-          const v1 = query?.theme;
-          v1?.primaryColor;
-          v1?.fontFamily;
-          v1?.borderRadius;
-          const v2 = query?.locale;
-          v2?.language;
-          v2?.timezone;
-        } });
+        const userData = useData({
+          prepare: ({ query }) => {
+            const v1 = query?.account;
+            v1?.avatarUrl;
+            v1?.displayName;
+            v1?.email;
+            v1?.createdAt;
+          }
+        });
+        const appConfig = useData({
+          prepare: ({ query }) => {
+            const v1 = query?.theme;
+            v1?.primaryColor;
+            v1?.fontFamily;
+            v1?.borderRadius;
+            const v2 = query?.locale;
+            v2?.language;
+            v2?.timezone;
+          }
+        });
         return /* @__PURE__ */ jsxs3("div", { children: [
           /* @__PURE__ */ jsx4("h1", { children: "Account Settings" }),
           /* @__PURE__ */ jsx4(UserCard, { user: userData.account }),
@@ -2500,13 +2528,15 @@ describe('Realistic NextJS App with useData', () => {
       import { useData } from "@getcronit/pylon/pages";
       import { jsx as jsx3, jsxs as jsxs3 } from "react/jsx-runtime";
       function ActivityFeed() {
-        const feed = useData({ prepare: ({ query }) => {
-          query?.recentActivity?.({ limit: 10 })?.map((i1) => {
-            i1?.action;
-            i1?.actor?.name;
-            i1?.performedAt;
-          });
-        } });
+        const feed = useData({
+          prepare: ({ query }) => {
+            query?.recentActivity?.({ limit: 10 })?.map((i1) => {
+              i1?.action;
+              i1?.actor?.name;
+              i1?.performedAt;
+            });
+          }
+        });
         return /* @__PURE__ */ jsx3("ul", { children: feed.recentActivity({ limit: 10 }).map((activity) => /* @__PURE__ */ jsxs3("li", { children: [
           /* @__PURE__ */ jsx3("strong", { children: activity.action }),
           /* @__PURE__ */ jsx3("span", { children: activity.actor.name }),
@@ -2533,18 +2563,20 @@ describe('Realistic NextJS App with useData', () => {
       // temp_nextjs_app/pages/AppPage.tsx
       import { jsx as jsx6, jsxs as jsxs5 } from "react/jsx-runtime";
       function AppPage() {
-        const data = useData2({ prepare: ({ query }) => {
-          const v1 = query?.siteConfig;
-          v1?.siteName;
-          const v2 = v1?.logo;
-          v2?.url;
-          v2?.alt;
-          v1?.footerText;
-          const v3 = query?.viewer;
-          v3?.avatarUrl;
-          v3?.displayName;
-          v3?.email;
-        } });
+        const data = useData2({
+          prepare: ({ query }) => {
+            const v1 = query?.siteConfig;
+            v1?.siteName;
+            const v2 = v1?.logo;
+            v2?.url;
+            v2?.alt;
+            v1?.footerText;
+            const v3 = query?.viewer;
+            v3?.avatarUrl;
+            v3?.displayName;
+            v3?.email;
+          }
+        });
         return /* @__PURE__ */ jsxs5(Layout, { siteConfig: data.siteConfig, children: [
           /* @__PURE__ */ jsx6(UserCard, { user: data.viewer }),
           /* @__PURE__ */ jsx6(ActivityFeed, {})
@@ -2601,14 +2633,16 @@ describe('Realistic NextJS App with useData', () => {
       function SearchPage() {
         const [query, setQuery] = useState("");
         const [page, setPage] = useState(0);
-        const data = useData({ prepare: ({ query: query2 }) => {
-          query2?.search?.({ term: query2, offset: page, limit: 25 })?.map((i1) => {
-            i1?.title;
-            i1?.snippet;
-            i1?.relevanceScore;
-          });
-          query2?.searchMeta?.totalCount;
-        } });
+        const data = useData({
+          prepare: ({ query: query2 }) => {
+            query2?.search?.({ term: query2, offset: page, limit: 25 })?.map((i1) => {
+              i1?.title;
+              i1?.snippet;
+              i1?.relevanceScore;
+            });
+            query2?.searchMeta?.totalCount;
+          }
+        });
         const results = data.search({ term: query, offset: page, limit: 25 });
         return /* @__PURE__ */ jsxs("div", { children: [
           /* @__PURE__ */ jsx("h1", { children: data.searchMeta.totalCount }),
@@ -2741,20 +2775,22 @@ describe('Realistic NextJS App with useData', () => {
       // temp_nextjs_app/pages/StorePage.tsx
       import { jsx as jsx4, jsxs as jsxs4 } from "react/jsx-runtime";
       function StorePage() {
-        const data = useData({ prepare: ({ query }) => {
-          const v1 = query?.store;
-          v1?.name;
-          v1?.featuredProducts?.({ limit: 8 })?.map((i1) => {
-            i1?.name;
-            i1?.description;
-            i1?.image?.thumbnail;
-            const v2 = i1?.pricing;
-            v2?.amount;
-            v2?.currency;
-            v2?.discount?.percentage;
-          });
-          v1?.featuredLabel;
-        } });
+        const data = useData({
+          prepare: ({ query }) => {
+            const v1 = query?.store;
+            v1?.name;
+            v1?.featuredProducts?.({ limit: 8 })?.map((i1) => {
+              i1?.name;
+              i1?.description;
+              i1?.image?.thumbnail;
+              const v2 = i1?.pricing;
+              v2?.amount;
+              v2?.currency;
+              v2?.discount?.percentage;
+            });
+            v1?.featuredLabel;
+          }
+        });
         return /* @__PURE__ */ jsxs4("div", { children: [
           /* @__PURE__ */ jsx4("h1", { children: data.store.name }),
           /* @__PURE__ */ jsx4(
@@ -2812,8 +2848,6 @@ describe('Realistic NextJS App with useData', () => {
       import { jsx, jsxs } from "react/jsx-runtime";
       function ConfiguredPage() {
         const data = useData({
-          pollInterval: 5e3,
-          retry: 3,
           prepare: ({ query }) => {
             const v1 = query?.dashboard;
             v1?.title;
@@ -2822,7 +2856,9 @@ describe('Realistic NextJS App with useData', () => {
               i1?.type;
               i1?.content?.value;
             });
-          }
+          },
+          pollInterval: 5e3,
+          retry: 3
         });
         return /* @__PURE__ */ jsxs("div", { children: [
           /* @__PURE__ */ jsx("h1", { children: data.dashboard.title }),
@@ -2889,11 +2925,13 @@ describe('Realistic NextJS App with useData', () => {
       import { useData } from "@getcronit/pylon/pages";
       import { jsxs } from "react/jsx-runtime";
       function PageA() {
-        const data = useData({ prepare: ({ query }) => {
-          const v1 = query?.user;
-          v1?.firstName;
-          v1?.lastName;
-        } });
+        const data = useData({
+          prepare: ({ query }) => {
+            const v1 = query?.user;
+            v1?.firstName;
+            v1?.lastName;
+          }
+        });
         return /* @__PURE__ */ jsxs("div", { children: [
           data.user.firstName,
           " ",
@@ -2910,11 +2948,13 @@ describe('Realistic NextJS App with useData', () => {
       import { useData } from "@getcronit/pylon/pages";
       import { jsxs } from "react/jsx-runtime";
       function PageB() {
-        const data = useData({ prepare: ({ query }) => {
-          const v1 = query?.product;
-          v1?.sku;
-          v1?.price;
-        } });
+        const data = useData({
+          prepare: ({ query }) => {
+            const v1 = query?.product;
+            v1?.sku;
+            v1?.price;
+          }
+        });
         return /* @__PURE__ */ jsxs("div", { children: [
           data.product.sku,
           " - ",
@@ -2973,22 +3013,24 @@ describe('Realistic NextJS App with useData', () => {
       import { useData } from "@getcronit/pylon/pages";
       import { jsx, jsxs } from "react/jsx-runtime";
       function OrgPage() {
-        const data = useData({ prepare: ({ query }) => {
-          const v1 = query?.organization;
-          v1?.name;
-          v1?.teams?.({ active: true })?.map((i1) => {
-            i1?.name;
-            i1?.lead?.email;
-            i1?.members?.({ role: "engineer" })?.map((i2) => {
-              i2?.fullName;
-              i2?.title;
-              i2?.contributions?.({ year: 2024 })?.map((i3) => {
-                i3?.project;
-                i3?.hours;
+        const data = useData({
+          prepare: ({ query }) => {
+            const v1 = query?.organization;
+            v1?.name;
+            v1?.teams?.({ active: true })?.map((i1) => {
+              i1?.name;
+              i1?.lead?.email;
+              i1?.members?.({ role: "engineer" })?.map((i2) => {
+                i2?.fullName;
+                i2?.title;
+                i2?.contributions?.({ year: 2024 })?.map((i3) => {
+                  i3?.project;
+                  i3?.hours;
+                });
               });
             });
-          });
-        } });
+          }
+        });
         return /* @__PURE__ */ jsxs("div", { children: [
           /* @__PURE__ */ jsx("h1", { children: data.organization.name }),
           data.organization.teams({ active: true }).map((team) => /* @__PURE__ */ jsxs("div", { children: [
@@ -3068,12 +3110,14 @@ describe('Realistic NextJS App with useData', () => {
       // temp_nextjs_app/pages/ProfileWithLocalHook.tsx
       import { jsx as jsx3, jsxs as jsxs2 } from "react/jsx-runtime";
       function useUser() {
-        const data = useData({ prepare: ({ query }) => {
-          const v1 = query?.currentUser;
-          v1?.avatarUrl;
-          v1?.displayName;
-          v1?.email;
-        } });
+        const data = useData({
+          prepare: ({ query }) => {
+            const v1 = query?.currentUser;
+            v1?.avatarUrl;
+            v1?.displayName;
+            v1?.email;
+          }
+        });
         return data.currentUser;
       }
       function ProfilePage() {
@@ -3144,16 +3188,18 @@ describe('Realistic NextJS App with useData', () => {
       // temp_nextjs_app/pages/MultiUser.tsx
       import { jsx as jsx3, jsxs as jsxs2 } from "react/jsx-runtime";
       function MultiUserPage() {
-        const data = useData({ prepare: ({ query }) => {
-          const v1 = query?.sender;
-          v1?.avatarUrl;
-          v1?.displayName;
-          v1?.email;
-          const v2 = query?.receiver;
-          v2?.avatarUrl;
-          v2?.displayName;
-          v2?.email;
-        } });
+        const data = useData({
+          prepare: ({ query }) => {
+            const v1 = query?.sender;
+            v1?.avatarUrl;
+            v1?.displayName;
+            v1?.email;
+            const v2 = query?.receiver;
+            v2?.avatarUrl;
+            v2?.displayName;
+            v2?.email;
+          }
+        });
         return /* @__PURE__ */ jsxs2("div", { children: [
           /* @__PURE__ */ jsx3(UserCard, { user: data.sender }),
           /* @__PURE__ */ jsx3(UserCard, { user: data.receiver })
@@ -3244,24 +3290,26 @@ describe('Realistic NextJS App with useData', () => {
       // temp_nextjs_app/pages/Conditional.tsx
       import { jsx as jsx5, jsxs as jsxs3 } from "react/jsx-runtime";
       function ConditionalPage({ showUser }) {
-        const data = useData({ prepare: ({ query }) => {
-          const v1 = query?.profile;
-          v1?.avatarUrl;
-          v1?.displayName;
-          v1?.email;
-          const v2 = query?.featuredPost;
-          v2?.title;
-          v2?.excerpt;
-          v2?.author?.name;
-          v2?.tags?.map((i1) => {
-            i1?.name;
-            i1?.color;
-          });
-          query?.hasNotifications;
-          query?.notifications?.map((i1) => {
-            i1?.title;
-          });
-        } });
+        const data = useData({
+          prepare: ({ query }) => {
+            const v1 = query?.profile;
+            v1?.avatarUrl;
+            v1?.displayName;
+            v1?.email;
+            const v2 = query?.featuredPost;
+            v2?.title;
+            v2?.excerpt;
+            v2?.author?.name;
+            v2?.tags?.map((i1) => {
+              i1?.name;
+              i1?.color;
+            });
+            query?.hasNotifications;
+            query?.notifications?.map((i1) => {
+              i1?.title;
+            });
+          }
+        });
         return /* @__PURE__ */ jsxs3("div", { children: [
           showUser ? /* @__PURE__ */ jsx5(UserCard, { user: data.profile }) : /* @__PURE__ */ jsx5(PostCard, { post: data.featuredPost }),
           data.hasNotifications && /* @__PURE__ */ jsxs3("div", { children: [
@@ -3344,10 +3392,12 @@ describe('Realistic NextJS App with useData', () => {
       // temp_nextjs_app/pages/Barrel.tsx
       import { jsx as jsx3, jsxs } from "react/jsx-runtime";
       function BarrelPage() {
-        const data = useData({ prepare: ({ query }) => {
-          query?.partA?.fieldA;
-          query?.partB?.fieldB;
-        } });
+        const data = useData({
+          prepare: ({ query }) => {
+            query?.partA?.fieldA;
+            query?.partB?.fieldB;
+          }
+        });
         return /* @__PURE__ */ jsxs("div", { children: [
           /* @__PURE__ */ jsx3(ComponentA, { data: data.partA }),
           /* @__PURE__ */ jsx3(ComponentB, { data: data.partB })
@@ -3428,18 +3478,20 @@ describe('Realistic NextJS App with useData', () => {
       import { useData } from "@getcronit/pylon/pages";
       import { Fragment, jsx, jsxs } from "react/jsx-runtime";
       function Profile() {
-        const { me } = useData({ prepare: ({ query }) => {
-          const v1 = query?.me;
-          v1?.name;
-          v1?.pets?.map((i1) => {
-            i1?.id;
-            i1?.name;
-            i1?.__typename;
-            const v2 = i1?.$on;
-            v2?.Cat?.meows;
-            v2?.Dog?.barks;
-          });
-        } });
+        const { me } = useData({
+          prepare: ({ query }) => {
+            const v1 = query?.me;
+            v1?.name;
+            v1?.pets?.map((i1) => {
+              i1?.id;
+              i1?.name;
+              i1?.__typename;
+              const v2 = i1?.$on;
+              v2?.Cat?.meows;
+              v2?.Dog?.barks;
+            });
+          }
+        });
         return /* @__PURE__ */ jsxs(Fragment, { children: [
           /* @__PURE__ */ jsxs("h1", { children: [
             "Hello ",
@@ -3520,14 +3572,16 @@ describe('Realistic NextJS App with useData', () => {
       // temp_nextjs_app/pages/ProfilePolymorphic.tsx
       import { jsx as jsx2, jsxs } from "react/jsx-runtime";
       function Profile() {
-        const { me } = useData({ prepare: ({ query }) => {
-          query?.me?.pets?.map((i1) => {
-            i1?.id;
-            const v1 = i1?.$on;
-            v1?.Cat?.meows;
-            v1?.Dog?.barks;
-          });
-        } });
+        const { me } = useData({
+          prepare: ({ query }) => {
+            query?.me?.pets?.map((i1) => {
+              i1?.id;
+              const v1 = i1?.$on;
+              v1?.Cat?.meows;
+              v1?.Dog?.barks;
+            });
+          }
+        });
         return /* @__PURE__ */ jsx2("div", { children: me.pets.map((pet) => /* @__PURE__ */ jsxs("div", { children: [
           pet.$on.Cat && /* @__PURE__ */ jsx2(CatComponent, { cat: pet.$on.Cat }),
           pet.$on.Dog && /* @__PURE__ */ jsx2(DogComponent, { dog: pet.$on.Dog })
@@ -3578,11 +3632,13 @@ describe('Realistic NextJS App with useData', () => {
     expect(hookOut).toMatchInlineSnapshot(`
       "import { useData } from "@getcronit/pylon/pages";
       function useUser() {
-        return useData({ prepare: ({ query }) => {
-          const v1 = query?.user;
-          v1?.name;
-          v1?.email;
-        } }).user;
+        return useData({
+          prepare: ({ query }) => {
+            const v1 = query?.user;
+            v1?.name;
+            v1?.email;
+          }
+        }).user;
       }
       export {
         useUser
@@ -3647,9 +3703,11 @@ describe('Realistic NextJS App with useData', () => {
     expect(apiOutputFile!.text).toMatchInlineSnapshot(`
       "import { useData } from "@getcronit/pylon/pages";
       function useBase() {
-        return useData({ prepare: ({ query }) => {
-          query?.me?.displayName;
-        } });
+        return useData({
+          prepare: ({ query }) => {
+            query?.me?.displayName;
+          }
+        });
       }
       export {
         useBase
@@ -3696,12 +3754,14 @@ describe('Realistic NextJS App with useData', () => {
       import { useData } from "@getcronit/pylon/pages";
       import { Fragment, jsxs } from "react/jsx-runtime";
       function Profile() {
-        const { me } = useData({ prepare: ({ query }) => {
-          const v1 = query?.me;
-          v1?.name;
-          v1?.updatedAt;
-          v1?.type;
-        } });
+        const { me } = useData({
+          prepare: ({ query }) => {
+            const v1 = query?.me;
+            v1?.name;
+            v1?.updatedAt;
+            v1?.type;
+          }
+        });
         return /* @__PURE__ */ jsxs(Fragment, { children: [
           /* @__PURE__ */ jsxs("h1", { children: [
             "Hello ",
@@ -3763,13 +3823,15 @@ describe('Realistic NextJS App with useData', () => {
         return user.firstName + " " + user.lastName + " (" + user.email + ")";
       }
       function Profile() {
-        const data = useData({ prepare: ({ query }) => {
-          const v1 = query?.currentUser;
-          v1?.firstName;
-          v1?.lastName;
-          v1?.email;
-          v1?.account?.id;
-        } });
+        const data = useData({
+          prepare: ({ query }) => {
+            const v1 = query?.currentUser;
+            v1?.firstName;
+            v1?.lastName;
+            v1?.email;
+            v1?.account?.id;
+          }
+        });
         return /* @__PURE__ */ jsxs("div", { children: [
           /* @__PURE__ */ jsx("h1", { children: formatUser(data.currentUser) }),
           /* @__PURE__ */ jsxs("span", { children: [
@@ -3811,9 +3873,11 @@ describe('Realistic NextJS App with useData', () => {
       import { useData as uq } from "@getcronit/pylon/pages";
       import { jsx } from "react/jsx-runtime";
       function App() {
-        const { user } = uq({ prepare: ({ query }) => {
-          query?.user?.id;
-        } });
+        const { user } = uq({
+          prepare: ({ query }) => {
+            query?.user?.id;
+          }
+        });
         return /* @__PURE__ */ jsx("div", { children: user.id });
       }
       export {
@@ -3876,9 +3940,11 @@ describe('Realistic NextJS App with useData', () => {
 
       // temp_nextjs_app/hooks/circular.ts
       function useA() {
-        const data = useData({ prepare: ({ query }) => {
-          query?.user?.username;
-        } });
+        const data = useData({
+          prepare: ({ query }) => {
+            query?.user?.username;
+          }
+        });
         const b = useB();
         return { user: data.user, b };
       }
@@ -3922,9 +3988,11 @@ describe('Realistic NextJS App with useData', () => {
       import { useData } from "@getcronit/pylon/pages";
       import { jsx } from "react/jsx-runtime";
       function App() {
-        const { currentUser: person } = useData({ prepare: ({ query }) => {
-          query?.currentUser?.firstName;
-        } });
+        const { currentUser: person } = useData({
+          prepare: ({ query }) => {
+            query?.currentUser?.firstName;
+          }
+        });
         return /* @__PURE__ */ jsx("div", { children: person.firstName });
       }
       export {
@@ -3968,9 +4036,11 @@ describe('Realistic NextJS App with useData', () => {
       "// temp_nextjs_app/hooks/spread.ts
       import { useData } from "@getcronit/pylon/pages";
       function useEnhancedUser() {
-        const { user } = useData({ prepare: ({ query }) => {
-          query?.user?.displayName;
-        } });
+        const { user } = useData({
+          prepare: ({ query }) => {
+            query?.user?.displayName;
+          }
+        });
         return { ...user, source: "pylon" };
       }
 
@@ -4026,9 +4096,11 @@ describe('Realistic NextJS App with useData', () => {
       "// temp_nextjs_app/hooks/complex.ts
       import { useData } from "@getcronit/pylon/pages";
       function useEnhancedUser() {
-        const { user } = useData({ prepare: ({ query }) => {
-          query?.user?.name;
-        } });
+        const { user } = useData({
+          prepare: ({ query }) => {
+            query?.user?.name;
+          }
+        });
         return { ...user, name: void 0, source: user.name };
       }
 
@@ -4074,10 +4146,12 @@ describe('Realistic NextJS App with useData', () => {
       import { useData } from "@getcronit/pylon/pages";
       import { jsx } from "react/jsx-runtime";
       function Page() {
-        const { user, ...rest } = useData({ prepare: ({ query }) => {
-          query?.user;
-          query?.meta?.version;
-        } });
+        const { user, ...rest } = useData({
+          prepare: ({ query }) => {
+            query?.user;
+            query?.meta?.version;
+          }
+        });
         return /* @__PURE__ */ jsx("div", { children: rest.meta.version });
       }
       export {
@@ -4119,12 +4193,14 @@ describe('Realistic NextJS App with useData', () => {
       import { useData } from "@getcronit/pylon/pages";
       import { jsx, jsxs } from "react/jsx-runtime";
       function Page() {
-        const { posts } = useData({ prepare: ({ query }) => {
-          query?.posts?.map((i1) => {
-            i1?.title;
-            i1?.id;
-          });
-        } });
+        const { posts } = useData({
+          prepare: ({ query }) => {
+            query?.posts?.map((i1) => {
+              i1?.title;
+              i1?.id;
+            });
+          }
+        });
         const [first, ...others] = posts;
         return /* @__PURE__ */ jsxs("ul", { children: [
           /* @__PURE__ */ jsx("li", { children: first.title }),
@@ -4164,9 +4240,11 @@ describe('Realistic NextJS App with useData', () => {
       import { useData } from "@getcronit/pylon/pages";
       import { jsxs } from "react/jsx-runtime";
       function Page() {
-        const { user = { displayName: "Guest" } } = useData({ prepare: ({ query }) => {
-          query?.user?.displayName;
-        } });
+        const { user = { displayName: "Guest" } } = useData({
+          prepare: ({ query }) => {
+            query?.user?.displayName;
+          }
+        });
         return /* @__PURE__ */ jsxs("div", { children: [
           "Hello ",
           user.displayName
@@ -4216,16 +4294,18 @@ describe('Realistic NextJS App with useData', () => {
       import { useData } from "@getcronit/pylon/pages";
       import { jsx, jsxs } from "react/jsx-runtime";
       function Page() {
-        const { posts } = useData({ prepare: ({ query }) => {
-          query?.posts?.map((i1) => {
-            i1?.id;
-            i1?.title;
-            i1?.comments?.map((i2) => {
-              i2?.id;
-              i2?.text;
+        const { posts } = useData({
+          prepare: ({ query }) => {
+            query?.posts?.map((i1) => {
+              i1?.id;
+              i1?.title;
+              i1?.comments?.map((i2) => {
+                i2?.id;
+                i2?.text;
+              });
             });
-          });
-        } });
+          }
+        });
         return /* @__PURE__ */ jsx("div", { children: posts.map((post) => /* @__PURE__ */ jsxs("div", { children: [
           /* @__PURE__ */ jsx("h2", { children: post.title }),
           post.comments.map((comment) => /* @__PURE__ */ jsxs("p", { children: [
@@ -4276,9 +4356,11 @@ describe('Realistic NextJS App with useData', () => {
       "// temp_nextjs_app/hooks/computed.ts
       import { useData } from "@getcronit/pylon/pages";
       function useDynamicUser() {
-        const { user } = useData({ prepare: ({ query }) => {
-          query?.user?.displayName;
-        } });
+        const { user } = useData({
+          prepare: ({ query }) => {
+            query?.user?.displayName;
+          }
+        });
         return { ["profile"]: user };
       }
 
@@ -4331,11 +4413,13 @@ describe('Realistic NextJS App with useData', () => {
       "// temp_nextjs_app/hooks/methods.ts
       import { useData } from "@getcronit/pylon/pages";
       function useUserActions() {
-        const { user } = useData({ prepare: ({ query }) => {
-          const v1 = query?.user;
-          v1?.firstName;
-          v1?.lastName;
-        } });
+        const { user } = useData({
+          prepare: ({ query }) => {
+            const v1 = query?.user;
+            v1?.firstName;
+            v1?.lastName;
+          }
+        });
         return {
           getFullName: () => user.firstName + " " + user.lastName
         };
@@ -4404,12 +4488,14 @@ describe('Realistic NextJS App with useData', () => {
 
       // temp_nextjs_app/hooks/reduce.ts
       function usePostsMap() {
-        const { posts } = useData({ prepare: ({ query }) => {
-          query?.posts?.map((i1) => {
-            i1?.id;
-            i1?.title;
-          });
-        } });
+        const { posts } = useData({
+          prepare: ({ query }) => {
+            query?.posts?.map((i1) => {
+              i1?.id;
+              i1?.title;
+            });
+          }
+        });
         return posts.reduce((acc, post) => {
           acc[post.id] = post;
           return acc;
@@ -4537,13 +4623,15 @@ describe('Realistic NextJS App with useData', () => {
       // temp_nextjs_app/pages/TasksPage.tsx
       import { jsx as jsx2 } from "react/jsx-runtime";
       function TasksPage() {
-        const data = useData({ prepare: ({ query }) => {
-          const v1 = query?.tasks?.({ filters: { status: "TODO" /* TODO */ }, first: 5 });
-          v1?.nodes?.map((i1) => {
-            i1?.id;
-            i1?.title;
-          });
-        } });
+        const data = useData({
+          prepare: ({ query }) => {
+            const v1 = query?.tasks?.({ filters: { status: "TODO" /* TODO */ }, first: 5 });
+            v1?.nodes?.map((i1) => {
+              i1?.id;
+              i1?.title;
+            });
+          }
+        });
         const tasks = data.tasks({
           filters: {
             status: "TODO" /* TODO */
@@ -4612,13 +4700,15 @@ describe('Realistic NextJS App with useData', () => {
       // temp_nextjs_app/pages/AllTasksPage.tsx
       import { jsx as jsx2 } from "react/jsx-runtime";
       function AllTasksPage() {
-        const data = useData({ prepare: ({ query }) => {
-          const v1 = query?.tasks?.({ first: 10 });
-          v1?.nodes?.map((i1) => {
-            i1?.id;
-            i1?.title;
-          });
-        } });
+        const data = useData({
+          prepare: ({ query }) => {
+            const v1 = query?.tasks?.({ first: 10 });
+            v1?.nodes?.map((i1) => {
+              i1?.id;
+              i1?.title;
+            });
+          }
+        });
         const nodes = data.tasks({ first: 10 }).nodes;
         return /* @__PURE__ */ jsx2(Tasks, { nodes });
       }
@@ -4690,9 +4780,11 @@ describe('Realistic NextJS App with useData', () => {
       // temp_tests/alias-app/pages/AliasPage.tsx
       import { jsx as jsx2 } from "react/jsx-runtime";
       function AliasPage() {
-        const data = useData({ prepare: ({ query }) => {
-          query?.me?.nickname;
-        } });
+        const data = useData({
+          prepare: ({ query }) => {
+            query?.me?.nickname;
+          }
+        });
         return /* @__PURE__ */ jsx2(UserBadge, { user: data.me });
       }
       export {
@@ -4773,10 +4865,12 @@ describe('Realistic NextJS App with useData', () => {
       // temp_nextjs_app/pages/TicketsPage.tsx
       import { jsxs } from "react/jsx-runtime";
       function TicketsPage() {
-        const data = useData({ prepare: ({ query }) => {
-          const v1 = query?.tickets?.({});
-          v1?.pageInfo?.totalCount;
-        } });
+        const data = useData({
+          prepare: ({ query }) => {
+            const v1 = query?.tickets?.({});
+            v1?.pageInfo?.totalCount;
+          }
+        });
         const { pageInfo } = data.tickets({});
         const total = useTicketInfo({ pageInfo });
         return /* @__PURE__ */ jsxs("div", { children: [
