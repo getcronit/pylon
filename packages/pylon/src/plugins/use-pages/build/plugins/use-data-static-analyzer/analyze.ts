@@ -1,3 +1,4 @@
+import * as crypto from 'crypto'
 import {
   ArrowFunction,
   BindingPattern,
@@ -998,6 +999,7 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
         let elPaths: Path[];
         if (Node.isSpreadElement(el)) {
           elPaths = evaluateExpression(el.getExpression())
+          markAsList(elPaths)
         } else {
           elPaths = evaluateExpression(el)
         }
@@ -1018,19 +1020,44 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
       const argExpr = node.getArgumentExpression()
 
       if (argExpr) {
+        const propNames: string[] = []
+
         if (
           Node.isStringLiteral(argExpr) ||
           Node.isNoSubstitutionTemplateLiteral(argExpr)
         ) {
-          const propName = argExpr.getLiteralText()
-
-          if (/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(propName)) {
-            const newPaths: Path[] = []
-            for (const path of basePaths) {
-              const nextPath = [...path, {name: propName}]
-              mergePathAndArgs(result, nextPath)
-              newPaths.push(nextPath)
+          propNames.push(argExpr.getLiteralText())
+        } else {
+          const argPaths = evaluateExpression(argExpr)
+          for (const path of argPaths) {
+            for (const step of path) {
+              if (step.name.startsWith('__literal_')) {
+                let literal = step.name.slice(10)
+                if (
+                  (literal.startsWith("'") && literal.endsWith("'")) ||
+                  (literal.startsWith('"') && literal.endsWith('"')) ||
+                  (literal.startsWith('`') && literal.endsWith('`'))
+                ) {
+                  literal = literal.slice(1, -1)
+                }
+                propNames.push(literal)
+              }
             }
+          }
+        }
+
+        if (propNames.length > 0) {
+          const newPaths: Path[] = []
+          for (const propName of propNames) {
+            if (/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(propName)) {
+              for (const path of basePaths) {
+                const nextPath = [...path, {name: propName}]
+                mergePathAndArgs(result, nextPath)
+                newPaths.push(nextPath)
+              }
+            }
+          }
+          if (newPaths.length > 0) {
             return newPaths
           }
         }
@@ -1391,12 +1418,32 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
               if (params.length > 0) {
                 const propsParam = params[0].getNameNode()
                 if (Node.isObjectBindingPattern(propsParam)) {
+                  const destructuredNames = new Set<string>()
+                  for (const el of propsParam.getElements()) {
+                    if (!el.getDotDotDotToken()) {
+                      destructuredNames.add(
+                        el.getPropertyNameNode()?.getText() || el.getName()
+                      )
+                    }
+                  }
                   for (const element of propsParam.getElements()) {
-                    const name =
-                      element.getPropertyNameNode()?.getText() ||
-                      element.getName()
-                    const paths = propsPaths.get(name) || []
-                    bindParam(element.getNameNode(), paths, true)
+                    if (element.getDotDotDotToken()) {
+                      const allPaths: Path[] = []
+                      propsPaths.forEach((paths, name) => {
+                        if (!destructuredNames.has(name)) {
+                          paths.forEach(p => {
+                            allPaths.push([{name: `__prop_${name}`}, ...p])
+                          })
+                        }
+                      })
+                      bindParam(element.getNameNode(), allPaths, true)
+                    } else {
+                      const name =
+                        element.getPropertyNameNode()?.getText() ||
+                        element.getName()
+                      const paths = propsPaths.get(name) || []
+                      bindParam(element.getNameNode(), paths, true)
+                    }
                   }
                 } else {
                   const allPaths: Path[] = []
@@ -1644,11 +1691,18 @@ export interface AnalysisResult {
 // OPTIMIZED: Cache the Project globally. Reinstantiating Project and loading default libs takes ~50-100ms.
 let _sharedProject: Project | undefined
 
+let projectAnalysisCaches = new WeakMap<Project, Map<string, any>>()
+let projectReferencesCaches = new WeakMap<Project, Map<Node, any[]>>()
+let projectQueriesCaches = new WeakMap<Project, Map<string, any>>()
+
 // Exported utility to clear the project/cache when builds restart (used by esbuild)
 export function clearAnalyzeCache() {
   _sharedProject = undefined
   // ADD THIS LINE:
   projectImporterGraphCache = new WeakMap()
+  projectAnalysisCaches = new WeakMap()
+  projectReferencesCaches = new WeakMap()
+  projectQueriesCaches = new WeakMap()
 }
 
 export function extractAdvancedSelectors(
@@ -1732,11 +1786,37 @@ export function extractQueries(
     skipDependencyResolution?: boolean
   } = {}
 ): {queries: QueryLocation[]; dependencies: string[]} {
-  const accessedFiles = new Set<string>()
-  accessedFiles.add(filePath)
+  const persistentQueriesCache = projectQueriesCaches.get(project) || (() => {
+    const map = new Map<string, any>()
+    projectQueriesCaches.set(project, map)
+    return map
+  })()
+
+  const persistentAnalysisCache = projectAnalysisCaches.get(project) || (() => {
+    const map = new Map<string, any>()
+    projectAnalysisCaches.set(project, map)
+    return map
+  })()
+
+  const persistentReferencesCache = projectReferencesCaches.get(project) || (() => {
+    const map = new Map<Node, any[]>()
+    projectReferencesCaches.set(project, map)
+    return map
+  })()
+
   const {pylonPackage = '@getcronit/pylon/pages', hookName = 'useData'} =
     options
   const sourceFile = project.getSourceFileOrThrow(filePath)
+
+  const contentHash = crypto.createHash('sha1').update(sourceFile.getFullText()).digest('hex')
+  const cacheKey = filePath + ':' + contentHash + ':' + pylonPackage + ':' + hookName
+  const cached = persistentQueriesCache.get(cacheKey)
+  if (cached) {
+    return cached
+  }
+
+  const accessedFiles = new Set<string>()
+  accessedFiles.add(filePath)
 
   if (!options.skipDependencyResolution) {
     project.resolveSourceFileDependencies()
@@ -1745,7 +1825,9 @@ export function extractQueries(
   // OPTIMIZED: Early abort utilizing strict text inclusions logic. Bypasses ts-morph entirely for native files.
   const targetNodes = findUseQueries(sourceFile, pylonPackage, hookName)
   if (targetNodes.length === 0) {
-    return {queries: [], dependencies: Array.from(accessedFiles)}
+    const result = {queries: [], dependencies: Array.from(accessedFiles)}
+    persistentQueriesCache.set(cacheKey, result)
+    return result
   }
 
   const {result, exportedFunctionReturns} = coreAnalyze(sourceFile, {
@@ -1828,29 +1910,42 @@ export function extractQueries(
     })
   }
 
-  const referencesCache = new Map<Node, any[]>()
   function getCachedReferences(fn: Node): any[] {
-    let refs = referencesCache.get(fn)
+    let refs = persistentReferencesCache.get(fn)
     if (refs !== undefined) return refs
     refs = ((fn as any).findReferences?.() || []) as any[]
-    referencesCache.set(fn, refs)
+    persistentReferencesCache.set(fn, refs)
     return refs
   }
 
-  const analysisCache = new Map<string, AnalysisResult>()
   function getCachedAnalysis(sf: SourceFile, targets: Node[]): AnalysisResult {
+    const contentHash = crypto.createHash('sha1').update(sf.getFullText()).digest('hex')
     const cacheKey =
       sf.getFilePath() +
       ':' +
+      contentHash +
+      ':' +
       targets.map(t => t.getStart() + '-' + t.getEnd()).join(',')
-    let cached = analysisCache.get(cacheKey)
-    if (cached) return cached
-    cached = coreAnalyze(sf, {
+    const cached = persistentAnalysisCache.get(cacheKey)
+    if (cached) {
+      cached.accessedFiles.forEach((file: string) => accessedFiles.add(file))
+      return cached.analysisResult
+    }
+
+    const localAccessedFiles = new Set<string>()
+    const analysisResult = coreAnalyze(sf, {
       targetNodes: targets,
-      onFileAccess: s => accessedFiles.add(s.getFilePath())
+      onFileAccess: s => {
+        localAccessedFiles.add(s.getFilePath())
+        accessedFiles.add(s.getFilePath())
+      }
     })
-    analysisCache.set(cacheKey, cached)
-    return cached
+
+    persistentAnalysisCache.set(cacheKey, {
+      analysisResult,
+      accessedFiles: localAccessedFiles
+    })
+    return analysisResult
   }
 
   while (functionQueue.length > 0) {
@@ -1872,18 +1967,94 @@ export function extractQueries(
       Node.isArrowFunction(fn) ||
       Node.isFunctionExpression(fn)
     ) {
-      const name = (fn as any).getName?.()
+      let name = (fn as any).getName?.()
       const sf = fn.getSourceFile()
       const sfPath = sf.getFilePath()
+
+      // Resolve name for arrow functions or function expressions assigned to variables/properties
+      if (!name) {
+        const parent = fn.getParent()
+        if (Node.isVariableDeclaration(parent)) {
+          name = parent.getName()
+        } else if (Node.isPropertyAssignment(parent)) {
+          name = parent.getName()
+        }
+      }
+
+      // Check if it is default exported
+      let isDefaultExport = false
+      let isExported = false
+      if (Node.isFunctionDeclaration(fn)) {
+        isExported = fn.isExported()
+        isDefaultExport = fn.isDefaultExport()
+      } else if (Node.isArrowFunction(fn) || Node.isFunctionExpression(fn)) {
+        const parent = fn.getParent()
+        if (Node.isVariableDeclaration(parent)) {
+          const varStmt = parent.getParent()?.getParent()
+          if (Node.isVariableStatement(varStmt)) {
+            isExported = varStmt.isExported()
+            isDefaultExport = varStmt.isDefaultExport()
+          }
+        } else if (Node.isExportAssignment(parent)) {
+          isDefaultExport = true
+          isExported = true
+        }
+      }
+
+      // Also check separate export default statements
+      if (name && !isDefaultExport) {
+        const defaultExport = sf.getExportAssignments().find(exp => !exp.isExportEquals())
+        if (defaultExport && defaultExport.getExpression()?.getText() === name) {
+          isDefaultExport = true
+          isExported = true
+        }
+      }
 
       if (name) {
         callNodes.push(...findCallSitesInFile(sf, name))
       }
 
       const importers = getTransitiveImporters(sfPath)
-      if (importers.size > 0 && name) {
+      if (importers.size > 0 && (name || isDefaultExport)) {
         for (const importer of importers) {
-          callNodes.push(...findCallSitesInFile(importer, name))
+          let importedName = name
+
+          if (isDefaultExport) {
+            // Find what name this default export was imported as in the importer file
+            for (const imp of importer.getImportDeclarations()) {
+              const moduleSF = imp.getModuleSpecifierSourceFile()
+              if (moduleSF && moduleSF.getFilePath() === sfPath) {
+                const defaultImport = imp.getImportClause()?.getDefaultImport()
+                if (defaultImport) {
+                  importedName = defaultImport.getText()
+                  break
+                }
+              }
+            }
+          } else if (name) {
+            // Named export: check if it is imported under an alias
+            for (const imp of importer.getImportDeclarations()) {
+              const moduleSF = imp.getModuleSpecifierSourceFile()
+              if (moduleSF && moduleSF.getFilePath() === sfPath) {
+                const namedBindings = imp.getImportClause()?.getNamedBindings()
+                if (namedBindings && Node.isNamedImports(namedBindings)) {
+                  for (const el of namedBindings.getElements()) {
+                    if (el.getName() === name) {
+                      const alias = el.getAliasNode()?.getText()
+                      if (alias) {
+                        importedName = alias
+                      }
+                      break
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          if (importedName) {
+            callNodes.push(...findCallSitesInFile(importer, importedName))
+          }
         }
       }
     }
@@ -2026,7 +2197,7 @@ export function extractQueries(
     }
   }
 
-  return {
+  const finalResult = {
     queries: targetNodes.map((node: any, idx) => ({
       start: node.getStart(),
       end: node.getEnd(),
@@ -2035,6 +2206,8 @@ export function extractQueries(
     })),
     dependencies: Array.from(accessedFiles)
   }
+  persistentQueriesCache.set(cacheKey, finalResult)
+  return finalResult
 }
 
 function deepMerge(target: any, source: any) {

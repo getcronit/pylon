@@ -12,7 +12,6 @@ export class StaticAnalysisManager {
   private cache: Map<string, AnalysisResult> = new Map()
   private sessionResults: Map<string, AnalysisResult> = new Map()
   private lastSessionReset: number = 0
-
   constructor(options: {tsConfigFilePath?: string}) {
     this.project = new Project({
       tsConfigFilePath: options.tsConfigFilePath,
@@ -22,7 +21,24 @@ export class StaticAnalysisManager {
         jsx: 4, // ReactJSX
         moduleResolution: 2, // Node
         esModuleInterop: true,
-        target: 9 // ESNext
+        target: 9, // ESNext
+        noLib: true,
+        skipLibCheck: true,
+        skipDefaultLibCheck: true
+      }
+    })
+
+    // Create a virtual empty file to mock all node_modules / third-party imports
+    this.project.createSourceFile('/node_modules_dummy.ts', 'export {};', {overwrite: true})
+
+    // Update compilerOptions.paths to redirect all unresolved non-relative imports to the dummy file
+    const compilerOptions = this.project.getCompilerOptions()
+    const originalPaths = compilerOptions.paths || {}
+    this.project.compilerOptions.set({
+      ...compilerOptions,
+      paths: {
+        ...originalPaths,
+        '*': ['/node_modules_dummy.ts']
       }
     })
   }
