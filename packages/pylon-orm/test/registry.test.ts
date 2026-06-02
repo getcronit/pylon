@@ -1,0 +1,68 @@
+import {describe, expect, it} from 'vitest'
+import {
+  Model,
+  boolean,
+  getModelDefinitionOrThrow,
+  id,
+  model,
+  text,
+  timestamp
+} from '../src/index'
+
+@model({abstract: true})
+class Base extends Model {
+  @id() id!: number
+  @timestamp({defaultSql: 'now()'}) createdAt!: Date
+}
+
+@model()
+class Account extends Base {
+  @text({unique: true}) email!: string
+  @text({column: 'full_name'}) fullName!: string
+  @boolean({default: true}) isActive!: boolean
+  @text({nullable: true}) $passwordHash!: string
+}
+
+describe('model registry', () => {
+  const def = getModelDefinitionOrThrow(Account)
+
+  it('derives the table name from the class name', () => {
+    expect(def.tableName).toBe('account')
+  })
+
+  it('merges columns inherited from an abstract base model', () => {
+    const names = def.columns.map(c => c.propertyKey)
+    expect(names).toContain('id')
+    expect(names).toContain('createdAt')
+    expect(names).toContain('email')
+  })
+
+  it('resolves the primary key from the abstract base', () => {
+    expect(def.primaryKey?.propertyKey).toBe('id')
+    expect(def.primaryKey?.autoIncrement).toBe(true)
+  })
+
+  it('snake_cases column names and honours overrides', () => {
+    expect(def.columns.find(c => c.propertyKey === 'createdAt')?.columnName).toBe(
+      'created_at'
+    )
+    expect(def.columns.find(c => c.propertyKey === 'isActive')?.columnName).toBe(
+      'is_active'
+    )
+    expect(def.columns.find(c => c.propertyKey === 'fullName')?.columnName).toBe(
+      'full_name'
+    )
+  })
+
+  it('marks $-prefixed properties as hidden but keeps them as columns', () => {
+    const secret = def.columns.find(c => c.propertyKey === '$passwordHash')
+    expect(secret).toBeDefined()
+    expect(secret?.hidden).toBe(true)
+    expect(secret?.columnName).toBe('password_hash')
+  })
+
+  it('assigns a default manager to concrete models', () => {
+    expect((Account as any).objects).toBeDefined()
+    expect(typeof (Account as any).objects.filter).toBe('function')
+  })
+})

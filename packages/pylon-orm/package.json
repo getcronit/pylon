@@ -1,0 +1,45 @@
+{
+  "name": "@getcronit/pylon-orm",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "rimraf ./dist && node build.js && pnpm run build:declarations",
+    "build:declarations": "tsc --declaration --emitDeclarationOnly --outDir ./dist",
+    "test": "vitest run",
+    "test:integration": "PYLON_ORM_IT=1 vitest run test/integration"
+  },
+  "files": [
+    "dist"
+  ],
+  "author": "Nico Schett <nico.schett@cronit.io>",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/getcronit/pylon.git",
+    "directory": "packages/pylon-orm"
+  },
+  "homepage": "https://pylon.cronit.io",
+  "dependencies": {
+    "kysely": "^0.27.4",
+    "pg": "^8.13.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/pg": "^8.11.10",
+    "esbuild": "^0.23.1",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.7.3",
+    "vitest": "^2.0.0"
+  }
+}
