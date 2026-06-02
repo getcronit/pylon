@@ -1,16 +1,30 @@
 import * as Sentry from '@sentry/bun'
-import {consola} from 'consola'
+import consola from 'consola'
 import {
-  FragmentDefinitionNode,
+  FieldNode,
+  getNamedType,
   GraphQLError,
   GraphQLErrorExtensions,
-  GraphQLObjectType,
+  GraphQLInterfaceType,
+  GraphQLNamedType,
   GraphQLResolveInfo,
-  SelectionSetNode
+  GraphQLUnionType,
+  isInterfaceType,
+  isNonNullType,
+  isObjectType,
+  Kind,
+  SelectionNode
 } from 'graphql'
 
-import {Context, asyncContext} from './context'
-import {isAsyncIterable, Maybe} from 'graphql-yoga'
+import {asyncContext, Context} from './context'
+import {executionAsyncContext, ExecutionContext} from './resolve-info'
+
+// Global caches for performance
+const uniqueFieldsCache = new WeakMap<GraphQLNamedType, string[]>()
+const selectionSetCache = new WeakMap<
+  readonly SelectionNode[],
+  Map<any, any[]>
+>()
 
 export interface Resolvers {
   Query: Record<string, any>
@@ -18,143 +32,281 @@ export interface Resolvers {
   Subscription?: Record<string, any>
 }
 
-type FunctionWrapper = (fn: (...args: any[]) => any) => (...args: any[]) => any
+type PrimitiveType = string | number | boolean | null | undefined
 
-function getAllPropertyNames(instance: any): string[] {
-  const allProps = new Set<string>()
+type ResolverType =
+  | Function
+  | object
+  | Promise<Function>
+  | Promise<object>
+  | PrimitiveType
 
-  // Traverse the prototype chain
-  let currentObj: any = instance
-
-  while (currentObj && currentObj !== Object.prototype) {
-    // Get all own property names of the current object
-    const ownProps = Object.getOwnPropertyNames(currentObj)
-
-    // Add each property to the Set
-    ownProps.forEach(prop => allProps.add(prop))
-
-    // Move up the prototype chain
-    currentObj = Object.getPrototypeOf(currentObj)
+export const getSelectedFields = (
+  info: GraphQLResolveInfo,
+  fieldNodes: readonly FieldNode[] = info.fieldNodes,
+  parentType?: any
+) => {
+  // 1. Check cache for this selection set and parent type
+  let parentCache = selectionSetCache.get(fieldNodes)
+  if (!parentCache) {
+    parentCache = new Map()
+    selectionSetCache.set(fieldNodes, parentCache)
   }
 
-  // Convert Set to array and filter out the constructor if desired
-  return Array.from(allProps).filter(prop => prop !== 'constructor')
+  if (parentCache.has(parentType)) {
+    return parentCache.get(parentType)!
+  }
+
+  const fieldsMap = new Map<string, {nodes: FieldNode[]; returnType?: any}>()
+
+  const extract = (selections: readonly SelectionNode[], currentType?: any) => {
+    for (const selection of selections) {
+      if (selection.kind === Kind.FIELD) {
+        const name = selection.name.value
+        let childReturnType: any = undefined
+
+        if (
+          currentType &&
+          (isObjectType(currentType) || isInterfaceType(currentType))
+        ) {
+          const fieldDef = currentType.getFields()[name]
+          if (fieldDef) {
+            childReturnType = getNamedType(fieldDef.type)
+          }
+        }
+
+        if (!fieldsMap.has(name)) {
+          fieldsMap.set(name, {nodes: [], returnType: childReturnType})
+        }
+        fieldsMap.get(name)!.nodes.push(selection)
+      } else if (selection.kind === Kind.INLINE_FRAGMENT) {
+        const inlineType = selection.typeCondition
+          ? info.schema.getType(selection.typeCondition.name.value)
+          : currentType
+
+        if (selection.selectionSet) {
+          extract(selection.selectionSet.selections, inlineType)
+        }
+      } else if (selection.kind === Kind.FRAGMENT_SPREAD) {
+        const fragment = info.fragments[selection.name.value]
+        if (fragment && fragment.selectionSet) {
+          const fragmentType = info.schema.getType(
+            fragment.typeCondition.name.value
+          )
+          extract(fragment.selectionSet.selections, fragmentType)
+        }
+      }
+    }
+  }
+
+  for (const fieldNode of fieldNodes) {
+    if (fieldNode.selectionSet) {
+      extract(fieldNode.selectionSet.selections, parentType)
+    }
+  }
+
+  const result = Array.from(fieldsMap.entries()).map(([name, data]) => ({
+    name,
+    fieldNodes: data.nodes,
+    returnType: data.returnType
+  }))
+
+  // Auto-inject Discriminator Fields for Abstract Types
+  if (
+    parentType &&
+    (isInterfaceType(parentType) || parentType instanceof GraphQLUnionType)
+  ) {
+    const abstractType = info.schema.getType(parentType.name) as
+      | GraphQLInterfaceType
+      | GraphQLUnionType
+    const possibleTypes = info.schema.getPossibleTypes(abstractType)
+
+    for (const possibleType of possibleTypes) {
+      let uniqueField = uniqueFieldsCache.get(possibleType)?.[0]
+
+      const typeFieldsMap = possibleType.getFields()
+
+      if (uniqueField === undefined) {
+        const typeFields = Object.keys(typeFieldsMap).filter(f =>
+          isNonNullType(typeFieldsMap[f].type)
+        )
+        const otherTypes = possibleTypes.filter(
+          t => t.name !== possibleType.name
+        )
+        const otherTypesFields = new Set(
+          otherTypes.flatMap(t => Object.keys(t.getFields()))
+        )
+
+        const foundUniqueField = typeFields.find(f => !otherTypesFields.has(f))
+
+        if (foundUniqueField) {
+          uniqueFieldsCache.set(possibleType, [foundUniqueField])
+          uniqueField = foundUniqueField
+        } else {
+          uniqueFieldsCache.set(possibleType, [])
+          uniqueField = undefined
+        }
+      }
+
+      if (uniqueField && !result.some(f => f.name === uniqueField)) {
+        result.push({
+          name: uniqueField,
+          fieldNodes: [],
+          returnType: getNamedType(typeFieldsMap[uniqueField].type)
+        })
+      }
+    }
+  }
+
+  // 2. Cache the result before returning
+  parentCache.set(parentType, result)
+
+  return result
 }
 
-async function wrapFunctionsRecursively(
-  obj: any,
-  wrapper: FunctionWrapper,
-  that: any = null,
-  selectionSet: SelectionSetNode['selections'] = [],
-  info: GraphQLResolveInfo
-): Promise<any> {
-  // Skip if the object is a Date object or any other special object.
-  // Those objects are then handled by custom resolvers.
-  if (obj === null || obj instanceof Date) {
-    return obj
+const wrapResolver = (
+  resolver: ResolverType,
+  context: ExecutionContext,
+  fieldNodes?: readonly FieldNode[],
+  parentType?: any
+): any => {
+  // Changed return type to allow sync returns
+
+  // 1. FAST PATH: Primitives & Nulls
+  if (
+    resolver === null ||
+    (typeof resolver !== 'object' && typeof resolver !== 'function')
+  ) {
+    return resolver
   }
 
-  if (Array.isArray(obj)) {
-    return await Promise.all(
-      obj.map(async item => {
-        return await wrapFunctionsRecursively(
-          item,
-          wrapper,
-          that,
-          selectionSet,
-          info
+  // 2. LEAF OBJECTS: Dates
+  if (resolver instanceof Date) {
+    return resolver
+  }
+
+  // 3. ASYNC NODES: Promises
+  if (typeof (resolver as any).then === 'function') {
+    // We can't await here if we want to stay sync-first.
+    // We chain the promise and recurse.
+    return (resolver as any).then((resolved: any) =>
+      wrapResolver(resolved, context, fieldNodes, parentType)
+    )
+  }
+
+  // 4. COLLECTIONS: Arrays
+  if (Array.isArray(resolver)) {
+    // If we have fieldNodes and parentType, pre-calculate selectedFields once for the whole array
+    // This avoids O(Array.length * getSelectedFields) complexity
+    const results = resolver.map(item =>
+      wrapResolver(item, context, fieldNodes, parentType)
+    )
+
+    // Performance: Check if any result is a Promise
+    if (results.some(r => r && typeof r.then === 'function')) {
+      return Promise.all(results)
+    }
+    return results
+  }
+
+  // 5. EXECUTABLES: Functions
+  // >>> THIS IS THE OPTIMIZATION <<<
+  // We only activate ALS here, right before calling the user's function.
+  if (typeof resolver === 'function') {
+    return (args: Record<string, any>, ctx: any, info: GraphQLResolveInfo) => {
+      // Evaluate selected properties specifically at this function's scope
+      const currentParentType = getNamedType(info.returnType)
+      const selectedFields = getSelectedFields(
+        info,
+        fieldNodes || info.fieldNodes,
+        currentParentType
+      )
+      const executionContext = {info, selectedFields}
+
+      return executionAsyncContext.run(executionContext, () => {
+        const fieldDef = info.parentType.getFields()[info.fieldName]
+
+        const orderedArgs = fieldDef
+          ? fieldDef.args.map(arg =>
+              args[arg.name] !== undefined ? args[arg.name] : arg.defaultValue
+            )
+          : []
+
+        // Recurse on the result
+        return wrapResolver(
+          (resolver as Function)(...orderedArgs),
+          executionContext,
+          fieldNodes || info.fieldNodes,
+          currentParentType
         )
       })
-    )
-  } else if (typeof obj === 'function') {
-    return Sentry.startSpan(
-      {
-        name: obj.name,
-        op: 'pylon.fn'
-      },
-      async () => {
-        // @ts-ignore
-        return await wrapper.call(that, obj, selectionSet, info)
-      }
-    )
-  } else if (obj instanceof Promise) {
-    return await wrapFunctionsRecursively(
-      await obj,
-      wrapper,
-      that,
-      selectionSet,
-      info
-    )
-  } else if (isAsyncIterable(obj)) {
-    return obj
-  } else if (typeof obj === 'object') {
-    that = obj
-
-    const result: Record<string, any> = {}
-
-    for (const key of getAllPropertyNames(obj)) {
-      result[key] = await wrapFunctionsRecursively(
-        obj[key],
-        wrapper,
-        that,
-        selectionSet,
-        info
-      )
     }
-
-    return result
-  } else {
-    return await obj
   }
-}
-function spreadFunctionArguments<T extends (...args: any[]) => any>(fn: T) {
-  return (otherArgs: Record<string, any>, c: any, info: GraphQLResolveInfo) => {
-    const selections = arguments[1] as SelectionSetNode['selections']
-    const realInfo = arguments[2] as GraphQLResolveInfo
 
-    let args: Record<string, any> = {}
+  // 6. COMPLEX NODES: Objects
+  const selectedFields = getSelectedFields(
+    context.info,
+    fieldNodes || context.info.fieldNodes,
+    parentType
+  )
 
-    if (info) {
-      const type = info.parentType
+  if (selectedFields.length === 0) {
+    return resolver
+  }
 
-      const field = type.getFields()[info.fieldName]
+  const result: Record<string, any> = {}
 
-      const fieldArguments = field?.args
+  for (const {name, fieldNodes: childNodes, returnType} of selectedFields) {
+    // Check if ANY of the requested nodes for this field use an alias
+    const hasAliases = childNodes.some(node => node.alias !== undefined)
+    // If the field is a pylon resolver, we just wrap it and return it
+    // If the field is not a pylon resolver, its gateway data and we need to choose the right key to resolve
+    const isPylonResolver =
+      resolver[name] && typeof resolver[name] === 'function'
 
-      const preparedArguments = fieldArguments?.reduce(
-        (acc: {[x: string]: undefined}, arg: {name: string | number}) => {
-          if (otherArgs[arg.name] !== undefined) {
-            acc[arg.name] = otherArgs[arg.name]
-          } else {
-            acc[arg.name] = undefined
-          }
+    if (hasAliases && !isPylonResolver) {
+      // We have a mix of aliases/non-aliases, or purely aliases.
+      // We MUST return a function so we can dynamically route the data per execution.
+      result[name] = (
+        args: Record<string, any>,
+        ctx: any,
+        info: GraphQLResolveInfo
+      ) => {
+        const aliasKey = info.fieldNodes[0].alias?.value
+        const schemaKey = info.fieldName
 
-          return acc
-        },
-        {} as Record<string, any>
-      )
+        console.log(aliasKey, schemaKey, resolver, name)
 
-      if (preparedArguments) {
-        args = preparedArguments
+        // Priority 1: Check if this specific alias exists on the resolved object (Gateway data)
+        if (aliasKey && (resolver as any)[aliasKey] !== undefined) {
+          return wrapResolver(
+            (resolver as any)[aliasKey],
+            context,
+            info.fieldNodes,
+            returnType
+          )
+        }
+
+        // Priority 2: Fall back to the schema key (Local execution or unaliased Gateway data)
+        const schemaValue = (resolver as any)[schemaKey]
+        if (schemaValue !== undefined) {
+          return wrapResolver(schemaValue, context, info.fieldNodes, returnType)
+        }
+
+        return undefined
       }
     } else {
-      args = otherArgs
+      // Fast path: No aliases involved. Safely resolve statically.
+      const rawValue = (resolver as any)[name]
+      if (rawValue !== undefined) {
+        result[name] = wrapResolver(rawValue, context, childNodes, returnType)
+      }
     }
-
-    const orderedArgs = Object.keys(args).map(key => args[key])
-
-    const that = this || {}
-
-    const result = wrapFunctionsRecursively(
-      fn.call(that, ...orderedArgs),
-      spreadFunctionArguments,
-      this,
-      selections,
-      realInfo
-    )
-
-    return result as ReturnType<typeof fn>
   }
+
+  return result
+
+  return result
 }
 
 /**
@@ -168,7 +320,7 @@ export const resolversToGraphQLResolvers = (
 ): Resolvers => {
   // Define a root resolver function that maps a given resolver function or object to a GraphQL resolver.
   const rootGraphqlResolver =
-    (fn: Function | object | Promise<Function> | Promise<object>) =>
+    (resolver: ResolverType) =>
     async (
       _: object,
       args: Record<string, any>,
@@ -188,96 +340,44 @@ export const resolversToGraphQLResolvers = (
 
         const auth = ctx?.get('auth')
 
-        if (auth?.active) {
+        if (auth?.user) {
           scope.setUser({
-            id: auth.sub,
-            username: auth.preferred_username,
-            email: auth.email,
-            details: auth
+            id: auth.user.sub,
+            username: auth.user.preferred_username,
+            email: auth.user.email,
+            details: auth.user
           })
         }
 
         // get query or mutation field
 
-        let type: Maybe<GraphQLObjectType> | null = null
-
-        switch (info.operation.operation) {
-          case 'query':
-            type = info.schema.getQueryType()
-            break
-          case 'mutation':
-            type = info.schema.getMutationType()
-            break
-          case 'subscription':
-            type = info.schema.getSubscriptionType()
-            break
-          default:
-            throw new Error('Unknown operation')
-        }
-
-        const field = type?.getFields()[info.fieldName]
-
-        // Get the list of arguments expected by the current query field.
-        const fieldArguments = field?.args || []
-
-        // Prepare the arguments for the resolver function call by adding any missing arguments with an undefined value.
-        const preparedArguments = fieldArguments.reduce(
-          (acc: {[x: string]: undefined}, arg: {name: string | number}) => {
-            if (args[arg.name] !== undefined) {
-              acc[arg.name] = args[arg.name]
-            } else {
-              acc[arg.name] = undefined
-            }
-
-            return acc
-          },
-          {} as Record<string, any>
+        const rootParentType = getNamedType(info.returnType)
+        const selectedFields = getSelectedFields(
+          info,
+          info.fieldNodes,
+          rootParentType
         )
+        const executionContext = {info, selectedFields}
 
-        // Determine the resolver function to call (either the given function or the wrappedWithContext function if it exists).
-        let inner = await fn
+        return executionAsyncContext.run(executionContext, async () => {
+          const wrapped = wrapResolver(
+            resolver,
+            executionContext,
+            info.fieldNodes,
+            rootParentType
+          )
 
-        let baseSelectionSet: SelectionSetNode['selections'] = []
-
-        // Find the selection set for the current field.
-        for (const selection of info.operation.selectionSet.selections) {
-          if (
-            selection.kind === 'Field' &&
-            selection.name.value === info.fieldName
-          ) {
-            baseSelectionSet = selection.selectionSet?.selections || []
+          if (typeof wrapped === 'function') {
+            return wrapped(args, ctx, info)
           }
-        }
 
-        // Wrap the resolver function with any required middleware.
-        const wrappedFn = await wrapFunctionsRecursively(
-          inner,
-          spreadFunctionArguments,
-          this,
-          baseSelectionSet,
-          info
-        )
-
-        // Call the resolver function with the prepared arguments.
-        if (typeof wrappedFn !== 'function') {
-          return wrappedFn
-        }
-
-        const res = await wrappedFn(preparedArguments)
-
-        return res
+          return wrapped
+        })
       })
     }
 
   // Convert the Query and Mutation resolvers to GraphQL resolvers.
   const graphqlResolvers = {} as Resolvers
-
-  // Remove empty resolvers
-  for (const key of Object.keys(resolvers.Query)) {
-    if (!resolvers.Query[key]) {
-      delete resolvers.Query[key]
-    }
-  }
 
   if (resolvers.Query && Object.keys(resolvers.Query).length > 0) {
     for (const [key, value] of Object.entries(resolvers.Query)) {
@@ -285,9 +385,7 @@ export const resolversToGraphQLResolvers = (
         graphqlResolvers.Query = {}
       }
 
-      graphqlResolvers.Query[key] = rootGraphqlResolver(
-        value as Function | object
-      )
+      graphqlResolvers.Query[key] = rootGraphqlResolver(value)
     }
   }
 
@@ -297,9 +395,7 @@ export const resolversToGraphQLResolvers = (
     }
 
     for (const [key, value] of Object.entries(resolvers.Mutation)) {
-      graphqlResolvers.Mutation[key] = rootGraphqlResolver(
-        value as Function | object
-      )
+      graphqlResolvers.Mutation[key] = rootGraphqlResolver(value)
     }
   }
 
@@ -313,7 +409,7 @@ export const resolversToGraphQLResolvers = (
 
     for (const [key, value] of Object.entries(resolvers.Subscription)) {
       graphqlResolvers.Subscription[key] = {
-        subscribe: rootGraphqlResolver(value as Function | object),
+        subscribe: rootGraphqlResolver(value),
         resolve: (payload: any) => payload
       }
     }

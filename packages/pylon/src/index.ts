@@ -1,31 +1,51 @@
-import {YogaServerOptions} from 'graphql-yoga'
-import {Context} from './context.js'
+import {Env} from './context.js'
 
-export {ServiceError} from './define-pylon.js'
-export * from './auth/index.js'
+export {createPubSub as experimentalCreatePubSub} from 'graphql-yoga'
+export {executeConfig, handler} from './app/pylon-handler.js'
 export {
+  asyncContext,
+  Bindings,
   Context,
   Env,
-  Variables,
-  Bindings,
-  asyncContext,
   getContext,
-  setContext
+  setContext,
+  Variables
 } from './context.js'
-export {app} from './app/index.js'
-export {handler} from './app/handler/pylon-handler.js'
-export {getEnv} from './get-env.js'
 export {createDecorator} from './create-decorator.js'
-export {createPubSub as experimentalCreatePubSub} from 'graphql-yoga'
+export {ServiceError} from './define-pylon.js'
+export {getEnv} from './get-env.js'
+export {authMiddleware, requireAuth, useAuth} from './plugins/use-auth/index.js'
+export {usePages} from './plugins/use-pages/index.js'
+export {getResolveInfo} from './resolve-info.js'
+export {pylonApp as app}
 
-export type PylonConfig = Pick<
-  YogaServerOptions<Context, Context>,
-  'plugins'
-> & {
-  graphiql?: boolean | ((c: Context) => boolean)
-  logger?: boolean
+import {app as pylonApp} from './app/index.js'
+
+import {BuildContext, BuildOptions} from 'esbuild'
+import type {Plugin as YogaPlugin} from 'graphql-yoga'
+import {MiddlewareHandler} from 'hono'
+
+export type Plugin<
+  PluginContext extends Record<string, any> = {},
+  TServerContext extends Record<string, any> = {},
+  TUserContext = {}
+> = YogaPlugin<PluginContext, TServerContext, TUserContext> & {
+  strategy?: 'first' | 'last'
+  middleware?: MiddlewareHandler<Env>
+  setup?: (app: typeof pylonApp) => Promise<void> | void
+  build?: <T extends BuildOptions>(args: {
+    onBuild: () => void
+  }) => Promise<Omit<BuildContext<T>, 'serve'>>
+}
+
+export type PylonConfig = {
+  landingPage?: boolean
+  graphiql?: boolean
+  plugins?: Plugin[]
 }
 
 export type ID = string & {readonly brand?: unique symbol}
 export type Int = number & {readonly brand?: unique symbol}
 export type Float = number & {readonly brand?: unique symbol}
+
+export {createGateway} from './gateway.js'
