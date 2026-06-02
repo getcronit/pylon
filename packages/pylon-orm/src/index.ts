@@ -12,9 +12,14 @@ export {
   timestamp,
   date,
   json,
+  foreignKey,
+  hasMany,
   type ModelOptions,
-  type FieldOptions
-} from './decorators.js'
+  type FieldOptions,
+  type ForeignKeyOptions,
+  type HasManyOptions
+} from './fields.js'
+export {RelatedManager, type Relation} from './relations.js'
 export {
   Database,
   connect,
@@ -30,6 +35,9 @@ export {
   getModelDefinitionOrThrow,
   type ColumnDefinition,
   type ModelDefinition,
+  type RelationDefinition,
+  type RelationKind,
+  type OnDelete,
   type SqlType
 } from './registry.js'
 

@@ -12,7 +12,8 @@
   },
   "scripts": {
     "build": "rimraf ./dist && node build.js && pnpm run build:declarations",
-    "build:declarations": "tsc --declaration --emitDeclarationOnly --outDir ./dist",
+    "build:declarations": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:integration": "PYLON_ORM_IT=1 vitest run test/integration"
   },

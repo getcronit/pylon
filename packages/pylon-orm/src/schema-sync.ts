@@ -1,6 +1,12 @@
 import {sql, type Expression} from 'kysely'
 import {Database, getDatabase} from './database.js'
-import {allModels, ColumnDefinition, ModelDefinition} from './registry.js'
+import {
+  allModels,
+  ColumnDefinition,
+  getModelDefinition,
+  ModelDefinition,
+  RelationDefinition
+} from './registry.js'
 
 type ColumnType = string | Expression<any>
 
@@ -32,6 +38,14 @@ function columnType(col: ColumnDefinition): ColumnType {
 async function createTable(db: Database, def: ModelDefinition): Promise<void> {
   let builder = db.kysely.schema.createTable(def.tableName).ifNotExists()
 
+  // Map each FK column to its belongsTo relation so we can add a REFERENCES.
+  const fkByColumn = new Map<string, RelationDefinition>()
+  for (const rel of def.relations) {
+    if (rel.kind === 'belongsTo' && rel.fkColumn) {
+      fkByColumn.set(rel.fkColumn, rel)
+    }
+  }
+
   for (const col of def.columns) {
     builder = builder.addColumn(
       col.columnName,
@@ -46,12 +60,52 @@ async function createTable(db: Database, def: ModelDefinition): Promise<void> {
           if (col.defaultSql) c = c.defaultTo(sql.raw(col.defaultSql))
           else if (col.default !== undefined) c = c.defaultTo(col.default as any)
         }
+
+        const rel = fkByColumn.get(col.columnName)
+        if (rel) {
+          const targetDef = getModelDefinition(rel.target())
+          if (targetDef?.primaryKey) {
+            c = c
+              .references(
+                `${targetDef.tableName}.${targetDef.primaryKey.columnName}`
+              )
+              .onDelete(rel.onDelete ?? (col.nullable ? 'set null' : 'cascade'))
+          }
+        }
         return c
       }
     )
   }
 
   await builder.execute()
+}
+
+/**
+ * Order models so that a table is created after the tables it references via a
+ * belongsTo foreign key (parents before children). Cycles and self-references
+ * are tolerated — they simply don't constrain the order.
+ */
+function orderByDependencies(models: ModelDefinition[]): ModelDefinition[] {
+  const byCtor = new Map(models.map(m => [m.ctor, m]))
+  const result: ModelDefinition[] = []
+  const visiting = new Set<ModelDefinition>()
+  const visited = new Set<ModelDefinition>()
+
+  const visit = (def: ModelDefinition): void => {
+    if (visited.has(def) || visiting.has(def)) return
+    visiting.add(def)
+    for (const rel of def.relations) {
+      if (rel.kind !== 'belongsTo') continue
+      const dep = byCtor.get(rel.target())
+      if (dep && dep !== def) visit(dep)
+    }
+    visiting.delete(def)
+    visited.add(def)
+    result.push(def)
+  }
+
+  for (const def of models) visit(def)
+  return result
 }
 
 /**
@@ -63,7 +117,7 @@ export async function syncSchema(
   models: ModelDefinition[] = allModels()
 ): Promise<void> {
   const db = getDatabase()
-  for (const def of models) {
+  for (const def of orderByDependencies(models)) {
     await createTable(db, def)
   }
 }

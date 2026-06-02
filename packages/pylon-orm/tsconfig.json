@@ -12,10 +12,8 @@
     "experimentalDecorators": true,
     "useDefineForClassFields": false,
     "strictPropertyInitialization": false,
-    "declaration": true,
-    "rootDir": "./src",
-    "outDir": "./dist"
+    "noEmit": true
   },
-  "include": ["src"],
-  "exclude": ["dist", "node_modules/**/*", "test/**/*"]
+  "include": ["src", "test"],
+  "exclude": ["dist", "node_modules/**/*"]
 }

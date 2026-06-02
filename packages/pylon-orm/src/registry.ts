@@ -35,16 +35,42 @@ export interface ColumnDefinition {
   defaultSql?: string
 }
 
+export type RelationKind = 'belongsTo' | 'hasMany'
+
+export type OnDelete = 'cascade' | 'set null' | 'restrict' | 'no action'
+
+export interface RelationDefinition {
+  kind: RelationKind
+  /** Property the lazy accessor is installed on (e.g. `author`, `posts`). */
+  propertyKey: string
+  /** Lazily-resolved target model constructor (forward references allowed). */
+  target: () => Function
+  nullable: boolean
+  /** belongsTo: the local FK scalar property (e.g. `authorId`). */
+  fkProperty?: string
+  /** belongsTo: the local FK column name (e.g. `author_id`). */
+  fkColumn?: string
+  /** belongsTo: ON DELETE behavior for the generated FK constraint. */
+  onDelete?: OnDelete
+  /** hasMany: the FK *property* on the target model that points back here. */
+  targetForeignKey?: string
+}
+
 export interface ModelDefinition {
   ctor: Function
   tableName: string
   abstract: boolean
   columns: ColumnDefinition[]
+  relations: RelationDefinition[]
   primaryKey?: ColumnDefinition
 }
 
 /** Columns are accumulated per-constructor before @model finalizes the model. */
 const pendingColumns = new WeakMap<Function, Map<string, ColumnDefinition>>()
+const pendingRelations = new WeakMap<
+  Function,
+  Map<string, RelationDefinition>
+>()
 const models = new Map<Function, ModelDefinition>()
 
 export function registerColumn(
@@ -59,8 +85,24 @@ export function registerColumn(
   cols.set(column.propertyKey, column)
 }
 
+export function registerRelation(
+  ctor: Function,
+  relation: RelationDefinition
+): void {
+  let rels = pendingRelations.get(ctor)
+  if (!rels) {
+    rels = new Map()
+    pendingRelations.set(ctor, rels)
+  }
+  rels.set(relation.propertyKey, relation)
+}
+
 function ownColumns(ctor: Function): ColumnDefinition[] {
   return Array.from(pendingColumns.get(ctor)?.values() ?? [])
+}
+
+function ownRelations(ctor: Function): RelationDefinition[] {
+  return Array.from(pendingRelations.get(ctor)?.values() ?? [])
 }
 
 /**
@@ -73,8 +115,9 @@ export function finalizeModel(
   options: {tableName: string; abstract: boolean}
 ): ModelDefinition {
   const merged = new Map<string, ColumnDefinition>()
+  const mergedRelations = new Map<string, RelationDefinition>()
 
-  // Walk the prototype chain so inherited columns are included.
+  // Walk the prototype chain so inherited columns/relations are included.
   const chain: Function[] = []
   let current: Function | null = ctor
   while (current && current !== Function.prototype) {
@@ -85,9 +128,13 @@ export function finalizeModel(
     for (const col of ownColumns(link)) {
       merged.set(col.propertyKey, col)
     }
+    for (const rel of ownRelations(link)) {
+      mergedRelations.set(rel.propertyKey, rel)
+    }
   }
 
   const columns = Array.from(merged.values())
+  const relations = Array.from(mergedRelations.values())
   const primaryKey = columns.find(c => c.primaryKey)
 
   const definition: ModelDefinition = {
@@ -95,6 +142,7 @@ export function finalizeModel(
     tableName: options.tableName,
     abstract: options.abstract,
     columns,
+    relations,
     primaryKey
   }
 

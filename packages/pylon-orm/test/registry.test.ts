@@ -11,16 +11,16 @@ import {
 
 @model({abstract: true})
 class Base extends Model {
-  @id() id!: number
-  @timestamp({defaultSql: 'now()'}) createdAt!: Date
+  id = id()
+  createdAt = timestamp({defaultSql: 'now()'})
 }
 
 @model()
 class Account extends Base {
-  @text({unique: true}) email!: string
-  @text({column: 'full_name'}) fullName!: string
-  @boolean({default: true}) isActive!: boolean
-  @text({nullable: true}) $passwordHash!: string
+  email = text({unique: true})
+  fullName = text({column: 'full_name'})
+  isActive = boolean({default: true})
+  $passwordHash = text({nullable: true})
 }
 
 describe('model registry', () => {
@@ -64,5 +64,13 @@ describe('model registry', () => {
   it('assigns a default manager to concrete models', () => {
     expect((Account as any).objects).toBeDefined()
     expect(typeof (Account as any).objects.filter).toBe('function')
+  })
+
+  it('keeps instances honest — descriptors are replaced after construction', () => {
+    const a = new Account()
+    expect(a.email).toBeUndefined()
+    expect(a.id).toBeUndefined()
+    // Literal defaults are applied to the instance.
+    expect(a.isActive).toBe(true)
   })
 })

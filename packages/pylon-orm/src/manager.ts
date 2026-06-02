@@ -23,7 +23,7 @@ function columnFor(
   return col
 }
 
-function hydrate<T extends object>(ctor: ModelCtor<T>, row: any): T {
+export function hydrate<T extends object>(ctor: ModelCtor<T>, row: any): T {
   const def = getModelDefinitionOrThrow(ctor)
   const instance = new ctor()
   for (const col of def.columns) {

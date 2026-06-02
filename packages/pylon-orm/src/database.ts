@@ -18,6 +18,7 @@ export interface DatabaseOptions {
 export class Database {
   readonly kysely: Kysely<any>
   private readonly pool: Pool
+  private _queryCount = 0
 
   constructor(options: DatabaseOptions = {}) {
     this.pool =
@@ -26,8 +27,20 @@ export class Database {
         options.poolConfig ?? {connectionString: options.connectionString}
       )
     this.kysely = new Kysely<any>({
-      dialect: new PostgresDialect({pool: this.pool})
+      dialect: new PostgresDialect({pool: this.pool}),
+      log: event => {
+        if (event.level === 'query') this._queryCount++
+      }
     })
+  }
+
+  /** Number of SQL queries executed (useful for asserting N+1 elimination). */
+  get queryCount(): number {
+    return this._queryCount
+  }
+
+  resetQueryCount(): void {
+    this._queryCount = 0
   }
 
   /** Run a function with this database bound as the ambient connection. */
