@@ -41,4 +41,17 @@ describe('Stage 2b — build merges the ORM contribution', () => {
     expect(typeDefs).toMatch(/type Product/)
     expect(typeDefs).toMatch(/id: Number!/)
   })
+
+  it('visibility comes from the ORM exposed flag, not Pylon’s $-regex', async () => {
+    // `internalCode` has a NORMAL name + {hidden:true}. Pure introspection has no
+    // way to know it should be hidden, so it leaks it. The ORM contribution sets
+    // exposed:false, so the merged build drops it. Proves entity visibility is
+    // governed by the ORM's IR — and closes the old `{hidden:true}` no-op.
+    const plain = new SchemaBuilder(entry).build().typeDefs
+    expect(plain).toMatch(/internalCode/) // leaked by pure introspection
+
+    const contributeIR = await loadOrmContribution(cwd, './index.ts')
+    const merged = new SchemaBuilder(entry).build({contributeIR}).typeDefs
+    expect(merged).not.toMatch(/internalCode|internal_code/) // hidden by the ORM
+  })
 })
