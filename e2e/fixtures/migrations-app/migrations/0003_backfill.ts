@@ -1,24 +1,35 @@
-// A data migration (`run`) that uses the ORM — the `migrate` command connects
-// the ORM's default database first, so `Model.objects.*` works here exactly as
-// in app code. Logic the declarative diff can't express: read the seeded
-// category by name, then create a product referencing it. `down` removes it.
+// A data migration (`run`) using HISTORICAL models — the replay-safe, Django
+// `apps.get_model()` equivalent. It does NOT import the live ShopCategory/
+// ShopProduct classes; instead it asks the run context for the models as they
+// existed at this point in the migration history (reconstructed from the named
+// schema ops in 0001). So this migration keeps working — and a fresh-DB replay
+// stays valid — even if those models are later renamed or deleted in the app.
 //
-// Note: this imports the live models, so it assumes their current shape — fine
-// for a young schema, but for migrations that must survive future model changes
-// prefer raw `runSql`.
+// The row types are declared here for typing; the API is the usual `.objects`.
 import {migrations} from '@getcronit/pylon-db'
-import {ShopCategory, ShopProduct} from '../src/index'
+
+interface CategoryRow {
+  id: number
+  name: string
+}
+interface ProductRow {
+  id: number
+  title: string
+  categoryId: number
+}
 
 export default migrations.defineMigration({
   operations: [
     migrations.run({
-      up: async () => {
-        const books = await ShopCategory.objects.get({name: 'Books'})
-        await ShopProduct.objects.create({title: 'Intro to Pylon', categoryId: books.id})
+      up: async ({models}) => {
+        const Category = models.get<CategoryRow>('ShopCategory')
+        const Product = models.get<ProductRow>('ShopProduct')
+        const books = await Category.objects.get({name: 'Books'})
+        await Product.objects.create({title: 'Intro to Pylon', categoryId: books.id})
       },
-      down: async () => {
-        const product = await ShopProduct.objects.get({title: 'Intro to Pylon'})
-        await product.$delete()
+      down: async ({models}) => {
+        const Product = models.get<ProductRow>('ShopProduct')
+        await Product.objects.filter({title: 'Intro to Pylon'}).delete()
       }
     })
   ]

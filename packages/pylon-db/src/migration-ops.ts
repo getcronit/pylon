@@ -7,11 +7,11 @@
  *   - `schema(changes)` — declarative schema delta (generated from the IR diff).
  *     ALWAYS reversible: the IR renders both directions.
  *   - `runSql(sql, {down})` — raw SQL. Reversible ONLY if a `down` is given.
- *   - `run({up, down})` — a data migration (arbitrary code) against the connected
- *     `db`. May use the ORM (`Model.objects…`) since `migrate` connects the ORM's
- *     default database first. Reversible ONLY if a `down` is given. (Heads-up: a
- *     migration that imports live model classes breaks if that model is later
- *     renamed/removed — for long-lived data ops prefer raw `runSql`.)
+ *   - `run({up, down})` — a data migration (arbitrary code). The handler gets a
+ *     `RunContext` with `db` and `models` — HISTORICAL models reconstructed from
+ *     migration state (`{models}` → `models.get('Product').objects…`), so the
+ *     migration never imports live classes and stays replay-safe when a model is
+ *     later renamed/removed. Reversible ONLY if a `down` is given.
  *
  * Reversibility is per-operation; a migration is reversible iff every operation
  * is. Rolling back an irreversible operation throws rather than half-reverting.
@@ -25,6 +25,7 @@ import {
   type SchemaChange
 } from '@getcronit/pylon-ir'
 import type {Database} from './database.js'
+import type {HistoricalModels} from './historical-models.js'
 
 /** Execution context handed to each operation. */
 export interface MigrationContext {
@@ -32,10 +33,29 @@ export interface MigrationContext {
   exec(sql: string): Promise<void>
   /** The connected database — for `run` data migrations using the ORM. */
   db: Database
+  /** Models reconstructed from history at this point (for `run` handlers). */
+  models: HistoricalModels
+}
+
+/** The context handed to a `run` data-migration handler. */
+export interface RunContext {
+  /** The connected database (escape hatch — `db.kysely` for raw queries). */
+  db: Database
+  /**
+   * Models as they existed at this migration, reconstructed from history (not
+   * imported from live code) — query via the usual `.objects` manager.
+   */
+  models: HistoricalModels
 }
 
 export interface Operation {
   readonly reversible: boolean
+  /**
+   * The schema delta this operation represents, if any. Schema operations carry
+   * it so the runner can fold migration history into the state used to build
+   * historical models; `runSql`/`run` leave it undefined (no schema effect).
+   */
+  readonly changes?: SchemaChange[]
   up(ctx: MigrationContext): Promise<void>
   down(ctx: MigrationContext): Promise<void>
 }
@@ -54,6 +74,7 @@ export function schema(changes: SchemaChange[]): Operation {
   const {up, down} = renderChanges(changes)
   return {
     reversible: true,
+    changes,
     up: async ctx => {
       for (const stmt of up) await ctx.exec(stmt)
     },
@@ -136,17 +157,17 @@ export function runSql(up: string, opts: {down?: string} = {}): Operation {
 
 /** A data migration (arbitrary code). Reversible only when `down` is supplied. */
 export function run(handlers: {
-  up: (db: Database) => Promise<void>
-  down?: (db: Database) => Promise<void>
+  up: (ctx: RunContext) => Promise<void>
+  down?: (ctx: RunContext) => Promise<void>
 }): Operation {
   return {
     reversible: handlers.down !== undefined,
-    up: ctx => handlers.up(ctx.db),
+    up: ctx => handlers.up({db: ctx.db, models: ctx.models}),
     down: async ctx => {
       if (!handlers.down) {
         throw new Error('Irreversible operation: run has no `down`')
       }
-      await handlers.down(ctx.db)
+      await handlers.down({db: ctx.db, models: ctx.models})
     }
   }
 }

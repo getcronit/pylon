@@ -174,3 +174,14 @@ export function getModelDefinitionOrThrow(ctor: Function): ModelDefinition {
 export function allModels(): ModelDefinition[] {
   return Array.from(models.values())
 }
+
+/**
+ * Register a pre-built definition for a ctor. Used to materialize *historical*
+ * models inside migrations (reconstructed from migration state, not decorated).
+ */
+export function registerModelDefinition(
+  ctor: Function,
+  definition: ModelDefinition
+): void {
+  models.set(ctor, definition)
+}

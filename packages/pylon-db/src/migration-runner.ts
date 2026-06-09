@@ -18,8 +18,15 @@
 import {promises as fs} from 'node:fs'
 import path from 'node:path'
 import {sql} from 'kysely'
-import {diffEntities, renderChanges, type SchemaChange} from '@getcronit/pylon-ir'
+import {
+  applyChanges,
+  diffEntities,
+  renderChanges,
+  type Entity,
+  type SchemaChange
+} from '@getcronit/pylon-ir'
 import {getDatabase, type Database} from './database.js'
+import {buildHistoricalModels} from './historical-models.js'
 import {isReversible, type MigrationContext, type MigrationModule} from './migration-ops.js'
 import {snapshot, type Snapshot} from './migrations.js'
 
@@ -192,20 +199,49 @@ export class MigrationRunner {
     return new Set(rows.rows.map(r => r.name))
   }
 
-  private ctx(db: Database): MigrationContext {
-    return {db, exec: stmt => sql.raw(stmt).execute(db.kysely).then(() => undefined)}
+  /** A migration context bound to a reconstructed historical schema `state`. */
+  private ctx(db: Database, state: Record<string, Entity>): MigrationContext {
+    return {
+      db,
+      exec: stmt => sql.raw(stmt).execute(db.kysely).then(() => undefined),
+      models: buildHistoricalModels(state)
+    }
   }
 
-  /** Apply every unapplied migration's operations in order; idempotent. */
+  /** Load every migration on disk, in chronological order. */
+  private async loadAll(
+    load: MigrationLoader
+  ): Promise<Array<{name: string; mod: MigrationModule}>> {
+    const out: Array<{name: string; mod: MigrationModule}> = []
+    for (const name of await this.list()) {
+      out.push({name, mod: await load(this.filePath(name))})
+    }
+    return out
+  }
+
+  /**
+   * Apply every unapplied migration's operations in order; idempotent.
+   *
+   * The full history is replayed to thread a reconstructed schema `state`
+   * (folding each op's `changes`), so a `run` op sees historical models for the
+   * schema *as of that point* — even already-applied migrations are folded (not
+   * re-executed) to keep the state accurate.
+   */
   async apply(load: MigrationLoader, db: Database = getDatabase()): Promise<string[]> {
     const applied = await this.appliedNames(db)
-    const pending = (await this.list()).filter(n => !applied.has(n))
-    const ctx = this.ctx(db)
+    const history = await this.loadAll(load)
+    const pending = history.filter(h => !applied.has(h.name)).map(h => h.name)
 
-    for (const name of pending) {
-      const mod = await load(this.filePath(name))
-      for (const op of mod.operations) await op.up(ctx)
-      await sql`INSERT INTO ${sql.ref(APPLIED_TABLE)} (name) VALUES (${name})`.execute(db.kysely)
+    let state: Record<string, Entity> = {}
+    for (const {name, mod} of history) {
+      const isPending = !applied.has(name)
+      for (const op of mod.operations) {
+        if (isPending) await op.up(this.ctx(db, state)) // state BEFORE this op
+        state = applyChanges(state, op.changes ?? [])
+      }
+      if (isPending) {
+        await sql`INSERT INTO ${sql.ref(APPLIED_TABLE)} (name) VALUES (${name})`.execute(db.kysely)
+      }
     }
     return pending
   }
@@ -217,16 +253,27 @@ export class MigrationRunner {
     opts: {steps?: number} = {}
   ): Promise<string[]> {
     const applied = await this.appliedNames(db)
-    // newest first (timestamp-prefixed names sort chronologically)
-    const order = (await this.list()).filter(n => applied.has(n)).reverse()
+    const history = await this.loadAll(load)
+
+    // Reconstruct the state *after* each migration, so a `down` handler gets the
+    // historical models for the schema that migration left behind.
+    const stateAfter = new Map<string, Record<string, Entity>>()
+    let state: Record<string, Entity> = {}
+    for (const {name, mod} of history) {
+      for (const op of mod.operations) state = applyChanges(state, op.changes ?? [])
+      stateAfter.set(name, state)
+    }
+
+    // newest first (timestamp/sequence-prefixed names sort chronologically)
+    const order = history.map(h => h.name).filter(n => applied.has(n)).reverse()
     const target = order.slice(0, opts.steps ?? 1)
-    const ctx = this.ctx(db)
 
     for (const name of target) {
-      const mod = await load(this.filePath(name))
+      const mod = history.find(h => h.name === name)!.mod
       if (!isReversible(mod)) {
         throw new Error(`Migration "${name}" is irreversible (an operation has no \`down\`).`)
       }
+      const ctx = this.ctx(db, stateAfter.get(name) ?? {})
       for (const op of [...mod.operations].reverse()) await op.down(ctx)
       await sql`DELETE FROM ${sql.ref(APPLIED_TABLE)} WHERE name = ${name}`.execute(db.kysely)
     }

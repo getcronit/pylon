@@ -20,7 +20,8 @@ function recordingCtx() {
     exec: async (s: string) => {
       sql.push(s)
     },
-    db: {} as never
+    db: {} as never,
+    models: {get: () => { throw new Error('no historical models in this unit test') }}
   }
   return {ctx, sql}
 }

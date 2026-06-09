@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {makeMigration, renderChanges, type Entity} from '../src/index'
+import {applyChanges, makeMigration, renderChanges, type Entity} from '../src/index'
 
 const col = (over: {name: string; sqlType: any} & Record<string, unknown>) => ({
   primaryKey: false,
@@ -240,6 +240,34 @@ describe('migration engine — secondary indexes', () => {
     })
     expect(m.changes.map(c => c.kind)).toEqual(['dropColumn'])
     expect(m.up).not.toContain('DROP INDEX "user_email_idx"')
+  })
+})
+
+describe('applyChanges — fold changes into state (round-trips diffEntities)', () => {
+  const userV1 = entity('User', [idField])
+  const userV2 = entity('User', [idField, field('email', col({name: 'email', sqlType: 'text'}))])
+
+  it('createTable adds the entity; folding the diff reproduces the target', () => {
+    const folded = applyChanges({}, makeMigration({}, userV1).changes)
+    expect(Object.keys(folded)).toEqual(['User'])
+    expect(folded.User.table).toBe('user')
+  })
+
+  it('addColumn / dropColumn / rename evolve the entity in place', () => {
+    const afterAdd = applyChanges(userV1, makeMigration(userV1, userV2).changes)
+    expect(afterAdd.User.fields.some(f => f.column?.name === 'email')).toBe(true)
+
+    const afterDrop = applyChanges(userV2, makeMigration(userV2, userV1).changes)
+    expect(afterDrop.User.fields.some(f => f.column?.name === 'email')).toBe(false)
+
+    const renamed = applyChanges(userV2, [
+      {kind: 'renameColumn', table: 'user', from: 'email', to: 'contact'}
+    ])
+    expect(renamed.User.fields.map(f => f.column?.name).sort()).toEqual(['contact', 'id'])
+  })
+
+  it('dropTable removes the entity', () => {
+    expect(applyChanges(userV1, [{kind: 'dropTable', entity: userV1.User}])).toEqual({})
   })
 })
 

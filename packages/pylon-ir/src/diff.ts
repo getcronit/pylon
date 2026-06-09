@@ -19,7 +19,7 @@
  * cascade, so the constraint is not separately re-created on rollback.
  */
 import {columnDDL, sqlTypeDDL, toDDL} from './ddl.js'
-import type {ColumnSpec, Entity, IndexSpec, OnDelete} from './ir.js'
+import type {ColumnSpec, Entity, Field, IndexSpec, OnDelete} from './ir.js'
 
 /** A resolved foreign-key constraint — self-contained, no schema lookup needed. */
 export interface ForeignKeyChange {
@@ -347,6 +347,84 @@ export function renderChanges(
   // `down` reverses the change order so dependent ops unwind correctly.
   const downSQL = [...changes].reverse().flatMap(c => down(c, []))
   return {up: upSQL, down: downSQL, unsupported}
+}
+
+/**
+ * Fold a set of schema changes into an entity map — the inverse direction of
+ * `diffEntities`. This is the "state" projection (Django's `state_forwards`):
+ * replaying a migration history's changes reconstructs the schema as of any
+ * point, *without* reading the live models. Used to build historical models for
+ * data migrations.
+ *
+ * Only column/table shape is tracked (what a query manager needs); foreign-key
+ * and index changes are no-ops here — they don't affect a row's columns. Columns
+ * added via `addColumn` carry only a `ColumnSpec`, so their reconstructed field
+ * uses the column name as the property name (createTable-origin fields keep
+ * their real property names).
+ */
+export function applyChanges(
+  entities: Record<string, Entity>,
+  changes: SchemaChange[]
+): Record<string, Entity> {
+  const next = {...entities}
+  const byTable = (table: string): Entity | undefined =>
+    Object.values(next).find(e => e.table === table)
+  const replaceFields = (e: Entity, fields: Field[]) => {
+    next[e.name] = {...e, fields}
+  }
+
+  for (const c of changes) {
+    switch (c.kind) {
+      case 'createTable':
+        next[c.entity.name] = c.entity
+        break
+      case 'dropTable':
+        delete next[c.entity.name]
+        break
+      case 'addColumn': {
+        const e = byTable(c.table)
+        if (!e) break
+        const field: Field = {
+          name: c.column.name,
+          type: {kind: 'scalar', name: 'String', nullable: c.column.nullable},
+          exposed: true,
+          column: c.column
+        }
+        replaceFields(e, [...e.fields.filter(f => f.column?.name !== c.column.name), field])
+        break
+      }
+      case 'dropColumn': {
+        const e = byTable(c.table)
+        if (e) replaceFields(e, e.fields.filter(f => f.column?.name !== c.column.name))
+        break
+      }
+      case 'alterColumn': {
+        const e = byTable(c.table)
+        if (e)
+          replaceFields(
+            e,
+            e.fields.map(f => (f.column?.name === c.after.name ? {...f, column: c.after} : f))
+          )
+        break
+      }
+      case 'renameColumn': {
+        const e = byTable(c.table)
+        if (e)
+          replaceFields(
+            e,
+            e.fields.map(f =>
+              f.column?.name === c.from
+                ? {...f, name: f.name === c.from ? c.to : f.name, column: {...f.column!, name: c.to}}
+                : f
+            )
+          )
+        break
+      }
+      // addForeignKey / dropForeignKey / addIndex / dropIndex: no effect on the
+      // column shape a query manager needs.
+    }
+  }
+  return next
 }
 
 /** Build a full migration (changes + up/down SQL) between two entity maps. */

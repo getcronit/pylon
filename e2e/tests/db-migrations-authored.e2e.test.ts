@@ -3,9 +3,10 @@
  * *generates* a migration from the models, then applies it), this drives the
  * shipped `pylon db` commands against a fixture with **committed, hand-written**
  * migration files that exercise all three authoring helpers:
- *   - 0001_init     `runSql` raw-DDL ops with explicit `down`  (schema)
+ *   - 0001_init     named schema ops (createTable / addForeignKey)
  *   - 0002_seed     `runSql` data migration (INSERT up / DELETE down)
- *   - 0003_backfill `run`   TS code migration (read-then-write via `db`)
+ *   - 0003_backfill `run` using HISTORICAL models (models.get(...).objects) —
+ *                   reconstructed from 0001, never importing the live classes
  *   - 0004_index    `addIndex` named op (Django-style, built-in reverse)
  * It asserts real data + schema effects via a direct DB connection, and covers
  * both single-step and multi-step (`--steps`) rollback, then a clean re-apply.

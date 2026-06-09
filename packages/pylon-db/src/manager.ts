@@ -141,6 +141,38 @@ export class QuerySet<T extends object> {
     const row = await q.executeTakeFirstOrThrow()
     return Number((row as any).count)
   }
+
+  /** Delete every row matching the current filter. Returns the count deleted. */
+  async delete(): Promise<number> {
+    const db = getDatabase()
+    let q = db.kysely.deleteFrom(this.def.tableName)
+    for (const cond of this.state.where) {
+      q =
+        cond.value === null
+          ? q.where(cond.column, 'is', null)
+          : q.where(cond.column, '=', cond.value as any)
+    }
+    const res = await q.executeTakeFirst()
+    return Number(res?.numDeletedRows ?? 0)
+  }
+
+  /** Update every row matching the current filter with `values`. */
+  async update(values: Partial<Record<keyof T, unknown>>): Promise<number> {
+    const db = getDatabase()
+    const data: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(values)) {
+      data[columnFor(this.def, key).columnName] = value
+    }
+    let q = db.kysely.updateTable(this.def.tableName).set(data)
+    for (const cond of this.state.where) {
+      q =
+        cond.value === null
+          ? q.where(cond.column, 'is', null)
+          : q.where(cond.column, '=', cond.value as any)
+    }
+    const res = await q.executeTakeFirst()
+    return Number(res?.numUpdatedRows ?? 0)
+  }
 }
 
 export class Manager<T extends object> {

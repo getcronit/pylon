@@ -77,8 +77,14 @@ export {
   isReversible,
   type Operation,
   type MigrationModule,
-  type MigrationContext
+  type MigrationContext,
+  type RunContext
 } from './migration-ops.js'
+export {
+  buildHistoricalModels,
+  type HistoricalModel,
+  type HistoricalModels
+} from './historical-models.js'
 
 import {createManager} from './manager.js'
 import type {Manager as ManagerType, ModelCtor} from './manager.js'
