@@ -222,6 +222,11 @@ export interface ModelOptions {
 }
 
 function buildColumn(key: string, b: FieldBuilder): ColumnDefinition {
+  // A `$`-prefixed property is hidden from the generated GraphQL API: `$` is not
+  // a valid GraphQL field-name character, so Pylon's schema builder excludes the
+  // member entirely. The column still persists; the `$` is stripped for the
+  // column name (`$passwordHash` → `password_hash`).
+  const hidden = b.options.hidden ?? key.startsWith('$')
   const exposedName = key.startsWith('$') ? key.slice(1) : key
   return {
     propertyKey: key,
@@ -231,7 +236,7 @@ function buildColumn(key: string, b: FieldBuilder): ColumnDefinition {
     autoIncrement: b.base.autoIncrement ?? false,
     unique: b.options.unique ?? b.base.unique ?? false,
     nullable: b.options.nullable ?? false,
-    hidden: b.options.hidden ?? key.startsWith('$'),
+    hidden,
     length: b.options.length,
     default: b.options.default,
     defaultSql: b.options.defaultSql ?? b.base.defaultSql

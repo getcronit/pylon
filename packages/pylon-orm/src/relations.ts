@@ -103,11 +103,21 @@ async function flush(db: Database, token: string): Promise<void> {
   }
 }
 
-/**
- * A reverse (`hasMany`) accessor. Pre-scoped to the parent's foreign key, it is
- * both chainable (`user.posts.filter(...).all()`) and thenable
- * (`await user.posts`), and can create children with the FK pre-filled.
- */
+// NOTE: plain `//` comments (not `/** */`) on purpose. A JSDoc block here is
+// read by Pylon's schema builder as the GraphQL *description* of the derived
+// list element type, leaking ORM internals into the user's schema.
+//
+// Type-only merge: a `RelatedManager<T>` also presents as `T[]`. This makes
+// Pylon's build-time schema introspection treat a `hasMany` field as a GraphQL
+// list (`[T]`) — its `isList` check keys on the `Array` base type — while the
+// runtime value stays a chainable, thenable manager. The inherited array
+// methods (`map`, `length`, …) are typed but never materialize at runtime;
+// resolve the list with `await user.posts` (or `.all()`) instead.
+export interface RelatedManager<T extends object> extends Array<T> {}
+
+// A reverse (`hasMany`) accessor. Pre-scoped to the parent's foreign key, it is
+// both chainable (`user.posts.filter(...).all()`) and thenable
+// (`await user.posts`), and can create children with the FK pre-filled.
 export class RelatedManager<T extends object> {
   private readonly base: QuerySet<T>
 
@@ -121,7 +131,15 @@ export class RelatedManager<T extends object> {
     } as Partial<Record<keyof T, unknown>>)
   }
 
-  filter(conditions: Partial<Record<keyof T, unknown>>): QuerySet<T> {
+  // The first overload is the ORM query filter; the second exists only to stay
+  // structurally compatible with the merged `Array<T>.filter` (it is never used
+  // at runtime).
+  filter(conditions: Partial<Record<keyof T, unknown>>): QuerySet<T>
+  filter(
+    predicate: (value: T, index: number, array: T[]) => unknown,
+    thisArg?: any
+  ): T[]
+  filter(conditions: any): QuerySet<T> | T[] {
     return this.base.filter(conditions)
   }
 

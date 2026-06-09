@@ -68,14 +68,18 @@ export class Model {
   }
 
   // --- Instance persistence --------------------------------------------------
+  // Prefixed with `$` so they are excluded from the generated GraphQL schema
+  // (`$` is not a valid GraphQL field-name character). Without this, returning a
+  // model from a resolver would expose `save`/`delete` as fields — letting a
+  // client trigger a write through a query.
 
   /** Insert (if new) or update (if loaded) this instance. */
-  async save(): Promise<this> {
+  async $save(): Promise<this> {
     await saveInstance(this)
     return this
   }
 
-  async delete(): Promise<void> {
+  async $delete(): Promise<void> {
     await deleteInstance(this)
   }
 }

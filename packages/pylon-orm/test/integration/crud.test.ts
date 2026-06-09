@@ -75,7 +75,7 @@ describe.skipIf(!runDb)('Active Record CRUD (Postgres)', () => {
   it('updates an existing instance (no duplicate insert)', async () => {
     const ada = await User.get({email: 'a@example.com'})
     ada.name = 'Ada Lovelace'
-    await ada.save()
+    await ada.$save()
 
     const reloaded = await User.get({email: 'a@example.com'})
     expect(reloaded.name).toBe('Ada Lovelace')
@@ -84,7 +84,7 @@ describe.skipIf(!runDb)('Active Record CRUD (Postgres)', () => {
 
   it('deletes an instance', async () => {
     const babbage = await User.get({email: 'b@example.com'})
-    await babbage.delete()
+    await babbage.$delete()
     expect(await User.filter({email: 'b@example.com'}).count()).toBe(0)
   })
 })
