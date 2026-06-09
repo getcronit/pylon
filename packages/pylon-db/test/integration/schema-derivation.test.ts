@@ -1,7 +1,7 @@
 /**
  * REAL cross-package integration: drive Pylon's actual `SchemaBuilder` over a
  * real Pylon entrypoint (`fixtures/schema-app.ts`) built on real
- * `@getcronit/pylon-orm` models, and assert on the GraphQL SDL it emits.
+ * `@getcronit/pylon-db` models, and assert on the GraphQL SDL it emits.
  *
  * Unlike a unit test that mirrors Pylon's type predicates, this compiles the
  * ORM's actual source types through Pylon's actual introspection pipeline — so

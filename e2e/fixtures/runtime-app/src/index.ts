@@ -13,8 +13,8 @@ import {
   hasMany,
   connect,
   syncSchema
-} from '@getcronit/pylon-orm'
-import type {Relation} from '@getcronit/pylon-orm'
+} from '@getcronit/pylon-db'
+import type {Relation} from '@getcronit/pylon-db'
 
 @model()
 export class Author extends Model {

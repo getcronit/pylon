@@ -1,8 +1,8 @@
 // A real ORM-backed Pylon entry, used by the e2e build test. Models extend
 // Model (whose members are all excluded) so this also exercises the empty-
 // interface path that broke a real build.
-import {Model, model, id, text, int, boolean, hasMany, foreignKey} from '@getcronit/pylon-orm'
-import type {Relation} from '@getcronit/pylon-orm'
+import {Model, model, id, text, int, boolean, hasMany, foreignKey} from '@getcronit/pylon-db'
+import type {Relation} from '@getcronit/pylon-db'
 
 @model()
 export class Category extends Model {

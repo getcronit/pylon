@@ -3,14 +3,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "pretest": "pnpm --filter @getcronit/pylon-ir build && pnpm --filter @getcronit/pylon-orm build && pnpm --filter @getcronit/pylon-dev build",
+    "pretest": "pnpm --filter @getcronit/pylon-ir build && pnpm --filter @getcronit/pylon-db build && pnpm --filter @getcronit/pylon-dev build",
     "test": "vitest run"
   },
   "devDependencies": {
     "@getcronit/pylon": "workspace:*",
     "@getcronit/pylon-dev": "workspace:*",
     "@getcronit/pylon-ir": "workspace:*",
-    "@getcronit/pylon-orm": "workspace:*",
+    "@getcronit/pylon-db": "workspace:*",
     "@hono/node-server": "^1.12.2",
     "graphql": "^16.9.0",
     "vitest": "^2.0.0"

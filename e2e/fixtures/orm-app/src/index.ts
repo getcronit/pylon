@@ -1,8 +1,8 @@
 // A real ORM-backed Pylon entry built by the shipped `pylon` CLI in the e2e
 // test. Models extend Model (all members excluded), exercising the empty-
 // interface path; a $-prefixed column exercises ORM-driven hiding.
-import {Model, model, id, text, int, boolean, hasMany, foreignKey} from '@getcronit/pylon-orm'
-import type {Relation} from '@getcronit/pylon-orm'
+import {Model, model, id, text, int, boolean, hasMany, foreignKey} from '@getcronit/pylon-db'
+import type {Relation} from '@getcronit/pylon-db'
 
 @model()
 export class Category extends Model {

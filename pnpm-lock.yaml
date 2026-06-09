@@ -50,15 +50,15 @@ importers:
       '@getcronit/pylon':
         specifier: workspace:*
         version: link:../packages/pylon
+      '@getcronit/pylon-db':
+        specifier: workspace:*
+        version: link:../packages/pylon-db
       '@getcronit/pylon-dev':
         specifier: workspace:*
         version: link:../packages/pylon-dev
       '@getcronit/pylon-ir':
         specifier: workspace:*
         version: link:../packages/pylon-ir
-      '@getcronit/pylon-orm':
-        specifier: workspace:*
-        version: link:../packages/pylon-orm
       '@hono/node-server':
         specifier: ^1.12.2
         version: 1.19.9(hono@4.11.9)
@@ -333,6 +333,37 @@ importers:
         specifier: ^2.0.0
         version: 2.1.9(@types/node@24.10.13)(jsdom@28.1.0)(lightningcss@1.30.2)
 
+  packages/pylon-db:
+    dependencies:
+      '@getcronit/pylon-ir':
+        specifier: workspace:*
+        version: link:../pylon-ir
+      kysely:
+        specifier: ^0.27.4
+        version: 0.27.6
+      pg:
+        specifier: ^8.13.1
+        version: 8.18.0
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.33
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.16.0
+      esbuild:
+        specifier: ^0.23.1
+        version: 0.23.1
+      rimraf:
+        specifier: ^6.0.1
+        version: 6.1.2
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.0.0
+        version: 2.1.9(@types/node@20.19.33)(jsdom@28.1.0)(lightningcss@1.30.2)
+
   packages/pylon-dev:
     dependencies:
       '@getcronit/pylon':
@@ -369,9 +400,9 @@ importers:
         specifier: ^4.10.1
         version: 4.18.0
     devDependencies:
-      '@getcronit/pylon-orm':
+      '@getcronit/pylon-db':
         specifier: workspace:*
-        version: link:../pylon-orm
+        version: link:../pylon-db
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.33
@@ -387,37 +418,6 @@ importers:
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.33
-      esbuild:
-        specifier: ^0.23.1
-        version: 0.23.1
-      rimraf:
-        specifier: ^6.0.1
-        version: 6.1.2
-      typescript:
-        specifier: ^5.7.3
-        version: 5.9.3
-      vitest:
-        specifier: ^2.0.0
-        version: 2.1.9(@types/node@20.19.33)(jsdom@28.1.0)(lightningcss@1.30.2)
-
-  packages/pylon-orm:
-    dependencies:
-      '@getcronit/pylon-ir':
-        specifier: workspace:*
-        version: link:../pylon-ir
-      kysely:
-        specifier: ^0.27.4
-        version: 0.27.6
-      pg:
-        specifier: ^8.13.1
-        version: 8.18.0
-    devDependencies:
-      '@types/node':
-        specifier: ^20.0.0
-        version: 20.19.33
-      '@types/pg':
-        specifier: ^8.11.10
-        version: 8.16.0
       esbuild:
         specifier: ^0.23.1
         version: 0.23.1

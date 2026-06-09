@@ -3,7 +3,7 @@
  *
  * The crux is loading the user's models so their `@model()` decorators populate
  * the registry, then driving the migration runner on the SAME
- * `@getcronit/pylon-orm` instance the models registered into. We do this
+ * `@getcronit/pylon-db` instance the models registered into. We do this
  * in-process: bundle the models entry to a temp ESM file *inside the project*
  * (so its bare imports resolve against the project's node_modules), import it,
  * then resolve the project's pylon-orm and drive `MigrationRunner` from it.

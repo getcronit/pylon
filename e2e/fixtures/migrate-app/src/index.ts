@@ -1,7 +1,7 @@
 // App for the migration-CLI e2e. Distinct table names (mig_*) so it never
 // collides with the runtime-app fixture against the shared e2e Postgres.
-import {Model, model, id, text, foreignKey, hasMany} from '@getcronit/pylon-orm'
-import type {Relation} from '@getcronit/pylon-orm'
+import {Model, model, id, text, foreignKey, hasMany} from '@getcronit/pylon-db'
+import type {Relation} from '@getcronit/pylon-db'
 
 @model({table: 'mig_author'})
 export class MigAuthor extends Model {

@@ -3,7 +3,7 @@
 // models and start a server (hanging the build). It must now build cleanly.
 import {app} from '@getcronit/pylon'
 import {serve} from '@hono/node-server'
-import {Model, model, id, text, boolean} from '@getcronit/pylon-orm'
+import {Model, model, id, text, boolean} from '@getcronit/pylon-db'
 
 @model()
 export class Widget extends Model {

@@ -3,7 +3,7 @@
  *
  * The ORM's IR/registry only exists after the `@model()` decorators run, so any
  * consumer that needs it must EXECUTE the user's models — in the project's
- * module context, so the decorators populate the same `@getcronit/pylon-orm`
+ * module context, so the decorators populate the same `@getcronit/pylon-db`
  * instance we then read.
  *
  * Critically, we do NOT import the entry as-is: that would run its top-level
@@ -21,7 +21,7 @@ import {pathToFileURL} from 'node:url'
 import esbuild from 'esbuild'
 import type {PylonIR} from '@getcronit/pylon-ir'
 
-/** The slice of `@getcronit/pylon-orm` the dev tooling drives. Typed locally so
+/** The slice of `@getcronit/pylon-db` the dev tooling drives. Typed locally so
  *  pylon-dev needn't take a runtime dependency on the ORM. */
 export interface ProjectOrm {
   toIR(): PylonIR
@@ -57,7 +57,7 @@ export async function loadProjectOrm(
   const tmp = path.join(cwd, `.pylon-orm-entry.${process.pid}.${counter++}.mjs`)
   await esbuild.build({
     stdin: {
-      contents: `${stripped}\nexport * from '@getcronit/pylon-orm'\n`,
+      contents: `${stripped}\nexport * from '@getcronit/pylon-db'\n`,
       resolveDir: path.dirname(entryAbs),
       loader: 'ts',
       sourcefile: 'pylon-orm-entry.ts'

@@ -6,7 +6,7 @@ describe('prepareModelSource — strip top-level side effects for model loading'
     const out = prepareModelSource(`
       import {app} from '@getcronit/pylon'
       import {serve} from '@hono/node-server'
-      import {Model, model, id} from '@getcronit/pylon-orm'
+      import {Model, model, id} from '@getcronit/pylon-db'
 
       @model()
       export class User extends Model {
@@ -23,14 +23,14 @@ describe('prepareModelSource — strip top-level side effects for model loading'
     // model declaration + its imports + graphql export survive
     expect(out).toMatch(/@model\(\)/)
     expect(out).toMatch(/class User extends Model/)
-    expect(out).toMatch(/@getcronit\/pylon-orm/)
+    expect(out).toMatch(/@getcronit\/pylon-db/)
     expect(out).toMatch(/export const graphql/)
   })
 
   it('drops `export default app` (Workers/Bun form)', () => {
     const out = prepareModelSource(`
       import {app} from '@getcronit/pylon'
-      import {Model, model} from '@getcronit/pylon-orm'
+      import {Model, model} from '@getcronit/pylon-db'
       @model() export class A extends Model {}
       export default app
     `)
@@ -41,7 +41,7 @@ describe('prepareModelSource — strip top-level side effects for model loading'
   it('drops Deno.serve(...) (Deno form)', () => {
     const out = prepareModelSource(`
       import {app} from '@getcronit/pylon'
-      import {Model, model} from '@getcronit/pylon-orm'
+      import {Model, model} from '@getcronit/pylon-db'
       @model() export class A extends Model {}
       Deno.serve({port: 3000}, app.fetch)
     `)
@@ -51,7 +51,7 @@ describe('prepareModelSource — strip top-level side effects for model loading'
 
   it('keeps imports still used by surviving declarations', () => {
     const out = prepareModelSource(`
-      import {Model, model, foreignKey} from '@getcronit/pylon-orm'
+      import {Model, model, foreignKey} from '@getcronit/pylon-db'
       import {Other} from './other'
       @model() export class A extends Model {
         otherId = foreignKey(() => Other)

@@ -39,7 +39,7 @@
     "node": ">=18.0.0"
   },
   "devDependencies": {
-    "@getcronit/pylon-orm": "workspace:*",
+    "@getcronit/pylon-db": "workspace:*",
     "@types/node": "^20.0.0",
     "typescript": "^5.7.3",
     "vitest": "^2.0.0"
