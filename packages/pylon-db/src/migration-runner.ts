@@ -22,8 +22,8 @@ import {
   applyChanges,
   diffEntities,
   renderChanges,
-  type Entity,
-  type SchemaChange
+  type SchemaChange,
+  type TableSpec
 } from '@getcronit/pylon-ir'
 import {getDatabase, type Database} from './database.js'
 import {buildHistoricalModels} from './historical-models.js'
@@ -63,9 +63,9 @@ const str = (s: string): string => JSON.stringify(s)
 function opCall(change: SchemaChange): string {
   switch (change.kind) {
     case 'createTable':
-      return `migrations.createTable(${arg(change.entity)})`
+      return `migrations.createTable(${arg(change.spec)})`
     case 'dropTable':
-      return `migrations.dropTable(${arg(change.entity)})`
+      return `migrations.dropTable(${arg(change.spec)})`
     case 'addColumn':
       return `migrations.addColumn(${str(change.table)}, ${arg(change.column)})`
     case 'dropColumn':
@@ -200,7 +200,7 @@ export class MigrationRunner {
   }
 
   /** A migration context bound to a reconstructed historical schema `state`. */
-  private ctx(db: Database, state: Record<string, Entity>): MigrationContext {
+  private ctx(db: Database, state: Record<string, TableSpec>): MigrationContext {
     return {
       db,
       exec: stmt => sql.raw(stmt).execute(db.kysely).then(() => undefined),
@@ -232,7 +232,7 @@ export class MigrationRunner {
     const history = await this.loadAll(load)
     const pending = history.filter(h => !applied.has(h.name)).map(h => h.name)
 
-    let state: Record<string, Entity> = {}
+    let state: Record<string, TableSpec> = {}
     for (const {name, mod} of history) {
       const isPending = !applied.has(name)
       for (const op of mod.operations) {
@@ -257,8 +257,8 @@ export class MigrationRunner {
 
     // Reconstruct the state *after* each migration, so a `down` handler gets the
     // historical models for the schema that migration left behind.
-    const stateAfter = new Map<string, Record<string, Entity>>()
-    let state: Record<string, Entity> = {}
+    const stateAfter = new Map<string, Record<string, TableSpec>>()
+    let state: Record<string, TableSpec> = {}
     for (const {name, mod} of history) {
       for (const op of mod.operations) state = applyChanges(state, op.changes ?? [])
       stateAfter.set(name, state)

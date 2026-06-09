@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import type {Entity} from '@getcronit/pylon-ir'
+import {tableSpecOf, type Entity} from '@getcronit/pylon-ir'
 import {buildHistoricalModels} from '../src/historical-models'
 
 const gadget: Entity = {
@@ -26,7 +26,7 @@ const gadget: Entity = {
 
 describe('buildHistoricalModels — managers reconstructed from IR state', () => {
   it('exposes a working .objects manager for a known entity', () => {
-    const models = buildHistoricalModels({Gadget: gadget})
+    const models = buildHistoricalModels({Gadget: tableSpecOf(gadget)})
     const G = models.get('Gadget')
     expect(G.objects).toBeDefined()
     expect(G.objects.filter).toBeTypeOf('function')
@@ -36,7 +36,7 @@ describe('buildHistoricalModels — managers reconstructed from IR state', () =>
   })
 
   it('throws a helpful error for an entity not present in this historical state', () => {
-    const models = buildHistoricalModels({Gadget: gadget})
+    const models = buildHistoricalModels({Gadget: tableSpecOf(gadget)})
     expect(() => models.get('Ghost')).toThrow(/No historical model "Ghost"/)
   })
 })

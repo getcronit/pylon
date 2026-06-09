@@ -23,7 +23,7 @@
  * historical models, it has columns + a manager only — no custom methods. And
  * tables created via raw `runSql` aren't tracked, since they carry no IR state.)
  */
-import type {Entity, Field} from '@getcronit/pylon-ir'
+import type {TableColumn, TableSpec} from '@getcronit/pylon-ir'
 import {createManager, type Manager} from './manager.js'
 import {Model} from './model.js'
 import {registerModelDefinition, type ColumnDefinition, type ModelDefinition} from './registry.js'
@@ -38,30 +38,27 @@ export interface HistoricalModels {
   get<Row extends object = any>(name: string): HistoricalModel<Row>
 }
 
-function columnFromField(f: Field): ColumnDefinition | null {
-  if (!f.column) return null
+function columnDefFromSpec(col: TableColumn): ColumnDefinition {
   return {
-    propertyKey: f.name,
-    columnName: f.column.name,
-    sqlType: f.column.sqlType,
-    primaryKey: f.column.primaryKey,
-    autoIncrement: f.column.autoIncrement,
-    unique: f.column.unique,
-    nullable: f.column.nullable,
+    propertyKey: col.property,
+    columnName: col.name,
+    sqlType: col.sqlType,
+    primaryKey: col.primaryKey,
+    autoIncrement: col.autoIncrement,
+    unique: col.unique,
+    nullable: col.nullable,
     hidden: false,
-    length: f.column.length,
-    default: f.column.default,
-    defaultSql: f.column.defaultSql
+    length: col.length,
+    default: col.default,
+    defaultSql: col.defaultSql
   }
 }
 
-function definitionFromEntity(entity: Entity, ctor: Function): ModelDefinition {
-  const columns = entity.fields
-    .map(columnFromField)
-    .filter((c): c is ColumnDefinition => c !== null)
+function definitionFromTableSpec(spec: TableSpec, ctor: Function): ModelDefinition {
+  const columns = spec.columns.map(columnDefFromSpec)
   return {
     ctor,
-    tableName: entity.table,
+    tableName: spec.table,
     abstract: false,
     columns,
     relations: [],
@@ -71,7 +68,7 @@ function definitionFromEntity(entity: Entity, ctor: Function): ModelDefinition {
 
 /** Build the historical-model registry for a reconstructed schema state. */
 export function buildHistoricalModels(
-  entities: Record<string, Entity>
+  tables: Record<string, TableSpec>
 ): HistoricalModels {
   const cache = new Map<string, HistoricalModel>()
   return {
@@ -79,8 +76,8 @@ export function buildHistoricalModels(
       const hit = cache.get(name)
       if (hit) return hit as HistoricalModel<Row>
 
-      const entity = entities[name]
-      if (!entity) {
+      const spec = tables[name]
+      if (!spec) {
         throw new Error(
           `No historical model "${name}" at this point in the migration history. ` +
             `Historical models are reconstructed from schema operations — tables ` +
@@ -93,7 +90,7 @@ export function buildHistoricalModels(
       // exactly like a decorated model.
       const ctor = class extends Model {} as unknown as {new (): Row}
       Object.defineProperty(ctor, 'name', {value: name})
-      registerModelDefinition(ctor as Function, definitionFromEntity(entity, ctor as Function))
+      registerModelDefinition(ctor as Function, definitionFromTableSpec(spec, ctor as Function))
 
       const handle: HistoricalModel<Row> = {objects: createManager(ctor)}
       cache.set(name, handle)

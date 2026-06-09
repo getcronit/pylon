@@ -19,7 +19,8 @@
  * cascade, so the constraint is not separately re-created on rollback.
  */
 import {columnDDL, sqlTypeDDL, toDDL} from './ddl.js'
-import type {ColumnSpec, Entity, Field, IndexSpec, OnDelete} from './ir.js'
+import {tableSpecOf} from './ir.js'
+import type {ColumnSpec, Entity, IndexSpec, OnDelete, TableColumn, TableSpec} from './ir.js'
 
 /** A resolved foreign-key constraint — self-contained, no schema lookup needed. */
 export interface ForeignKeyChange {
@@ -37,8 +38,8 @@ export interface ForeignKeyChange {
 }
 
 export type SchemaChange =
-  | {kind: 'createTable'; entity: Entity}
-  | {kind: 'dropTable'; entity: Entity}
+  | {kind: 'createTable'; spec: TableSpec}
+  | {kind: 'dropTable'; spec: TableSpec}
   | {kind: 'addColumn'; table: string; column: ColumnSpec}
   | {kind: 'dropColumn'; table: string; column: ColumnSpec}
   | {kind: 'alterColumn'; table: string; before: ColumnSpec; after: ColumnSpec}
@@ -138,7 +139,7 @@ export function diffEntities(
 
   // New tables (columns only — FKs are emitted separately, below).
   for (const name of Object.keys(next)) {
-    if (!(name in prev)) creates.push({kind: 'createTable', entity: next[name]})
+    if (!(name in prev)) creates.push({kind: 'createTable', spec: tableSpecOf(next[name])})
   }
 
   // Column-level changes on tables present in both.
@@ -216,7 +217,7 @@ export function diffEntities(
   // explicit FK/index drops; their columns (and inbound FK fidelity) are not
   // restored on rollback.
   for (const name of Object.keys(prev)) {
-    if (!(name in next)) drops.push({kind: 'dropTable', entity: prev[name]})
+    if (!(name in next)) drops.push({kind: 'dropTable', spec: tableSpecOf(prev[name])})
   }
 
   // Order: create tables → column changes → drop FKs/indexes → add FKs/indexes
@@ -287,9 +288,9 @@ function alterColumnSQL(
 function up(change: SchemaChange, unsupported: string[]): string[] {
   switch (change.kind) {
     case 'createTable':
-      return [toDDL(change.entity)]
+      return [toDDL(change.spec)]
     case 'dropTable':
-      return [`DROP TABLE "${change.entity.table}"`]
+      return [`DROP TABLE "${change.spec.table}"`]
     case 'addColumn':
       return [`ALTER TABLE "${change.table}" ADD COLUMN ${columnDDL(change.column)}`]
     case 'dropColumn':
@@ -312,9 +313,9 @@ function up(change: SchemaChange, unsupported: string[]): string[] {
 function down(change: SchemaChange, unsupported: string[]): string[] {
   switch (change.kind) {
     case 'createTable':
-      return [`DROP TABLE "${change.entity.table}"`]
+      return [`DROP TABLE "${change.spec.table}"`]
     case 'dropTable':
-      return [toDDL(change.entity)]
+      return [toDDL(change.spec)]
     case 'addColumn':
       return [`ALTER TABLE "${change.table}" DROP COLUMN "${change.column.name}"`]
     case 'dropColumn':
@@ -350,7 +351,7 @@ export function renderChanges(
 }
 
 /**
- * Fold a set of schema changes into an entity map — the inverse direction of
+ * Fold a set of schema changes into a table-spec map — the inverse direction of
  * `diffEntities`. This is the "state" projection (Django's `state_forwards`):
  * replaying a migration history's changes reconstructs the schema as of any
  * point, *without* reading the live models. Used to build historical models for
@@ -358,64 +359,59 @@ export function renderChanges(
  *
  * Only column/table shape is tracked (what a query manager needs); foreign-key
  * and index changes are no-ops here — they don't affect a row's columns. Columns
- * added via `addColumn` carry only a `ColumnSpec`, so their reconstructed field
- * uses the column name as the property name (createTable-origin fields keep
+ * added via `addColumn` carry only a `ColumnSpec`, so their reconstructed entry
+ * uses the column name as the property name (createTable-origin columns keep
  * their real property names).
  */
 export function applyChanges(
-  entities: Record<string, Entity>,
+  tables: Record<string, TableSpec>,
   changes: SchemaChange[]
-): Record<string, Entity> {
-  const next = {...entities}
-  const byTable = (table: string): Entity | undefined =>
-    Object.values(next).find(e => e.table === table)
-  const replaceFields = (e: Entity, fields: Field[]) => {
-    next[e.name] = {...e, fields}
+): Record<string, TableSpec> {
+  const next = {...tables}
+  const byTable = (table: string): TableSpec | undefined =>
+    Object.values(next).find(t => t.table === table)
+  const setColumns = (t: TableSpec, columns: TableColumn[]) => {
+    next[t.name] = {...t, columns}
   }
 
   for (const c of changes) {
     switch (c.kind) {
       case 'createTable':
-        next[c.entity.name] = c.entity
+        next[c.spec.name] = c.spec
         break
       case 'dropTable':
-        delete next[c.entity.name]
+        delete next[c.spec.name]
         break
       case 'addColumn': {
-        const e = byTable(c.table)
-        if (!e) break
-        const field: Field = {
-          name: c.column.name,
-          type: {kind: 'scalar', name: 'String', nullable: c.column.nullable},
-          exposed: true,
-          column: c.column
-        }
-        replaceFields(e, [...e.fields.filter(f => f.column?.name !== c.column.name), field])
+        const t = byTable(c.table)
+        if (!t) break
+        const col: TableColumn = {property: c.column.name, ...c.column}
+        setColumns(t, [...t.columns.filter(x => x.name !== c.column.name), col])
         break
       }
       case 'dropColumn': {
-        const e = byTable(c.table)
-        if (e) replaceFields(e, e.fields.filter(f => f.column?.name !== c.column.name))
+        const t = byTable(c.table)
+        if (t) setColumns(t, t.columns.filter(x => x.name !== c.column.name))
         break
       }
       case 'alterColumn': {
-        const e = byTable(c.table)
-        if (e)
-          replaceFields(
-            e,
-            e.fields.map(f => (f.column?.name === c.after.name ? {...f, column: c.after} : f))
+        const t = byTable(c.table)
+        if (t)
+          setColumns(
+            t,
+            t.columns.map(x => (x.name === c.after.name ? {property: x.property, ...c.after} : x))
           )
         break
       }
       case 'renameColumn': {
-        const e = byTable(c.table)
-        if (e)
-          replaceFields(
-            e,
-            e.fields.map(f =>
-              f.column?.name === c.from
-                ? {...f, name: f.name === c.from ? c.to : f.name, column: {...f.column!, name: c.to}}
-                : f
+        const t = byTable(c.table)
+        if (t)
+          setColumns(
+            t,
+            t.columns.map(x =>
+              x.name === c.from
+                ? {...x, name: c.to, property: x.property === c.from ? c.to : x.property}
+                : x
             )
           )
         break

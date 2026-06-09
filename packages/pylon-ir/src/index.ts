@@ -6,6 +6,8 @@ export type {
   ColumnSpec,
   RelationSpec,
   IndexSpec,
+  TableSpec,
+  TableColumn,
   Field,
   Entity,
   ObjectType,
@@ -16,7 +18,7 @@ export type {
   Operation,
   PylonIR
 } from './ir.js'
-export {emptyIR} from './ir.js'
+export {emptyIR, tableSpecOf} from './ir.js'
 export {toSDL, renderType} from './sdl.js'
 export {toDDL, columnDDL, sqlTypeDDL} from './ddl.js'
 export {mergeIR, mergeFields} from './merge.js'

@@ -8,7 +8,7 @@
  * stored migration can reference tables outside its own change-set. A bare
  * `CREATE TABLE` here is always columns-only.
  */
-import type {ColumnSpec, Entity} from './ir.js'
+import type {ColumnSpec, TableSpec} from './ir.js'
 
 /** The `"name" type CONSTRAINTS` fragment for a column, reused by CREATE/ADD. */
 export function columnDDL(c: ColumnSpec): string {
@@ -31,11 +31,8 @@ export function sqlTypeDDL(c: ColumnSpec): string {
   return c.sqlType
 }
 
-/** Project a single entity to a columns-only `CREATE TABLE` statement. */
-export function toDDL(entity: Entity): string {
-  const lines = entity.fields
-    .filter(f => f.column)
-    .map(f => `  ${columnDDL(f.column!)}`)
-    .join(',\n')
-  return `CREATE TABLE "${entity.table}" (\n${lines}\n)`
+/** Project a table spec to a columns-only `CREATE TABLE` statement. */
+export function toDDL(spec: TableSpec): string {
+  const lines = spec.columns.map(c => `  ${columnDDL(c)}`).join(',\n')
+  return `CREATE TABLE "${spec.table}" (\n${lines}\n)`
 }

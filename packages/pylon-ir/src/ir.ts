@@ -58,6 +58,36 @@ export interface ColumnSpec {
   serialize?: 'json'
 }
 
+/** A persisted column paired with its model property name (for migrations). */
+export interface TableColumn extends ColumnSpec {
+  /** Model property this column maps to (e.g. `categoryId` → `category_id`). */
+  property: string
+}
+
+/**
+ * The persistence-only view of an entity — what a migration needs to create or
+ * reconstruct a table, with none of the GraphQL projection (no `type`/`exposed`,
+ * no relation fields). `createTable`/`dropTable` carry this, not a full `Entity`,
+ * so migration files stay lean and decoupled from the API shape.
+ */
+export interface TableSpec {
+  /** Entity name — the key historical-model lookup uses. */
+  name: string
+  table: string
+  columns: TableColumn[]
+}
+
+/** Project an entity to its persistence-only table spec (columns + table). */
+export function tableSpecOf(entity: Entity): TableSpec {
+  return {
+    name: entity.name,
+    table: entity.table,
+    columns: entity.fields
+      .filter(f => f.column)
+      .map(f => ({property: f.name, ...f.column!}))
+  }
+}
+
 /** A secondary index on one or more columns. Self-contained (carries `table`)
  *  so it can be diffed and rendered without an entity lookup. */
 export interface IndexSpec {

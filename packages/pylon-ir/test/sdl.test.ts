@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {emptyIR, mergeIR, toSDL, toDDL, type PylonIR} from '../src/index'
+import {emptyIR, mergeIR, toSDL, toDDL, tableSpecOf, type PylonIR} from '../src/index'
 
 describe('IR is ORM-agnostic — a plain Pylon app needs no entities', () => {
   // A vanilla Pylon app: resolvers returning a plain DTO. No persistence, no
@@ -92,7 +92,7 @@ describe('the SAME IR object drives GraphQL and SQL projections', () => {
   })
 
   it('SQL projection keeps the hidden field as a column', () => {
-    const ddl = toDDL(ir.entities.Widget)
+    const ddl = toDDL(tableSpecOf(ir.entities.Widget))
     expect(ddl).toMatch(/CREATE TABLE "widget"/)
     expect(ddl).toMatch(/"id" bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY/)
     expect(ddl).toMatch(/"label" text UNIQUE NOT NULL/)

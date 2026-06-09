@@ -33,7 +33,7 @@ describe('migrations — IR snapshot diff → SQL', () => {
     const m = planMigration(null)
     const created = m.changes
       .filter(c => c.kind === 'createTable')
-      .map(c => (c as {entity: {name: string}}).entity.name)
+      .map(c => (c as {spec: {name: string}}).spec.name)
       .sort()
     expect(created).toEqual(['Post', 'User'])
 

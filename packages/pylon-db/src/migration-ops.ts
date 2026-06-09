@@ -19,10 +19,10 @@
 import {
   renderChanges,
   type ColumnSpec,
-  type Entity,
   type ForeignKeyChange,
   type IndexSpec,
-  type SchemaChange
+  type SchemaChange,
+  type TableSpec
 } from '@getcronit/pylon-ir'
 import type {Database} from './database.js'
 import type {HistoricalModels} from './historical-models.js'
@@ -91,14 +91,14 @@ export function schema(changes: SchemaChange[]): Operation {
 // also hand-author them. For raw SQL or data logic, use runSql/run below.
 // ───────────────────────────────────────────────────────────────────────────
 
-/** Create a table from an entity spec (columns only; FKs/indexes are separate ops). */
-export function createTable(entity: Entity): Operation {
-  return schema([{kind: 'createTable', entity}])
+/** Create a table from a table spec (columns only; FKs/indexes are separate ops). */
+export function createTable(spec: TableSpec): Operation {
+  return schema([{kind: 'createTable', spec}])
 }
 
 /** Drop a table. `down` re-creates it (columns only). */
-export function dropTable(entity: Entity): Operation {
-  return schema([{kind: 'dropTable', entity}])
+export function dropTable(spec: TableSpec): Operation {
+  return schema([{kind: 'dropTable', spec}])
 }
 
 /** Add a column. `down` drops it. */

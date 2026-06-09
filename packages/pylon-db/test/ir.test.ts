@@ -1,4 +1,4 @@
-import {toDDL, toSDL} from '@getcronit/pylon-ir'
+import {toDDL, toSDL, tableSpecOf} from '@getcronit/pylon-ir'
 import {describe, expect, it} from 'vitest'
 import {Model, boolean, foreignKey, hasMany, id, model, text, timestamp} from '../src/index'
 import {toIR} from '../src/ir'
@@ -76,7 +76,7 @@ describe('toIR — ORM registry → Pylon IR', () => {
     expect(sdl).toMatch(/author: User/)
     expect(sdl).not.toMatch(/passwordHash|password_hash/) // hidden
 
-    const userDDL = toDDL(full.entities.User)
+    const userDDL = toDDL(tableSpecOf(full.entities.User))
     expect(userDDL).toMatch(/CREATE TABLE "user"/)
     expect(userDDL).toMatch(/"password_hash" text/) // present in the table
     expect(userDDL).not.toMatch(/posts/) // relation, not a column

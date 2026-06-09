@@ -28,19 +28,11 @@ function recordingCtx() {
 
 const createWidget = {
   kind: 'createTable' as const,
-  entity: {
+  spec: {
     name: 'Widget',
     table: 'widget',
-    abstract: false,
-    primaryKey: 'id',
-    implements: [],
-    fields: [
-      {
-        name: 'id',
-        type: {kind: 'scalar' as const, name: 'ID', nullable: false},
-        exposed: true,
-        column: {name: 'id', sqlType: 'bigint' as const, primaryKey: true, autoIncrement: true, unique: false, nullable: false}
-      }
+    columns: [
+      {property: 'id', name: 'id', sqlType: 'bigint' as const, primaryKey: true, autoIncrement: true, unique: false, nullable: false}
     ]
   }
 }

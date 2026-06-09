@@ -7,135 +7,57 @@ export default migrations.defineMigration({
     migrations.createTable({
       "name": "ShopCategory",
       "table": "shop_category",
-      "abstract": false,
-      "primaryKey": "id",
-      "implements": [],
-      "fields": [
+      "columns": [
         {
+          "property": "id",
           "name": "id",
-          "type": {
-            "kind": "scalar",
-            "name": "ID",
-            "nullable": false
-          },
-          "exposed": true,
-          "column": {
-            "name": "id",
-            "sqlType": "bigint",
-            "primaryKey": true,
-            "autoIncrement": true,
-            "unique": false,
-            "nullable": false
-          }
+          "sqlType": "bigint",
+          "primaryKey": true,
+          "autoIncrement": true,
+          "unique": false,
+          "nullable": false
         },
         {
+          "property": "name",
           "name": "name",
-          "type": {
-            "kind": "scalar",
-            "name": "String",
-            "nullable": false
-          },
-          "exposed": true,
-          "column": {
-            "name": "name",
-            "sqlType": "text",
-            "primaryKey": false,
-            "autoIncrement": false,
-            "unique": true,
-            "nullable": false
-          }
-        },
-        {
-          "name": "products",
-          "type": {
-            "kind": "list",
-            "of": {
-              "kind": "ref",
-              "name": "ShopProduct",
-              "nullable": false
-            },
-            "nullable": false
-          },
-          "exposed": true,
-          "relation": {
-            "kind": "hasMany",
-            "target": "ShopProduct",
-            "targetFkField": "categoryId"
-          }
+          "sqlType": "text",
+          "primaryKey": false,
+          "autoIncrement": false,
+          "unique": true,
+          "nullable": false
         }
       ]
     }),
     migrations.createTable({
       "name": "ShopProduct",
       "table": "shop_product",
-      "abstract": false,
-      "primaryKey": "id",
-      "implements": [],
-      "fields": [
+      "columns": [
         {
+          "property": "id",
           "name": "id",
-          "type": {
-            "kind": "scalar",
-            "name": "ID",
-            "nullable": false
-          },
-          "exposed": true,
-          "column": {
-            "name": "id",
-            "sqlType": "bigint",
-            "primaryKey": true,
-            "autoIncrement": true,
-            "unique": false,
-            "nullable": false
-          }
+          "sqlType": "bigint",
+          "primaryKey": true,
+          "autoIncrement": true,
+          "unique": false,
+          "nullable": false
         },
         {
+          "property": "title",
           "name": "title",
-          "type": {
-            "kind": "scalar",
-            "name": "String",
-            "nullable": false
-          },
-          "exposed": true,
-          "column": {
-            "name": "title",
-            "sqlType": "text",
-            "primaryKey": false,
-            "autoIncrement": false,
-            "unique": false,
-            "nullable": false
-          }
+          "sqlType": "text",
+          "primaryKey": false,
+          "autoIncrement": false,
+          "unique": false,
+          "nullable": false
         },
         {
-          "name": "categoryId",
-          "type": {
-            "kind": "scalar",
-            "name": "Int",
-            "nullable": false
-          },
-          "exposed": true,
-          "column": {
-            "name": "category_id",
-            "sqlType": "bigint",
-            "primaryKey": false,
-            "autoIncrement": false,
-            "unique": false,
-            "nullable": false
-          }
-        },
-        {
-          "name": "category",
-          "type": {
-            "kind": "ref",
-            "name": "ShopCategory",
-            "nullable": false
-          },
-          "exposed": true,
-          "relation": {
-            "kind": "belongsTo",
-            "target": "ShopCategory",
-            "fkField": "categoryId"
-          }
+          "property": "categoryId",
+          "name": "category_id",
+          "sqlType": "bigint",
+          "primaryKey": false,
+          "autoIncrement": false,
+          "unique": false,
+          "nullable": false
         }
       ]
     }),
