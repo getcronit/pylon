@@ -45,6 +45,24 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
+  e2e:
+    devDependencies:
+      '@getcronit/pylon-dev':
+        specifier: workspace:*
+        version: link:../packages/pylon-dev
+      '@getcronit/pylon-ir':
+        specifier: workspace:*
+        version: link:../packages/pylon-ir
+      '@getcronit/pylon-orm':
+        specifier: workspace:*
+        version: link:../packages/pylon-orm
+      graphql:
+        specifier: ^16.9.0
+        version: 16.12.0
+      vitest:
+        specifier: ^2.0.0
+        version: 2.1.9(@types/node@24.10.13)(jsdom@28.1.0)(lightningcss@1.30.2)
+
   examples/bun-testing:
     dependencies:
       '@getcronit/pylon':
