@@ -40,6 +40,8 @@ export function mergeIR(...parts: Array<Partial<PylonIR>>): PylonIR {
     }
     Object.assign(out.objects, part.objects ?? {})
     Object.assign(out.interfaces, part.interfaces ?? {})
+    Object.assign(out.unions, part.unions ?? {})
+    Object.assign(out.inputs, part.inputs ?? {})
     Object.assign(out.enums, part.enums ?? {})
     if (part.scalars) out.scalars.push(...part.scalars.filter(s => !out.scalars.includes(s)))
     if (part.operations) out.operations.push(...part.operations)

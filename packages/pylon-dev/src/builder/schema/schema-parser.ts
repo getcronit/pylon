@@ -614,6 +614,22 @@ export class SchemaParser {
       }
     }
 
+    for (const input of this.schema.inputs) {
+      ir.inputs[input.name] = {
+        name: input.name,
+        description: input.description || undefined,
+        fields: input.fields.map(fieldOf)
+      }
+    }
+
+    for (const union of this.schema.unions) {
+      ir.unions[union.name] = {
+        name: union.name,
+        description: union.description || undefined,
+        members: [...union.types]
+      }
+    }
+
     for (const en of this.schema.enums) {
       ir.enums[en.name] = {name: en.name, values: [...en.values]}
     }

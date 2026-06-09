@@ -80,6 +80,19 @@ export function toSDL(ir: PylonIR): string {
     )
   }
 
+  // Input objects (GraphQL requires at least one field).
+  for (const input of Object.values(ir.inputs)) {
+    const fields = input.fields.length
+      ? input.fields.map(renderField).join('\n')
+      : '  _: String'
+    blocks.push(`input ${input.name} {\n${fields}\n}`)
+  }
+
+  // Unions.
+  for (const u of Object.values(ir.unions)) {
+    blocks.push(`union ${u.name} = ${u.members.join(' | ')}`)
+  }
+
   // Interfaces (rendered even when empty, matching GraphQL/Pylon).
   for (const i of Object.values(ir.interfaces)) {
     blocks.push(renderInterface(i))

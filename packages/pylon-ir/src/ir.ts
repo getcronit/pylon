@@ -119,6 +119,20 @@ export interface EnumType {
   values: string[]
 }
 
+/** A GraphQL union (`union Result = A | B`). */
+export interface UnionType {
+  name: string
+  members: string[]
+  description?: string
+}
+
+/** A GraphQL input object (resolver argument shapes). */
+export interface InputType {
+  name: string
+  fields: Field[]
+  description?: string
+}
+
 /** A root resolver. */
 export interface Operation {
   root: 'Query' | 'Mutation' | 'Subscription'
@@ -133,6 +147,8 @@ export interface PylonIR {
   entities: Record<string, Entity>
   objects: Record<string, ObjectType>
   interfaces: Record<string, InterfaceType>
+  unions: Record<string, UnionType>
+  inputs: Record<string, InputType>
   enums: Record<string, EnumType>
   /** Custom + built-in scalar names to emit. */
   scalars: string[]
@@ -146,6 +162,8 @@ export function emptyIR(): PylonIR {
     entities: {},
     objects: {},
     interfaces: {},
+    unions: {},
+    inputs: {},
     enums: {},
     scalars: [],
     operations: []

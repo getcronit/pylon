@@ -9,6 +9,8 @@ export type {
   Entity,
   ObjectType,
   InterfaceType,
+  UnionType,
+  InputType,
   EnumType,
   Operation,
   PylonIR
