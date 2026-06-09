@@ -345,6 +345,9 @@ importers:
         specifier: ^4.10.1
         version: 4.18.0
     devDependencies:
+      '@getcronit/pylon-orm':
+        specifier: workspace:*
+        version: link:../pylon-orm
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.33

@@ -13,6 +13,7 @@ import {
 } from './analytics'
 import {build} from './builder'
 import {buildClient} from './builder/build-client'
+import {runDbCommand} from './db'
 import {generatePylonTypes} from './pull'
 import {treeKillSync} from './tree-kill'
 
@@ -91,6 +92,73 @@ program
       consola.success(`Remote types generated successfully at ${finalPath}`)
     } catch (error) {
       consola.error(`Failed to pull ${options.name} remote schema:`, error)
+      process.exit(1)
+    }
+  })
+
+const db = program
+  .command('db')
+  .description('Manage the database schema (ORM migrations)')
+
+db.command('status')
+  .description('Show pending schema changes and unapplied migrations')
+  .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
+  .option('-d, --dir <path>', 'Migrations directory', './migrations')
+  .action(async options => {
+    try {
+      const {status} = await runDbCommand({
+        command: 'status',
+        models: options.models,
+        dir: options.dir
+      })
+      const pending = status!.pendingChanges.length
+      consola.info(
+        `Uncaptured schema changes: ${pending}\n` +
+          `Migrations: ${status!.migrations.length} (${status!.unapplied.length} unapplied)`
+      )
+    } catch (error) {
+      consola.error(error)
+      process.exit(1)
+    }
+  })
+
+db.command('diff')
+  .description('Generate a migration from the diff between models and the last snapshot')
+  .argument('[name]', 'Migration name', 'migration')
+  .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
+  .option('-d, --dir <path>', 'Migrations directory', './migrations')
+  .action(async (name, options) => {
+    try {
+      const {created} = await runDbCommand({
+        command: 'diff',
+        name,
+        models: options.models,
+        dir: options.dir
+      })
+      if (created) consola.success(`Created migration ${created}`)
+      else consola.info('No schema changes — nothing to generate')
+    } catch (error) {
+      consola.error(error)
+      process.exit(1)
+    }
+  })
+
+db.command('migrate')
+  .description('Apply unapplied migrations to the database (requires DATABASE_URL)')
+  .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
+  .option('-d, --dir <path>', 'Migrations directory', './migrations')
+  .action(async options => {
+    try {
+      const {applied} = await runDbCommand({
+        command: 'migrate',
+        models: options.models,
+        dir: options.dir
+      })
+      if (applied && applied.length > 0)
+        consola.success(`Applied ${applied.length} migration(s): ${applied.join(', ')}`)
+      else consola.info('Database is up to date')
+    } catch (error) {
+      consola.error(error)
       process.exit(1)
     }
   })
