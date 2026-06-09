@@ -43,7 +43,13 @@ export async function runDbCommand(
 
   switch (options.command) {
     case 'status': {
-      const status = await runner.status()
+      // Connect when a DB is available so status can read the applied-migrations
+      // ledger and report `unapplied` accurately; without a DB it can only show
+      // pending (uncaptured) changes and treats every migration as unapplied.
+      const db = process.env.DATABASE_URL
+        ? orm.connect({connectionString: process.env.DATABASE_URL})
+        : undefined
+      const status = await runner.status(db)
       return {command: 'status', status}
     }
     case 'diff': {

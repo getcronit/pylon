@@ -22,18 +22,15 @@ const e2eRoot = path.resolve(dir, '..')
 const cliBin = path.resolve(e2eRoot, '../packages/pylon-dev/dist/index.js')
 const appDir = path.resolve(e2eRoot, 'fixtures/runtime-app')
 const pylonDir = path.join(appDir, '.pylon')
-const compose = path.join(e2eRoot, 'docker-compose.yml')
 
 const PORT = 4757
 const endpoint = `http://localhost:${PORT}/graphql`
+// Postgres is owned by the suite's globalSetup (e2e/docker-compose.yml).
 const connectionString = 'postgres://pylon:pylon@localhost:5434/pylon_e2e'
 
 const dockerAvailable = spawnSync('docker', ['--version'], {stdio: 'ignore'}).status === 0
 
 let server: ChildProcess | undefined
-
-const dc = (...args: string[]) =>
-  spawnSync('docker', ['compose', '-f', compose, ...args], {encoding: 'utf8', timeout: 120_000})
 
 async function gql(query: string, variables?: Record<string, unknown>) {
   const res = await fetch(endpoint, {
@@ -69,9 +66,6 @@ describe.skipIf(!dockerAvailable)('runtime e2e — built server answers GraphQL 
     if (!existsSync(cliBin)) {
       throw new Error(`pylon CLI not built at ${cliBin}. Run \`pnpm --filter pylon-e2e test\`.`)
     }
-    const up = dc('up', '-d', '--wait')
-    if (up.status !== 0) throw new Error(`docker compose up failed: ${up.stderr}`)
-
     await fs.rm(pylonDir, {recursive: true, force: true})
     const build = spawnSync('node', [cliBin, 'build'], {
       cwd: appDir,
@@ -92,7 +86,6 @@ describe.skipIf(!dockerAvailable)('runtime e2e — built server answers GraphQL 
   afterAll(async () => {
     server?.kill('SIGKILL')
     await fs.rm(pylonDir, {recursive: true, force: true})
-    dc('down', '-v')
   }, 60_000)
 
   it('serves introspectable GraphQL', async () => {
