@@ -19,10 +19,12 @@ const dir = path.dirname(fileURLToPath(import.meta.url))
 const fixture = path.resolve(dir, 'fixtures/schema-app.ts')
 
 let typeDefs: string
+let resolvers: Record<string, unknown>
 
 beforeAll(() => {
   const built = new SchemaBuilder(fixture).build()
   typeDefs = built.typeDefs
+  resolvers = built.resolvers
 })
 
 describe('ORM ↔ GraphQL schema derivation (real SchemaBuilder)', () => {
@@ -57,5 +59,17 @@ describe('ORM ↔ GraphQL schema derivation (real SchemaBuilder)', () => {
   it('does NOT leak ORM-internal docs as GraphQL descriptions', () => {
     expect(typeDefs).not.toMatch(/RelatedManager/)
     expect(typeDefs).not.toMatch(/chainable/)
+  })
+
+  it('every resolver key exists in the typeDefs (executable-schema invariant)', () => {
+    // makeExecutableSchema({typeDefs, resolvers}) throws if a resolver names a
+    // type absent from the SDL — e.g. an empty `IModel` interface dropped from
+    // the SDL but still emitted as a resolver. Guards that runtime build.
+    for (const key of Object.keys(resolvers)) {
+      expect(
+        typeDefs,
+        `resolver "${key}" must be a declared type in the SDL`
+      ).toMatch(new RegExp(`\\b(type|interface|union|enum|input|scalar) ${key}\\b`))
+    }
   })
 })

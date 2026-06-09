@@ -712,6 +712,11 @@ export class SchemaParser {
 
     // loop over the interface objects in the schema
     for (const intf of this.schema.interfaces) {
+      // Skip empty interfaces: toSDL drops them (an empty interface is invalid
+      // GraphQL), so emitting a resolver would dangle — makeExecutableSchema
+      // throws "<name> defined in resolvers, but not in schema". Keep this in
+      // lockstep with toSDL's empty-interface drop.
+      if (intf.fields.length === 0) continue
       resolvers[intf.name] = {
         __resolveType: intf.__resolveType
       }

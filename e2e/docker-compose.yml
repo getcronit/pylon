@@ -1,0 +1,16 @@
+# Dedicated Postgres for the runtime e2e — self-contained, isolated from the
+# ORM's dev container (distinct port + database).
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: pylon
+      POSTGRES_PASSWORD: pylon
+      POSTGRES_DB: pylon_e2e
+    ports:
+      - '5434:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U pylon -d pylon_e2e']
+      interval: 1s
+      timeout: 5s
+      retries: 30
