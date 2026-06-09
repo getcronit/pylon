@@ -6,6 +6,7 @@ import type {Relation} from '@getcronit/pylon-db'
 
 @models.model()
 export class Author extends models.Model {
+  static objects = db.manager(Author)
   id = models.ID()
   name = models.Text()
   books = models.HasMany(() => Book, {foreignKey: 'authorId'})
@@ -13,6 +14,7 @@ export class Author extends models.Model {
 
 @models.model()
 export class Book extends models.Model {
+  static objects = db.manager(Book)
   id = models.ID()
   title = models.Text()
   authorId = models.ForeignKey(() => Author)
@@ -21,13 +23,13 @@ export class Book extends models.Model {
 
 export const graphql = {
   Query: {
-    author: (id: number): Promise<Author> => Author.get({id}),
-    authors: (): Promise<Author[]> => Author.all()
+    author: (id: number): Promise<Author> => Author.objects.get({id}),
+    authors: (): Promise<Author[]> => Author.objects.all()
   },
   Mutation: {
-    createAuthor: (name: string): Promise<Author> => Author.create({name}),
+    createAuthor: (name: string): Promise<Author> => Author.objects.create({name}),
     addBook: (authorId: number, title: string): Promise<Book> =>
-      Book.create({authorId, title})
+      Book.objects.create({authorId, title})
   }
 }
 

@@ -6,6 +6,7 @@ import {
   foreignKey,
   hasMany,
   id,
+  manager,
   model,
   setDefaultDatabase,
   syncSchema,
@@ -15,6 +16,7 @@ import {
 
 @model()
 class Author extends Model {
+  static objects = manager(Author)
   id = id()
   name = text()
   posts = hasMany(() => Post, {foreignKey: 'authorId'})
@@ -22,6 +24,7 @@ class Author extends Model {
 
 @model()
 class Post extends Model {
+  static objects = manager(Post)
   id = id()
   title = text()
   authorId = foreignKey(() => Author)
@@ -54,8 +57,8 @@ describe.skipIf(!runDb)('Relations (Postgres)', () => {
   })
 
   it('resolves a belongsTo accessor to the related instance', async () => {
-    const ada = await Author.create({name: 'Ada'})
-    const post = await Post.create({title: 'On Engines', authorId: ada.id})
+    const ada = await Author.objects.create({name: 'Ada'})
+    const post = await Post.objects.create({title: 'On Engines', authorId: ada.id})
 
     const author = await post.author
     expect(author).toBeInstanceOf(Author)
@@ -72,9 +75,9 @@ describe.skipIf(!runDb)('Relations (Postgres)', () => {
   })
 
   it('lists children through a hasMany RelatedManager (thenable + chainable)', async () => {
-    const grace = await Author.create({name: 'Grace'})
-    await Post.create({title: 'A', authorId: grace.id})
-    await Post.create({title: 'B', authorId: grace.id})
+    const grace = await Author.objects.create({name: 'Grace'})
+    await Post.objects.create({title: 'A', authorId: grace.id})
+    await Post.objects.create({title: 'B', authorId: grace.id})
 
     // Thenable: await resolves to the full list.
     const all = await grace.posts
@@ -88,7 +91,7 @@ describe.skipIf(!runDb)('Relations (Postgres)', () => {
   })
 
   it('creates a child with the foreign key pre-filled', async () => {
-    const alan = await Author.create({name: 'Alan'})
+    const alan = await Author.objects.create({name: 'Alan'})
     const post = await alan.posts.create({title: 'Computable Numbers'})
 
     expect(post.authorId).toBe(alan.id)
@@ -96,15 +99,15 @@ describe.skipIf(!runDb)('Relations (Postgres)', () => {
   })
 
   it('batches belongsTo loads into a single query (no N+1)', async () => {
-    const x = await Author.create({name: 'X'})
-    const y = await Author.create({name: 'Y'})
-    await Post.create({title: 'x1', authorId: x.id})
-    await Post.create({title: 'x2', authorId: x.id})
-    await Post.create({title: 'y1', authorId: y.id})
+    const x = await Author.objects.create({name: 'X'})
+    const y = await Author.objects.create({name: 'Y'})
+    await Post.objects.create({title: 'x1', authorId: x.id})
+    await Post.objects.create({title: 'x2', authorId: x.id})
+    await Post.objects.create({title: 'y1', authorId: y.id})
 
-    const posts = await Post.filter({title: 'x1'}).all()
+    const posts = await Post.objects.filter({title: 'x1'}).all()
     // Reload a batch of posts spanning both authors.
-    const batch = await Post.orderBy('id').all()
+    const batch = await Post.objects.orderBy('id').all()
 
     db.resetQueryCount()
     const authors = await Promise.all(batch.map(p => p.author))

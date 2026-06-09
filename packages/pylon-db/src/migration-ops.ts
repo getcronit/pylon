@@ -7,8 +7,11 @@
  *   - `schema(changes)` — declarative schema delta (generated from the IR diff).
  *     ALWAYS reversible: the IR renders both directions.
  *   - `runSql(sql, {down})` — raw SQL. Reversible ONLY if a `down` is given.
- *   - `run({up, down})` — arbitrary code (data migration), may use the ORM.
- *     Reversible ONLY if a `down` is given.
+ *   - `run({up, down})` — a data migration (arbitrary code) against the connected
+ *     `db`. May use the ORM (`Model.objects…`) since `migrate` connects the ORM's
+ *     default database first. Reversible ONLY if a `down` is given. (Heads-up: a
+ *     migration that imports live model classes breaks if that model is later
+ *     renamed/removed — for long-lived data ops prefer raw `runSql`.)
  *
  * Reversibility is per-operation; a migration is reversible iff every operation
  * is. Rolling back an irreversible operation throws rather than half-reverting.
