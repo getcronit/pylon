@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {db, getModelDefinitionOrThrow, migrations, models} from '../src/index'
+import {db, getModelDefinitionOrThrow, migrations, models, toIR} from '../src/index'
 
 // Define a model entirely through the capitalized namespaced API.
 @models.model()
@@ -7,6 +7,7 @@ class Widget extends models.Model {
   id = models.ID()
   name = models.Text({unique: true})
   price = models.Int({nullable: true})
+  slug = models.Text({index: true})
 }
 
 describe('namespaced public API', () => {
@@ -32,5 +33,22 @@ describe('namespaced public API', () => {
     expect(db.manager).toBeTypeOf('function')
     expect(migrations.MigrationRunner).toBeTypeOf('function')
     expect(migrations.planMigration).toBeTypeOf('function')
+  })
+
+  it('a {index: true} column surfaces as an entity index in the IR', () => {
+    const ir = toIR([getModelDefinitionOrThrow(Widget)])
+    expect(ir.entities.Widget.indexes).toEqual([
+      {name: 'widget_slug_idx', table: 'widget', columns: ['slug'], unique: false}
+    ])
+  })
+
+  it('migrations.* exposes the named (Django-style) schema operations', () => {
+    for (const k of [
+      'defineMigration', 'schema', 'runSql', 'run',
+      'createTable', 'dropTable', 'addColumn', 'dropColumn', 'alterColumn',
+      'addForeignKey', 'dropForeignKey', 'addIndex', 'dropIndex', 'renameColumn'
+    ]) {
+      expect(migrations[k as keyof typeof migrations], k).toBeTypeOf('function')
+    }
   })
 })

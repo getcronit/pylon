@@ -45,20 +45,54 @@ function defaultStamp(): string {
   return new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '')
 }
 
+/** Indented JSON literal for embedding as a named-op argument. */
+function arg(value: unknown): string {
+  return JSON.stringify(value, null, 2).replace(/\n/g, '\n    ')
+}
+
+const str = (s: string): string => JSON.stringify(s)
+
+/** Render one schema change as a readable, named `migrations.*` operation call. */
+function opCall(change: SchemaChange): string {
+  switch (change.kind) {
+    case 'createTable':
+      return `migrations.createTable(${arg(change.entity)})`
+    case 'dropTable':
+      return `migrations.dropTable(${arg(change.entity)})`
+    case 'addColumn':
+      return `migrations.addColumn(${str(change.table)}, ${arg(change.column)})`
+    case 'dropColumn':
+      return `migrations.dropColumn(${str(change.table)}, ${arg(change.column)})`
+    case 'alterColumn':
+      return `migrations.alterColumn(${str(change.table)}, ${arg(change.before)}, ${arg(change.after)})`
+    case 'addForeignKey':
+      return `migrations.addForeignKey(${arg(change.fk)})`
+    case 'dropForeignKey':
+      return `migrations.dropForeignKey(${arg(change.fk)})`
+    case 'addIndex':
+      return `migrations.addIndex(${arg(change.index)})`
+    case 'dropIndex':
+      return `migrations.dropIndex(${arg(change.index)})`
+    case 'renameColumn':
+      return `migrations.renameColumn(${str(change.table)}, ${str(change.from)}, ${str(change.to)})`
+  }
+}
+
 function fileTemplate(changes: SchemaChange[], unsupported: string[]): string {
   const notes = unsupported.length
     ? unsupported.map(u => ` *   - ${u}`).join('\n')
     : ''
+  const ops = changes.map(c => `    ${opCall(c)}`).join(',\n')
   return (
     `import {migrations} from '@getcronit/pylon-db'\n\n` +
     (notes
       ? `/**\n * Manual attention needed (the diff couldn't express these):\n${notes}\n */\n`
       : '') +
     `export default migrations.defineMigration({\n` +
+    `  // Generated schema delta. Add migrations.runSql(...) / migrations.run(...)\n` +
+    `  // operations for data migrations (each with a \`down\` to stay reversible).\n` +
     `  operations: [\n` +
-    `    // Generated schema delta. Add migrations.runSql(...) / migrations.run(...)\n` +
-    `    // operations here for data migrations (each with a \`down\` to stay reversible).\n` +
-    `    migrations.schema(${JSON.stringify(changes, null, 6).replace(/\n/g, '\n    ')})\n` +
+    `${ops}\n` +
     `  ]\n` +
     `})\n`
   )
@@ -117,7 +151,7 @@ export class MigrationRunner {
     const changes = diffEntities(prev.entities, next.entities)
     if (changes.length === 0) return null
 
-    const {unsupported} = renderChanges(changes, n => next.entities[n] ?? prev.entities[n])
+    const {unsupported} = renderChanges(changes)
     const migrationName = `${this.now()}_${name}`
     await fs.mkdir(this.dir, {recursive: true})
     await fs.writeFile(this.filePath(migrationName), fileTemplate(changes, unsupported))

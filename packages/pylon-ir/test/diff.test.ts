@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {makeMigration, type Entity} from '../src/index'
+import {makeMigration, renderChanges, type Entity} from '../src/index'
 
 const col = (over: {name: string; sqlType: any} & Record<string, unknown>) => ({
   primaryKey: false,
@@ -192,5 +192,68 @@ describe('migration engine — foreign keys (self-contained, never inline)', () 
     expect(m.changes.map(c => c.kind)).toEqual(['dropColumn'])
     expect(m.up).toEqual(['ALTER TABLE "post" DROP COLUMN "author_id"'])
     expect(m.up).not.toContain(DROP_FK)
+  })
+})
+
+describe('migration engine — secondary indexes', () => {
+  const withIndexes = (indexes: any[]): Record<string, Entity> => ({
+    User: {
+      name: 'User',
+      table: 'user',
+      abstract: false,
+      primaryKey: 'id',
+      implements: [],
+      fields: [idField, field('email', col({name: 'email', sqlType: 'text'}))],
+      indexes
+    }
+  })
+  const base = withIndexes([])
+  const idx = {name: 'user_email_idx', table: 'user', columns: ['email']}
+
+  it('adds an index when one appears (reversible)', () => {
+    const m = makeMigration(base, withIndexes([idx]))
+    expect(m.changes.map(c => c.kind)).toEqual(['addIndex'])
+    expect(m.up).toEqual(['CREATE INDEX "user_email_idx" ON "user" ("email")'])
+    expect(m.down).toEqual(['DROP INDEX "user_email_idx"'])
+  })
+
+  it('drops an index when it disappears (down re-creates it)', () => {
+    const m = makeMigration(withIndexes([idx]), base)
+    expect(m.changes.map(c => c.kind)).toEqual(['dropIndex'])
+    expect(m.up).toEqual(['DROP INDEX "user_email_idx"'])
+    expect(m.down).toEqual(['CREATE INDEX "user_email_idx" ON "user" ("email")'])
+  })
+
+  it('renders a composite UNIQUE index', () => {
+    const m = makeMigration(
+      base,
+      withIndexes([{name: 'user_a_b_key', table: 'user', columns: ['id', 'email'], unique: true}])
+    )
+    expect(m.up).toEqual([
+      'CREATE UNIQUE INDEX "user_a_b_key" ON "user" ("id", "email")'
+    ])
+  })
+
+  it('a column drop cascades its index — no explicit DROP INDEX', () => {
+    const m = makeMigration(withIndexes([idx]), {
+      User: {...base.User, fields: [idField]} // email column gone
+    })
+    expect(m.changes.map(c => c.kind)).toEqual(['dropColumn'])
+    expect(m.up).not.toContain('DROP INDEX "user_email_idx"')
+  })
+})
+
+describe('migration engine — renameColumn (authoring-only, never inferred)', () => {
+  it('the diff never produces a rename (it sees drop + add)', () => {
+    const before = entity('User', [idField, field('bio', col({name: 'bio', sqlType: 'text'}))])
+    const after = entity('User', [idField, field('about', col({name: 'about', sqlType: 'text'}))])
+    const m = makeMigration(before, after)
+    expect(m.changes.map(c => c.kind).sort()).toEqual(['addColumn', 'dropColumn'])
+  })
+
+  it('renderChanges turns an authored renameColumn into ALTER … RENAME (reversible)', () => {
+    const {up, down} = renderChanges([{kind: 'renameColumn', table: 'user', from: 'bio', to: 'about'}])
+    expect(up).toEqual(['ALTER TABLE "user" RENAME COLUMN "bio" TO "about"'])
+    expect(down).toEqual(['ALTER TABLE "user" RENAME COLUMN "about" TO "bio"'])
   })
 })

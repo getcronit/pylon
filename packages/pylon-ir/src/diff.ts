@@ -19,7 +19,7 @@
  * cascade, so the constraint is not separately re-created on rollback.
  */
 import {columnDDL, sqlTypeDDL, toDDL} from './ddl.js'
-import type {ColumnSpec, Entity, OnDelete} from './ir.js'
+import type {ColumnSpec, Entity, IndexSpec, OnDelete} from './ir.js'
 
 /** A resolved foreign-key constraint — self-contained, no schema lookup needed. */
 export interface ForeignKeyChange {
@@ -44,6 +44,11 @@ export type SchemaChange =
   | {kind: 'alterColumn'; table: string; before: ColumnSpec; after: ColumnSpec}
   | {kind: 'addForeignKey'; fk: ForeignKeyChange}
   | {kind: 'dropForeignKey'; fk: ForeignKeyChange}
+  | {kind: 'addIndex'; index: IndexSpec}
+  | {kind: 'dropIndex'; index: IndexSpec}
+  // Rename is authoring-only — the diff can't infer it (it sees drop+add), but
+  // a hand-written migration can express it (and it preserves the column data).
+  | {kind: 'renameColumn'; table: string; from: string; to: string}
 
 export interface Migration {
   changes: SchemaChange[]
@@ -105,6 +110,19 @@ function fkEqual(a: ForeignKeyChange, b: ForeignKeyChange): boolean {
   return a.refTable === b.refTable && a.refColumn === b.refColumn && a.onDelete === b.onDelete
 }
 
+/** Indexes declared on an entity, keyed by name. */
+function indexesOf(e: Entity): Map<string, IndexSpec> {
+  return new Map((e.indexes ?? []).map(ix => [ix.name, ix]))
+}
+
+function indexEqual(a: IndexSpec, b: IndexSpec): boolean {
+  return (
+    !!a.unique === !!b.unique &&
+    a.columns.length === b.columns.length &&
+    a.columns.every((c, i) => c === b.columns[i])
+  )
+}
+
 /** Compute the ordered set of changes from `prev` entities to `next` entities. */
 export function diffEntities(
   prev: Record<string, Entity>,
@@ -114,6 +132,8 @@ export function diffEntities(
   const cols: SchemaChange[] = []
   const fkDrops: SchemaChange[] = []
   const fkAdds: SchemaChange[] = []
+  const indexDrops: SchemaChange[] = []
+  const indexAdds: SchemaChange[] = []
   const drops: SchemaChange[] = []
 
   // New tables (columns only — FKs are emitted separately, below).
@@ -167,16 +187,42 @@ export function diffEntities(
     }
   }
 
-  // Dropped tables. DROP TABLE cascades their constraints, so no explicit FK
-  // drops; their columns (and inbound FK fidelity) are not restored on rollback.
+  // Index changes for every table present in `next` (new + existing).
+  for (const name of Object.keys(next)) {
+    const beforeIx = name in prev ? indexesOf(prev[name]) : new Map<string, IndexSpec>()
+    const afterIx = indexesOf(next[name])
+    const droppedCols = new Set(
+      name in prev
+        ? [...columnsOf(prev[name]).keys()].filter(c => !columnsOf(next[name]).has(c))
+        : []
+    )
+    for (const [ixName, ix] of afterIx) {
+      const old = beforeIx.get(ixName)
+      if (!old) indexAdds.push({kind: 'addIndex', index: ix})
+      else if (!indexEqual(old, ix)) {
+        indexDrops.push({kind: 'dropIndex', index: old})
+        indexAdds.push({kind: 'addIndex', index: ix})
+      }
+    }
+    for (const [ixName, ix] of beforeIx) {
+      // A dropped column cascades its indexes, so skip an explicit DROP INDEX.
+      if (!afterIx.has(ixName) && !ix.columns.some(c => droppedCols.has(c))) {
+        indexDrops.push({kind: 'dropIndex', index: ix})
+      }
+    }
+  }
+
+  // Dropped tables. DROP TABLE cascades their constraints + indexes, so no
+  // explicit FK/index drops; their columns (and inbound FK fidelity) are not
+  // restored on rollback.
   for (const name of Object.keys(prev)) {
     if (!(name in next)) drops.push({kind: 'dropTable', entity: prev[name]})
   }
 
-  // Order: create tables → column changes → drop FKs → add FKs → drop tables.
-  // Guarantees both endpoints of an FK exist before it's added, and that an FK
-  // is dropped before its table; `down` (reverse) inverts this cleanly.
-  return [...creates, ...cols, ...fkDrops, ...fkAdds, ...drops]
+  // Order: create tables → column changes → drop FKs/indexes → add FKs/indexes
+  // → drop tables. Guarantees a constraint/index's columns exist before it's
+  // added, and that it's dropped before its table; `down` inverts this cleanly.
+  return [...creates, ...cols, ...fkDrops, ...indexDrops, ...fkAdds, ...indexAdds, ...drops]
 }
 
 function addForeignKeySQL(fk: ForeignKeyChange): string {
@@ -189,6 +235,15 @@ function addForeignKeySQL(fk: ForeignKeyChange): string {
 
 function dropForeignKeySQL(fk: ForeignKeyChange): string {
   return `ALTER TABLE "${fk.table}" DROP CONSTRAINT "${fk.name}"`
+}
+
+function addIndexSQL(ix: IndexSpec): string {
+  const cols = ix.columns.map(c => `"${c}"`).join(', ')
+  return `CREATE ${ix.unique ? 'UNIQUE ' : ''}INDEX "${ix.name}" ON "${ix.table}" (${cols})`
+}
+
+function dropIndexSQL(ix: IndexSpec): string {
+  return `DROP INDEX "${ix.name}"`
 }
 
 /** Postgres `ALTER COLUMN` statements bringing `before` to `after`. */
@@ -245,6 +300,12 @@ function up(change: SchemaChange, unsupported: string[]): string[] {
       return [addForeignKeySQL(change.fk)]
     case 'dropForeignKey':
       return [dropForeignKeySQL(change.fk)]
+    case 'addIndex':
+      return [addIndexSQL(change.index)]
+    case 'dropIndex':
+      return [dropIndexSQL(change.index)]
+    case 'renameColumn':
+      return [`ALTER TABLE "${change.table}" RENAME COLUMN "${change.from}" TO "${change.to}"`]
   }
 }
 
@@ -264,6 +325,12 @@ function down(change: SchemaChange, unsupported: string[]): string[] {
       return [dropForeignKeySQL(change.fk)]
     case 'dropForeignKey':
       return [addForeignKeySQL(change.fk)]
+    case 'addIndex':
+      return [dropIndexSQL(change.index)]
+    case 'dropIndex':
+      return [addIndexSQL(change.index)]
+    case 'renameColumn':
+      return [`ALTER TABLE "${change.table}" RENAME COLUMN "${change.to}" TO "${change.from}"`]
   }
 }
 

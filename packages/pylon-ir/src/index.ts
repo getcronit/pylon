@@ -5,6 +5,7 @@ export type {
   OnDelete,
   ColumnSpec,
   RelationSpec,
+  IndexSpec,
   Field,
   Entity,
   ObjectType,

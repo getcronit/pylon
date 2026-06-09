@@ -33,6 +33,8 @@ export interface ColumnDefinition {
   default?: unknown
   /** Raw SQL default (e.g. `now()`, `gen_random_uuid()`). */
   defaultSql?: string
+  /** Create a secondary (non-unique) btree index on this column. */
+  index?: boolean
 }
 
 export type RelationKind = 'belongsTo' | 'hasMany'

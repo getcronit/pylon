@@ -123,6 +123,18 @@ function relationField(rel: RelationDefinition): Field {
 
 /** Convert one model definition into an IR `Entity`. */
 export function entityFromDefinition(def: ModelDefinition): Entity {
+  // Single-column secondary indexes from `{index: true}` field options. (Unique
+  // is a column-level constraint, handled separately; composite indexes are a
+  // future model-level API — the IR/migration engine already supports them.)
+  const indexes = def.columns
+    .filter(col => col.index)
+    .map(col => ({
+      name: `${def.tableName}_${col.columnName}_idx`,
+      table: def.tableName,
+      columns: [col.columnName],
+      unique: false
+    }))
+
   return {
     name: def.ctor.name,
     table: def.tableName,
@@ -134,7 +146,8 @@ export function entityFromDefinition(def: ModelDefinition): Entity {
     fields: [
       ...def.columns.map(columnField),
       ...def.relations.map(relationField)
-    ]
+    ],
+    ...(indexes.length ? {indexes} : {})
   }
 }
 

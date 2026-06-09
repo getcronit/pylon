@@ -36,13 +36,13 @@ describe('pylon db CLI (model-loading bridge, no DB)', () => {
 
     const files = await fs.readdir(migrationsDir)
     expect(files).toContain('snapshot.json')
-    // Migrations are now TS modules authored against the public API; the schema
-    // delta is embedded as a `migrations.schema(...)` operation.
+    // Migrations are now TS modules authored against the public API, using the
+    // named (Django-style) operations — one call per schema change.
     const migration = files.find(f => f.endsWith('_init.ts'))!
     const body = await fs.readFile(path.join(migrationsDir, migration), 'utf8')
     expect(body).toContain("import {migrations} from '@getcronit/pylon-db'")
     expect(body).toContain('migrations.defineMigration(')
-    expect(body).toContain('migrations.schema(')
+    expect(body).toContain('migrations.createTable(')
     expect(body).toMatch(/"table":\s*"account"/)
     expect(body).toMatch(/"name":\s*"email"/)
   })

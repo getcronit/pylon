@@ -1,5 +1,16 @@
 import {describe, expect, it, vi} from 'vitest'
-import {defineMigration, isReversible, run, runSql, schema} from '../src/migration-ops'
+import {
+  addColumn,
+  addForeignKey,
+  addIndex,
+  defineMigration,
+  dropColumn,
+  isReversible,
+  renameColumn,
+  run,
+  runSql,
+  schema
+} from '../src/migration-ops'
 import type {MigrationContext, Operation} from '../src/migration-ops'
 
 /** A context that records exec'd SQL and exposes a fake db. */
@@ -45,6 +56,70 @@ describe('schema() operation — always reversible, renders both directions', ()
     const b = recordingCtx()
     await op.down(b.ctx)
     expect(b.sql.join('\n')).toMatch(/DROP TABLE "widget"/)
+  })
+})
+
+describe('named operations — each wraps one change with built-in reverse', () => {
+  const col = {
+    name: 'age',
+    sqlType: 'integer' as const,
+    primaryKey: false,
+    autoIncrement: false,
+    unique: false,
+    nullable: true
+  }
+
+  it('addColumn up adds, down drops', async () => {
+    const op = addColumn('user', col)
+    expect(op.reversible).toBe(true)
+    const up = recordingCtx()
+    await op.up(up.ctx)
+    expect(up.sql).toEqual(['ALTER TABLE "user" ADD COLUMN "age" integer'])
+    const down = recordingCtx()
+    await op.down(down.ctx)
+    expect(down.sql).toEqual(['ALTER TABLE "user" DROP COLUMN "age"'])
+  })
+
+  it('dropColumn down re-adds from the spec', async () => {
+    const down = recordingCtx()
+    await dropColumn('user', col).down(down.ctx)
+    expect(down.sql).toEqual(['ALTER TABLE "user" ADD COLUMN "age" integer'])
+  })
+
+  it('addForeignKey up/down', async () => {
+    const fk = {
+      table: 'post',
+      name: 'post_author_id_fkey',
+      column: 'author_id',
+      refTable: 'user',
+      refColumn: 'id'
+    }
+    const up = recordingCtx()
+    await addForeignKey(fk).up(up.ctx)
+    expect(up.sql[0]).toMatch(/ADD CONSTRAINT "post_author_id_fkey" FOREIGN KEY/)
+    const down = recordingCtx()
+    await addForeignKey(fk).down(down.ctx)
+    expect(down.sql).toEqual(['ALTER TABLE "post" DROP CONSTRAINT "post_author_id_fkey"'])
+  })
+
+  it('addIndex up creates, down drops', async () => {
+    const ix = {name: 'user_age_idx', table: 'user', columns: ['age']}
+    const up = recordingCtx()
+    await addIndex(ix).up(up.ctx)
+    expect(up.sql).toEqual(['CREATE INDEX "user_age_idx" ON "user" ("age")'])
+    const down = recordingCtx()
+    await addIndex(ix).down(down.ctx)
+    expect(down.sql).toEqual(['DROP INDEX "user_age_idx"'])
+  })
+
+  it('renameColumn is reversible (renames back)', async () => {
+    const op = renameColumn('user', 'bio', 'about')
+    const up = recordingCtx()
+    await op.up(up.ctx)
+    expect(up.sql).toEqual(['ALTER TABLE "user" RENAME COLUMN "bio" TO "about"'])
+    const down = recordingCtx()
+    await op.down(down.ctx)
+    expect(down.sql).toEqual(['ALTER TABLE "user" RENAME COLUMN "about" TO "bio"'])
   })
 })
 

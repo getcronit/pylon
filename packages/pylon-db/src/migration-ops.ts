@@ -13,7 +13,14 @@
  * Reversibility is per-operation; a migration is reversible iff every operation
  * is. Rolling back an irreversible operation throws rather than half-reverting.
  */
-import {renderChanges, type SchemaChange} from '@getcronit/pylon-ir'
+import {
+  renderChanges,
+  type ColumnSpec,
+  type Entity,
+  type ForeignKeyChange,
+  type IndexSpec,
+  type SchemaChange
+} from '@getcronit/pylon-ir'
 import type {Database} from './database.js'
 
 /** Execution context handed to each operation. */
@@ -51,6 +58,63 @@ export function schema(changes: SchemaChange[]): Operation {
       for (const stmt of down) await ctx.exec(stmt)
     }
   }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Named schema operations (Django-style). Each is a thin, readable constructor
+// over a single SchemaChange — it inherits `schema()`'s built-in reverse, so no
+// operation has to spell out its own `down`. The generator emits these; you can
+// also hand-author them. For raw SQL or data logic, use runSql/run below.
+// ───────────────────────────────────────────────────────────────────────────
+
+/** Create a table from an entity spec (columns only; FKs/indexes are separate ops). */
+export function createTable(entity: Entity): Operation {
+  return schema([{kind: 'createTable', entity}])
+}
+
+/** Drop a table. `down` re-creates it (columns only). */
+export function dropTable(entity: Entity): Operation {
+  return schema([{kind: 'dropTable', entity}])
+}
+
+/** Add a column. `down` drops it. */
+export function addColumn(table: string, column: ColumnSpec): Operation {
+  return schema([{kind: 'addColumn', table, column}])
+}
+
+/** Drop a column. `down` re-adds it from the given spec. */
+export function dropColumn(table: string, column: ColumnSpec): Operation {
+  return schema([{kind: 'dropColumn', table, column}])
+}
+
+/** Alter a column (type/nullable/default/unique). `down` restores `before`. */
+export function alterColumn(table: string, before: ColumnSpec, after: ColumnSpec): Operation {
+  return schema([{kind: 'alterColumn', table, before, after}])
+}
+
+/** Add a foreign-key constraint. `down` drops it. */
+export function addForeignKey(fk: ForeignKeyChange): Operation {
+  return schema([{kind: 'addForeignKey', fk}])
+}
+
+/** Drop a foreign-key constraint. `down` re-adds it from the given spec. */
+export function dropForeignKey(fk: ForeignKeyChange): Operation {
+  return schema([{kind: 'dropForeignKey', fk}])
+}
+
+/** Create an index. `down` drops it. */
+export function addIndex(index: IndexSpec): Operation {
+  return schema([{kind: 'addIndex', index}])
+}
+
+/** Drop an index. `down` re-creates it from the given spec. */
+export function dropIndex(index: IndexSpec): Operation {
+  return schema([{kind: 'dropIndex', index}])
+}
+
+/** Rename a column (data-preserving). `down` renames it back. */
+export function renameColumn(table: string, from: string, to: string): Operation {
+  return schema([{kind: 'renameColumn', table, from, to}])
 }
 
 /** Raw SQL. Reversible only when a `down` statement is supplied. */

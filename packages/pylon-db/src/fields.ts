@@ -34,6 +34,8 @@ export interface FieldOptions {
   /** Override the column name. */
   column?: string
   unique?: boolean
+  /** Create a secondary (non-unique) index on this column. */
+  index?: boolean
   nullable?: boolean
   primaryKey?: boolean
   /** Literal default applied client-side on insert. */
@@ -237,6 +239,7 @@ function buildColumn(key: string, b: FieldBuilder): ColumnDefinition {
     unique: b.options.unique ?? b.base.unique ?? false,
     nullable: b.options.nullable ?? false,
     hidden,
+    index: b.options.index ?? false,
     length: b.options.length,
     default: b.options.default,
     defaultSql: b.options.defaultSql ?? b.base.defaultSql

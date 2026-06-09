@@ -6,8 +6,9 @@
  *   - 0001_init     `runSql` raw-DDL ops with explicit `down`  (schema)
  *   - 0002_seed     `runSql` data migration (INSERT up / DELETE down)
  *   - 0003_backfill `run`   TS code migration (read-then-write via `db`)
- * It asserts real data effects via a direct DB connection, and covers both
- * single-step and multi-step (`--steps`) rollback, then a clean re-apply.
+ *   - 0004_index    `addIndex` named op (Django-style, built-in reverse)
+ * It asserts real data + schema effects via a direct DB connection, and covers
+ * both single-step and multi-step (`--steps`) rollback, then a clean re-apply.
  *
  * Postgres is owned by the suite's globalSetup; this fixture uses `shop_*`
  * tables. Skipped only if Docker is unavailable.
@@ -44,43 +45,60 @@ function pylonDb(...args: string[]) {
 }
 
 describe.skipIf(!dockerAvailable)('pylon db — committed/authored migrations (live database)', () => {
-  let db: Database
+  // Each assertion opens a SHORT-LIVED connection rather than holding one pool
+  // across the suite: between assertions we spawn ~10s CLI processes, and an
+  // idle pooled client gets evicted (~10s) and breaks the next query.
+  const withDb = async <T>(fn: (db: Database) => Promise<T>): Promise<T> => {
+    const db = connect({connectionString})
+    try {
+      return await fn(db)
+    } finally {
+      await db.destroy()
+    }
+  }
 
-  const categoryNames = async () => {
-    const rows = await db.kysely.selectFrom('shop_category' as never).selectAll().execute()
-    return (rows as Array<{name: string}>).map(r => r.name).sort()
-  }
-  const productTitles = async () => {
-    const rows = await db.kysely.selectFrom('shop_product' as never).selectAll().execute()
-    return (rows as Array<{title: string}>).map(r => r.title).sort()
-  }
-  const tableExists = async (name: string) => {
-    const row = await db.kysely
-      .selectFrom('information_schema.tables' as never)
-      .select('table_name' as never)
-      .where('table_name' as never, '=', name as never)
-      .executeTakeFirst()
-    return !!row
-  }
-  const reset = async () => {
-    await db.kysely.schema.dropTable('shop_product').ifExists().cascade().execute()
-    await db.kysely.schema.dropTable('shop_category').ifExists().cascade().execute()
-    await db.kysely.schema.dropTable('_pylon_migrations').ifExists().cascade().execute()
-  }
+  const categoryNames = () =>
+    withDb(async db => {
+      const rows = await db.kysely.selectFrom('shop_category' as never).selectAll().execute()
+      return (rows as Array<{name: string}>).map(r => r.name).sort()
+    })
+  const productTitles = () =>
+    withDb(async db => {
+      const rows = await db.kysely.selectFrom('shop_product' as never).selectAll().execute()
+      return (rows as Array<{title: string}>).map(r => r.title).sort()
+    })
+  const tableExists = (name: string) =>
+    withDb(async db =>
+      !!(await db.kysely
+        .selectFrom('information_schema.tables' as never)
+        .select('table_name' as never)
+        .where('table_name' as never, '=', name as never)
+        .executeTakeFirst())
+    )
+  const indexExists = (name: string) =>
+    withDb(async db =>
+      !!(await db.kysely
+        .selectFrom('pg_indexes' as never)
+        .select('indexname' as never)
+        .where('indexname' as never, '=', name as never)
+        .executeTakeFirst())
+    )
+  const reset = () =>
+    withDb(async db => {
+      await db.kysely.schema.dropTable('shop_product').ifExists().cascade().execute()
+      await db.kysely.schema.dropTable('shop_category').ifExists().cascade().execute()
+      await db.kysely.schema.dropTable('_pylon_migrations').ifExists().cascade().execute()
+    })
 
   beforeAll(async () => {
     if (!existsSync(cliBin)) {
       throw new Error(`pylon CLI not built at ${cliBin}. Run \`pnpm --filter pylon-e2e test\`.`)
     }
-    db = connect({connectionString})
     await reset()
   }, 60_000)
 
   afterAll(async () => {
-    if (db) {
-      await reset()
-      await db.destroy()
-    }
+    await reset()
   })
 
   it('status lists the committed migrations as unapplied with no pending changes', () => {
@@ -88,39 +106,44 @@ describe.skipIf(!dockerAvailable)('pylon db — committed/authored migrations (l
     expect(r.status, r.out).toBe(0)
     // snapshot.json matches the models → nothing uncaptured
     expect(r.out).toMatch(/Uncaptured schema changes:\s*0/)
-    // 0001_init + 0002_seed + 0003_backfill, none applied yet
-    expect(r.out).toMatch(/Migrations: 3 \(3 unapplied\)/)
+    // 0001_init + 0002_seed + 0003_backfill + 0004_index, none applied yet
+    expect(r.out).toMatch(/Migrations: 4 \(4 unapplied\)/)
   })
 
-  it('migrate applies all three authoring styles in order (schema/runSql/run)', async () => {
+  it('migrate applies all four authoring styles in order (runSql/run/addIndex)', async () => {
     const r = pylonDb('migrate')
     expect(r.status, r.out).toBe(0)
-    expect(r.out).toMatch(/Applied 3 migration\(s\): 0001_init, 0002_seed, 0003_backfill/)
+    expect(r.out).toMatch(
+      /Applied 4 migration\(s\): 0001_init, 0002_seed, 0003_backfill, 0004_index/
+    )
     expect(await tableExists('shop_product')).toBe(true)
     expect(await categoryNames()).toEqual(['Books', 'Toys']) // runSql seed
     expect(await productTitles()).toEqual(['Intro to Pylon']) // run() backfill
+    expect(await indexExists('shop_product_title_idx')).toBe(true) // addIndex
   })
 
   it('status now reports everything applied', () => {
     const r = pylonDb('status')
     expect(r.status, r.out).toBe(0)
-    expect(r.out).toMatch(/Migrations: 3 \(0 unapplied\)/)
+    expect(r.out).toMatch(/Migrations: 4 \(0 unapplied\)/)
   })
 
-  it('rollback reverses only the newest migration — the run() code migration', async () => {
+  it('rollback reverses only the newest migration — the addIndex op drops the index', async () => {
     const r = pylonDb('rollback')
     expect(r.status, r.out).toBe(0)
-    expect(r.out).toMatch(/Rolled back 1 migration\(s\): 0003_backfill/)
-    // the run() handler's `down` removed the product…
-    expect(await productTitles()).toEqual([])
-    // …while the seeded categories (an earlier migration) remain
-    expect(await categoryNames()).toEqual(['Books', 'Toys'])
+    expect(r.out).toMatch(/Rolled back 1 migration\(s\): 0004_index/)
+    // addIndex's built-in reverse dropped the index…
+    expect(await indexExists('shop_product_title_idx')).toBe(false)
+    // …while the row written by the run() migration is untouched
+    expect(await productTitles()).toEqual(['Intro to Pylon'])
   })
 
-  it('rollback --steps 2 reverses the seed then the schema, dropping the tables', async () => {
-    const r = pylonDb('rollback', '--steps', '2')
+  it('rollback --steps 3 reverses run/runSql/schema together, dropping the tables', async () => {
+    const r = pylonDb('rollback', '--steps', '3')
     expect(r.status, r.out).toBe(0)
-    expect(r.out).toMatch(/Rolled back 2 migration\(s\): 0002_seed, 0001_init/)
+    expect(r.out).toMatch(
+      /Rolled back 3 migration\(s\): 0003_backfill, 0002_seed, 0001_init/
+    )
     expect(await tableExists('shop_product')).toBe(false)
     expect(await tableExists('shop_category')).toBe(false)
   })
@@ -128,8 +151,9 @@ describe.skipIf(!dockerAvailable)('pylon db — committed/authored migrations (l
   it('re-applies cleanly after a full rollback', async () => {
     const r = pylonDb('migrate')
     expect(r.status, r.out).toBe(0)
-    expect(r.out).toMatch(/Applied 3 migration/)
+    expect(r.out).toMatch(/Applied 4 migration/)
     expect(await categoryNames()).toEqual(['Books', 'Toys'])
     expect(await productTitles()).toEqual(['Intro to Pylon'])
+    expect(await indexExists('shop_product_title_idx')).toBe(true)
   })
 })

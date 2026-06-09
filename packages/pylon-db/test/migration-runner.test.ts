@@ -62,11 +62,12 @@ describe('MigrationRunner — generate / status (file workflow, no DB)', () => {
     expect(m?.name).toBe('t1_init')
     expect(m?.changes.map(c => c.kind)).toEqual(['createTable'])
 
-    // the migration file is a TS module authored against the public API
+    // the migration file is a TS module authored against the public API, using
+    // the named (Django-style) operations rather than one schema([...]) blob
     const src = await fileContents(r, 't1_init')
     expect(src).toContain("import {migrations} from '@getcronit/pylon-db'")
     expect(src).toContain('migrations.defineMigration(')
-    expect(src).toContain('migrations.schema(')
+    expect(src).toContain('migrations.createTable(')
 
     // baseline snapshot.json now reflects v1
     const baseline = await r.loadBaseline()

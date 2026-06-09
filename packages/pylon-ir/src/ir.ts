@@ -58,6 +58,17 @@ export interface ColumnSpec {
   serialize?: 'json'
 }
 
+/** A secondary index on one or more columns. Self-contained (carries `table`)
+ *  so it can be diffed and rendered without an entity lookup. */
+export interface IndexSpec {
+  /** Deterministic name: `<table>_<col…>_idx` (or `…_key` when unique). */
+  name: string
+  table: string
+  /** Column names, in index order. */
+  columns: string[]
+  unique?: boolean
+}
+
 /** How a field relates to another entity (entities only). */
 export interface RelationSpec {
   kind: 'belongsTo' | 'hasMany'
@@ -95,6 +106,8 @@ export interface Entity {
   primaryKey?: string
   /** Interface names this type implements (e.g. `IModel`). */
   implements: string[]
+  /** Secondary indexes (beyond PK / column-level UNIQUE constraints). */
+  indexes?: IndexSpec[]
 }
 
 /** A non-persisted object type (DTO, json shape, resolver return shape). */
