@@ -314,6 +314,9 @@ importers:
       '@getcronit/pylon':
         specifier: workspace:^2.0.0
         version: link:../pylon
+      '@getcronit/pylon-ir':
+        specifier: workspace:*
+        version: link:../pylon-ir
       '@gqty/cli':
         specifier: ^4.2.5
         version: 4.3.0(@types/node@20.19.33)(typescript@5.9.3)
@@ -352,8 +355,29 @@ importers:
         specifier: ^2.0.0
         version: 2.1.9(@types/node@20.19.33)(jsdom@28.1.0)(lightningcss@1.30.2)
 
+  packages/pylon-ir:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.33
+      esbuild:
+        specifier: ^0.23.1
+        version: 0.23.1
+      rimraf:
+        specifier: ^6.0.1
+        version: 6.1.2
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.0.0
+        version: 2.1.9(@types/node@20.19.33)(jsdom@28.1.0)(lightningcss@1.30.2)
+
   packages/pylon-orm:
     dependencies:
+      '@getcronit/pylon-ir':
+        specifier: workspace:*
+        version: link:../pylon-ir
       kysely:
         specifier: ^0.27.4
         version: 0.27.6
