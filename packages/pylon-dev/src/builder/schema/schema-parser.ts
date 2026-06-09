@@ -74,6 +74,21 @@ interface Type {
   rawType: ts.Type
 }
 
+/**
+ * The introspection WORKING representation — distinct from `@getcronit/pylon-ir`
+ * on purpose, and NOT redundant with it:
+ *
+ *   TS types ─▶ Schema (this) ─▶ ts.Type-dependent transforms ─▶ toIR() ─▶ PylonIR
+ *              └── carries `rawType: ts.Type` ──┘                └ serializable, no ts.Type ┘
+ *
+ * The transform passes (interface promotion, inheritance→interface, unions) must
+ * compare TypeScript type identities (`rawType === x`, `getSymbol()`,
+ * `checker.typeToString(...)`), so this representation carries `ts.Type` handles.
+ * `PylonIR` deliberately does NOT (it's a snapshot/diff/contribution artifact),
+ * which is why `toIR()` is the projection boundary rather than a redundant copy.
+ * All OUTPUTS (SDL via toSDL, SQL, migrations, ORM merge) flow from the IR; this
+ * `Schema` exists only to do the `ts.Type`-dependent work that precedes it.
+ */
 export interface Schema {
   types: Array<Type>
   inputs: Array<Input>
