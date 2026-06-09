@@ -1,0 +1,1402 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`IR characterization — lists > scalar lists, object lists, nested lists, nullable lists 1`] = `
+{
+  "entities": {},
+  "enums": {},
+  "inputs": {},
+  "interfaces": {},
+  "objects": {
+    "Item": {
+      "description": undefined,
+      "fields": [
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "id",
+          "type": {
+            "kind": "scalar",
+            "name": "Number",
+            "nullable": false,
+          },
+        },
+      ],
+      "implements": undefined,
+      "name": "Item",
+    },
+    "T": {
+      "description": undefined,
+      "fields": [
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "scalars",
+          "type": {
+            "kind": "list",
+            "nullable": false,
+            "of": {
+              "kind": "scalar",
+              "name": "String",
+              "nullable": false,
+            },
+          },
+        },
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "items",
+          "type": {
+            "kind": "list",
+            "nullable": false,
+            "of": {
+              "kind": "ref",
+              "name": "Item",
+              "nullable": false,
+            },
+          },
+        },
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "nested",
+          "type": {
+            "kind": "list",
+            "nullable": false,
+            "of": {
+              "kind": "scalar",
+              "name": "Number",
+              "nullable": false,
+            },
+          },
+        },
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "listOrNull",
+          "type": {
+            "kind": "list",
+            "nullable": true,
+            "of": {
+              "kind": "scalar",
+              "name": "String",
+              "nullable": false,
+            },
+          },
+        },
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "nullableItems",
+          "type": {
+            "kind": "list",
+            "nullable": false,
+            "of": {
+              "kind": "ref",
+              "name": "Item",
+              "nullable": true,
+            },
+          },
+        },
+      ],
+      "implements": undefined,
+      "name": "T",
+    },
+  },
+  "operations": [
+    {
+      "args": [],
+      "name": "t",
+      "returns": {
+        "kind": "ref",
+        "name": "T",
+        "nullable": false,
+      },
+      "root": "Query",
+    },
+  ],
+  "scalars": [
+    "String",
+    "ID",
+    "Int",
+    "Float",
+    "Boolean",
+    "Number",
+    "Any",
+    "Void",
+    "JSONObject",
+    "File",
+    "Date",
+    "JSON",
+  ],
+  "unions": {},
+  "version": 1,
+}
+`;
+
+exports[`IR characterization — object graphs > mutually recursive types 1`] = `
+{
+  "entities": {},
+  "enums": {},
+  "inputs": {},
+  "interfaces": {},
+  "objects": {
+    "A": {
+      "description": undefined,
+      "fields": [
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "id",
+          "type": {
+            "kind": "scalar",
+            "name": "Number",
+            "nullable": false,
+          },
+        },
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "b",
+          "type": {
+            "kind": "ref",
+            "name": "B",
+            "nullable": true,
+          },
+        },
+      ],
+      "implements": undefined,
+      "name": "A",
+    },
+    "B": {
+      "description": undefined,
+      "fields": [
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "id",
+          "type": {
+            "kind": "scalar",
+            "name": "Number",
+            "nullable": false,
+          },
+        },
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "a",
+          "type": {
+            "kind": "ref",
+            "name": "A",
+            "nullable": true,
+          },
+        },
+      ],
+      "implements": undefined,
+      "name": "B",
+    },
+  },
+  "operations": [
+    {
+      "args": [],
+      "name": "a",
+      "returns": {
+        "kind": "ref",
+        "name": "A",
+        "nullable": false,
+      },
+      "root": "Query",
+    },
+  ],
+  "scalars": [
+    "String",
+    "ID",
+    "Int",
+    "Float",
+    "Boolean",
+    "Number",
+    "Any",
+    "Void",
+    "JSONObject",
+    "File",
+    "Date",
+    "JSON",
+  ],
+  "unions": {},
+  "version": 1,
+}
+`;
+
+exports[`IR characterization — object graphs > nested objects 1`] = `
+{
+  "entities": {},
+  "enums": {},
+  "inputs": {},
+  "interfaces": {},
+  "objects": {
+    "Address": {
+      "description": undefined,
+      "fields": [
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "street",
+          "type": {
+            "kind": "scalar",
+            "name": "String",
+            "nullable": false,
+          },
+        },
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "city",
+          "type": {
+            "kind": "scalar",
+            "name": "String",
+            "nullable": false,
+          },
+        },
+      ],
+      "implements": undefined,
+      "name": "Address",
+    },
+    "User": {
+      "description": undefined,
+      "fields": [
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "id",
+          "type": {
+            "kind": "scalar",
+            "name": "Number",
+            "nullable": false,
+          },
+        },
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "address",
+          "type": {
+            "kind": "ref",
+            "name": "Address",
+            "nullable": false,
+          },
+        },
+      ],
+      "implements": undefined,
+      "name": "User",
+    },
+  },
+  "operations": [
+    {
+      "args": [],
+      "name": "user",
+      "returns": {
+        "kind": "ref",
+        "name": "User",
+        "nullable": false,
+      },
+      "root": "Query",
+    },
+  ],
+  "scalars": [
+    "String",
+    "ID",
+    "Int",
+    "Float",
+    "Boolean",
+    "Number",
+    "Any",
+    "Void",
+    "JSONObject",
+    "File",
+    "Date",
+    "JSON",
+  ],
+  "unions": {},
+  "version": 1,
+}
+`;
+
+exports[`IR characterization — object graphs > self-referential (recursive) type 1`] = `
+{
+  "entities": {},
+  "enums": {},
+  "inputs": {},
+  "interfaces": {},
+  "objects": {
+    "Node": {
+      "description": undefined,
+      "fields": [
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "id",
+          "type": {
+            "kind": "scalar",
+            "name": "Number",
+            "nullable": false,
+          },
+        },
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "parent",
+          "type": {
+            "kind": "ref",
+            "name": "Node",
+            "nullable": true,
+          },
+        },
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "children",
+          "type": {
+            "kind": "list",
+            "nullable": false,
+            "of": {
+              "kind": "ref",
+              "name": "Node",
+              "nullable": false,
+            },
+          },
+        },
+      ],
+      "implements": undefined,
+      "name": "Node",
+    },
+  },
+  "operations": [
+    {
+      "args": [],
+      "name": "node",
+      "returns": {
+        "kind": "ref",
+        "name": "Node",
+        "nullable": false,
+      },
+      "root": "Query",
+    },
+  ],
+  "scalars": [
+    "String",
+    "ID",
+    "Int",
+    "Float",
+    "Boolean",
+    "Number",
+    "Any",
+    "Void",
+    "JSONObject",
+    "File",
+    "Date",
+    "JSON",
+  ],
+  "unions": {},
+  "version": 1,
+}
+`;
+
+exports[`IR characterization — resolvers, args & inputs > object arg becomes an input (nested + optional) 1`] = `
+{
+  "entities": {},
+  "enums": {},
+  "inputs": {
+    "CreateUserInput": {
+      "description": undefined,
+      "fields": [
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "name",
+          "type": {
+            "kind": "scalar",
+            "name": "String",
+            "nullable": false,
+          },
+        },
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "age",
+          "type": {
+            "kind": "scalar",
+            "name": "Number",
+            "nullable": true,
+          },
+        },
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "tags",
+          "type": {
+            "kind": "list",
+            "nullable": false,
+            "of": {
+              "kind": "scalar",
+              "name": "String",
+              "nullable": false,
+            },
+          },
+        },
+      ],
+      "name": "CreateUserInput",
+    },
+  },
+  "interfaces": {},
+  "objects": {
+    "User": {
+      "description": undefined,
+      "fields": [
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "id",
+          "type": {
+            "kind": "scalar",
+            "name": "Number",
+            "nullable": false,
+          },
+        },
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "name",
+          "type": {
+            "kind": "scalar",
+            "name": "String",
+            "nullable": false,
+          },
+        },
+      ],
+      "implements": undefined,
+      "name": "User",
+    },
+  },
+  "operations": [
+    {
+      "args": [
+        {
+          "exposed": true,
+          "name": "input",
+          "type": {
+            "kind": "ref",
+            "name": "CreateUserInput",
+            "nullable": false,
+          },
+        },
+      ],
+      "name": "createUser",
+      "returns": {
+        "kind": "ref",
+        "name": "User",
+        "nullable": false,
+      },
+      "root": "Mutation",
+    },
+  ],
+  "scalars": [
+    "String",
+    "ID",
+    "Int",
+    "Float",
+    "Boolean",
+    "Number",
+    "Any",
+    "Void",
+    "JSONObject",
+    "File",
+    "Date",
+    "JSON",
+  ],
+  "unions": {},
+  "version": 1,
+}
+`;
+
+exports[`IR characterization — resolvers, args & inputs > positional scalar args 1`] = `
+{
+  "entities": {},
+  "enums": {},
+  "inputs": {},
+  "interfaces": {},
+  "objects": {},
+  "operations": [
+    {
+      "args": [
+        {
+          "exposed": true,
+          "name": "name",
+          "type": {
+            "kind": "scalar",
+            "name": "String",
+            "nullable": false,
+          },
+        },
+        {
+          "exposed": true,
+          "name": "times",
+          "type": {
+            "kind": "scalar",
+            "name": "Number",
+            "nullable": false,
+          },
+        },
+      ],
+      "name": "greet",
+      "returns": {
+        "kind": "scalar",
+        "name": "String",
+        "nullable": false,
+      },
+      "root": "Query",
+    },
+  ],
+  "scalars": [
+    "String",
+    "ID",
+    "Int",
+    "Float",
+    "Boolean",
+    "Number",
+    "Any",
+    "Void",
+    "JSONObject",
+    "File",
+    "Date",
+    "JSON",
+  ],
+  "unions": {},
+  "version": 1,
+}
+`;
+
+exports[`IR characterization — resolvers, args & inputs > promise return types 1`] = `
+{
+  "entities": {},
+  "enums": {},
+  "inputs": {},
+  "interfaces": {},
+  "objects": {
+    "User": {
+      "description": undefined,
+      "fields": [
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "id",
+          "type": {
+            "kind": "scalar",
+            "name": "Number",
+            "nullable": false,
+          },
+        },
+      ],
+      "implements": undefined,
+      "name": "User",
+    },
+  },
+  "operations": [
+    {
+      "args": [],
+      "name": "one",
+      "returns": {
+        "kind": "ref",
+        "name": "User",
+        "nullable": false,
+      },
+      "root": "Query",
+    },
+    {
+      "args": [],
+      "name": "many",
+      "returns": {
+        "kind": "list",
+        "nullable": false,
+        "of": {
+          "kind": "ref",
+          "name": "User",
+          "nullable": false,
+        },
+      },
+      "root": "Query",
+    },
+  ],
+  "scalars": [
+    "String",
+    "ID",
+    "Int",
+    "Float",
+    "Boolean",
+    "Number",
+    "Any",
+    "Void",
+    "JSONObject",
+    "File",
+    "Date",
+    "JSON",
+  ],
+  "unions": {},
+  "version": 1,
+}
+`;
+
+exports[`IR characterization — roots, typename & generics > __typename literal override 1`] = `
+{
+  "entities": {},
+  "enums": {},
+  "inputs": {},
+  "interfaces": {},
+  "objects": {
+    "Animal": {
+      "description": undefined,
+      "fields": [
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "name",
+          "type": {
+            "kind": "scalar",
+            "name": "String",
+            "nullable": false,
+          },
+        },
+      ],
+      "implements": undefined,
+      "name": "Animal",
+    },
+  },
+  "operations": [
+    {
+      "args": [],
+      "name": "dog",
+      "returns": {
+        "kind": "ref",
+        "name": "Animal",
+        "nullable": false,
+      },
+      "root": "Query",
+    },
+  ],
+  "scalars": [
+    "String",
+    "ID",
+    "Int",
+    "Float",
+    "Boolean",
+    "Number",
+    "Any",
+    "Void",
+    "JSONObject",
+    "File",
+    "Date",
+    "JSON",
+  ],
+  "unions": {},
+  "version": 1,
+}
+`;
+
+exports[`IR characterization — roots, typename & generics > Connection/Edge generics 1`] = `
+{
+  "entities": {},
+  "enums": {},
+  "inputs": {},
+  "interfaces": {},
+  "objects": {
+    "PageInfo": {
+      "description": undefined,
+      "fields": [
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "hasNextPage",
+          "type": {
+            "kind": "scalar",
+            "name": "Boolean",
+            "nullable": false,
+          },
+        },
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "endCursor",
+          "type": {
+            "kind": "scalar",
+            "name": "String",
+            "nullable": false,
+          },
+        },
+      ],
+      "implements": undefined,
+      "name": "PageInfo",
+    },
+    "User": {
+      "description": undefined,
+      "fields": [
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "id",
+          "type": {
+            "kind": "scalar",
+            "name": "String",
+            "nullable": false,
+          },
+        },
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "name",
+          "type": {
+            "kind": "scalar",
+            "name": "String",
+            "nullable": false,
+          },
+        },
+      ],
+      "implements": undefined,
+      "name": "User",
+    },
+    "UserConnection": {
+      "description": undefined,
+      "fields": [
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "edges",
+          "type": {
+            "kind": "list",
+            "nullable": false,
+            "of": {
+              "kind": "ref",
+              "name": "UserEdge",
+              "nullable": false,
+            },
+          },
+        },
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "pageInfo",
+          "type": {
+            "kind": "ref",
+            "name": "PageInfo",
+            "nullable": false,
+          },
+        },
+      ],
+      "implements": undefined,
+      "name": "UserConnection",
+    },
+    "UserEdge": {
+      "description": undefined,
+      "fields": [
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "node",
+          "type": {
+            "kind": "ref",
+            "name": "User",
+            "nullable": false,
+          },
+        },
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "cursor",
+          "type": {
+            "kind": "scalar",
+            "name": "String",
+            "nullable": false,
+          },
+        },
+      ],
+      "implements": undefined,
+      "name": "UserEdge",
+    },
+  },
+  "operations": [
+    {
+      "args": [],
+      "name": "users",
+      "returns": {
+        "kind": "ref",
+        "name": "UserConnection",
+        "nullable": false,
+      },
+      "root": "Query",
+    },
+  ],
+  "scalars": [
+    "String",
+    "ID",
+    "Int",
+    "Float",
+    "Boolean",
+    "Number",
+    "Any",
+    "Void",
+    "JSONObject",
+    "File",
+    "Date",
+    "JSON",
+  ],
+  "unions": {},
+  "version": 1,
+}
+`;
+
+exports[`IR characterization — roots, typename & generics > Query + Mutation together (multiple roots) 1`] = `
+{
+  "entities": {},
+  "enums": {},
+  "inputs": {},
+  "interfaces": {},
+  "objects": {
+    "User": {
+      "description": undefined,
+      "fields": [
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "id",
+          "type": {
+            "kind": "scalar",
+            "name": "Number",
+            "nullable": false,
+          },
+        },
+      ],
+      "implements": undefined,
+      "name": "User",
+    },
+  },
+  "operations": [
+    {
+      "args": [],
+      "name": "user",
+      "returns": {
+        "kind": "ref",
+        "name": "User",
+        "nullable": false,
+      },
+      "root": "Query",
+    },
+    {
+      "args": [
+        {
+          "exposed": true,
+          "name": "name",
+          "type": {
+            "kind": "scalar",
+            "name": "String",
+            "nullable": false,
+          },
+        },
+      ],
+      "name": "setName",
+      "returns": {
+        "kind": "ref",
+        "name": "User",
+        "nullable": false,
+      },
+      "root": "Mutation",
+    },
+  ],
+  "scalars": [
+    "String",
+    "ID",
+    "Int",
+    "Float",
+    "Boolean",
+    "Number",
+    "Any",
+    "Void",
+    "JSONObject",
+    "File",
+    "Date",
+    "JSON",
+  ],
+  "unions": {},
+  "version": 1,
+}
+`;
+
+exports[`IR characterization — scalars & nullability > all primitive scalars 1`] = `
+{
+  "entities": {},
+  "enums": {},
+  "inputs": {},
+  "interfaces": {},
+  "objects": {},
+  "operations": [
+    {
+      "args": [],
+      "name": "str",
+      "returns": {
+        "kind": "scalar",
+        "name": "String",
+        "nullable": false,
+      },
+      "root": "Query",
+    },
+    {
+      "args": [],
+      "name": "int",
+      "returns": {
+        "kind": "scalar",
+        "name": "Number",
+        "nullable": false,
+      },
+      "root": "Query",
+    },
+    {
+      "args": [],
+      "name": "float",
+      "returns": {
+        "kind": "scalar",
+        "name": "Number",
+        "nullable": false,
+      },
+      "root": "Query",
+    },
+    {
+      "args": [],
+      "name": "bool",
+      "returns": {
+        "kind": "scalar",
+        "name": "Boolean",
+        "nullable": false,
+      },
+      "root": "Query",
+    },
+    {
+      "args": [],
+      "name": "date",
+      "returns": {
+        "kind": "scalar",
+        "name": "Date",
+        "nullable": false,
+      },
+      "root": "Query",
+    },
+    {
+      "args": [],
+      "name": "json",
+      "returns": {
+        "kind": "scalar",
+        "name": "Any",
+        "nullable": false,
+      },
+      "root": "Query",
+    },
+  ],
+  "scalars": [
+    "String",
+    "ID",
+    "Int",
+    "Float",
+    "Boolean",
+    "Number",
+    "Any",
+    "Void",
+    "JSONObject",
+    "File",
+    "Date",
+    "JSON",
+  ],
+  "unions": {},
+  "version": 1,
+}
+`;
+
+exports[`IR characterization — scalars & nullability > optional and null-union fields 1`] = `
+{
+  "entities": {},
+  "enums": {},
+  "inputs": {},
+  "interfaces": {},
+  "objects": {
+    "T": {
+      "description": undefined,
+      "fields": [
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "req",
+          "type": {
+            "kind": "scalar",
+            "name": "String",
+            "nullable": false,
+          },
+        },
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "opt",
+          "type": {
+            "kind": "scalar",
+            "name": "String",
+            "nullable": true,
+          },
+        },
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "orNull",
+          "type": {
+            "kind": "scalar",
+            "name": "String",
+            "nullable": true,
+          },
+        },
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "numOrNull",
+          "type": {
+            "kind": "scalar",
+            "name": "Number",
+            "nullable": true,
+          },
+        },
+      ],
+      "implements": undefined,
+      "name": "T",
+    },
+  },
+  "operations": [
+    {
+      "args": [],
+      "name": "t",
+      "returns": {
+        "kind": "ref",
+        "name": "T",
+        "nullable": false,
+      },
+      "root": "Query",
+    },
+  ],
+  "scalars": [
+    "String",
+    "ID",
+    "Int",
+    "Float",
+    "Boolean",
+    "Number",
+    "Any",
+    "Void",
+    "JSONObject",
+    "File",
+    "Date",
+    "JSON",
+  ],
+  "unions": {},
+  "version": 1,
+}
+`;
+
+exports[`IR characterization — unions, interfaces & enums > class inheritance → interface 1`] = `
+{
+  "entities": {},
+  "enums": {},
+  "inputs": {},
+  "interfaces": {
+    "INode": {
+      "description": undefined,
+      "fields": [
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "id",
+          "type": {
+            "kind": "scalar",
+            "name": "Number",
+            "nullable": false,
+          },
+        },
+      ],
+      "implements": [],
+      "name": "INode",
+    },
+  },
+  "objects": {
+    "Node": {
+      "description": undefined,
+      "fields": [
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "id",
+          "type": {
+            "kind": "scalar",
+            "name": "Number",
+            "nullable": false,
+          },
+        },
+      ],
+      "implements": [
+        "INode",
+      ],
+      "name": "Node",
+    },
+    "Post": {
+      "description": undefined,
+      "fields": [
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "title",
+          "type": {
+            "kind": "scalar",
+            "name": "String",
+            "nullable": false,
+          },
+        },
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "id",
+          "type": {
+            "kind": "scalar",
+            "name": "Number",
+            "nullable": false,
+          },
+        },
+      ],
+      "implements": [
+        "INode",
+      ],
+      "name": "Post",
+    },
+    "User": {
+      "description": undefined,
+      "fields": [
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "email",
+          "type": {
+            "kind": "scalar",
+            "name": "String",
+            "nullable": false,
+          },
+        },
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "id",
+          "type": {
+            "kind": "scalar",
+            "name": "Number",
+            "nullable": false,
+          },
+        },
+      ],
+      "implements": [
+        "INode",
+      ],
+      "name": "User",
+    },
+  },
+  "operations": [
+    {
+      "args": [],
+      "name": "user",
+      "returns": {
+        "kind": "ref",
+        "name": "User",
+        "nullable": false,
+      },
+      "root": "Query",
+    },
+    {
+      "args": [],
+      "name": "post",
+      "returns": {
+        "kind": "ref",
+        "name": "Post",
+        "nullable": false,
+      },
+      "root": "Query",
+    },
+  ],
+  "scalars": [
+    "String",
+    "ID",
+    "Int",
+    "Float",
+    "Boolean",
+    "Number",
+    "Any",
+    "Void",
+    "JSONObject",
+    "File",
+    "Date",
+    "JSON",
+  ],
+  "unions": {},
+  "version": 1,
+}
+`;
+
+exports[`IR characterization — unions, interfaces & enums > string-literal union → enum 1`] = `
+{
+  "entities": {},
+  "enums": {
+    "Role": {
+      "name": "Role",
+      "values": [
+        "ADMIN",
+        "USER",
+        "GUEST",
+      ],
+    },
+  },
+  "inputs": {},
+  "interfaces": {},
+  "objects": {
+    "Account": {
+      "description": undefined,
+      "fields": [
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "id",
+          "type": {
+            "kind": "scalar",
+            "name": "Number",
+            "nullable": false,
+          },
+        },
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "role",
+          "type": {
+            "kind": "ref",
+            "name": "Role",
+            "nullable": false,
+          },
+        },
+      ],
+      "implements": undefined,
+      "name": "Account",
+    },
+  },
+  "operations": [
+    {
+      "args": [],
+      "name": "account",
+      "returns": {
+        "kind": "ref",
+        "name": "Account",
+        "nullable": false,
+      },
+      "root": "Query",
+    },
+  ],
+  "scalars": [
+    "String",
+    "ID",
+    "Int",
+    "Float",
+    "Boolean",
+    "Number",
+    "Any",
+    "Void",
+    "JSONObject",
+    "File",
+    "Date",
+    "JSON",
+  ],
+  "unions": {},
+  "version": 1,
+}
+`;
+
+exports[`IR characterization — unions, interfaces & enums > union of distinct objects 1`] = `
+{
+  "entities": {},
+  "enums": {},
+  "inputs": {},
+  "interfaces": {},
+  "objects": {
+    "A": {
+      "description": undefined,
+      "fields": [
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "a",
+          "type": {
+            "kind": "scalar",
+            "name": "String",
+            "nullable": false,
+          },
+        },
+      ],
+      "implements": undefined,
+      "name": "A",
+    },
+    "B": {
+      "description": undefined,
+      "fields": [
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "b",
+          "type": {
+            "kind": "scalar",
+            "name": "Number",
+            "nullable": false,
+          },
+        },
+      ],
+      "implements": undefined,
+      "name": "B",
+    },
+  },
+  "operations": [
+    {
+      "args": [],
+      "name": "r",
+      "returns": {
+        "kind": "ref",
+        "name": "R",
+        "nullable": false,
+      },
+      "root": "Query",
+    },
+  ],
+  "scalars": [
+    "String",
+    "ID",
+    "Int",
+    "Float",
+    "Boolean",
+    "Number",
+    "Any",
+    "Void",
+    "JSONObject",
+    "File",
+    "Date",
+    "JSON",
+  ],
+  "unions": {
+    "R": {
+      "description": undefined,
+      "members": [
+        "A",
+        "B",
+      ],
+      "name": "R",
+    },
+  },
+  "version": 1,
+}
+`;
