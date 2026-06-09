@@ -4,12 +4,19 @@
  * The ORM's IR/registry only exists after the `@model()` decorators run, so any
  * consumer that needs it must EXECUTE the user's models — in the project's
  * module context, so the decorators populate the same `@getcronit/pylon-orm`
- * instance we then read. We bundle a driver that imports the models and
- * re-exports the project's pylon-orm; one native ESM import yields a populated
- * registry plus the API, from a single instance.
+ * instance we then read.
+ *
+ * Critically, we do NOT import the entry as-is: that would run its top-level
+ * `serve(app)` / `Deno.serve(...)` and start a server during the build. Instead
+ * we load a side-effect-stripped view of the entry (declarations + imports, no
+ * serve, no default export) and re-export the project's pylon-orm. One native
+ * ESM import yields a populated registry plus the API, from a single instance —
+ * and no server starts. Runtime-agnostic, since every runtime's entrypoint form
+ * is among the dropped statements.
  */
 import {promises as fs} from 'node:fs'
 import path from 'node:path'
+import {prepareModelSource} from './builder/prepare-model-source.js'
 import {pathToFileURL} from 'node:url'
 import esbuild from 'esbuild'
 import type {PylonIR} from '@getcronit/pylon-ir'
@@ -36,15 +43,22 @@ export async function loadProjectOrm(
   cwd: string,
   modelsEntry: string
 ): Promise<ProjectOrm> {
+  // Strip the entry's side effects (serve etc.) before loading, so executing it
+  // registers models without starting a server. Imports inside the stripped
+  // source resolve relative to the entry's own directory.
+  const entryAbs = path.resolve(cwd, modelsEntry)
+  const stripped = prepareModelSource(
+    await fs.readFile(entryAbs, 'utf8'),
+    path.basename(entryAbs)
+  )
+
   // Unique temp name per call so a watch-mode re-import re-runs the models
   // (a fixed name would be cached by the ESM loader → stale registry).
   const tmp = path.join(cwd, `.pylon-orm-entry.${process.pid}.${counter++}.mjs`)
   await esbuild.build({
     stdin: {
-      contents:
-        `import ${JSON.stringify(modelsEntry)}\n` +
-        `export * from '@getcronit/pylon-orm'\n`,
-      resolveDir: cwd,
+      contents: `${stripped}\nexport * from '@getcronit/pylon-orm'\n`,
+      resolveDir: path.dirname(entryAbs),
       loader: 'ts',
       sourcefile: 'pylon-orm-entry.ts'
     },

@@ -7,9 +7,11 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "@getcronit/pylon": "workspace:*",
     "@getcronit/pylon-dev": "workspace:*",
     "@getcronit/pylon-ir": "workspace:*",
     "@getcronit/pylon-orm": "workspace:*",
+    "@hono/node-server": "^1.12.2",
     "graphql": "^16.9.0",
     "vitest": "^2.0.0"
   }

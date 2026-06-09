@@ -47,6 +47,9 @@ importers:
 
   e2e:
     devDependencies:
+      '@getcronit/pylon':
+        specifier: workspace:*
+        version: link:../packages/pylon
       '@getcronit/pylon-dev':
         specifier: workspace:*
         version: link:../packages/pylon-dev
@@ -56,6 +59,9 @@ importers:
       '@getcronit/pylon-orm':
         specifier: workspace:*
         version: link:../packages/pylon-orm
+      '@hono/node-server':
+        specifier: ^1.12.2
+        version: 1.19.9(hono@4.11.9)
       graphql:
         specifier: ^16.9.0
         version: 16.12.0
