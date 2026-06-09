@@ -1,6 +1,18 @@
 import ts from 'typescript'
+import {mergeIR, toSDL, type PylonIR} from '@getcronit/pylon-ir'
 import {SchemaParser} from './schema-parser'
 import path from 'path'
+
+export interface BuildOptions {
+  /**
+   * An authoritative IR contribution (e.g. the ORM's entities) merged OVER what
+   * the type-checker introspects. Where it overlaps by name it wins — so entity
+   * types reflect the ORM's intent (precise scalars, hidden columns, relation
+   * list-ness) instead of being re-derived from the resolver types. When given,
+   * the returned `typeDefs` are rendered from the merged IR.
+   */
+  contributeIR?: PylonIR
+}
 
 export class SchemaBuilder {
   private program: ts.Program
@@ -93,7 +105,7 @@ export class SchemaBuilder {
     return parsedConfig.options
   }
 
-  public build() {
+  public build(options: BuildOptions = {}) {
     const sfiType = this.checker.getTypeOfSymbolAtLocation(
       this.sfi,
       this.sfiFile
@@ -135,10 +147,17 @@ export class SchemaBuilder {
       Subscription: subscriptionType
     })
 
+    // Default path (no contribution) is byte-for-byte unchanged. With an
+    // authoritative contribution we render the schema from the merged IR.
+    const ir = options.contributeIR
+      ? mergeIR(parser.toIR(), options.contributeIR)
+      : undefined
+
     return {
-      typeDefs: parser.toString(),
+      typeDefs: ir ? toSDL(ir) : parser.toString(),
       schema: parser.getSchema(),
-      resolvers: parser.getResolvers()
+      resolvers: parser.getResolvers(),
+      ir
     }
   }
 }

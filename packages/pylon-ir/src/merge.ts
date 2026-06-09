@@ -46,5 +46,12 @@ export function mergeIR(...parts: Array<Partial<PylonIR>>): PylonIR {
     if (part.scalars) out.scalars.push(...part.scalars.filter(s => !out.scalars.includes(s)))
     if (part.operations) out.operations.push(...part.operations)
   }
+
+  // Reconcile across buckets: a persisted entity is the canonical type, so it
+  // replaces any plain object of the same name (e.g. the type-checker saw an
+  // ORM model as a resolver-returned object; the ORM's entity is authoritative).
+  for (const name of Object.keys(out.entities)) {
+    delete out.objects[name]
+  }
   return out
 }
