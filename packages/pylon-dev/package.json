@@ -22,6 +22,7 @@
   },
   "homepage": "https://pylon.cronit.io",
   "dependencies": {
+    "@getcronit/pylon-ir": "workspace:*",
     "@gqty/cli": "^4.2.5",
     "commander": "^12.1.0",
     "conf": "^13.1.0",

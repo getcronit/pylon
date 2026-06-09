@@ -1,5 +1,7 @@
 import consola from 'consola'
 import ts from 'typescript'
+import {emptyIR} from '@getcronit/pylon-ir'
+import type {Field as IRField, Operation, PylonIR, TypeRef} from '@getcronit/pylon-ir'
 import {
   TypeDefinitionBuilder,
   Enum as _Enum,
@@ -144,7 +146,14 @@ export class SchemaParser {
     )
   }
 
+  /** Root operation type names captured during `parse`, used by `toIR`. */
+  private rootTypeNames = new Set<string>()
+
   public parse(index: Index) {
+    if (index.Query) this.rootTypeNames.add('Query')
+    if (index.Mutation) this.rootTypeNames.add('Mutation')
+    if (index.Subscription) this.rootTypeNames.add('Subscription')
+
     const referenceSchema = this.makeReferenceSchema(index)
 
     for (const [type, properties] of referenceSchema.types) {
@@ -531,6 +540,85 @@ export class SchemaParser {
     const str = `function resolveType(node) { if (!node || typeof node !== 'object') return null; ${checks.join(' ')} return null; }`
 
     return new Function('return ' + str)()
+  }
+
+  /**
+   * Project the parsed schema into the Pylon IR — the normalized, ORM-agnostic
+   * model that every downstream artifact reads. This translates Pylon's internal
+   * `Schema` (its long-standing proto-IR) into the shared `PylonIR` shape; it
+   * does NOT re-walk TypeScript types.
+   *
+   * Scope: object types, root operations (with args), interfaces, enums and
+   * scalars. Unions and input objects are not modelled yet — callers needing
+   * full parity must still use `toString()` for those. This method is additive
+   * and does not affect `toString()`/`getSchema()`/`getResolvers()`.
+   */
+  public toIR(): PylonIR {
+    const ir = emptyIR()
+    ir.scalars = [...this.schema.scalars]
+    const scalarSet = new Set(this.schema.scalars)
+
+    const typeRefOf = (td: {
+      name: string
+      isList: boolean
+      isRequired: boolean
+      isListRequired?: boolean
+    }): TypeRef => {
+      const leaf: TypeRef = {
+        kind: scalarSet.has(td.name) ? 'scalar' : 'ref',
+        name: td.name,
+        nullable: !td.isRequired
+      }
+      return td.isList
+        ? {kind: 'list', of: leaf, nullable: !td.isListRequired}
+        : leaf
+    }
+
+    const fieldOf = (f: {name: string; type: any}): IRField => ({
+      name: f.name,
+      type: typeRefOf(f.type),
+      exposed: true,
+      description: f.type.description || undefined
+    })
+
+    for (const type of this.schema.types) {
+      if (this.rootTypeNames.has(type.name)) {
+        for (const f of type.fields) {
+          ir.operations.push({
+            root: type.name as Operation['root'],
+            name: f.name,
+            args: (f.args ?? []).map(a => ({
+              name: a.name,
+              type: typeRefOf(a.type),
+              exposed: true
+            })),
+            returns: typeRefOf(f.type)
+          })
+        }
+      } else {
+        ir.objects[type.name] = {
+          name: type.name,
+          description: type.description || undefined,
+          implements: type.implements ? [...type.implements] : undefined,
+          fields: type.fields.map(fieldOf)
+        }
+      }
+    }
+
+    for (const intf of this.schema.interfaces) {
+      ir.interfaces[intf.name] = {
+        name: intf.name,
+        description: intf.description || undefined,
+        implements: intf.implements ? [...intf.implements] : undefined,
+        fields: intf.fields.map(fieldOf)
+      }
+    }
+
+    for (const en of this.schema.enums) {
+      ir.enums[en.name] = {name: en.name, values: [...en.values]}
+    }
+
+    return ir
   }
 
   public toString() {

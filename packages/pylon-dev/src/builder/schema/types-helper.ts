@@ -19,10 +19,20 @@ export const isList = (checker: ts.TypeChecker, type: ts.Type) => {
   )
 
   if (!is) {
-    // Check if type references an array or extends one
+    // A type extends Array either directly (its own base types) or — for a
+    // generic interface/class referenced with type arguments, e.g.
+    // `RelatedManager<Post>` — via its `.target` declared type. `getBaseTypes()`
+    // is only answered by the declared InterfaceType, not by the instantiated
+    // TypeReference, so we must look through `.target` as well.
+    const target = (type as ts.TypeReference).target as
+      | ts.InterfaceType
+      | undefined
+    const extendsArray = (t: ts.Type) =>
+      t.getBaseTypes?.()?.some(b => b.getSymbol()?.getName() === 'Array')
     const isArray =
       type.getSymbol()?.getName() === 'Array' ||
-      type.getBaseTypes()?.some(t => t.getSymbol()?.getName() === 'Array')
+      extendsArray(type) ||
+      (target !== type && target ? extendsArray(target) : false)
 
     if (isArray) {
       return true

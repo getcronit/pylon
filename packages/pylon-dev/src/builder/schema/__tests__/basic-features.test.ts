@@ -163,4 +163,28 @@ describe('Pylon Builder - Basic Features', () => {
     expect(result.typeDefs).toContain('empty: [JSONObject!]!')
     expect(result).toMatchSnapshot()
   })
+
+  it('derives a list when a type extends Array<T> through a generic reference', () => {
+    // A custom collection that type-merges Array<T> (e.g. the ORM's
+    // RelatedManager). `getBaseTypes()` is not answered by the instantiated
+    // TypeReference, only by its `.target` declared type — isList must look
+    // through `.target` so this still derives `[Item]`, not an object type.
+    const code = `
+      interface Collection<T> extends Array<T> {}
+      class Collection<T> {
+        loadAll(): Promise<T[]> { return Promise.resolve([]) }
+      }
+      class Item { id: number = 1 }
+
+      export const graphql = {
+        Query: {
+          items: (): Collection<Item> => new Collection<Item>()
+        }
+      }
+    `
+    const result = buildTestSchema(code)
+    expect(result.typeDefs).toMatch(/items:\s*\[Item!\]!/)
+    // The collection's own methods must NOT leak as schema fields.
+    expect(result.typeDefs).not.toMatch(/loadAll/)
+  })
 })
