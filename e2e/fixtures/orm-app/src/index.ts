@@ -1,25 +1,23 @@
-// A real ORM-backed Pylon entry built by the shipped `pylon` CLI in the e2e
-// test. Models extend Model (all members excluded), exercising the empty-
-// interface path; a $-prefixed column exercises ORM-driven hiding.
-import {Model, model, id, text, int, boolean, hasMany, foreignKey} from '@getcronit/pylon-db'
+// ORM-backed Pylon app using the capitalized `models.*` namespaced API.
+import {models} from '@getcronit/pylon-db'
 import type {Relation} from '@getcronit/pylon-db'
 
-@model()
-export class Category extends Model {
-  id = id()
-  name = text({unique: true})
-  products = hasMany(() => Product, {foreignKey: 'categoryId'})
+@models.model()
+export class Category extends models.Model {
+  id = models.ID()
+  name = models.Text({unique: true})
+  products = models.HasMany(() => Product, {foreignKey: 'categoryId'})
 }
 
-@model()
-export class Product extends Model {
-  id = id()
-  name = text({unique: true})
-  price = int()
-  inStock = boolean({default: true})
-  categoryId = foreignKey(() => Category)
+@models.model()
+export class Product extends models.Model {
+  id = models.ID()
+  name = models.Text({unique: true})
+  price = models.Int()
+  inStock = models.Boolean({default: true})
+  categoryId = models.ForeignKey(() => Category)
   declare category: Relation<Category>
-  $secretCost = int({nullable: true})
+  $secretCost = models.Int({nullable: true})
 }
 
 export const graphql = {

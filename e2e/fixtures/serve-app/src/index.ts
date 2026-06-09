@@ -1,15 +1,14 @@
-// A REAL Node Pylon app: ORM models + a top-level serve(app). Before the
-// side-effect-stripping fix, `pylon build` would execute this entry to read the
-// models and start a server (hanging the build). It must now build cleanly.
+// Real Node Pylon app: models + a top-level serve(app). Must build cleanly
+// (models loaded without running serve).
 import {app} from '@getcronit/pylon'
 import {serve} from '@hono/node-server'
-import {Model, model, id, text, boolean} from '@getcronit/pylon-db'
+import {models} from '@getcronit/pylon-db'
 
-@model()
-export class Widget extends Model {
-  id = id()
-  name = text({unique: true})
-  active = boolean({default: true})
+@models.model()
+export class Widget extends models.Model {
+  id = models.ID()
+  name = models.Text({unique: true})
+  active = models.Boolean({default: true})
 }
 
 export const graphql = {
@@ -20,7 +19,6 @@ export const graphql = {
   Mutation: {}
 }
 
-// Top-level side effect — the footgun. Must NOT run during the build.
 serve(app, info => {
   console.log(`Server running at ${info.port}`)
 })
