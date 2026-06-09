@@ -58,6 +58,16 @@ export {
   type MigrationFile,
   type MigrationRunnerOptions
 } from './migration-runner.js'
+export {
+  defineMigration,
+  schema,
+  runSql,
+  run,
+  isReversible,
+  type Operation,
+  type MigrationModule,
+  type MigrationContext
+} from './migration-ops.js'
 
 import {createManager} from './manager.js'
 import type {Manager as ManagerType, ModelCtor} from './manager.js'
@@ -76,6 +86,7 @@ import * as managerApi from './manager.js'
 import * as schemaSync from './schema-sync.js'
 import * as migrationApi from './migrations.js'
 import {MigrationRunner as MigrationRunnerClass} from './migration-runner.js'
+import * as migrationOps from './migration-ops.js'
 
 /**
  * Model-definition API. Field types are capitalized (Django-style):
@@ -122,6 +133,13 @@ export const db = {
 
 /** Migration authoring + workflow. */
 export const migrations = {
+  // authoring (migration files)
+  defineMigration: migrationOps.defineMigration,
+  schema: migrationOps.schema,
+  runSql: migrationOps.runSql,
+  run: migrationOps.run,
+  isReversible: migrationOps.isReversible,
+  // workflow
   snapshot: migrationApi.snapshot,
   serializeSnapshot: migrationApi.serializeSnapshot,
   loadSnapshot: migrationApi.loadSnapshot,

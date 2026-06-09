@@ -143,18 +143,42 @@ function down(change: SchemaChange, unsupported: string[], lookup: Lookup): stri
   }
 }
 
+/** A lookup over the entities a change set creates/drops (for FK resolution). */
+function lookupFromChanges(changes: SchemaChange[]): Lookup {
+  const entities: Record<string, Entity> = {}
+  for (const c of changes) {
+    if (c.kind === 'createTable' || c.kind === 'dropTable') {
+      entities[c.entity.name] = c.entity
+    }
+  }
+  return name => entities[name]
+}
+
+/**
+ * Render a set of changes to up + down SQL. Standalone (no prev/next maps), so a
+ * migration's stored schema operation can render and reverse itself. FK targets
+ * resolve against the entities created within the same change set.
+ */
+export function renderChanges(
+  changes: SchemaChange[],
+  lookup: Lookup = lookupFromChanges(changes)
+): {up: string[]; down: string[]; unsupported: string[]} {
+  const unsupported: string[] = []
+  const upSQL = changes.flatMap(c => up(c, unsupported, lookup))
+  // `down` reverses the change order so dependent ops unwind correctly.
+  const downSQL = [...changes].reverse().flatMap(c => down(c, [], lookup))
+  return {up: upSQL, down: downSQL, unsupported}
+}
+
 /** Build a full migration (changes + up/down SQL) between two entity maps. */
 export function makeMigration(
   prev: Record<string, Entity>,
   next: Record<string, Entity>
 ): Migration {
   const changes = diffEntities(prev, next)
-  const unsupported: string[] = []
-  // FK constraints on CREATE TABLE need to resolve target entities; either side
-  // may hold them (up creates from `next`, down recreates from `prev`).
-  const lookup: Lookup = name => next[name] ?? prev[name]
-  const upSQL = changes.flatMap(c => up(c, unsupported, lookup))
-  // `down` reverses the change order so dependent ops unwind correctly.
-  const downSQL = [...changes].reverse().flatMap(c => down(c, [], lookup))
-  return {changes, up: upSQL, down: downSQL, unsupported}
+  const {up, down, unsupported} = renderChanges(
+    changes,
+    name => next[name] ?? prev[name]
+  )
+  return {changes, up, down, unsupported}
 }
