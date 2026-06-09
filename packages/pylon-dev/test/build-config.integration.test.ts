@@ -42,6 +42,24 @@ describe('buildConfigFile — standalone pylon.config.ts', () => {
     expect(await loadConfig()).toMatchObject({graphiql: true})
   })
 
+  it('resolves a factory (defineConfig(() => …))', async () => {
+    await fs.writeFile(
+      path.join(dir, 'pylon.config.ts'),
+      'export default () => ({ graphiql: false, landingPage: true })'
+    )
+    await buildConfigFile(dir, outFile())
+    expect(await loadConfig()).toMatchObject({graphiql: false, landingPage: true})
+  })
+
+  it('resolves an async factory', async () => {
+    await fs.writeFile(
+      path.join(dir, 'pylon.config.ts'),
+      'export default async () => ({ graphiql: true })'
+    )
+    await buildConfigFile(dir, outFile())
+    expect(await loadConfig()).toMatchObject({graphiql: true})
+  })
+
   it('writes an empty config when no pylon.config.ts exists', async () => {
     await buildConfigFile(dir, outFile())
     expect(await loadConfig()).toEqual({})

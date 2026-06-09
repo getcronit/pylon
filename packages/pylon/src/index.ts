@@ -44,17 +44,32 @@ export type PylonConfig = {
   plugins?: Plugin[]
 }
 
+/** A lazy config factory — may be async (e.g. to read env at eval time). */
+export type PylonConfigFactory = () => PylonConfig | Promise<PylonConfig>
+
 /**
- * Define the Pylon config in a standalone `pylon.config.ts`:
+ * Define the Pylon config in a standalone `pylon.config.ts`. For static config,
+ * `satisfies PylonConfig` is just as good (and keeps the file dependency-free):
+ *
+ * ```ts
+ * export default { graphiql: true } satisfies PylonConfig
+ * ```
+ *
+ * Reach for `defineConfig` when you need a lazy/async factory — the one thing a
+ * type annotation can't express:
  *
  * ```ts
  * import {defineConfig} from '@getcronit/pylon'
- * export default defineConfig({ graphiql: true })
+ * export default defineConfig(async () => ({ graphiql: process.env.DEV === '1' }))
  * ```
  *
- * Identity at runtime — it exists purely for types/autocomplete.
+ * Identity at runtime; the loader resolves a factory before use.
  */
-export const defineConfig = (config: PylonConfig): PylonConfig => config
+export function defineConfig(
+  config: PylonConfig | PylonConfigFactory
+): PylonConfig | PylonConfigFactory {
+  return config
+}
 
 export type ID = string & {readonly brand?: unique symbol}
 export type Int = number & {readonly brand?: unique symbol}

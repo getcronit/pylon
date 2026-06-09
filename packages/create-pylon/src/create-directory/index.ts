@@ -89,23 +89,31 @@ const makeIndexFile = (runtime: Runtime, _features: Feature[]) => {
   return content
 }
 
-/** Standalone `pylon.config.ts` — config + plugins, separate from the entry. */
+/**
+ * Standalone `pylon.config.ts` — config + plugins, separate from the entry.
+ * Uses `satisfies PylonConfig` (typed + dependency-free for static config);
+ * `defineConfig` is also supported for lazy/async config.
+ */
 const makeConfigFile = (_runtime: Runtime, features: Feature[]) => {
-  const imports: string[] = ['defineConfig']
+  const valueImports: string[] = []
   const plugins: string[] = []
 
   if (features.includes('auth')) {
-    imports.push('useAuth')
+    valueImports.push('useAuth')
     plugins.push("useAuth({issuer: 'https://test-0o6zvq.zitadel.cloud'})")
   }
   if (features.includes('pages')) {
-    imports.push('usePages')
+    valueImports.push('usePages')
     plugins.push('usePages()')
   }
 
+  const importLine = valueImports.length
+    ? `import {${valueImports.join(', ')}, type PylonConfig} from '@getcronit/pylon'`
+    : `import type {PylonConfig} from '@getcronit/pylon'`
+
   return (
-    `import {${imports.join(', ')}} from '@getcronit/pylon'\n\n` +
-    `export default defineConfig({\n  plugins: [${plugins.join(', ')}]\n})\n`
+    `${importLine}\n\n` +
+    `export default {\n  plugins: [${plugins.join(', ')}]\n} satisfies PylonConfig\n`
   )
 }
 

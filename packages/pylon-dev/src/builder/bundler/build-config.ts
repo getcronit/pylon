@@ -20,10 +20,12 @@ const CONFIG_FILES = [
  * so we just bundle it directly: no extraction, no executing the app, and it
  * loads identically on every runtime the build targets.
  *
- * A `default` export OR a named `config` export is accepted and normalized to
- * the named `config` export the rest of the pipeline (build plugins, the
- * injected runtime, analytics) already consumes. When no config file exists, an
- * empty config is written so those consumers keep working.
+ * Accepts any of: `export default {…} satisfies PylonConfig` (recommended),
+ * `export default defineConfig(…)`, a named `config` export, or a (possibly
+ * async) factory function — all normalized to the named `config` object the
+ * rest of the pipeline (build plugins, the injected runtime, analytics) already
+ * consumes. When no config file exists, an empty config is written so those
+ * consumers keep working.
  */
 export async function buildConfigFile(
   cwd: string,
@@ -42,7 +44,9 @@ export async function buildConfigFile(
     stdin: {
       contents:
         `import * as mod from ${JSON.stringify(configFile)}\n` +
-        `export const config = mod.default ?? mod.config ?? {}\n`,
+        `const resolved = mod.default ?? mod.config ?? {}\n` +
+        // A factory (defineConfig(() => …)) is resolved here; objects pass through.
+        `export const config = typeof resolved === 'function' ? await resolved() : resolved\n`,
       resolveDir: cwd,
       loader: 'ts',
       sourcefile: 'pylon-config-entry.ts'
