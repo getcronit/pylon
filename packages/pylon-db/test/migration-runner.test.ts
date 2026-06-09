@@ -53,19 +53,27 @@ describe('MigrationRunner — generate / status (file workflow, no DB)', () => {
   const runnerFor = (current: () => Snapshot) =>
     new MigrationRunner({dir, current, now: () => `t${++clock}`})
 
-  it('generates an initial migration and writes the baseline snapshot', async () => {
+  const fileContents = (r: MigrationRunner, name: string) =>
+    fs.readFile(path.join(dir, `${name}.ts`), 'utf8')
+
+  it('generates an initial migration (TS file) and writes the baseline snapshot', async () => {
     const r = runnerFor(() => v1)
     const m = await r.generate('init')
     expect(m?.name).toBe('t1_init')
-    expect(m?.up[0]).toMatch(/CREATE TABLE "user"/)
+    expect(m?.changes.map(c => c.kind)).toEqual(['createTable'])
+
+    // the migration file is a TS module authored against the public API
+    const src = await fileContents(r, 't1_init')
+    expect(src).toContain("import {migrations} from '@getcronit/pylon-db'")
+    expect(src).toContain('migrations.defineMigration(')
+    expect(src).toContain('migrations.schema(')
 
     // baseline snapshot.json now reflects v1
     const baseline = await r.loadBaseline()
     expect(Object.keys(baseline.entities)).toEqual(['User'])
 
-    // the migration file is on disk
-    const files = await r.list()
-    expect(files.map(f => f.name)).toEqual(['t1_init'])
+    // the migration name is listed
+    expect(await r.list()).toEqual(['t1_init'])
   })
 
   it('returns null when nothing changed', async () => {
@@ -82,11 +90,9 @@ describe('MigrationRunner — generate / status (file workflow, no DB)', () => {
     cur = v2
     const m = await r.generate('add_email')
     expect(m?.name).toBe('t2_add_email')
-    expect(m?.up).toEqual(['ALTER TABLE "user" ADD COLUMN "email" text NOT NULL'])
-    expect(m?.down).toEqual(['ALTER TABLE "user" DROP COLUMN "email"'])
+    expect(m?.changes.map(c => c.kind)).toEqual(['addColumn'])
 
-    const files = await r.list()
-    expect(files.map(f => f.name)).toEqual(['t1_init', 't2_add_email'])
+    expect(await r.list()).toEqual(['t1_init', 't2_add_email'])
   })
 
   it('status reports uncaptured changes against the baseline', async () => {

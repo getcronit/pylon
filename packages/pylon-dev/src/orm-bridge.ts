@@ -32,7 +32,12 @@ export interface ProjectOrm {
       unapplied: string[]
     }>
     generate(name: string): Promise<{name: string} | null>
-    apply(db?: unknown): Promise<string[]>
+    apply(load: (filePath: string) => Promise<unknown>, db?: unknown): Promise<string[]>
+    rollback(
+      load: (filePath: string) => Promise<unknown>,
+      db?: unknown,
+      opts?: {steps?: number}
+    ): Promise<string[]>
   }
   connect(opts: {connectionString: string}): unknown
 }

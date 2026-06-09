@@ -163,6 +163,26 @@ db.command('migrate')
     }
   })
 
+db.command('rollback')
+  .description('Reverse the most recently applied migration(s) (requires DATABASE_URL)')
+  .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
+  .option('-d, --dir <path>', 'Migrations directory', './migrations')
+  .action(async options => {
+    try {
+      const {rolledBack} = await runDbCommand({
+        command: 'rollback',
+        models: options.models,
+        dir: options.dir
+      })
+      if (rolledBack && rolledBack.length > 0)
+        consola.success(`Rolled back ${rolledBack.length} migration(s): ${rolledBack.join(', ')}`)
+      else consola.info('No applied migrations to roll back')
+    } catch (error) {
+      consola.error(error)
+      process.exit(1)
+    }
+  })
+
 program
   .command('dev')
   .description('Start the Pylon Development Server')

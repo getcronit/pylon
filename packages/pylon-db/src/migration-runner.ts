@@ -1,44 +1,67 @@
 /**
- * Migration workflow — the file/DB-bound orchestration on top of the pure IR
- * diff engine. A directory holds:
+ * Migration workflow — file/DB orchestration over the operations model.
  *
  *   migrations/
- *     snapshot.json              latest IR baseline (entities)
- *     20260609T120000_init.json  { name, up[], down[], changes }
+ *     snapshot.json                 latest IR baseline (entities)
+ *     20260610T1200_init.ts         export default migrations.defineMigration({operations})
  *
  * `generate` diffs the baseline snapshot against the current models and writes a
- * timestamped migration + advances the baseline. `apply` runs unapplied
- * migrations in order inside a transaction, tracking them in `_pylon_migrations`
- * so re-runs are idempotent. You diff IR snapshots — never the live database.
+ * timestamped TS migration (a `schema(changes)` operation) + advances the
+ * baseline. `apply` runs unapplied migrations' operations in order; `rollback`
+ * reverses the most-recently-applied ones (refusing irreversible migrations).
+ * Migration files are TS, so they're loaded via an injected `MigrationLoader`
+ * (the CLI transpiles them) — keeping this package transpiler-free.
+ *
+ * v1: operations execute on the connected pool, sequentially (not wrapped in a
+ * single transaction). Atomic migrations are a future refinement.
  */
 import {promises as fs} from 'node:fs'
 import path from 'node:path'
 import {sql} from 'kysely'
-import {makeMigration, diffEntities, type SchemaChange} from '@getcronit/pylon-ir'
+import {diffEntities, renderChanges, type SchemaChange} from '@getcronit/pylon-ir'
 import {getDatabase, type Database} from './database.js'
+import {isReversible, type MigrationContext, type MigrationModule} from './migration-ops.js'
 import {snapshot, type Snapshot} from './migrations.js'
 
 const EMPTY: Snapshot = {version: 1, entities: {}}
 const APPLIED_TABLE = '_pylon_migrations'
 
-export interface MigrationFile {
+export interface GeneratedMigration {
   name: string
-  up: string[]
-  down: string[]
   changes: SchemaChange[]
+  unsupported: string[]
 }
 
+/** Loads a migration file into its module (the CLI provides a TS transpiler). */
+export type MigrationLoader = (filePath: string) => Promise<MigrationModule>
+
 export interface MigrationRunnerOptions {
-  /** Directory holding `snapshot.json` and the migration files. */
   dir: string
-  /** Current schema provider (defaults to the live ORM registry snapshot). */
   current?: () => Snapshot
-  /** Timestamp prefix generator for filenames (injectable for tests). */
   now?: () => string
 }
 
 function defaultStamp(): string {
   return new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '')
+}
+
+function fileTemplate(changes: SchemaChange[], unsupported: string[]): string {
+  const notes = unsupported.length
+    ? unsupported.map(u => ` *   - ${u}`).join('\n')
+    : ''
+  return (
+    `import {migrations} from '@getcronit/pylon-db'\n\n` +
+    (notes
+      ? `/**\n * Manual attention needed (the diff couldn't express these):\n${notes}\n */\n`
+      : '') +
+    `export default migrations.defineMigration({\n` +
+    `  operations: [\n` +
+    `    // Generated schema delta. Add migrations.runSql(...) / migrations.run(...)\n` +
+    `    // operations here for data migrations (each with a \`down\` to stay reversible).\n` +
+    `    migrations.schema(${JSON.stringify(changes, null, 6).replace(/\n/g, '\n    ')})\n` +
+    `  ]\n` +
+    `})\n`
+  )
 }
 
 export class MigrationRunner {
@@ -65,8 +88,8 @@ export class MigrationRunner {
     }
   }
 
-  /** Migration files on disk, chronological (timestamp-prefixed names sort). */
-  async list(): Promise<MigrationFile[]> {
+  /** Migration names on disk, chronological (timestamp-prefixed, sorted). */
+  async list(): Promise<string[]> {
     let entries: string[]
     try {
       entries = await fs.readdir(this.dir)
@@ -74,42 +97,35 @@ export class MigrationRunner {
       if ((e as NodeJS.ErrnoException).code === 'ENOENT') return []
       throw e
     }
-    const files = entries
-      .filter(f => f.endsWith('.json') && f !== 'snapshot.json')
+    return entries
+      .filter(f => f.endsWith('.ts'))
+      .map(f => f.replace(/\.ts$/, ''))
       .sort()
-    return Promise.all(
-      files.map(
-        async f =>
-          JSON.parse(await fs.readFile(path.join(this.dir, f), 'utf8')) as MigrationFile
-      )
-    )
+  }
+
+  private filePath(name: string): string {
+    return path.join(this.dir, `${name}.ts`)
   }
 
   /**
-   * Diff the baseline against the current models and, if anything changed,
-   * write a timestamped migration and advance the baseline snapshot. Returns
-   * the written migration, or `null` when there is nothing to do.
+   * Diff the baseline against the current models; if anything changed, write a
+   * timestamped TS migration and advance the baseline. Returns it, or `null`.
    */
-  async generate(name: string): Promise<MigrationFile | null> {
+  async generate(name: string): Promise<GeneratedMigration | null> {
     const prev = await this.loadBaseline()
     const next = this.current()
-    const {up, down, changes, unsupported} = makeMigration(
-      prev.entities,
-      next.entities
-    )
+    const changes = diffEntities(prev.entities, next.entities)
     if (changes.length === 0) return null
 
-    const file: MigrationFile = {name: `${this.now()}_${name}`, up, down, changes}
+    const {unsupported} = renderChanges(changes, n => next.entities[n] ?? prev.entities[n])
+    const migrationName = `${this.now()}_${name}`
     await fs.mkdir(this.dir, {recursive: true})
-    await fs.writeFile(
-      path.join(this.dir, `${file.name}.json`),
-      JSON.stringify({...file, unsupported}, null, 2)
-    )
+    await fs.writeFile(this.filePath(migrationName), fileTemplate(changes, unsupported))
     await fs.writeFile(this.snapshotPath, JSON.stringify(next, null, 2))
-    return file
+    return {name: migrationName, changes, unsupported}
   }
 
-  /** Uncaptured changes (baseline vs current) + which files are unapplied. */
+  /** Uncaptured changes (baseline vs current) + which migrations are unapplied. */
   async status(db?: Database): Promise<{
     pendingChanges: SchemaChange[]
     migrations: string[]
@@ -117,8 +133,7 @@ export class MigrationRunner {
   }> {
     const prev = await this.loadBaseline()
     const pendingChanges = diffEntities(prev.entities, this.current().entities)
-    const files = await this.list()
-    const names = files.map(f => f.name)
+    const names = await this.list()
     let unapplied = names
     if (db) {
       const applied = await this.appliedNames(db)
@@ -137,28 +152,50 @@ export class MigrationRunner {
 
   private async appliedNames(db: Database): Promise<Set<string>> {
     await this.ensureTable(db)
-    const rows = await sql<{name: string}>`SELECT name FROM ${sql.ref(
-      APPLIED_TABLE
-    )}`.execute(db.kysely)
+    const rows = await sql<{name: string}>`SELECT name FROM ${sql.ref(APPLIED_TABLE)}`.execute(
+      db.kysely
+    )
     return new Set(rows.rows.map(r => r.name))
   }
 
-  /** Apply every unapplied migration in order; idempotent. Returns the names run. */
-  async apply(db: Database = getDatabase()): Promise<string[]> {
-    await this.ensureTable(db)
-    const applied = await this.appliedNames(db)
-    const pending = (await this.list()).filter(f => !applied.has(f.name))
+  private ctx(db: Database): MigrationContext {
+    return {db, exec: stmt => sql.raw(stmt).execute(db.kysely).then(() => undefined)}
+  }
 
-    for (const migration of pending) {
-      await db.kysely.transaction().execute(async trx => {
-        for (const stmt of migration.up) {
-          await sql.raw(stmt).execute(trx)
-        }
-        await sql`INSERT INTO ${sql.ref(APPLIED_TABLE)} (name) VALUES (${
-          migration.name
-        })`.execute(trx)
-      })
+  /** Apply every unapplied migration's operations in order; idempotent. */
+  async apply(load: MigrationLoader, db: Database = getDatabase()): Promise<string[]> {
+    const applied = await this.appliedNames(db)
+    const pending = (await this.list()).filter(n => !applied.has(n))
+    const ctx = this.ctx(db)
+
+    for (const name of pending) {
+      const mod = await load(this.filePath(name))
+      for (const op of mod.operations) await op.up(ctx)
+      await sql`INSERT INTO ${sql.ref(APPLIED_TABLE)} (name) VALUES (${name})`.execute(db.kysely)
     }
-    return pending.map(f => f.name)
+    return pending
+  }
+
+  /** Reverse the most recently applied migration(s). Refuses irreversible ones. */
+  async rollback(
+    load: MigrationLoader,
+    db: Database = getDatabase(),
+    opts: {steps?: number} = {}
+  ): Promise<string[]> {
+    const applied = await this.appliedNames(db)
+    // newest first (timestamp-prefixed names sort chronologically)
+    const order = (await this.list()).filter(n => applied.has(n)).reverse()
+    const target = order.slice(0, opts.steps ?? 1)
+    const ctx = this.ctx(db)
+
+    for (const name of target) {
+      const mod = await load(this.filePath(name))
+      if (!isReversible(mod)) {
+        throw new Error(`Migration "${name}" is irreversible (an operation has no \`down\`).`)
+      }
+      for (const op of [...mod.operations].reverse()) await op.down(ctx)
+      await sql`DELETE FROM ${sql.ref(APPLIED_TABLE)} WHERE name = ${name}`.execute(db.kysely)
+    }
+    return target
   }
 }

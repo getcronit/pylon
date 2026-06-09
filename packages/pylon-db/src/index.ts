@@ -55,7 +55,8 @@ export {
 } from './migrations.js'
 export {
   MigrationRunner,
-  type MigrationFile,
+  type GeneratedMigration,
+  type MigrationLoader,
   type MigrationRunnerOptions
 } from './migration-runner.js'
 export {

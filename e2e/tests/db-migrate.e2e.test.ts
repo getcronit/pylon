@@ -84,4 +84,21 @@ describe.skipIf(!dockerAvailable)('pylon db (shipped CLI) against a live databas
     expect(r.status, r.out).toBe(0)
     expect(r.out).toMatch(/No schema changes/)
   })
+
+  it('db rollback reverses the applied migration', () => {
+    const r = pylonDb('rollback')
+    expect(r.status, r.out).toBe(0)
+    expect(r.out).toMatch(/Rolled back/)
+
+    // the migration now shows as unapplied again (ledger entry removed)
+    const status = pylonDb('status')
+    expect(status.status, status.out).toBe(0)
+    expect(status.out).toMatch(/1 unapplied/)
+  })
+
+  it('db migrate re-applies after a rollback', () => {
+    const r = pylonDb('migrate')
+    expect(r.status, r.out).toBe(0)
+    expect(r.out).toMatch(/Applied/)
+  })
 })

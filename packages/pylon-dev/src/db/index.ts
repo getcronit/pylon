@@ -8,11 +8,48 @@
  * (so its bare imports resolve against the project's node_modules), import it,
  * then resolve the project's pylon-orm and drive `MigrationRunner` from it.
  */
+import {promises as fs} from 'node:fs'
 import path from 'node:path'
+import {pathToFileURL} from 'node:url'
+import esbuild from 'esbuild'
 import {loadProjectOrm} from '../orm-bridge.js'
 
+let migrationCounter = 0
+
+/**
+ * Build a migration loader bound to the project root. Migration files are TS, so
+ * the CLI transpiles them (esbuild) — keeping pylon-db transpiler-free. The temp
+ * bundle is written *inside the project* (like the models-entry bridge) so its
+ * external `@getcronit/pylon-db` import — and any models it touches — resolve to
+ * the project's own instance, not a copy. The migrations dir may live anywhere
+ * (e.g. a tmpdir in tests), so we can't emit the temp beside the source file.
+ */
+function createMigrationLoader(cwd: string) {
+  return async function loadMigrationFile(filePath: string): Promise<unknown> {
+    const tmp = path.join(cwd, `.pylon-migration.${process.pid}.${migrationCounter++}.mjs`)
+    await esbuild.build({
+      entryPoints: [filePath],
+      outfile: tmp,
+      bundle: true,
+      platform: 'node',
+      format: 'esm',
+      packages: 'external',
+      logLevel: 'silent',
+      tsconfigRaw: {
+        compilerOptions: {experimentalDecorators: true, useDefineForClassFields: false}
+      }
+    })
+    try {
+      const mod = (await import(/* @vite-ignore */ pathToFileURL(tmp).href)) as {default: unknown}
+      return mod.default
+    } finally {
+      await fs.rm(tmp, {force: true})
+    }
+  }
+}
+
 export interface DbCommandOptions {
-  command: 'status' | 'diff' | 'migrate'
+  command: 'status' | 'diff' | 'migrate' | 'rollback'
   /** Migration name (for `diff`). */
   name?: string
   /** Entry that imports the models (default `./src/index.ts`). */
@@ -28,6 +65,8 @@ export interface DbCommandResult {
   /** `diff`: created migration name (or null). `migrate`: applied names. */
   created?: string | null
   applied?: string[]
+  /** `rollback`: reversed migration names. */
+  rolledBack?: string[]
   status?: {pendingChanges: unknown[]; migrations: string[]; unapplied: string[]}
 }
 
@@ -40,6 +79,7 @@ export async function runDbCommand(
 
   const orm = await loadProjectOrm(cwd, modelsEntry)
   const runner = new orm.MigrationRunner({dir})
+  const loadMigrationFile = createMigrationLoader(cwd)
 
   switch (options.command) {
     case 'status': {
@@ -61,9 +101,18 @@ export async function runDbCommand(
       if (!connectionString) {
         throw new Error('pylon db migrate requires DATABASE_URL to be set.')
       }
-      orm.connect({connectionString})
-      const applied = await runner.apply()
+      const conn = orm.connect({connectionString})
+      const applied = await runner.apply(loadMigrationFile, conn)
       return {command: 'migrate', applied}
+    }
+    case 'rollback': {
+      const connectionString = process.env.DATABASE_URL
+      if (!connectionString) {
+        throw new Error('pylon db rollback requires DATABASE_URL to be set.')
+      }
+      const conn = orm.connect({connectionString})
+      const rolledBack = await runner.rollback(loadMigrationFile, conn)
+      return {command: 'rollback', rolledBack}
     }
   }
 }
