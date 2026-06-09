@@ -145,9 +145,11 @@ describe('Pylon Builder - Basic Features', () => {
       }
     `
     const result = buildTestSchema(code)
-    expect(result.typeDefs).toContain('"""\nA user in the system\n"""')
-    expect(result.typeDefs).toContain('"""\nThe unique identifier\n"""')
-    expect(result.typeDefs).toContain('"""\nFetches a user by ID\n"""')
+    // Descriptions are rendered (exact whitespace is the renderer's concern and
+    // is covered by the snapshot + parity equivalence).
+    expect(result.typeDefs).toMatch(/"""\s*A user in the system\s*"""/)
+    expect(result.typeDefs).toMatch(/"""\s*The unique identifier\s*"""/)
+    expect(result.typeDefs).toMatch(/"""\s*Fetches a user by ID\s*"""/)
     expect(result).toMatchSnapshot()
   })
 

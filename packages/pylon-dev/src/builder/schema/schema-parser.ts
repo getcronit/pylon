@@ -1,6 +1,6 @@
 import consola from 'consola'
 import ts from 'typescript'
-import {emptyIR} from '@getcronit/pylon-ir'
+import {emptyIR, toSDL} from '@getcronit/pylon-ir'
 import type {Field as IRField, Operation, PylonIR, TypeRef} from '@getcronit/pylon-ir'
 import {
   TypeDefinitionBuilder,
@@ -643,138 +643,14 @@ export class SchemaParser {
     return ir
   }
 
+  /**
+   * Render the schema as SDL by projecting the IR. This is the single rendering
+   * path: `toString` is `toSDL(toIR())`. Proven graphql-equivalent to the former
+   * hand-rolled renderer across the entire test corpus (see buildTestSchema's
+   * equivalence gate) before the duplicate rendering logic was removed.
+   */
   public toString() {
-    const {typeDefinitionToGraphQLType} = this.typeDefinitionBuilder
-
-    const addDescription = (description: string) => {
-      if (!description) return ''
-
-      return `"""\n${description}\n"""\n`
-    }
-
-    // build a valid GraphQL schema string from the schema object
-    let schemaString = ''
-
-    // loop over the input objects in the schema
-    for (const input of this.schema.inputs) {
-      // add the input object to the schema string
-
-      schemaString += addDescription(input.description)
-      schemaString += `input ${input.name} {\n`
-
-      // add a nop field to the input object if it has no fields
-      if (input.fields.length === 0) {
-        schemaString += `\t_ : String\n`
-      }
-
-      // loop over the fields in the input object
-      for (const field of input.fields) {
-        // add the field to the input object in the schema string
-        schemaString += `${addDescription(field.type.description)}`
-        schemaString += `\t${field.name}: ${typeDefinitionToGraphQLType(
-          field.type
-        )}\n`
-      }
-
-      schemaString += `}\n`
-    }
-
-    // loop over the type objects in the schema
-    for (const type of this.schema.types) {
-      if (type.fields.length === 0) continue
-
-      // add the type object to the schema string
-      schemaString += addDescription(type.description)
-      schemaString += `type ${type.name}`
-      if (type.implements) {
-        schemaString += ` implements ${[...type.implements]
-          .sort((a, b) => a.localeCompare(b))
-          .join(' & ')}`
-      }
-      schemaString += ` {\n`
-
-      // loop over the fields in the type object
-      for (const field of type.fields) {
-        // build the argument list for the field if there is at least one argument
-        let args = ''
-
-        if (field.args.length > 0) {
-          args = `(${field.args
-            .map(
-              arg =>
-                `${addDescription(arg.type.description)}${
-                  arg.name
-                }: ${typeDefinitionToGraphQLType(arg.type)}`
-            )
-            .join(', ')})`
-        }
-
-        // add the field to the type object in the schema string
-        schemaString += `${addDescription(field.type.description)}`
-        schemaString += `${field.name}${args}: ${typeDefinitionToGraphQLType(
-          field.type
-        )}\n`
-      }
-
-      schemaString += `}\n`
-    }
-
-    // loop over the union objects in the schema
-    for (const union of this.schema.unions) {
-      // add the union object to the schema string
-      schemaString += addDescription(union.description)
-      schemaString += `union ${union.name} = ${union.types.join(' | ')}\n`
-    }
-
-    // loop over the interface objects in the schema
-    for (const intf of this.schema.interfaces) {
-      // add the interface object to the schema string
-      schemaString += addDescription(intf.description)
-      schemaString += `interface ${intf.name}`
-
-      if (intf.implements && intf.implements.length > 0) {
-        schemaString += ` implements ${[...intf.implements]
-          .sort((a, b) => a.localeCompare(b))
-          .join(' & ')}`
-      }
-
-      schemaString += ` {\n`
-
-      // loop over the fields in the interface object
-      for (const field of intf.fields) {
-        // add the field to the interface object in the schema string
-        schemaString += `${addDescription(field.type.description)}`
-        schemaString += `${field.name}: ${typeDefinitionToGraphQLType(
-          field.type
-        )}\n`
-      }
-
-      schemaString += `}\n`
-    }
-
-    // loop over the scalar objects in the schema
-    for (const scalar of this.schema.scalars) {
-      // add the scalar object to the schema string
-      schemaString += `scalar ${scalar}\n`
-    }
-
-    // loop over the enum objects in the schema
-    for (const enumType of this.schema.enums) {
-      // add the enum object to the schema string
-      schemaString += addDescription(enumType.description)
-      schemaString += `enum ${enumType.name} {\n`
-
-      // loop over the values in the enum object
-      for (const value of enumType.values) {
-        // add the value to the enum object in the schema string
-        schemaString += `\t${value}\n`
-      }
-
-      schemaString += `}\n`
-    }
-
-    // return the schema string
-    return schemaString
+    return toSDL(this.toIR())
   }
 
   public getSchema() {

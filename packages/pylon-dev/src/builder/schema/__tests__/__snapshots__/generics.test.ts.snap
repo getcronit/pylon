@@ -4,37 +4,54 @@ exports[`Pylon Builder - Connection and Edge Generics > should handle nested gen
 {
   "resolvers": {},
   "typeDefs": "type Query {
-nested: UserEdgeConnection!
+  nested: UserEdgeConnection!
 }
+
 type UserEdgeConnection {
-edges: [UserEdgeEdge!]!
-pageInfo: PageInfo!
+  edges: [UserEdgeEdge!]!
+  pageInfo: PageInfo!
 }
+
 type UserEdgeEdge {
-node: UserEdge!
-cursor: String!
+  node: UserEdge!
+  cursor: String!
 }
+
 type UserEdge {
-node: User!
-cursor: String!
+  node: User!
+  cursor: String!
 }
+
 type User {
-id: String!
+  id: String!
 }
+
 type PageInfo {
-hasNextPage: Boolean!
+  hasNextPage: Boolean!
 }
+
 scalar String
+
 scalar ID
+
 scalar Int
+
 scalar Float
+
 scalar Boolean
+
 scalar Number
+
 scalar Any
+
 scalar Void
+
 scalar JSONObject
+
 scalar File
+
 scalar Date
+
 scalar JSON
 ",
 }
@@ -44,37 +61,53 @@ exports[`Pylon Builder - Connection and Edge Generics > should transform Connect
 {
   "resolvers": {},
   "typeDefs": "type Query {
-users: UserConnection!
+  users: UserConnection!
 }
+
 type UserConnection {
-edges: [UserEdge!]!
-pageInfo: PageInfo!
+  edges: [UserEdge!]!
+  pageInfo: PageInfo!
 }
+
 type UserEdge {
-node: User!
-cursor: String!
+  node: User!
+  cursor: String!
 }
+
 type User {
-id: String!
-name: String!
+  id: String!
+  name: String!
 }
+
 type PageInfo {
-hasNextPage: Boolean!
-hasPreviousPage: Boolean!
-startCursor: String!
-endCursor: String!
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String!
+  endCursor: String!
 }
+
 scalar String
+
 scalar ID
+
 scalar Int
+
 scalar Float
+
 scalar Boolean
+
 scalar Number
+
 scalar Any
+
 scalar Void
+
 scalar JSONObject
+
 scalar File
+
 scalar Date
+
 scalar JSON
 ",
 }

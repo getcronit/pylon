@@ -3,39 +3,53 @@
 exports[`Pylon Builder - Basic Features > should handle JSDoc descriptions 1`] = `
 {
   "resolvers": {},
-  "typeDefs": "input UserArgsInput {
-	id: String!
+  "typeDefs": "type Query {
+  """
+  Fetches a user by ID
+  """
+  user(args: UserArgsInput!): User!
 }
-type Query {
-"""
-Fetches a user by ID
-"""
-user(args: UserArgsInput!): User!
-}
+
 """
 A user in the system
 """
 type User {
-"""
-The unique identifier
-"""
-id: String!
-"""
-The login name
-"""
-username: String!
+  """
+  The unique identifier
+  """
+  id: String!
+  """
+  The login name
+  """
+  username: String!
 }
+
+input UserArgsInput {
+  id: String!
+}
+
 scalar String
+
 scalar ID
+
 scalar Int
+
 scalar Float
+
 scalar Boolean
+
 scalar Number
+
 scalar Any
+
 scalar Void
+
 scalar JSONObject
+
 scalar File
+
 scalar Date
+
 scalar JSON
 ",
 }
@@ -45,22 +59,35 @@ exports[`Pylon Builder - Basic Features > should handle JSON types 1`] = `
 {
   "resolvers": {},
   "typeDefs": "type Query {
-json: Json!
+  json: Json!
 }
+
 type Json {
-arbitrary: Boolean!
+  arbitrary: Boolean!
 }
+
 scalar String
+
 scalar ID
+
 scalar Int
+
 scalar Float
+
 scalar Boolean
+
 scalar Number
+
 scalar Any
+
 scalar Void
+
 scalar JSONObject
+
 scalar File
+
 scalar Date
+
 scalar JSON
 ",
 }
@@ -70,19 +97,31 @@ exports[`Pylon Builder - Basic Features > should handle async/promises 1`] = `
 {
   "resolvers": {},
   "typeDefs": "type Query {
-asyncData: String!
+  asyncData: String!
 }
+
 scalar String
+
 scalar ID
+
 scalar Int
+
 scalar Float
+
 scalar Boolean
+
 scalar Number
+
 scalar Any
+
 scalar Void
+
 scalar JSONObject
+
 scalar File
+
 scalar Date
+
 scalar JSON
 ",
 }
@@ -92,19 +131,31 @@ exports[`Pylon Builder - Basic Features > should handle empty array returns 1`] 
 {
   "resolvers": {},
   "typeDefs": "type Query {
-empty: [JSONObject!]!
+  empty: [JSONObject!]!
 }
+
 scalar String
+
 scalar ID
+
 scalar Int
+
 scalar Float
+
 scalar Boolean
+
 scalar Number
+
 scalar Any
+
 scalar Void
+
 scalar JSONObject
+
 scalar File
+
 scalar Date
+
 scalar JSON
 ",
 }
@@ -114,24 +165,37 @@ exports[`Pylon Builder - Basic Features > should handle enums (string literal un
 {
   "resolvers": {},
   "typeDefs": "type Query {
-getRole: Role!
+  getRole: Role!
 }
+
 scalar String
+
 scalar ID
+
 scalar Int
+
 scalar Float
+
 scalar Boolean
+
 scalar Number
+
 scalar Any
+
 scalar Void
+
 scalar JSONObject
+
 scalar File
+
 scalar Date
+
 scalar JSON
+
 enum Role {
-	ADMIN
-	USER
-	GUEST
+  ADMIN
+  USER
+  GUEST
 }
 ",
 }
@@ -141,27 +205,41 @@ exports[`Pylon Builder - Basic Features > should handle generic types 1`] = `
 {
   "resolvers": {},
   "typeDefs": "type Query {
-users: UserPaginated!
+  users: UserPaginated!
 }
+
 type UserPaginated {
-items: [User!]!
-total: Number!
+  items: [User!]!
+  total: Number!
 }
+
 type User {
-id: String!
-name: String!
+  id: String!
+  name: String!
 }
+
 scalar String
+
 scalar ID
+
 scalar Int
+
 scalar Float
+
 scalar Boolean
+
 scalar Number
+
 scalar Any
+
 scalar Void
+
 scalar JSONObject
+
 scalar File
+
 scalar Date
+
 scalar JSON
 ",
 }
@@ -170,25 +248,38 @@ scalar JSON
 exports[`Pylon Builder - Basic Features > should handle lists and optionality 1`] = `
 {
   "resolvers": {},
-  "typeDefs": "input OptionalArgsInput {
-	id: String
+  "typeDefs": "type Query {
+  list: [String!]!
+  optional(args: OptionalArgsInput!): String
+  nullable: String
 }
-type Query {
-list: [String!]!
-optional(args: OptionalArgsInput!): String
-nullable: String
+
+input OptionalArgsInput {
+  id: String
 }
+
 scalar String
+
 scalar ID
+
 scalar Int
+
 scalar Float
+
 scalar Boolean
+
 scalar Number
+
 scalar Any
+
 scalar Void
+
 scalar JSONObject
+
 scalar File
+
 scalar Date
+
 scalar JSON
 ",
 }
@@ -198,24 +289,36 @@ exports[`Pylon Builder - Basic Features > should handle primitives and scalars 1
 {
   "resolvers": {},
   "typeDefs": "type Query {
-getString: String!
-getInt: Number!
-getFloat: Number!
-getBoolean: Boolean!
-getAny: Any!
-getVoid: Void
+  getString: String!
+  getInt: Number!
+  getFloat: Number!
+  getBoolean: Boolean!
+  getAny: Any!
+  getVoid: Void
 }
+
 scalar String
+
 scalar ID
+
 scalar Int
+
 scalar Float
+
 scalar Boolean
+
 scalar Number
+
 scalar Any
+
 scalar Void
+
 scalar JSONObject
+
 scalar File
+
 scalar Date
+
 scalar JSON
 ",
 }
@@ -229,26 +332,41 @@ exports[`Pylon Builder - Basic Features > should handle unions of objects (or pr
     },
   },
   "typeDefs": "type Query {
-getResult: Result!
+  getResult: Result!
 }
+
 type A {
-a: String!
+  a: String!
 }
+
 type B {
-b: Number!
+  b: Number!
 }
+
 union Result = A | B
+
 scalar String
+
 scalar ID
+
 scalar Int
+
 scalar Float
+
 scalar Boolean
+
 scalar Number
+
 scalar Any
+
 scalar Void
+
 scalar JSONObject
+
 scalar File
+
 scalar Date
+
 scalar JSON
 ",
 }
