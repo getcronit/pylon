@@ -8,10 +8,8 @@
  * (so its bare imports resolve against the project's node_modules), import it,
  * then resolve the project's pylon-orm and drive `MigrationRunner` from it.
  */
-import {promises as fs} from 'node:fs'
 import path from 'node:path'
-import {pathToFileURL} from 'node:url'
-import esbuild from 'esbuild'
+import {loadProjectOrm} from '../orm-bridge.js'
 
 export interface DbCommandOptions {
   command: 'status' | 'diff' | 'migrate'
@@ -31,66 +29,6 @@ export interface DbCommandResult {
   created?: string | null
   applied?: string[]
   status?: {pendingChanges: unknown[]; migrations: string[]; unapplied: string[]}
-}
-
-/**
- * The slice of `@getcronit/pylon-orm`'s public API this command drives. Typed
- * locally so pylon-dev needn't take a (reverse) dependency on the ORM — the
- * real instance is resolved at runtime from the user's project.
- */
-interface ProjectOrm {
-  MigrationRunner: new (opts: {dir: string}) => {
-    status(): Promise<{
-      pendingChanges: unknown[]
-      migrations: string[]
-      unapplied: string[]
-    }>
-    generate(name: string): Promise<{name: string} | null>
-    apply(): Promise<string[]>
-  }
-  connect(opts: {connectionString: string}): unknown
-}
-
-async function loadProjectOrm(cwd: string, modelsEntry: string): Promise<ProjectOrm> {
-  // Bundle a driver that (a) imports the models so their @model() decorators
-  // run, and (b) re-exports the project's pylon-orm. Keeping pylon-orm external
-  // means the models' import and the re-export resolve to ONE instance — so the
-  // runner we read is the one the models registered into. Output lands inside
-  // the project so the external import resolves against its node_modules.
-  const tmp = path.join(cwd, '.pylon-db-entry.mjs')
-  await esbuild.build({
-    stdin: {
-      contents:
-        `import ${JSON.stringify(modelsEntry)}\n` +
-        `export * from '@getcronit/pylon-orm'\n`,
-      resolveDir: cwd,
-      loader: 'ts',
-      sourcefile: 'pylon-db-entry.ts'
-    },
-    outfile: tmp,
-    bundle: true,
-    platform: 'node',
-    format: 'esm',
-    packages: 'external',
-    logLevel: 'silent',
-    // Match the ORM's decorator/field semantics: `@model()` is a legacy
-    // decorator, and field-builder harvesting relies on field initializers
-    // running (NOT `useDefineForClassFields`).
-    tsconfigRaw: {
-      compilerOptions: {
-        experimentalDecorators: true,
-        useDefineForClassFields: false
-      }
-    }
-  })
-
-  try {
-    // `@vite-ignore` keeps this a NATIVE dynamic import (a Vite/vitest host
-    // would otherwise intercept and mis-resolve the temp file's externals).
-    return (await import(/* @vite-ignore */ pathToFileURL(tmp).href)) as unknown as ProjectOrm
-  } finally {
-    await fs.rm(tmp, {force: true})
-  }
 }
 
 export async function runDbCommand(
