@@ -47,3 +47,24 @@ import type {ModelCtor, Manager} from './manager.js'
 export function manager<T extends object>(ctor: ModelCtor<T>): Manager<T> {
   return createManager(ctor)
 }
+
+// IR contributor: project the ORM registry into a Pylon IR.
+export {toIR, entityFromDefinition} from './ir.js'
+
+// Migrations: snapshot the IR, diff snapshots, apply the SQL.
+export {
+  snapshot,
+  serializeSnapshot,
+  loadSnapshot,
+  saveSnapshot,
+  planMigration,
+  applyMigration,
+  type Snapshot
+} from './migrations.js'
+
+// Migration workflow: generate timestamped migrations, track + apply them.
+export {
+  MigrationRunner,
+  type MigrationFile,
+  type MigrationRunnerOptions
+} from './migration-runner.js'
