@@ -99,3 +99,32 @@ describe('the SAME IR object drives GraphQL and SQL projections', () => {
     expect(ddl).toMatch(/"secret_key" text/) // present in the table
   })
 })
+
+describe('toSDL drops empty interfaces (invalid GraphQL otherwise)', () => {
+  // An interface with no exposed fields is invalid SDL — e.g. the ORM's `Model`
+  // base, whose members are all excluded. It must be dropped AND stripped from
+  // every `implements` clause. (Regression: this broke a real `pylon build`.)
+  const ir: PylonIR = {
+    ...emptyIR(),
+    interfaces: {IModel: {name: 'IModel', fields: []}},
+    objects: {
+      User: {
+        name: 'User',
+        implements: ['IModel'],
+        fields: [
+          {name: 'id', type: {kind: 'scalar', name: 'ID', nullable: false}, exposed: true}
+        ]
+      }
+    }
+  }
+  const sdl = toSDL(ir)
+
+  it('omits the empty interface definition', () => {
+    expect(sdl).not.toMatch(/interface IModel/)
+  })
+
+  it('strips the dropped interface from implements', () => {
+    expect(sdl).toMatch(/type User \{/)
+    expect(sdl).not.toMatch(/implements/)
+  })
+})
