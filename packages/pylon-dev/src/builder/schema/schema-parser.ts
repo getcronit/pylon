@@ -38,10 +38,16 @@ type Enum = _Enum & {
   description: string
 }
 
-interface TypeDefinition {
+interface TypeRefDef {
   name: string
   isList: boolean
   isRequired: boolean
+  isListRequired?: boolean
+  /** For a list, the (possibly nested) element definition. */
+  element?: TypeRefDef
+}
+
+interface TypeDefinition extends TypeRefDef {
   description: string
 }
 
@@ -573,20 +579,35 @@ export class SchemaParser {
     ir.scalars = [...this.schema.scalars]
     const scalarSet = new Set(this.schema.scalars)
 
-    const typeRefOf = (td: {
+    interface TD {
       name: string
       isList: boolean
       isRequired: boolean
       isListRequired?: boolean
-    }): TypeRef => {
-      const leaf: TypeRef = {
+      element?: TD
+    }
+    const typeRefOf = (td: TD): TypeRef => {
+      // Walk the element chain ONLY to learn the list nesting depth and each
+      // level's required flag, so `number[][]` renders `[[Number!]!]!` instead
+      // of collapsing. The leaf name/nullability come from the outer `td` — its
+      // `name` carries any interface-promotion rewrite (e.g. User → IUser), and
+      // `isRequired` propagates the leaf's nullability through every level.
+      const listRequired: boolean[] = []
+      let cur: TD = td
+      while (cur.isList) {
+        listRequired.push(!!cur.isListRequired)
+        if (!cur.element) break
+        cur = cur.element
+      }
+      let ref: TypeRef = {
         kind: scalarSet.has(td.name) ? 'scalar' : 'ref',
         name: td.name,
         nullable: !td.isRequired
       }
-      return td.isList
-        ? {kind: 'list', of: leaf, nullable: !td.isListRequired}
-        : leaf
+      for (let i = listRequired.length - 1; i >= 0; i--) {
+        ref = {kind: 'list', of: ref, nullable: !listRequired[i]}
+      }
+      return ref
     }
 
     const fieldOf = (f: {name: string; type: any}): IRField => ({

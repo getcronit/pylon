@@ -32,6 +32,8 @@ interface FieldDefinition {
   isList: boolean
   isRequired: boolean
   isListRequired?: boolean
+  /** For a list, the (possibly nested) element definition — enables `[[T]]`. */
+  element?: FieldDefinition
 }
 
 export class TypeDefinitionBuilder {
@@ -419,7 +421,10 @@ export class TypeDefinitionBuilder {
           name: def.name,
           isList: true,
           isRequired: def.isRequired,
-          isListRequired: isRequired
+          isListRequired: isRequired,
+          // Keep the full element def so nested lists survive (a list element
+          // is itself a list); flat `name`/`isRequired` stay for back-compat.
+          element: def
         }
       }
     } else if (isPrimitiveUnion(type)) {

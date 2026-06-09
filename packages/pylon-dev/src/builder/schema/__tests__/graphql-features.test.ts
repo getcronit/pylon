@@ -83,15 +83,13 @@ describe('GraphQL features — lists', () => {
     expect(ft(schema, 'T', 'nullableItems')).toBe('[String]!')
   })
 
-  it('KNOWN LIMITATION: nested lists collapse to a single level', () => {
-    // Pylon's flat TypeDefinition has a single isList/isListRequired, so it
-    // cannot represent `number[][]` — it collapses to one level. Documented
-    // here so the behavior is explicit; a fix would change this assertion.
+  it('nested lists preserve their depth', () => {
     const nested = schemaFor(`
-      class T { matrix!: number[][] }
+      class T { matrix!: number[][]; cube!: string[][][] }
       export const graphql = { Query: { t: (): T => ({} as T) } }
     `)
-    expect(ft(nested, 'T', 'matrix')).toBe('[Number!]!') // not [[Number!]!]!
+    expect(ft(nested, 'T', 'matrix')).toBe('[[Number!]!]!')
+    expect(ft(nested, 'T', 'cube')).toBe('[[[String!]!]!]!')
   })
 })
 

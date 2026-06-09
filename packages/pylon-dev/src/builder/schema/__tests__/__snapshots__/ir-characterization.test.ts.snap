@@ -63,9 +63,13 @@ exports[`IR characterization — lists > scalar lists, object lists, nested list
             "kind": "list",
             "nullable": false,
             "of": {
-              "kind": "scalar",
-              "name": "Number",
+              "kind": "list",
               "nullable": false,
+              "of": {
+                "kind": "scalar",
+                "name": "Number",
+                "nullable": false,
+              },
             },
           },
         },
