@@ -2,10 +2,12 @@
  * Authored-migrations e2e (DB-backed): unlike `db-migrate.e2e.test.ts` (which
  * *generates* a migration from the models, then applies it), this drives the
  * shipped `pylon db` commands against a fixture with **committed, hand-written**
- * migration files — including a `runSql` data migration with an explicit `down`.
- * It asserts real data effects via a direct DB connection: the seed rows appear
- * on `migrate`, vanish on `rollback`, and the schema migration's tables drop on
- * a second `rollback`, then everything re-applies cleanly.
+ * migration files that exercise all three authoring helpers:
+ *   - 0001_init     `runSql` raw-DDL ops with explicit `down`  (schema)
+ *   - 0002_seed     `runSql` data migration (INSERT up / DELETE down)
+ *   - 0003_backfill `run`   TS code migration (read-then-write via `db`)
+ * It asserts real data effects via a direct DB connection, and covers both
+ * single-step and multi-step (`--steps`) rollback, then a clean re-apply.
  *
  * Postgres is owned by the suite's globalSetup; this fixture uses `shop_*`
  * tables. Skipped only if Docker is unavailable.
@@ -48,6 +50,10 @@ describe.skipIf(!dockerAvailable)('pylon db — committed/authored migrations (l
     const rows = await db.kysely.selectFrom('shop_category' as never).selectAll().execute()
     return (rows as Array<{name: string}>).map(r => r.name).sort()
   }
+  const productTitles = async () => {
+    const rows = await db.kysely.selectFrom('shop_product' as never).selectAll().execute()
+    return (rows as Array<{title: string}>).map(r => r.title).sort()
+  }
   const tableExists = async (name: string) => {
     const row = await db.kysely
       .selectFrom('information_schema.tables' as never)
@@ -82,39 +88,39 @@ describe.skipIf(!dockerAvailable)('pylon db — committed/authored migrations (l
     expect(r.status, r.out).toBe(0)
     // snapshot.json matches the models → nothing uncaptured
     expect(r.out).toMatch(/Uncaptured schema changes:\s*0/)
-    // 0001_init + 0002_seed, none applied yet
-    expect(r.out).toMatch(/Migrations: 2 \(2 unapplied\)/)
+    // 0001_init + 0002_seed + 0003_backfill, none applied yet
+    expect(r.out).toMatch(/Migrations: 3 \(3 unapplied\)/)
   })
 
-  it('migrate applies the authored migrations in order and runs the data seed', async () => {
+  it('migrate applies all three authoring styles in order (schema/runSql/run)', async () => {
     const r = pylonDb('migrate')
     expect(r.status, r.out).toBe(0)
-    expect(r.out).toMatch(/Applied 2 migration\(s\): 0001_init, 0002_seed/)
+    expect(r.out).toMatch(/Applied 3 migration\(s\): 0001_init, 0002_seed, 0003_backfill/)
     expect(await tableExists('shop_product')).toBe(true)
-    // the runSql seed ran
-    expect(await categoryNames()).toEqual(['Books', 'Toys'])
+    expect(await categoryNames()).toEqual(['Books', 'Toys']) // runSql seed
+    expect(await productTitles()).toEqual(['Intro to Pylon']) // run() backfill
   })
 
   it('status now reports everything applied', () => {
     const r = pylonDb('status')
     expect(r.status, r.out).toBe(0)
-    expect(r.out).toMatch(/Migrations: 2 \(0 unapplied\)/)
+    expect(r.out).toMatch(/Migrations: 3 \(0 unapplied\)/)
   })
 
-  it('rollback reverses only the newest migration (the data seed), keeping tables', async () => {
+  it('rollback reverses only the newest migration — the run() code migration', async () => {
     const r = pylonDb('rollback')
     expect(r.status, r.out).toBe(0)
-    expect(r.out).toMatch(/Rolled back 1 migration\(s\): 0002_seed/)
-    // the seed's explicit `down` removed the rows…
-    expect(await categoryNames()).toEqual([])
-    // …but the schema migration is untouched
-    expect(await tableExists('shop_category')).toBe(true)
+    expect(r.out).toMatch(/Rolled back 1 migration\(s\): 0003_backfill/)
+    // the run() handler's `down` removed the product…
+    expect(await productTitles()).toEqual([])
+    // …while the seeded categories (an earlier migration) remain
+    expect(await categoryNames()).toEqual(['Books', 'Toys'])
   })
 
-  it('a second rollback reverses the schema migration, dropping the tables', async () => {
-    const r = pylonDb('rollback')
+  it('rollback --steps 2 reverses the seed then the schema, dropping the tables', async () => {
+    const r = pylonDb('rollback', '--steps', '2')
     expect(r.status, r.out).toBe(0)
-    expect(r.out).toMatch(/Rolled back 1 migration\(s\): 0001_init/)
+    expect(r.out).toMatch(/Rolled back 2 migration\(s\): 0002_seed, 0001_init/)
     expect(await tableExists('shop_product')).toBe(false)
     expect(await tableExists('shop_category')).toBe(false)
   })
@@ -122,7 +128,8 @@ describe.skipIf(!dockerAvailable)('pylon db — committed/authored migrations (l
   it('re-applies cleanly after a full rollback', async () => {
     const r = pylonDb('migrate')
     expect(r.status, r.out).toBe(0)
-    expect(r.out).toMatch(/Applied 2 migration/)
+    expect(r.out).toMatch(/Applied 3 migration/)
     expect(await categoryNames()).toEqual(['Books', 'Toys'])
+    expect(await productTitles()).toEqual(['Intro to Pylon'])
   })
 })

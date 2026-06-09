@@ -167,12 +167,14 @@ db.command('rollback')
   .description('Reverse the most recently applied migration(s) (requires DATABASE_URL)')
   .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
   .option('-d, --dir <path>', 'Migrations directory', './migrations')
+  .option('-s, --steps <n>', 'How many migrations to reverse', '1')
   .action(async options => {
     try {
       const {rolledBack} = await runDbCommand({
         command: 'rollback',
         models: options.models,
-        dir: options.dir
+        dir: options.dir,
+        steps: Number.parseInt(options.steps, 10)
       })
       if (rolledBack && rolledBack.length > 0)
         consola.success(`Rolled back ${rolledBack.length} migration(s): ${rolledBack.join(', ')}`)

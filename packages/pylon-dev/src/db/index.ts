@@ -58,6 +58,8 @@ export interface DbCommandOptions {
   dir?: string
   /** Project root (default `process.cwd()`). */
   cwd?: string
+  /** `rollback`: how many migrations to reverse (default 1). */
+  steps?: number
 }
 
 export interface DbCommandResult {
@@ -111,7 +113,7 @@ export async function runDbCommand(
         throw new Error('pylon db rollback requires DATABASE_URL to be set.')
       }
       const conn = orm.connect({connectionString})
-      const rolledBack = await runner.rollback(loadMigrationFile, conn)
+      const rolledBack = await runner.rollback(loadMigrationFile, conn, {steps: options.steps ?? 1})
       return {command: 'rollback', rolledBack}
     }
   }
