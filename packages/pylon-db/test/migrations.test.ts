@@ -41,9 +41,14 @@ describe('migrations — IR snapshot diff → SQL', () => {
     expect(userDDL).toMatch(/"email" text UNIQUE NOT NULL/)
     expect(userDDL).toMatch(/"password_hash" text/) // hidden column still migrated
 
+    // The CREATE TABLE is columns-only; the belongsTo FK is a separate,
+    // self-contained ADD CONSTRAINT emitted after both tables exist.
     const postDDL = m.up.find(s => s.includes('CREATE TABLE "post"'))!
-    // belongsTo → FK constraint, resolved through the IR entity lookup
-    expect(postDDL).toMatch(/FOREIGN KEY \("author_id"\) REFERENCES "user" \("id"\)/)
+    expect(postDDL).not.toMatch(/FOREIGN KEY/)
+    expect(m.up).toContain(
+      'ALTER TABLE "post" ADD CONSTRAINT "post_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "user" ("id")'
+    )
+    expect(m.changes.some(c => c.kind === 'addForeignKey')).toBe(true)
   })
 
   it('no model changes → empty migration', () => {

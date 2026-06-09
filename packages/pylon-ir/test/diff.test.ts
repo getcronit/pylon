@@ -74,12 +74,25 @@ describe('migration engine — diff two IR snapshots → SQL', () => {
     ])
   })
 
-  it('reports unique churn on an existing column as unsupported (never silent)', () => {
+  it('adds/drops a unique constraint on an existing column (reversible)', () => {
     const before = field('email', col({name: 'email', sqlType: 'text', unique: false}))
     const after = field('email', col({name: 'email', sqlType: 'text', unique: true}))
     const m = makeMigration(entity('User', [idField, before]), entity('User', [idField, after]))
+    expect(m.unsupported).toEqual([])
+    expect(m.up).toEqual([
+      'ALTER TABLE "user" ADD CONSTRAINT "user_email_key" UNIQUE ("email")'
+    ])
+    expect(m.down).toEqual([
+      'ALTER TABLE "user" DROP CONSTRAINT "user_email_key"'
+    ])
+  })
+
+  it('reports a primary-key change as unsupported (never silent)', () => {
+    const before = field('code', col({name: 'code', sqlType: 'text', primaryKey: false}))
+    const after = field('code', col({name: 'code', sqlType: 'text', primaryKey: true}))
+    const m = makeMigration(entity('User', [before]), entity('User', [after]))
     expect(m.unsupported).toHaveLength(1)
-    expect(m.unsupported[0]).toMatch(/unique change on user\.email/)
+    expect(m.unsupported[0]).toMatch(/primary-key change on user\.code/)
   })
 
   it('no changes → empty migration', () => {
@@ -88,5 +101,96 @@ describe('migration engine — diff two IR snapshots → SQL', () => {
     expect(m.changes).toEqual([])
     expect(m.up).toEqual([])
     expect(m.down).toEqual([])
+  })
+})
+
+describe('migration engine — foreign keys (self-contained, never inline)', () => {
+  const user = (): Entity => ({
+    name: 'User',
+    table: 'user',
+    abstract: false,
+    primaryKey: 'id',
+    implements: [],
+    fields: [idField]
+  })
+
+  /** Post(id, author_id) with an optional belongsTo(author → User). */
+  const post = (opts: {withFk?: boolean; onDelete?: any} = {}): Entity => {
+    const fields: Entity['fields'] = [
+      idField,
+      field('authorId', col({name: 'author_id', sqlType: 'bigint'}))
+    ]
+    if (opts.withFk !== false) {
+      fields.push({
+        name: 'author',
+        type: {kind: 'ref', name: 'User', nullable: false},
+        exposed: true,
+        relation: {kind: 'belongsTo', target: 'User', fkField: 'authorId', onDelete: opts.onDelete}
+      })
+    }
+    return {name: 'Post', table: 'post', abstract: false, primaryKey: 'id', implements: [], fields}
+  }
+
+  const ADD_FK =
+    'ALTER TABLE "post" ADD CONSTRAINT "post_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "user" ("id")'
+  const DROP_FK = 'ALTER TABLE "post" DROP CONSTRAINT "post_author_id_fkey"'
+
+  it('a new table FK to an existing table resolves at diff time (no inline FK)', () => {
+    const m = makeMigration({User: user()}, {User: user(), Post: post()})
+    expect(m.changes.map(c => c.kind)).toEqual(['createTable', 'addForeignKey'])
+    expect(m.up[0]).toMatch(/CREATE TABLE "post"/)
+    expect(m.up[0]).not.toMatch(/FOREIGN KEY/) // never inline
+    expect(m.up[1]).toBe(ADD_FK)
+    // down drops the constraint before the table
+    expect(m.down).toEqual([DROP_FK, 'DROP TABLE "post"'])
+  })
+
+  it('adds a foreign key to an existing table (column already present)', () => {
+    const m = makeMigration(
+      {User: user(), Post: post({withFk: false})},
+      {User: user(), Post: post()}
+    )
+    expect(m.changes.map(c => c.kind)).toEqual(['addForeignKey'])
+    expect(m.up).toEqual([ADD_FK])
+    expect(m.down).toEqual([DROP_FK])
+  })
+
+  it('drops a foreign key when the relation is removed but the column kept', () => {
+    const m = makeMigration(
+      {User: user(), Post: post()},
+      {User: user(), Post: post({withFk: false})}
+    )
+    expect(m.changes.map(c => c.kind)).toEqual(['dropForeignKey'])
+    expect(m.up).toEqual([DROP_FK])
+    expect(m.down).toEqual([ADD_FK])
+  })
+
+  it('an onDelete change re-creates the constraint (drop + add, same name)', () => {
+    const m = makeMigration(
+      {User: user(), Post: post()},
+      {User: user(), Post: post({onDelete: 'cascade'})}
+    )
+    expect(m.changes.map(c => c.kind)).toEqual(['dropForeignKey', 'addForeignKey'])
+    // up: drop the old constraint, re-add it with ON DELETE CASCADE
+    expect(m.up).toEqual([DROP_FK, `${ADD_FK} ON DELETE CASCADE`])
+    // down: drop the cascading constraint, restore the original (no ON DELETE)
+    expect(m.down).toEqual([DROP_FK, ADD_FK])
+  })
+
+  it('dropping a relation together with its FK column emits no explicit DROP CONSTRAINT', () => {
+    // Post loses both the `author` relation AND the `author_id` column; Postgres
+    // DROP COLUMN cascades the constraint, so a separate DROP CONSTRAINT would fail.
+    const postNoAuthorCol: Entity = {
+      name: 'Post',
+      table: 'post',
+      abstract: false,
+      primaryKey: 'id',
+      implements: [],
+      fields: [idField]
+    }
+    const m = makeMigration({User: user(), Post: post()}, {User: user(), Post: postNoAuthorCol})
+    expect(m.changes.map(c => c.kind)).toEqual(['dropColumn'])
+    expect(m.up).toEqual(['ALTER TABLE "post" DROP COLUMN "author_id"'])
+    expect(m.up).not.toContain(DROP_FK)
   })
 })
