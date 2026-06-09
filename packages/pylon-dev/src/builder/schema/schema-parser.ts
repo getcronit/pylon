@@ -590,9 +590,11 @@ export class SchemaParser {
             args: (f.args ?? []).map(a => ({
               name: a.name,
               type: typeRefOf(a.type),
-              exposed: true
+              exposed: true,
+              description: a.type.description || undefined
             })),
-            returns: typeRefOf(f.type)
+            returns: typeRefOf(f.type),
+            description: f.type.description || undefined
           })
         }
       } else {
@@ -631,7 +633,11 @@ export class SchemaParser {
     }
 
     for (const en of this.schema.enums) {
-      ir.enums[en.name] = {name: en.name, values: [...en.values]}
+      ir.enums[en.name] = {
+        name: en.name,
+        values: [...en.values],
+        description: en.description || undefined
+      }
     }
 
     return ir

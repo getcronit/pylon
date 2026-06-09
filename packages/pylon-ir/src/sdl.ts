@@ -12,16 +12,14 @@ export function renderType(t: TypeRef): string {
   return `${t.name}${bang}`
 }
 
+/** A GraphQL description block. Header-level uses no indent; field-level 2. */
 function renderDescription(description: string | undefined, indent: string): string {
   if (!description) return ''
   return `${indent}"""\n${indent}${description}\n${indent}"""\n`
 }
 
 function renderField(f: Field): string {
-  const args = ''
-  return `${renderDescription(f.description, '  ')}  ${f.name}${args}: ${renderType(
-    f.type
-  )}`
+  return `${renderDescription(f.description, '  ')}  ${f.name}: ${renderType(f.type)}`
 }
 
 function renderArgs(args: Field[]): string {
@@ -31,7 +29,9 @@ function renderArgs(args: Field[]): string {
 }
 
 function renderOperation(op: Operation): string {
-  return `  ${op.name}${renderArgs(op.args)}: ${renderType(op.returns)}`
+  return `${renderDescription(op.description, '  ')}  ${op.name}${renderArgs(
+    op.args
+  )}: ${renderType(op.returns)}`
 }
 
 function renderImplements(impl: string[] | undefined): string {
@@ -42,9 +42,20 @@ function renderImplements(impl: string[] | undefined): string {
 
 function renderInterface(i: InterfaceType): string {
   const fields = i.fields.filter(f => f.exposed)
-  return `interface ${i.name}${renderImplements(i.implements)} {\n${fields
-    .map(renderField)
-    .join('\n')}\n}`
+  return `${renderDescription(i.description, '')}interface ${i.name}${renderImplements(
+    i.implements
+  )} {\n${fields.map(renderField).join('\n')}\n}`
+}
+
+function renderObjectType(
+  name: string,
+  fields: Field[],
+  opts: {implements?: string[]; description?: string}
+): string {
+  const exposed = fields.filter(f => f.exposed)
+  return `${renderDescription(opts.description, '')}type ${name}${renderImplements(
+    opts.implements
+  )} {\n${exposed.map(renderField).join('\n')}\n}`
 }
 
 /** Project an IR to a GraphQL SDL string. */
@@ -60,23 +71,18 @@ export function toSDL(ir: PylonIR): string {
 
   // Entities (persisted object types). Skip ones with no exposed fields.
   for (const e of Object.values(ir.entities)) {
-    const fields = e.fields.filter(f => f.exposed)
-    if (fields.length === 0) continue
-    blocks.push(
-      `type ${e.name}${renderImplements(e.implements)} {\n${fields
-        .map(renderField)
-        .join('\n')}\n}`
-    )
+    if (e.fields.filter(f => f.exposed).length === 0) continue
+    blocks.push(renderObjectType(e.name, e.fields, {implements: e.implements}))
   }
 
   // Plain object types (DTOs, json shapes) — no persistence, no ORM needed.
   for (const o of Object.values(ir.objects)) {
-    const fields = o.fields.filter(f => f.exposed)
-    if (fields.length === 0) continue
+    if (o.fields.filter(f => f.exposed).length === 0) continue
     blocks.push(
-      `type ${o.name}${renderImplements(o.implements)} {\n${fields
-        .map(renderField)
-        .join('\n')}\n}`
+      renderObjectType(o.name, o.fields, {
+        implements: o.implements,
+        description: o.description
+      })
     )
   }
 
@@ -85,12 +91,12 @@ export function toSDL(ir: PylonIR): string {
     const fields = input.fields.length
       ? input.fields.map(renderField).join('\n')
       : '  _: String'
-    blocks.push(`input ${input.name} {\n${fields}\n}`)
+    blocks.push(`${renderDescription(input.description, '')}input ${input.name} {\n${fields}\n}`)
   }
 
   // Unions.
   for (const u of Object.values(ir.unions)) {
-    blocks.push(`union ${u.name} = ${u.members.join(' | ')}`)
+    blocks.push(`${renderDescription(u.description, '')}union ${u.name} = ${u.members.join(' | ')}`)
   }
 
   // Interfaces (rendered even when empty, matching GraphQL/Pylon).
@@ -103,7 +109,11 @@ export function toSDL(ir: PylonIR): string {
 
   // Enums.
   for (const en of Object.values(ir.enums)) {
-    blocks.push(`enum ${en.name} {\n${en.values.map(v => `  ${v}`).join('\n')}\n}`)
+    blocks.push(
+      `${renderDescription(en.description, '')}enum ${en.name} {\n${en.values
+        .map(v => `  ${v}`)
+        .join('\n')}\n}`
+    )
   }
 
   return blocks.join('\n\n') + '\n'

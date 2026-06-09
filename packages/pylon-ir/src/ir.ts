@@ -117,6 +117,7 @@ export interface InterfaceType {
 export interface EnumType {
   name: string
   values: string[]
+  description?: string
 }
 
 /** A GraphQL union (`union Result = A | B`). */
@@ -139,6 +140,7 @@ export interface Operation {
   name: string
   args: Field[]
   returns: TypeRef
+  description?: string
 }
 
 /** The whole normalized app. Serializable; no functions, no compiler handles. */

@@ -105,6 +105,7 @@ exports[`IR characterization — lists > scalar lists, object lists, nested list
   "operations": [
     {
       "args": [],
+      "description": undefined,
       "name": "t",
       "returns": {
         "kind": "ref",
@@ -198,6 +199,7 @@ exports[`IR characterization — object graphs > mutually recursive types 1`] = 
   "operations": [
     {
       "args": [],
+      "description": undefined,
       "name": "a",
       "returns": {
         "kind": "ref",
@@ -291,6 +293,7 @@ exports[`IR characterization — object graphs > nested objects 1`] = `
   "operations": [
     {
       "args": [],
+      "description": undefined,
       "name": "user",
       "returns": {
         "kind": "ref",
@@ -371,6 +374,7 @@ exports[`IR characterization — object graphs > self-referential (recursive) ty
   "operations": [
     {
       "args": [],
+      "description": undefined,
       "name": "node",
       "returns": {
         "kind": "ref",
@@ -479,6 +483,7 @@ exports[`IR characterization — resolvers, args & inputs > object arg becomes a
     {
       "args": [
         {
+          "description": undefined,
           "exposed": true,
           "name": "input",
           "type": {
@@ -488,6 +493,7 @@ exports[`IR characterization — resolvers, args & inputs > object arg becomes a
           },
         },
       ],
+      "description": undefined,
       "name": "createUser",
       "returns": {
         "kind": "ref",
@@ -527,6 +533,7 @@ exports[`IR characterization — resolvers, args & inputs > positional scalar ar
     {
       "args": [
         {
+          "description": undefined,
           "exposed": true,
           "name": "name",
           "type": {
@@ -536,6 +543,7 @@ exports[`IR characterization — resolvers, args & inputs > positional scalar ar
           },
         },
         {
+          "description": undefined,
           "exposed": true,
           "name": "times",
           "type": {
@@ -545,6 +553,7 @@ exports[`IR characterization — resolvers, args & inputs > positional scalar ar
           },
         },
       ],
+      "description": undefined,
       "name": "greet",
       "returns": {
         "kind": "scalar",
@@ -601,6 +610,7 @@ exports[`IR characterization — resolvers, args & inputs > promise return types
   "operations": [
     {
       "args": [],
+      "description": undefined,
       "name": "one",
       "returns": {
         "kind": "ref",
@@ -611,6 +621,7 @@ exports[`IR characterization — resolvers, args & inputs > promise return types
     },
     {
       "args": [],
+      "description": undefined,
       "name": "many",
       "returns": {
         "kind": "list",
@@ -671,6 +682,7 @@ exports[`IR characterization — roots, typename & generics > __typename literal
   "operations": [
     {
       "args": [],
+      "description": undefined,
       "name": "dog",
       "returns": {
         "kind": "ref",
@@ -822,10 +834,98 @@ exports[`IR characterization — roots, typename & generics > Connection/Edge ge
   "operations": [
     {
       "args": [],
+      "description": undefined,
       "name": "users",
       "returns": {
         "kind": "ref",
         "name": "UserConnection",
+        "nullable": false,
+      },
+      "root": "Query",
+    },
+  ],
+  "scalars": [
+    "String",
+    "ID",
+    "Int",
+    "Float",
+    "Boolean",
+    "Number",
+    "Any",
+    "Void",
+    "JSONObject",
+    "File",
+    "Date",
+    "JSON",
+  ],
+  "unions": {},
+  "version": 1,
+}
+`;
+
+exports[`IR characterization — roots, typename & generics > JSDoc descriptions (type, field, resolver, enum) 1`] = `
+{
+  "entities": {},
+  "enums": {
+    "Role": {
+      "description": undefined,
+      "name": "Role",
+      "values": [
+        "ADMIN",
+        "USER",
+      ],
+    },
+  },
+  "inputs": {},
+  "interfaces": {},
+  "objects": {
+    "User": {
+      "description": "A user in the system",
+      "fields": [
+        {
+          "description": "The unique identifier",
+          "exposed": true,
+          "name": "id",
+          "type": {
+            "kind": "scalar",
+            "name": "String",
+            "nullable": false,
+          },
+        },
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "role",
+          "type": {
+            "kind": "ref",
+            "name": "Role",
+            "nullable": false,
+          },
+        },
+      ],
+      "implements": undefined,
+      "name": "User",
+    },
+  },
+  "operations": [
+    {
+      "args": [
+        {
+          "description": undefined,
+          "exposed": true,
+          "name": "id",
+          "type": {
+            "kind": "scalar",
+            "name": "String",
+            "nullable": false,
+          },
+        },
+      ],
+      "description": "Fetches a user by ID",
+      "name": "user",
+      "returns": {
+        "kind": "ref",
+        "name": "User",
         "nullable": false,
       },
       "root": "Query",
@@ -878,6 +978,7 @@ exports[`IR characterization — roots, typename & generics > Query + Mutation t
   "operations": [
     {
       "args": [],
+      "description": undefined,
       "name": "user",
       "returns": {
         "kind": "ref",
@@ -889,6 +990,7 @@ exports[`IR characterization — roots, typename & generics > Query + Mutation t
     {
       "args": [
         {
+          "description": undefined,
           "exposed": true,
           "name": "name",
           "type": {
@@ -898,6 +1000,7 @@ exports[`IR characterization — roots, typename & generics > Query + Mutation t
           },
         },
       ],
+      "description": undefined,
       "name": "setName",
       "returns": {
         "kind": "ref",
@@ -936,6 +1039,7 @@ exports[`IR characterization — scalars & nullability > all primitive scalars 1
   "operations": [
     {
       "args": [],
+      "description": undefined,
       "name": "str",
       "returns": {
         "kind": "scalar",
@@ -946,6 +1050,7 @@ exports[`IR characterization — scalars & nullability > all primitive scalars 1
     },
     {
       "args": [],
+      "description": undefined,
       "name": "int",
       "returns": {
         "kind": "scalar",
@@ -956,6 +1061,7 @@ exports[`IR characterization — scalars & nullability > all primitive scalars 1
     },
     {
       "args": [],
+      "description": undefined,
       "name": "float",
       "returns": {
         "kind": "scalar",
@@ -966,6 +1072,7 @@ exports[`IR characterization — scalars & nullability > all primitive scalars 1
     },
     {
       "args": [],
+      "description": undefined,
       "name": "bool",
       "returns": {
         "kind": "scalar",
@@ -976,6 +1083,7 @@ exports[`IR characterization — scalars & nullability > all primitive scalars 1
     },
     {
       "args": [],
+      "description": undefined,
       "name": "date",
       "returns": {
         "kind": "scalar",
@@ -986,6 +1094,7 @@ exports[`IR characterization — scalars & nullability > all primitive scalars 1
     },
     {
       "args": [],
+      "description": undefined,
       "name": "json",
       "returns": {
         "kind": "scalar",
@@ -1072,6 +1181,7 @@ exports[`IR characterization — scalars & nullability > optional and null-union
   "operations": [
     {
       "args": [],
+      "description": undefined,
       "name": "t",
       "returns": {
         "kind": "ref",
@@ -1206,6 +1316,7 @@ exports[`IR characterization — unions, interfaces & enums > class inheritance 
   "operations": [
     {
       "args": [],
+      "description": undefined,
       "name": "user",
       "returns": {
         "kind": "ref",
@@ -1216,6 +1327,7 @@ exports[`IR characterization — unions, interfaces & enums > class inheritance 
     },
     {
       "args": [],
+      "description": undefined,
       "name": "post",
       "returns": {
         "kind": "ref",
@@ -1249,6 +1361,7 @@ exports[`IR characterization — unions, interfaces & enums > string-literal uni
   "entities": {},
   "enums": {
     "Role": {
+      "description": undefined,
       "name": "Role",
       "values": [
         "ADMIN",
@@ -1291,6 +1404,7 @@ exports[`IR characterization — unions, interfaces & enums > string-literal uni
   "operations": [
     {
       "args": [],
+      "description": undefined,
       "name": "account",
       "returns": {
         "kind": "ref",
@@ -1364,6 +1478,7 @@ exports[`IR characterization — unions, interfaces & enums > union of distinct 
   "operations": [
     {
       "args": [],
+      "description": undefined,
       "name": "r",
       "returns": {
         "kind": "ref",

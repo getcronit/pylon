@@ -1,6 +1,20 @@
 import ts from 'typescript'
+import {parse, print} from 'graphql'
+import {expect} from 'vitest'
+import {toSDL} from '@getcronit/pylon-ir'
 import {SchemaParser} from '../schema-parser'
 import path from 'path'
+
+/** Canonical, order-independent SDL form for equivalence comparison. */
+function normalizeSDL(sdl: string): string {
+  const doc = parse(sdl)
+  const key = (d: (typeof doc.definitions)[number]) =>
+    `${d.kind}:${'name' in d && d.name ? d.name.value : ''}`
+  return [...doc.definitions]
+    .sort((a, b) => key(a).localeCompare(key(b)))
+    .map(d => print(d))
+    .join('\n\n')
+}
 
 /**
  * Compile `code` in-memory and return a parsed `SchemaParser`. Shared by the
@@ -65,82 +79,16 @@ export function buildParser(code: string): SchemaParser {
 }
 
 export function buildTestSchema(code: string) {
-  const fileName = 'index.ts'
-  const sourceFile = ts.createSourceFile(
-    fileName,
-    code,
-    ts.ScriptTarget.Latest,
-    true
-  )
+  const parser = buildParser(code)
+  const typeDefs = parser.toString()
 
-  const host = ts.createCompilerHost({
-    target: ts.ScriptTarget.ESNext,
-    module: ts.ModuleKind.ESNext
-  })
-
-  const originalGetSourceFile = host.getSourceFile
-  host.getSourceFile = (
-    name,
-    languageVersion,
-    onError,
-    shouldCreateNewSourceFile
-  ) => {
-    if (name === fileName || name === './index.ts') return sourceFile
-    return originalGetSourceFile(
-      name,
-      languageVersion,
-      onError,
-      shouldCreateNewSourceFile
-    )
-  }
-
-  const program = ts.createProgram(
-    [fileName],
-    {
-      target: ts.ScriptTarget.ESNext,
-      module: ts.ModuleKind.ESNext,
-      strict: true,
-      esModuleInterop: true,
-      skipLibCheck: true
-    },
-    host
-  )
-
-  const checker = program.getTypeChecker()
-
-  const fileSymbol = checker.getSymbolAtLocation(sourceFile)!
-  const exports = checker.getExportsOfModule(fileSymbol)
-  const graphqlExport = exports.find(e => e.escapedName === 'graphql')
-
-  if (!graphqlExport) {
-    throw new Error('Could not find graphql export in test code')
-  }
-
-  const graphqlType = checker.getTypeOfSymbolAtLocation(
-    graphqlExport,
-    sourceFile
-  )
-
-  const queryProperty = graphqlType.getProperty('Query')
-  const mutationProperty = graphqlType.getProperty('Mutation')
-  const subscriptionProperty = graphqlType.getProperty('Subscription')
-
-  const queryType = queryProperty
-    ? checker.getTypeOfSymbolAtLocation(queryProperty, sourceFile)
-    : undefined
-  const mutationType = mutationProperty
-    ? checker.getTypeOfSymbolAtLocation(mutationProperty, sourceFile)
-    : undefined
-  const subscriptionType = subscriptionProperty
-    ? checker.getTypeOfSymbolAtLocation(subscriptionProperty, sourceFile)
-    : undefined
-
-  const parser = new SchemaParser(checker, sourceFile, program)
-  parser.parse({
-    Query: queryType,
-    Mutation: mutationType,
-    Subscription: subscriptionType
-  })
+  // IR-first gate: `toSDL(toIR())` must be fully graphql-equivalent to
+  // `toString()` for EVERY snapshot case. This turns the whole existing corpus
+  // into IR-parity verification — the safety proof for swapping the renderer.
+  expect(
+    normalizeSDL(toSDL(parser.toIR())),
+    'toSDL(toIR()) must equal toString()'
+  ).toBe(normalizeSDL(typeDefs))
 
   const resolvers = parser.getResolvers()
   const serializableResolvers = Object.fromEntries(
@@ -153,7 +101,7 @@ export function buildTestSchema(code: string) {
   )
 
   return {
-    typeDefs: parser.toString(),
+    typeDefs,
     resolvers: serializableResolvers
   }
 }

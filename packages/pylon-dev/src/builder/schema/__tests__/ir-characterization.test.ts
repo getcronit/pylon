@@ -170,6 +170,25 @@ describe('IR characterization — roots, typename & generics', () => {
     `)
   })
 
+  it('JSDoc descriptions (type, field, resolver, enum)', () => {
+    characterize(`
+      /** A role */
+      type Role = "ADMIN" | "USER"
+      /** A user in the system */
+      class User {
+        /** The unique identifier */
+        id!: string
+        role!: Role
+      }
+      export const graphql = {
+        Query: {
+          /** Fetches a user by ID */
+          user: (id: string): User => ({} as User)
+        }
+      }
+    `)
+  })
+
   it('Connection/Edge generics', () => {
     characterize(`
       interface Edge<T> { node: T; cursor: string }
