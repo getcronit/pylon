@@ -12,7 +12,7 @@
 import {spawnSync} from 'node:child_process'
 import {existsSync, promises as fs} from 'node:fs'
 import path from 'node:path'
-import {fileURLToPath} from 'node:url'
+import {fileURLToPath, pathToFileURL} from 'node:url'
 import {
   buildSchema,
   GraphQLEnumType,
@@ -31,6 +31,7 @@ const pylonDir = path.join(appDir, '.pylon')
 
 let buildResult: ReturnType<typeof spawnSync>
 let schema: GraphQLSchema
+let config: Record<string, unknown> | undefined
 
 beforeAll(async () => {
   if (!existsSync(cliBin)) {
@@ -45,6 +46,7 @@ beforeAll(async () => {
   })
   if (buildResult.status === 0) {
     schema = buildSchema(await fs.readFile(path.join(pylonDir, 'schema.graphql'), 'utf8'))
+    config = (await import(pathToFileURL(path.join(pylonDir, 'config.js')).href)).config
   }
 }, 180_000)
 
@@ -135,5 +137,10 @@ describe('pylon build (shipped CLI) — content-platform app (no ORM)', () => {
     expect(schema.getQueryType()?.getFields().posts).toBeDefined()
     expect(ft('Query', 'posts')).toBe('[Post!]!')
     expect(ft('Mutation', 'createPost')).toBe('Post!')
+  })
+
+  it('loads config from the standalone pylon.config.ts', () => {
+    // The CLI built .pylon/config.js from pylon.config.ts (not an inline export).
+    expect(config).toMatchObject({graphiql: false, landingPage: false})
   })
 })

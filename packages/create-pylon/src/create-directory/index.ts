@@ -51,26 +51,11 @@ interface CreateDirectoryOptions {
   features: Feature[]
 }
 
-const makeIndexFile = (runtime: Runtime, features: Feature[]) => {
-  const pylonImports: string[] = ['app', 'PylonConfig']
-  const pylonConfigPlugins: string[] = []
-
-  if (features.includes('auth')) {
-    pylonImports.push('useAuth')
-    pylonConfigPlugins.push(
-      "useAuth({issuer: 'https://test-0o6zvq.zitadel.cloud'})"
-    )
-  }
-
-  if (features.includes('pages')) {
-    pylonImports.push('usePages')
-    pylonConfigPlugins.push('usePages()')
-  }
-
+const makeIndexFile = (runtime: Runtime, _features: Feature[]) => {
   let content: string = ''
 
-  // Add imports
-  content += `import {${pylonImports.join(', ')}} from '@getcronit/pylon'\n\n`
+  // Add imports — config (incl. plugins) lives in pylon.config.ts now.
+  content += `import {app} from '@getcronit/pylon'\n\n`
 
   if (runtime === 'node') {
     content += `import {serve} from '@hono/node-server'\n`
@@ -101,13 +86,27 @@ const makeIndexFile = (runtime: Runtime, features: Feature[]) => {
 `
   }
 
-  content += '\n\n'
-
-  content += `export const config: PylonConfig = {
-  plugins: [${pylonConfigPlugins.join(', ')}]
-}`
-
   return content
+}
+
+/** Standalone `pylon.config.ts` — config + plugins, separate from the entry. */
+const makeConfigFile = (_runtime: Runtime, features: Feature[]) => {
+  const imports: string[] = ['defineConfig']
+  const plugins: string[] = []
+
+  if (features.includes('auth')) {
+    imports.push('useAuth')
+    plugins.push("useAuth({issuer: 'https://test-0o6zvq.zitadel.cloud'})")
+  }
+  if (features.includes('pages')) {
+    imports.push('usePages')
+    plugins.push('usePages()')
+  }
+
+  return (
+    `import {${imports.join(', ')}} from '@getcronit/pylon'\n\n` +
+    `export default defineConfig({\n  plugins: [${plugins.join(', ')}]\n})\n`
+  )
 }
 
 const makePylonDefinition = async (runtime: Runtime, features: Feature[]) => {
@@ -136,7 +135,7 @@ declare module '@getcronit/pylon/pages' {
 const makeTsConfig = async (runtime: Runtime, features: Feature[]) => {
   const data: any = {
     extends: '@getcronit/pylon/tsconfig.pylon.json',
-    include: ['pylon.d.ts', 'src/**/*.ts']
+    include: ['pylon.d.ts', 'pylon.config.ts', 'src/**/*.ts']
   }
 
   if (runtime === 'cf-workers') {
@@ -559,6 +558,7 @@ export const createDirectory = async (options: CreateDirectoryOptions) => {
   })
 
   const indexFile = makeIndexFile(runtime, features)
+  const configFile = makeConfigFile(runtime, features)
   const tsConfig = await makeTsConfig(runtime, features)
   const pylonDefinition = await makePylonDefinition(runtime, features)
 
@@ -574,6 +574,10 @@ export const createDirectory = async (options: CreateDirectoryOptions) => {
     {
       path: 'src/index.ts',
       content: indexFile
+    },
+    {
+      path: 'pylon.config.ts',
+      content: configFile
     }
   )
 

@@ -44,6 +44,18 @@ export type PylonConfig = {
   plugins?: Plugin[]
 }
 
+/**
+ * Define the Pylon config in a standalone `pylon.config.ts`:
+ *
+ * ```ts
+ * import {defineConfig} from '@getcronit/pylon'
+ * export default defineConfig({ graphiql: true })
+ * ```
+ *
+ * Identity at runtime — it exists purely for types/autocomplete.
+ */
+export const defineConfig = (config: PylonConfig): PylonConfig => config
+
 export type ID = string & {readonly brand?: unique symbol}
 export type Int = number & {readonly brand?: unique symbol}
 export type Float = number & {readonly brand?: unique symbol}

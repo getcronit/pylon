@@ -6,7 +6,7 @@ import esbuildPluginTsc from 'esbuild-plugin-tsc'
 import fs from 'fs/promises'
 import path from 'path'
 import {updateFileIfChanged} from '../update-file-if-changed'
-import {extractConfig} from './extract-config'
+import {buildConfigFile} from './build-config'
 import {
   InjectCodePluginOptions,
   injectCodePlugin
@@ -31,7 +31,9 @@ export class Bundler {
   private async initBuildPlugins(args: {onBuild: () => void}) {
     const configPath = path.join(process.cwd(), this.outputDir, 'config.js')
 
-    await extractConfig(this.sfiFilePath, configPath)
+    // Config now lives in a standalone `pylon.config.ts` (loaded by direct
+    // bundle), not an inline `config` export in the entry.
+    await buildConfigFile(process.cwd(), configPath)
 
     let config: PylonConfig | undefined
     try {
