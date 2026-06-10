@@ -4,6 +4,7 @@ import {
   ColumnDefinition,
   finalizeModel,
   getModelDefinitionOrThrow,
+  ModelIndex,
   OnDelete,
   registerColumn,
   registerRelation,
@@ -262,6 +263,12 @@ export interface ModelOptions {
   abstract?: boolean
   /** Migration-group / app this model belongs to. Prefer `models.app(name)`. */
   app?: string
+  /**
+   * Composite (multi-column) secondary indexes. `columns` are property names.
+   * Single-column indexes use the field option `{index: true}`; a composite
+   * unique constraint is `{columns: [...], unique: true}`.
+   */
+  indexes?: ModelIndex[]
 }
 
 // Mirror the runtime validator's type buckets (validation.ts) so a DB CHECK and
@@ -477,7 +484,7 @@ export function model(options: ModelOptions = {}): ClassDecorator {
     }
 
     // 4. Finalize: merge columns/relations inherited via the prototype chain.
-    finalizeModel(Wrapped, {tableName, abstract: isAbstract, app: options.app})
+    finalizeModel(Wrapped, {tableName, abstract: isAbstract, app: options.app, indexes: options.indexes})
 
     // 5. Default manager (a custom `static objects = manager(...)` wins).
     if (

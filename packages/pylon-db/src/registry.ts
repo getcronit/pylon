@@ -81,6 +81,14 @@ export interface RelationDefinition {
   targetForeignKey?: string
 }
 
+/** A model-level (possibly composite) secondary index. `columns` are PROPERTY keys. */
+export interface ModelIndex {
+  columns: string[]
+  unique?: boolean
+  /** Override the generated index name. */
+  name?: string
+}
+
 export interface ModelDefinition {
   ctor: Function
   tableName: string
@@ -90,6 +98,8 @@ export interface ModelDefinition {
   primaryKey?: ColumnDefinition
   /** Migration-group / app this model belongs to (set via `models.app(name)`). */
   app?: string
+  /** Model-level composite indexes (single-column ones come from `{index:true}`). */
+  indexes?: ModelIndex[]
 }
 
 /** Columns are accumulated per-constructor before @model finalizes the model. */
@@ -156,7 +166,7 @@ function ownRelations(ctor: Function): RelationDefinition[] {
  */
 export function finalizeModel(
   ctor: Function,
-  options: {tableName: string; abstract: boolean; app?: string}
+  options: {tableName: string; abstract: boolean; app?: string; indexes?: ModelIndex[]}
 ): ModelDefinition {
   const merged = new Map<string, ColumnDefinition>()
   const mergedRelations = new Map<string, RelationDefinition>()
@@ -188,7 +198,8 @@ export function finalizeModel(
     columns,
     relations,
     primaryKey,
-    app: options.app
+    app: options.app,
+    indexes: options.indexes
   }
 
   if (!options.abstract) {

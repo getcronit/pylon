@@ -124,10 +124,10 @@ function relationField(rel: RelationDefinition): Field {
 
 /** Convert one model definition into an IR `Entity`. */
 export function entityFromDefinition(def: ModelDefinition): Entity {
-  // Single-column secondary indexes from `{index: true}` field options. (Unique
-  // is a column-level constraint, handled separately; composite indexes are a
-  // future model-level API — the IR/migration engine already supports them.)
-  const indexes = def.columns
+  // Single-column secondary indexes from `{index: true}` field options.
+  const columnFor = (prop: string) =>
+    def.columns.find(c => c.propertyKey === prop)?.columnName ?? prop
+  const singleColumn = def.columns
     .filter(col => col.index)
     .map(col => ({
       name: `${def.tableName}_${col.columnName}_idx`,
@@ -135,6 +135,17 @@ export function entityFromDefinition(def: ModelDefinition): Entity {
       columns: [col.columnName],
       unique: false
     }))
+  // Composite (multi-column) indexes from the model-level `indexes` option.
+  const composite = (def.indexes ?? []).map(ix => {
+    const cols = ix.columns.map(columnFor)
+    return {
+      name: ix.name ?? `${def.tableName}_${cols.join('_')}_idx`,
+      table: def.tableName,
+      columns: cols,
+      unique: ix.unique ?? false
+    }
+  })
+  const indexes = [...singleColumn, ...composite]
 
   return {
     name: def.ctor.name,
