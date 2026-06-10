@@ -169,6 +169,6 @@ describe.skipIf(!dockerAvailable)('pylon db — committed/authored migrations (l
 
     const r = pylonDb('check')
     expect(r.status, r.out).toBe(1)
-    expect(r.out).toMatch(/drift/i)
+    expect(r.out).toMatch(/missing|drift/i)
   })
 })

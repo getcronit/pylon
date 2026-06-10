@@ -223,10 +223,13 @@ db.command('check')
       if (check!.tampered.length > 0)
         problems.push(`tampered migration(s): ${check!.tampered.join(', ')}`)
       const d = check!.drift
-      if (d && (d.missingTables.length || d.extraTables.length || d.columns.length))
-        problems.push(
-          `database drift (${d.missingTables.length + d.extraTables.length + d.columns.length} difference(s) vs models)`
-        )
+      // Only MISSING schema fails CI (migrations not applied / DB behind). Extra
+      // tables/columns are reported by `status` but don't fail — a shared DB can
+      // legitimately hold other apps' tables, extensions, etc.
+      const missing = d
+        ? d.missingTables.length + d.columns.reduce((n, c) => n + c.missing.length, 0)
+        : 0
+      if (missing > 0) problems.push(`database missing ${missing} expected table(s)/column(s)`)
       if (problems.length > 0) {
         for (const p of problems) consola.error(p)
         process.exit(1)
