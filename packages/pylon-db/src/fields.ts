@@ -42,6 +42,8 @@ export interface FieldOptions {
   default?: unknown
   /** Raw SQL default, e.g. `now()`. */
   defaultSql?: string
+  /** A column CHECK expression, e.g. `price > 0` (references the column name). */
+  check?: string
   /** Force hidden from the generated GraphQL API. */
   hidden?: boolean
 }
@@ -53,7 +55,7 @@ class FieldBuilder {
   constructor(
     readonly sqlType: SqlType,
     readonly base: Partial<ColumnDefinition>,
-    readonly options: FieldOptions & {length?: number}
+    readonly options: FieldOptions & {length?: number; enumValues?: readonly string[]}
   ) {}
 }
 
@@ -69,7 +71,7 @@ class RelationBuilder {
 function field(
   sqlType: SqlType,
   base: Partial<ColumnDefinition>,
-  options: FieldOptions & {length?: number}
+  options: FieldOptions & {length?: number; enumValues?: readonly string[]}
 ): unknown {
   return new FieldBuilder(sqlType, base, options)
 }
@@ -140,6 +142,26 @@ export function json<T = unknown>(options: NullableOpts): T | null
 export function json<T = unknown>(options?: FieldOptions): T
 export function json<T = unknown>(options: FieldOptions = {}): T | null {
   return field('jsonb', {}, options) as T | null
+}
+
+/**
+ * A constrained string column: stored as `text` with a `CHECK (… IN (…))`
+ * constraint (not a native Postgres enum type — those are painful to migrate).
+ * Typed as the union of the given values.
+ */
+export function enumColumn<const V extends string>(
+  values: readonly V[],
+  options: NullableOpts
+): V | null
+export function enumColumn<const V extends string>(
+  values: readonly V[],
+  options?: FieldOptions
+): V
+export function enumColumn<const V extends string>(
+  values: readonly V[],
+  options: FieldOptions = {}
+): V | null {
+  return field('text', {}, {...options, enumValues: values}) as V | null
 }
 
 // ===========================================================================
@@ -230,9 +252,15 @@ function buildColumn(key: string, b: FieldBuilder): ColumnDefinition {
   // column name (`$passwordHash` → `password_hash`).
   const hidden = b.options.hidden ?? key.startsWith('$')
   const exposedName = key.startsWith('$') ? key.slice(1) : key
+  const columnName = b.options.column ?? snakeCase(exposedName)
+  // An enum column derives its CHECK from the values (column name known now);
+  // otherwise an explicit `check` expression is used verbatim.
+  const check = b.options.enumValues
+    ? `"${columnName}" IN (${b.options.enumValues.map(v => `'${v.replace(/'/g, "''")}'`).join(', ')})`
+    : b.options.check
   return {
     propertyKey: key,
-    columnName: b.options.column ?? snakeCase(exposedName),
+    columnName,
     sqlType: b.sqlType,
     primaryKey: b.options.primaryKey ?? b.base.primaryKey ?? false,
     autoIncrement: b.base.autoIncrement ?? false,
@@ -242,7 +270,8 @@ function buildColumn(key: string, b: FieldBuilder): ColumnDefinition {
     index: b.options.index ?? false,
     length: b.options.length,
     default: b.options.default,
-    defaultSql: b.options.defaultSql ?? b.base.defaultSql
+    defaultSql: b.options.defaultSql ?? b.base.defaultSql,
+    check
   }
 }
 

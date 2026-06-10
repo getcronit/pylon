@@ -8,14 +8,21 @@ class Widget extends models.Model {
   name = models.Text({unique: true})
   price = models.Int({nullable: true})
   slug = models.Text({index: true})
+  status = models.Enum(['active', 'archived'] as const)
 }
 
 describe('namespaced public API', () => {
   it('models.* exposes capitalized field types + Model', () => {
     expect(models.Model).toBeTypeOf('function')
-    for (const k of ['ID', 'Text', 'Int', 'Boolean', 'Timestamp', 'ForeignKey', 'HasMany']) {
+    for (const k of ['ID', 'Text', 'Int', 'Boolean', 'Timestamp', 'Enum', 'ForeignKey', 'HasMany']) {
       expect(models[k as keyof typeof models], k).toBeTypeOf('function')
     }
+  })
+
+  it('Enum column derives an IN(...) CHECK constraint in the IR', () => {
+    const ir = toIR([getModelDefinitionOrThrow(Widget)])
+    const status = ir.entities.Widget.fields.find(f => f.name === 'status')
+    expect(status?.column?.check).toBe(`"status" IN ('active', 'archived')`)
   })
 
   it('a model defined via models.* registers correctly', () => {

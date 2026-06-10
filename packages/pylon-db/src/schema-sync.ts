@@ -61,6 +61,8 @@ async function createTable(db: Database, def: ModelDefinition): Promise<void> {
           else if (col.default !== undefined) c = c.defaultTo(col.default as any)
         }
 
+        if (col.check) c = c.check(sql.raw(col.check))
+
         const rel = fkByColumn.get(col.columnName)
         if (rel) {
           const targetDef = getModelDefinition(rel.target())

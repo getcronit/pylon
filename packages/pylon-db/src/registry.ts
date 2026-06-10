@@ -35,6 +35,8 @@ export interface ColumnDefinition {
   defaultSql?: string
   /** Create a secondary (non-unique) btree index on this column. */
   index?: boolean
+  /** A column CHECK expression (e.g. `price > 0` or an enum `IN (…)`). */
+  check?: string
 }
 
 export type RelationKind = 'belongsTo' | 'hasMany'

@@ -61,7 +61,8 @@ function columnEqual(a: ColumnSpec, b: ColumnSpec): boolean {
     a.primaryKey === b.primaryKey &&
     a.length === b.length &&
     a.defaultSql === b.defaultSql &&
-    a.default === b.default
+    a.default === b.default &&
+    a.check === b.check
   )
 }
 
@@ -356,6 +357,13 @@ function alterColumnSQL(
         ? `ALTER TABLE "${table}" ADD CONSTRAINT "${name}" UNIQUE (${col})`
         : `ALTER TABLE "${table}" DROP CONSTRAINT "${name}"`
     )
+  }
+  if (before.check !== after.check) {
+    // Postgres names a column check `<table>_<column>_check`; round-trips with
+    // an inline CHECK created on the column.
+    const name = `${table}_${after.name}_check`
+    if (before.check) out.push(`ALTER TABLE "${table}" DROP CONSTRAINT "${name}"`)
+    if (after.check) out.push(`ALTER TABLE "${table}" ADD CONSTRAINT "${name}" CHECK (${after.check})`)
   }
   if (before.primaryKey !== after.primaryKey) {
     unsupported.push(

@@ -21,6 +21,7 @@ export function columnDDL(c: ColumnSpec): string {
     if (c.unique) parts.push('UNIQUE')
     if (!c.nullable && !c.primaryKey) parts.push('NOT NULL')
     if (c.defaultSql) parts.push(`DEFAULT ${c.defaultSql}`)
+    if (c.check) parts.push(`CHECK (${c.check})`)
   }
   return parts.join(' ')
 }

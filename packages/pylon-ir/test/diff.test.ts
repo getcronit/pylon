@@ -96,6 +96,22 @@ describe('migration engine — diff two IR snapshots → SQL', () => {
     ])
   })
 
+  it('renders an inline CHECK and diffs check add/drop on an existing column (reversible)', () => {
+    const plain = field('role', col({name: 'role', sqlType: 'text'}))
+    const checked = field('role', col({name: 'role', sqlType: 'text', check: `"role" IN ('a','b')`}))
+
+    // new table → inline CHECK
+    const created = makeMigration({}, entity('User', [idField, checked]))
+    expect(created.up[0]).toMatch(/CHECK \("role" IN \('a','b'\)\)/)
+
+    // adding a check to an existing column → ADD/DROP CONSTRAINT, reversible
+    const m = makeMigration(entity('User', [idField, plain]), entity('User', [idField, checked]))
+    expect(m.up).toEqual([
+      `ALTER TABLE "user" ADD CONSTRAINT "user_role_check" CHECK ("role" IN ('a','b'))`
+    ])
+    expect(m.down).toEqual([`ALTER TABLE "user" DROP CONSTRAINT "user_role_check"`])
+  })
+
   it('reports a primary-key change as unsupported (never silent)', () => {
     const before = field('code', col({name: 'code', sqlType: 'text', primaryKey: false}))
     const after = field('code', col({name: 'code', sqlType: 'text', primaryKey: true}))

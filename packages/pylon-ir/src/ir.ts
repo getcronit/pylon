@@ -54,6 +54,8 @@ export interface ColumnSpec {
   length?: number
   default?: unknown
   defaultSql?: string
+  /** A column CHECK expression, e.g. `price > 0` or `"status" IN ('a','b')`. */
+  check?: string
   /** Stored as a single JSON(B) column rather than a derived object type. */
   serialize?: 'json'
 }

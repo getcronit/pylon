@@ -15,6 +15,7 @@ export {
   timestamp,
   date,
   json,
+  enumColumn,
   foreignKey,
   hasMany,
   type ModelOptions,
@@ -140,6 +141,7 @@ export const models = {
   Timestamp: fields.timestamp,
   Date: fields.date,
   JSON: fields.json,
+  Enum: fields.enumColumn,
   ForeignKey: fields.foreignKey,
   HasMany: fields.hasMany,
   RelatedManager: RelatedManagerClass

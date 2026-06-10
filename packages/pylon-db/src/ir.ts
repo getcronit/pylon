@@ -67,6 +67,7 @@ function columnSpec(col: ColumnDefinition): ColumnSpec {
     length: col.length,
     default: col.default,
     defaultSql: col.defaultSql,
+    check: col.check,
     serialize: col.sqlType === 'jsonb' ? 'json' : undefined
   }
 }
