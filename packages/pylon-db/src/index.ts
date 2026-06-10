@@ -52,6 +52,11 @@ export {
 } from './app-context.js'
 export {defineFeatures, requireFeature, gateResolvers, ForbiddenError} from './features.js'
 export {
+  signals,
+  type SaveSignalPayload,
+  type DeleteSignalPayload
+} from './signals.js'
+export {
   ValidationError,
   validateInstance,
   type ValidationIssue,

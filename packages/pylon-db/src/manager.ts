@@ -1,5 +1,6 @@
 import {currentTenant} from './app-context.js'
 import {getDatabase} from './database.js'
+import {signals} from './signals.js'
 import {
   ColumnDefinition,
   getModelDefinitionOrThrow,
@@ -378,31 +379,35 @@ export async function saveInstance(instance: object): Promise<object> {
 
   const db = getDatabase()
   const pk = def.primaryKey
+  const created = !(persisted.has(instance) && pk)
+  const model = instance.constructor as Function
 
-  if (persisted.has(instance) && pk) {
+  await signals.preSave.emit({instance, created, model})
+
+  if (!created) {
     const data = rowFromInstance(def, instance, {includePrimaryKey: false})
     await db.kysely
       .updateTable(def.tableName)
       .set(data)
-      .where(pk.columnName, '=', (instance as any)[pk.propertyKey])
+      .where(pk!.columnName, '=', (instance as any)[pk!.propertyKey])
       .execute()
-    return instance
-  }
-
-  const data = rowFromInstance(def, instance, {includePrimaryKey: true})
-  const inserted = await db.kysely
-    .insertInto(def.tableName)
-    .values(data)
-    .returningAll()
-    .executeTakeFirstOrThrow()
-
-  // Pull back generated values (identity PKs, SQL defaults).
-  for (const col of def.columns) {
-    if (col.columnName in (inserted as any)) {
-      ;(instance as any)[col.propertyKey] = (inserted as any)[col.columnName]
+  } else {
+    const data = rowFromInstance(def, instance, {includePrimaryKey: true})
+    const inserted = await db.kysely
+      .insertInto(def.tableName)
+      .values(data)
+      .returningAll()
+      .executeTakeFirstOrThrow()
+    // Pull back generated values (identity PKs, SQL defaults).
+    for (const col of def.columns) {
+      if (col.columnName in (inserted as any)) {
+        ;(instance as any)[col.propertyKey] = (inserted as any)[col.columnName]
+      }
     }
+    persisted.add(instance)
   }
-  persisted.add(instance)
+
+  await signals.postSave.emit({instance, created, model})
   return instance
 }
 
@@ -413,9 +418,12 @@ export async function deleteInstance(instance: object): Promise<void> {
     throw new Error(`Cannot delete "${def.tableName}": no primary key defined.`)
   }
   const db = getDatabase()
+  const model = instance.constructor as Function
+  await signals.preDelete.emit({instance, model})
   await db.kysely
     .deleteFrom(def.tableName)
     .where(pk.columnName, '=', (instance as any)[pk.propertyKey])
     .execute()
   persisted.delete(instance)
+  await signals.postDelete.emit({instance, model})
 }
