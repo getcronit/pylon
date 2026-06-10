@@ -1,5 +1,13 @@
 import {describe, expect, it} from 'vitest'
-import {applyChanges, makeMigration, renderChanges, tableSpecOf, type Entity} from '../src/index'
+import {
+  applyChanges,
+  diffSchema,
+  makeMigration,
+  physicalSchemaOf,
+  renderChanges,
+  tableSpecOf,
+  type Entity
+} from '../src/index'
 
 const col = (over: {name: string; sqlType: any} & Record<string, unknown>) => ({
   primaryKey: false,
@@ -134,6 +142,23 @@ describe('migration engine — foreign keys (self-contained, never inline)', () 
   const ADD_FK =
     'ALTER TABLE "post" ADD CONSTRAINT "post_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "user" ("id")'
   const DROP_FK = 'ALTER TABLE "post" DROP CONSTRAINT "post_author_id_fkey"'
+
+  it('physicalSchemaOf extracts columns + resolved FKs (the state currency)', () => {
+    const schema = physicalSchemaOf({User: user(), Post: post()})
+    expect(schema.Post.columns.map(c => c.name).sort()).toEqual(['author_id', 'id'])
+    expect(schema.Post.foreignKeys).toEqual([
+      {
+        table: 'post',
+        name: 'post_author_id_fkey',
+        column: 'author_id',
+        refTable: 'user',
+        refColumn: 'id',
+        onDelete: undefined
+      }
+    ])
+    // a diff of identical physical schemas is empty (the no-drift invariant)
+    expect(diffSchema(schema, physicalSchemaOf({User: user(), Post: post()}))).toEqual([])
+  })
 
   it('a new table FK to an existing table resolves at diff time (no inline FK)', () => {
     const m = makeMigration({User: user()}, {User: user(), Post: post()})

@@ -20,22 +20,16 @@
  */
 import {columnDDL, sqlTypeDDL, toDDL} from './ddl.js'
 import {tableSpecOf} from './ir.js'
-import type {ColumnSpec, Entity, IndexSpec, OnDelete, TableColumn, TableSpec} from './ir.js'
-
-/** A resolved foreign-key constraint — self-contained, no schema lookup needed. */
-export interface ForeignKeyChange {
-  /** Table the constraint lives on. */
-  table: string
-  /** Deterministic constraint name (`<table>_<column>_fkey`, Postgres style). */
-  name: string
-  /** Local FK column. */
-  column: string
-  /** Referenced table. */
-  refTable: string
-  /** Referenced column (the target's primary key). */
-  refColumn: string
-  onDelete?: OnDelete
-}
+import type {
+  ColumnSpec,
+  Entity,
+  ForeignKeyChange,
+  IndexSpec,
+  PhysicalSchema,
+  PhysicalTable,
+  TableColumn,
+  TableSpec
+} from './ir.js'
 
 export type SchemaChange =
   | {kind: 'createTable'; spec: TableSpec}
@@ -57,12 +51,6 @@ export interface Migration {
   down: string[]
   /** Human-readable notes for deltas the engine cannot express as SQL. */
   unsupported: string[]
-}
-
-function columnsOf(e: Entity): Map<string, ColumnSpec> {
-  return new Map(
-    e.fields.filter(f => f.column).map(f => [f.column!.name, f.column!])
-  )
 }
 
 function columnEqual(a: ColumnSpec, b: ColumnSpec): boolean {
@@ -124,11 +112,43 @@ function indexEqual(a: IndexSpec, b: IndexSpec): boolean {
   )
 }
 
-/** Compute the ordered set of changes from `prev` entities to `next` entities. */
-export function diffEntities(
-  prev: Record<string, Entity>,
-  next: Record<string, Entity>
-): SchemaChange[] {
+// ── PhysicalSchema: the canonical state currency ────────────────────────────
+
+/** Project IR entities to their physical schema (columns + FKs + indexes). */
+export function physicalSchemaOf(entities: Record<string, Entity>): PhysicalSchema {
+  const schema: PhysicalSchema = {}
+  for (const name of Object.keys(entities)) {
+    const e = entities[name]
+    schema[name] = {
+      ...tableSpecOf(e), // {name, table, columns}
+      foreignKeys: [...foreignKeysOf(e, entities).values()],
+      indexes: [...indexesOf(e).values()]
+    }
+  }
+  return schema
+}
+
+const pColumns = (t: PhysicalTable): Map<string, TableColumn> =>
+  new Map(t.columns.map(c => [c.name, c]))
+const pFks = (t: PhysicalTable): Map<string, ForeignKeyChange> =>
+  new Map((t.foreignKeys ?? []).map(fk => [fk.name, fk]))
+const pIndexes = (t: PhysicalTable): Map<string, IndexSpec> =>
+  new Map((t.indexes ?? []).map(ix => [ix.name, ix]))
+
+/** The lean `TableSpec` slice of a physical table (for create/dropTable). */
+const tableSpecPart = (t: PhysicalTable): TableSpec => ({
+  name: t.name,
+  table: t.table,
+  columns: t.columns
+})
+
+/**
+ * Compute the ordered set of changes from one physical schema to another. This
+ * is THE diff — `from` and `to` can each come from projecting models, folding op
+ * history, or introspecting a live DB. FKs/indexes are already explicit on each
+ * table, so there's no relation resolution here.
+ */
+export function diffSchema(prev: PhysicalSchema, next: PhysicalSchema): SchemaChange[] {
   const creates: SchemaChange[] = []
   const cols: SchemaChange[] = []
   const fkDrops: SchemaChange[] = []
@@ -137,16 +157,16 @@ export function diffEntities(
   const indexAdds: SchemaChange[] = []
   const drops: SchemaChange[] = []
 
-  // New tables (columns only — FKs are emitted separately, below).
+  // New tables (columns only — FKs/indexes are emitted separately, below).
   for (const name of Object.keys(next)) {
-    if (!(name in prev)) creates.push({kind: 'createTable', spec: tableSpecOf(next[name])})
+    if (!(name in prev)) creates.push({kind: 'createTable', spec: tableSpecPart(next[name])})
   }
 
   // Column-level changes on tables present in both.
   for (const name of Object.keys(next)) {
     if (!(name in prev)) continue
-    const before = columnsOf(prev[name])
-    const after = columnsOf(next[name])
+    const before = pColumns(prev[name])
+    const after = pColumns(next[name])
     const table = next[name].table
 
     for (const [col, spec] of after) {
@@ -162,13 +182,13 @@ export function diffEntities(
 
   // Foreign-key changes for every table present in `next` (new + existing).
   for (const name of Object.keys(next)) {
-    const beforeFks = name in prev ? foreignKeysOf(prev[name], prev) : new Map<string, ForeignKeyChange>()
-    const afterFks = foreignKeysOf(next[name], next)
+    const beforeFks = name in prev ? pFks(prev[name]) : new Map<string, ForeignKeyChange>()
+    const afterFks = pFks(next[name])
     // Columns dropped from this table — their FKs vanish via DROP COLUMN cascade,
     // so we must NOT also emit an explicit DROP CONSTRAINT (it would fail).
     const droppedCols = new Set(
       name in prev
-        ? [...columnsOf(prev[name]).keys()].filter(c => !columnsOf(next[name]).has(c))
+        ? [...pColumns(prev[name]).keys()].filter(c => !pColumns(next[name]).has(c))
         : []
     )
 
@@ -176,7 +196,6 @@ export function diffEntities(
       const old = beforeFks.get(fkName)
       if (!old) fkAdds.push({kind: 'addForeignKey', fk})
       else if (!fkEqual(old, fk)) {
-        // Retarget / onDelete change: drop then re-add (same constraint name).
         fkDrops.push({kind: 'dropForeignKey', fk: old})
         fkAdds.push({kind: 'addForeignKey', fk})
       }
@@ -190,11 +209,11 @@ export function diffEntities(
 
   // Index changes for every table present in `next` (new + existing).
   for (const name of Object.keys(next)) {
-    const beforeIx = name in prev ? indexesOf(prev[name]) : new Map<string, IndexSpec>()
-    const afterIx = indexesOf(next[name])
+    const beforeIx = name in prev ? pIndexes(prev[name]) : new Map<string, IndexSpec>()
+    const afterIx = pIndexes(next[name])
     const droppedCols = new Set(
       name in prev
-        ? [...columnsOf(prev[name]).keys()].filter(c => !columnsOf(next[name]).has(c))
+        ? [...pColumns(prev[name]).keys()].filter(c => !pColumns(next[name]).has(c))
         : []
     )
     for (const [ixName, ix] of afterIx) {
@@ -206,24 +225,29 @@ export function diffEntities(
       }
     }
     for (const [ixName, ix] of beforeIx) {
-      // A dropped column cascades its indexes, so skip an explicit DROP INDEX.
       if (!afterIx.has(ixName) && !ix.columns.some(c => droppedCols.has(c))) {
         indexDrops.push({kind: 'dropIndex', index: ix})
       }
     }
   }
 
-  // Dropped tables. DROP TABLE cascades their constraints + indexes, so no
-  // explicit FK/index drops; their columns (and inbound FK fidelity) are not
-  // restored on rollback.
+  // Dropped tables. DROP TABLE cascades their constraints + indexes.
   for (const name of Object.keys(prev)) {
-    if (!(name in next)) drops.push({kind: 'dropTable', spec: tableSpecOf(prev[name])})
+    if (!(name in next)) drops.push({kind: 'dropTable', spec: tableSpecPart(prev[name])})
   }
 
   // Order: create tables → column changes → drop FKs/indexes → add FKs/indexes
   // → drop tables. Guarantees a constraint/index's columns exist before it's
   // added, and that it's dropped before its table; `down` inverts this cleanly.
   return [...creates, ...cols, ...fkDrops, ...indexDrops, ...fkAdds, ...indexAdds, ...drops]
+}
+
+/** Diff two IR entity maps (convenience wrapper over `diffSchema`). */
+export function diffEntities(
+  prev: Record<string, Entity>,
+  next: Record<string, Entity>
+): SchemaChange[] {
+  return diffSchema(physicalSchemaOf(prev), physicalSchemaOf(next))
 }
 
 function addForeignKeySQL(fk: ForeignKeyChange): string {
@@ -351,33 +375,30 @@ export function renderChanges(
 }
 
 /**
- * Fold a set of schema changes into a table-spec map — the inverse direction of
- * `diffEntities`. This is the "state" projection (Django's `state_forwards`):
- * replaying a migration history's changes reconstructs the schema as of any
- * point, *without* reading the live models. Used to build historical models for
- * data migrations.
+ * Fold a set of schema changes into a `PhysicalSchema` — the inverse direction
+ * of `diffSchema`, and the "state" projection (Django's `state_forwards`).
+ * Replaying a migration history's changes reconstructs the full physical schema
+ * as of any point, *without* a database — this is the canonical baseline (no
+ * `snapshot.json`) and the source of historical models for data migrations.
  *
- * Only column/table shape is tracked (what a query manager needs); foreign-key
- * and index changes are no-ops here — they don't affect a row's columns. Columns
- * added via `addColumn` carry only a `ColumnSpec`, so their reconstructed entry
- * uses the column name as the property name (createTable-origin columns keep
- * their real property names).
+ * Columns added via `addColumn` may carry their `property` (when the diff
+ * sourced it from a physical table); otherwise the column name is used.
  */
 export function applyChanges(
-  tables: Record<string, TableSpec>,
+  schema: PhysicalSchema,
   changes: SchemaChange[]
-): Record<string, TableSpec> {
-  const next = {...tables}
-  const byTable = (table: string): TableSpec | undefined =>
+): PhysicalSchema {
+  const next: PhysicalSchema = {...schema}
+  const byTable = (table: string): PhysicalTable | undefined =>
     Object.values(next).find(t => t.table === table)
-  const setColumns = (t: TableSpec, columns: TableColumn[]) => {
-    next[t.name] = {...t, columns}
+  const patch = (t: PhysicalTable, p: Partial<PhysicalTable>) => {
+    next[t.name] = {...t, ...p}
   }
 
   for (const c of changes) {
     switch (c.kind) {
       case 'createTable':
-        next[c.spec.name] = c.spec
+        next[c.spec.name] = {...c.spec, foreignKeys: [], indexes: []}
         break
       case 'dropTable':
         delete next[c.spec.name]
@@ -386,38 +407,58 @@ export function applyChanges(
         const t = byTable(c.table)
         if (!t) break
         const col: TableColumn = {property: c.column.name, ...c.column}
-        setColumns(t, [...t.columns.filter(x => x.name !== c.column.name), col])
+        patch(t, {columns: [...t.columns.filter(x => x.name !== c.column.name), col]})
         break
       }
       case 'dropColumn': {
         const t = byTable(c.table)
-        if (t) setColumns(t, t.columns.filter(x => x.name !== c.column.name))
+        if (t) patch(t, {columns: t.columns.filter(x => x.name !== c.column.name)})
         break
       }
       case 'alterColumn': {
         const t = byTable(c.table)
         if (t)
-          setColumns(
-            t,
-            t.columns.map(x => (x.name === c.after.name ? {property: x.property, ...c.after} : x))
-          )
+          patch(t, {
+            columns: t.columns.map(x =>
+              x.name === c.after.name ? {property: x.property, ...c.after} : x
+            )
+          })
         break
       }
       case 'renameColumn': {
         const t = byTable(c.table)
         if (t)
-          setColumns(
-            t,
-            t.columns.map(x =>
+          patch(t, {
+            columns: t.columns.map(x =>
               x.name === c.from
                 ? {...x, name: c.to, property: x.property === c.from ? c.to : x.property}
                 : x
             )
-          )
+          })
         break
       }
-      // addForeignKey / dropForeignKey / addIndex / dropIndex: no effect on the
-      // column shape a query manager needs.
+      case 'addForeignKey': {
+        const t = byTable(c.fk.table)
+        if (t)
+          patch(t, {foreignKeys: [...(t.foreignKeys ?? []).filter(f => f.name !== c.fk.name), c.fk]})
+        break
+      }
+      case 'dropForeignKey': {
+        const t = byTable(c.fk.table)
+        if (t) patch(t, {foreignKeys: (t.foreignKeys ?? []).filter(f => f.name !== c.fk.name)})
+        break
+      }
+      case 'addIndex': {
+        const t = byTable(c.index.table)
+        if (t)
+          patch(t, {indexes: [...(t.indexes ?? []).filter(i => i.name !== c.index.name), c.index]})
+        break
+      }
+      case 'dropIndex': {
+        const t = byTable(c.index.table)
+        if (t) patch(t, {indexes: (t.indexes ?? []).filter(i => i.name !== c.index.name)})
+        break
+      }
     }
   }
   return next

@@ -99,6 +99,39 @@ export interface IndexSpec {
   unique?: boolean
 }
 
+/** A resolved foreign-key constraint — self-contained, no schema lookup needed. */
+export interface ForeignKeyChange {
+  /** Table the constraint lives on. */
+  table: string
+  /** Deterministic constraint name (`<table>_<column>_fkey`, Postgres style). */
+  name: string
+  /** Local FK column. */
+  column: string
+  /** Referenced table. */
+  refTable: string
+  /** Referenced column (the target's primary key). */
+  refColumn: string
+  onDelete?: OnDelete
+}
+
+/**
+ * The full physical shape of one table: persistence columns + constraints +
+ * indexes. Extends the lean `TableSpec` (what `createTable` carries) with the
+ * pieces that arrive as separate ops. This is the unit of the canonical
+ * migration state (`PhysicalSchema`).
+ */
+export interface PhysicalTable extends TableSpec {
+  foreignKeys?: ForeignKeyChange[]
+  indexes?: IndexSpec[]
+}
+
+/**
+ * The canonical migration **state currency** — the whole physical schema, keyed
+ * by entity name. Produced three ways (project models / fold op history /
+ * introspect a live DB) and diffed pairwise. Nothing GraphQL here.
+ */
+export type PhysicalSchema = Record<string, PhysicalTable>
+
 /** How a field relates to another entity (entities only). */
 export interface RelationSpec {
   kind: 'belongsTo' | 'hasMany'

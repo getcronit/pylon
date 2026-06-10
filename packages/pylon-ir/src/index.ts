@@ -6,8 +6,11 @@ export type {
   ColumnSpec,
   RelationSpec,
   IndexSpec,
+  ForeignKeyChange,
   TableSpec,
   TableColumn,
+  PhysicalTable,
+  PhysicalSchema,
   Field,
   Entity,
   ObjectType,
@@ -22,5 +25,12 @@ export {emptyIR, tableSpecOf} from './ir.js'
 export {toSDL, renderType} from './sdl.js'
 export {toDDL, columnDDL, sqlTypeDDL} from './ddl.js'
 export {mergeIR, mergeFields} from './merge.js'
-export {diffEntities, makeMigration, renderChanges, applyChanges} from './diff.js'
-export type {SchemaChange, Migration, ForeignKeyChange} from './diff.js'
+export {
+  diffEntities,
+  diffSchema,
+  physicalSchemaOf,
+  makeMigration,
+  renderChanges,
+  applyChanges
+} from './diff.js'
+export type {SchemaChange, Migration} from './diff.js'
