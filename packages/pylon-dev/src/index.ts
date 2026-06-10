@@ -123,20 +123,79 @@ db.command('status')
   })
 
 db.command('diff')
-  .description('Generate a migration from the diff between models and the last snapshot')
+  .description('Generate a migration from the diff between models and the migration history')
   .argument('[name]', 'Migration name', 'migration')
   .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
   .option('-d, --dir <path>', 'Migrations directory', './migrations')
   .action(async (name, options) => {
     try {
-      const {created} = await runDbCommand({
+      const {created, destructive} = await runDbCommand({
         command: 'diff',
         name,
         models: options.models,
         dir: options.dir
       })
-      if (created) consola.success(`Created migration ${created}`)
-      else consola.info('No schema changes — nothing to generate')
+      if (created) {
+        consola.success(`Created migration ${created}`)
+        if (destructive)
+          consola.warn('This migration drops a table or column — it will destroy data.')
+      } else consola.info('No schema changes — nothing to generate')
+    } catch (error) {
+      consola.error(error)
+      process.exit(1)
+    }
+  })
+
+db.command('plan')
+  .description('Print the SQL each migration would run, without touching a database')
+  .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
+  .option('-d, --dir <path>', 'Migrations directory', './migrations')
+  .option('--down', 'Show the down (reverse) SQL')
+  .action(async options => {
+    try {
+      const {plan} = await runDbCommand({
+        command: 'plan',
+        models: options.models,
+        dir: options.dir,
+        down: options.down
+      })
+      if (!plan || plan.length === 0) {
+        consola.info('No migrations.')
+        return
+      }
+      for (const {name, statements} of plan) {
+        consola.log(`\n-- ${name}`)
+        for (const stmt of statements) consola.log(`${stmt};`)
+      }
+    } catch (error) {
+      consola.error(error)
+      process.exit(1)
+    }
+  })
+
+db.command('check')
+  .description('CI gate: fail on uncaptured model changes or tampered migrations')
+  .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
+  .option('-d, --dir <path>', 'Migrations directory', './migrations')
+  .action(async options => {
+    try {
+      const {check} = await runDbCommand({
+        command: 'check',
+        models: options.models,
+        dir: options.dir
+      })
+      const problems: string[] = []
+      if (check!.uncaptured > 0)
+        problems.push(`${check!.uncaptured} uncaptured model change(s) — run \`pylon db diff\``)
+      if (check!.tampered.length > 0)
+        problems.push(`tampered migration(s): ${check!.tampered.join(', ')}`)
+      if (problems.length > 0) {
+        for (const p of problems) consola.error(p)
+        process.exit(1)
+      }
+      consola.success(
+        `Up to date${check!.unapplied.length ? ` (${check!.unapplied.length} unapplied)` : ''}.`
+      )
     } catch (error) {
       consola.error(error)
       process.exit(1)

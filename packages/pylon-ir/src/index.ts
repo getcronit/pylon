@@ -31,6 +31,7 @@ export {
   physicalSchemaOf,
   makeMigration,
   renderChanges,
-  applyChanges
+  applyChanges,
+  isDestructive
 } from './diff.js'
 export type {SchemaChange, Migration} from './diff.js'

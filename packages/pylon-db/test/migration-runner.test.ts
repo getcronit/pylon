@@ -99,6 +99,18 @@ describe('MigrationRunner — generate / status (file workflow, no DB)', () => {
     expect(await r.list()).toEqual(['t1_init', 't2_add_email'])
   })
 
+  it('plan renders up/down SQL with no database', async () => {
+    const r = runnerFor(() => v1)
+    await r.generate('init', load)
+
+    const up = await r.plan(load, 'up')
+    expect(up.map(p => p.name)).toEqual(['t1_init'])
+    expect(up[0].statements.join('\n')).toMatch(/CREATE TABLE "user"/)
+
+    const down = await r.plan(load, 'down')
+    expect(down[0].statements.join('\n')).toMatch(/DROP TABLE "user"/)
+  })
+
   it('status reports uncaptured changes against the reconstructed baseline', async () => {
     let cur = v1
     const r = runnerFor(() => cur)

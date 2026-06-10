@@ -101,4 +101,17 @@ describe.skipIf(!dockerAvailable)('pylon db (shipped CLI) against a live databas
     expect(r.status, r.out).toBe(0)
     expect(r.out).toMatch(/Applied/)
   })
+
+  it('db plan prints the CREATE TABLE SQL (no apply)', () => {
+    const r = pylonDb('plan')
+    expect(r.status, r.out).toBe(0)
+    expect(r.out).toMatch(/CREATE TABLE "mig_author"/)
+    expect(r.out).toMatch(/ADD CONSTRAINT .*FOREIGN KEY/)
+  })
+
+  it('db check passes when everything is captured + applied', () => {
+    const r = pylonDb('check')
+    expect(r.status, r.out).toBe(0)
+    expect(r.out).toMatch(/Up to date/)
+  })
 })

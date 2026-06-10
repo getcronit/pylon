@@ -196,6 +196,23 @@ export class MigrationRunner {
     return {pendingChanges, migrations: names, unapplied}
   }
 
+  /**
+   * The SQL each migration would run, in the given direction — no database
+   * required (ops render their own SQL). For `down`, ops within a migration are
+   * reversed. A read-only preview for review.
+   */
+  async plan(
+    load: MigrationLoader,
+    direction: 'up' | 'down' = 'up'
+  ): Promise<Array<{name: string; statements: string[]}>> {
+    const history = await this.loadAll(load)
+    const ordered = direction === 'up' ? history : [...history].reverse()
+    return ordered.map(({name, mod}) => {
+      const ops = direction === 'up' ? mod.operations : [...mod.operations].reverse()
+      return {name, statements: ops.flatMap(op => op.preview(direction))}
+    })
+  }
+
   private async ensureTable(db: Database): Promise<void> {
     await sql
       .raw(
@@ -375,5 +392,16 @@ export class MigrationRunner {
   async markRolledBack(name: string, db: Database = getDatabase()): Promise<void> {
     await this.ensureTable(db)
     await sql`DELETE FROM ${sql.ref(APPLIED_TABLE)} WHERE name = ${name}`.execute(db.kysely)
+  }
+
+  /** Applied migrations whose file no longer matches their stored checksum. */
+  async integrityErrors(load: MigrationLoader, db: Database = getDatabase()): Promise<string[]> {
+    const applied = await this.appliedMigrations(db)
+    const out: string[] = []
+    for (const {name, mod} of await this.loadAll(load)) {
+      const stored = applied.get(name)
+      if (applied.has(name) && stored && stored !== migrationChecksum(mod)) out.push(name)
+    }
+    return out
   }
 }

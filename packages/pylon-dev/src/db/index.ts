@@ -12,6 +12,7 @@ import {promises as fs} from 'node:fs'
 import path from 'node:path'
 import {pathToFileURL} from 'node:url'
 import esbuild from 'esbuild'
+import {isDestructive, type SchemaChange} from '@getcronit/pylon-ir'
 import {loadProjectOrm} from '../orm-bridge.js'
 
 let migrationCounter = 0
@@ -49,9 +50,11 @@ function createMigrationLoader(cwd: string) {
 }
 
 export interface DbCommandOptions {
-  command: 'status' | 'diff' | 'migrate' | 'rollback' | 'resolve'
+  command: 'status' | 'diff' | 'migrate' | 'rollback' | 'resolve' | 'plan' | 'check'
   /** Migration name (for `diff`; the target for `resolve`). */
   name?: string
+  /** `plan`: render down SQL instead of up. */
+  down?: boolean
   /** Entry that imports the models (default `./src/index.ts`). */
   models?: string
   /** Migrations directory (default `./migrations`). */
@@ -68,11 +71,17 @@ export interface DbCommandResult {
   command: DbCommandOptions['command']
   /** `diff`: created migration name (or null). `migrate`: applied names. */
   created?: string | null
+  /** `diff`: whether the generated migration drops data. */
+  destructive?: boolean
   applied?: string[]
   /** `rollback`: reversed migration names. */
   rolledBack?: string[]
   /** `resolve`: `{name, as}` recorded in the ledger. */
   resolved?: {name: string; as: 'applied' | 'rolled-back'}
+  /** `plan`: per-migration SQL preview. */
+  plan?: Array<{name: string; statements: string[]}>
+  /** `check`: CI gate result. */
+  check?: {uncaptured: number; tampered: string[]; unapplied: string[]}
   status?: {pendingChanges: unknown[]; migrations: string[]; unapplied: string[]}
 }
 
@@ -100,7 +109,27 @@ export async function runDbCommand(
     }
     case 'diff': {
       const created = await runner.generate(options.name ?? 'migration', loadMigrationFile)
-      return {command: 'diff', created: created?.name ?? null}
+      const destructive = (created?.changes as SchemaChange[] | undefined)?.some(isDestructive)
+      return {command: 'diff', created: created?.name ?? null, destructive: destructive ?? false}
+    }
+    case 'plan': {
+      const plan = await runner.plan(loadMigrationFile, options.down ? 'down' : 'up')
+      return {command: 'plan', plan}
+    }
+    case 'check': {
+      const db = process.env.DATABASE_URL
+        ? orm.connect({connectionString: process.env.DATABASE_URL})
+        : undefined
+      const status = await runner.status(loadMigrationFile, db)
+      const tampered = db ? await runner.integrityErrors(loadMigrationFile, db) : []
+      return {
+        command: 'check',
+        check: {
+          uncaptured: status.pendingChanges.length,
+          tampered,
+          unapplied: status.unapplied
+        }
+      }
     }
     case 'migrate': {
       const connectionString = process.env.DATABASE_URL

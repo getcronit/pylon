@@ -250,6 +250,11 @@ export function diffEntities(
   return diffSchema(physicalSchemaOf(prev), physicalSchemaOf(next))
 }
 
+/** Whether a change destroys data (drops a table or column). */
+export function isDestructive(change: SchemaChange): boolean {
+  return change.kind === 'dropTable' || change.kind === 'dropColumn'
+}
+
 function addForeignKeySQL(fk: ForeignKeyChange): string {
   const onDelete = fk.onDelete ? ` ON DELETE ${fk.onDelete.toUpperCase()}` : ''
   return (

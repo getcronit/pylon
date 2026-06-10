@@ -37,7 +37,7 @@ export interface ProjectOrm {
     generate(
       name: string,
       load: (filePath: string) => Promise<unknown>
-    ): Promise<{name: string} | null>
+    ): Promise<{name: string; changes: unknown[]} | null>
     apply(load: (filePath: string) => Promise<unknown>, db?: unknown): Promise<string[]>
     rollback(
       load: (filePath: string) => Promise<unknown>,
@@ -50,6 +50,11 @@ export interface ProjectOrm {
       db?: unknown
     ): Promise<void>
     markRolledBack(name: string, db?: unknown): Promise<void>
+    plan(
+      load: (filePath: string) => Promise<unknown>,
+      direction?: 'up' | 'down'
+    ): Promise<Array<{name: string; statements: string[]}>>
+    integrityErrors(load: (filePath: string) => Promise<unknown>, db?: unknown): Promise<string[]>
   }
   connect(opts: {connectionString: string}): unknown
 }
