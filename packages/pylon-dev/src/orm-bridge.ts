@@ -83,8 +83,8 @@ export interface ProjectOrm {
   syncSchema(): Promise<void>
 
   // ── Apps / migration groups (optional) ──────────────────────────────────────
-  /** The project's `export const apps` manifest list, if it uses modular apps. */
-  apps?: AppLike[]
+  /** Migration groups DERIVED from the registry's `models.app(name)` tags. */
+  appGroups?(): GroupLike[]
   // pylon-db migration-group orchestration (the CLI projects apps → groups).
   generateGroup(
     group: GroupLike,
@@ -109,16 +109,10 @@ export interface ProjectOrm {
   ): Promise<Array<{group: string; pendingChanges: number; unapplied: string[]}>>
 }
 
-/** An app manifest as seen by the CLI (a `@getcronit/pylon` AppDefinition; the
- *  CLI only reads the migration-relevant fields — graphql/routes are ignored). */
-export interface AppLike {
-  name: string
-  models?: Function[]
-  dependencies?: string[]
-  migrations?: string
-}
-
-/** A pylon-db migration group (the CLI projects each app to one). */
+/** A declared app == a pylon-db `MigrationGroup` (`export const apps` in the
+ *  entry). graphql/routes are composed by hand elsewhere; the CLI reads only
+ *  these migration-relevant fields. `dir` is an optional explicit migrations
+ *  directory (default: <migrations root>/<name>). */
 export interface GroupLike {
   name: string
   models?: Function[]

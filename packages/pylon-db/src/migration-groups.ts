@@ -16,7 +16,13 @@ import type {Database} from './database.js'
 import {getDatabase} from './database.js'
 import {toIR} from './ir.js'
 import {MigrationRunner, type GeneratedMigration, type MigrationLoader} from './migration-runner.js'
-import {getModelDefinitionOrThrow, type ModelDefinition} from './registry.js'
+import {
+  allModels,
+  getAppMeta,
+  getModelDefinition,
+  getModelDefinitionOrThrow,
+  type ModelDefinition
+} from './registry.js'
 
 export interface MigrationGroup {
   /** Unique group name — also the ledger namespace for its migrations. */
@@ -27,6 +33,37 @@ export interface MigrationGroup {
   dependencies?: string[]
   /** This group's migrations directory (absolute, or resolved by the caller). */
   dir?: string
+}
+
+/**
+ * DERIVE migration groups from the registry: every model tagged via
+ * `models.app(name)` joins group `name`. Dependencies are INFERRED from cross-app
+ * `belongsTo` FKs (a model whose FK targets another app's model ⇒ this group
+ * depends on that one), unioned with any explicit `dependsOn` from
+ * `models.app(name, {dependsOn})`. No `dir` (the caller/CLI resolves it).
+ */
+export function appGroups(): MigrationGroup[] {
+  const byApp = new Map<string, ModelDefinition[]>()
+  for (const def of allModels()) {
+    if (!def.app) continue // untagged models aren't part of an app group
+    const list = byApp.get(def.app) ?? []
+    list.push(def)
+    byApp.set(def.app, list)
+  }
+
+  const groups: MigrationGroup[] = []
+  for (const [name, defs] of byApp) {
+    const deps = new Set<string>(getAppMeta(name)?.dependsOn ?? [])
+    for (const def of defs) {
+      for (const rel of def.relations) {
+        if (rel.kind !== 'belongsTo') continue
+        const target = getModelDefinition(rel.target())
+        if (target?.app && target.app !== name) deps.add(target.app)
+      }
+    }
+    groups.push({name, models: defs.map(d => d.ctor), dependencies: [...deps]})
+  }
+  return groups
 }
 
 /**

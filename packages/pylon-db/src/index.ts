@@ -108,6 +108,7 @@ export {
   type HistoricalModels
 } from './historical-models.js'
 export {
+  appGroups,
   orderGroups,
   groupRunner,
   groupModelDefinitions,
@@ -139,6 +140,7 @@ import * as migrationApi from './migrations.js'
 import {MigrationRunner as MigrationRunnerClass} from './migration-runner.js'
 import * as migrationOps from './migration-ops.js'
 import * as groupsApi from './migration-groups.js'
+import {recordApp} from './registry.js'
 
 /**
  * Model-definition API. Field types are capitalized (Django-style):
@@ -151,7 +153,7 @@ import * as groupsApi from './migration-groups.js'
  * }
  * ```
  */
-export const models = {
+const modelBuilders = {
   Model: ModelClass,
   model: fields.model,
   ID: fields.id,
@@ -169,6 +171,30 @@ export const models = {
   ForeignKey: fields.foreignKey,
   HasMany: fields.hasMany,
   RelatedManager: RelatedManagerClass
+}
+
+export const models = {
+  ...modelBuilders,
+  /**
+   * Scope models to an app (a named migration group). Every class decorated with
+   * the returned `model()` is tagged `app=name` in the registry, so `pylon db`
+   * groups migrations by it and infers cross-app order from FKs. Use one per app
+   * folder's index:
+   *
+   * ```ts
+   * const blog = models.app('blog')
+   * @blog.model() class Author extends blog.Model { id = blog.ID() }
+   * ```
+   *
+   * `dependsOn` adds explicit app deps on top of the FK-inferred ones.
+   */
+  app(name: string, options: {dependsOn?: string[]} = {}) {
+    recordApp(name, options)
+    return {
+      ...modelBuilders,
+      model: (opts: fields.ModelOptions = {}) => fields.model({...opts, app: name})
+    }
+  }
 } as const
 
 /** Connection + query API. */
@@ -218,6 +244,7 @@ export const migrations = {
  * per-group models + migrations, dependency-ordered, ledger-namespaced.
  */
 export const groups = {
+  fromRegistry: groupsApi.appGroups,
   order: groupsApi.orderGroups,
   runner: groupsApi.groupRunner,
   modelDefinitions: groupsApi.groupModelDefinitions,

@@ -88,6 +88,8 @@ export interface ModelDefinition {
   columns: ColumnDefinition[]
   relations: RelationDefinition[]
   primaryKey?: ColumnDefinition
+  /** Migration-group / app this model belongs to (set via `models.app(name)`). */
+  app?: string
 }
 
 /** Columns are accumulated per-constructor before @model finalizes the model. */
@@ -97,6 +99,23 @@ const pendingRelations = new WeakMap<
   Map<string, RelationDefinition>
 >()
 const models = new Map<Function, ModelDefinition>()
+
+/** App-level metadata declared via `models.app(name, {dependsOn})`. */
+export interface AppMeta {
+  dependsOn?: string[]
+}
+const appMeta = new Map<string, AppMeta>()
+
+/** Record (or merge) an app's metadata — called by `models.app(name, opts)`. */
+export function recordApp(name: string, meta: AppMeta = {}): void {
+  const prev = appMeta.get(name) ?? {}
+  appMeta.set(name, {dependsOn: [...(prev.dependsOn ?? []), ...(meta.dependsOn ?? [])]})
+}
+
+/** Declared metadata for an app, if any. */
+export function getAppMeta(name: string): AppMeta | undefined {
+  return appMeta.get(name)
+}
 
 export function registerColumn(
   ctor: Function,
@@ -137,7 +156,7 @@ function ownRelations(ctor: Function): RelationDefinition[] {
  */
 export function finalizeModel(
   ctor: Function,
-  options: {tableName: string; abstract: boolean}
+  options: {tableName: string; abstract: boolean; app?: string}
 ): ModelDefinition {
   const merged = new Map<string, ColumnDefinition>()
   const mergedRelations = new Map<string, RelationDefinition>()
@@ -168,7 +187,8 @@ export function finalizeModel(
     abstract: options.abstract,
     columns,
     relations,
-    primaryKey
+    primaryKey,
+    app: options.app
   }
 
   if (!options.abstract) {

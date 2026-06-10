@@ -12,7 +12,6 @@ export {
   Variables
 } from './context.js'
 export {createDecorator} from './create-decorator.js'
-export {defineApp, createApp, type AppDefinition, type AppGraphql} from './apps.js'
 export {ServiceError} from './define-pylon.js'
 export {getEnv} from './get-env.js'
 export {authMiddleware, requireAuth, useAuth} from './plugins/use-auth/index.js'

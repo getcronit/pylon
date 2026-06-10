@@ -136,16 +136,15 @@ export async function runDbCommand(
   const runner = new orm.MigrationRunner({dir})
   const loadMigrationFile = createMigrationLoader(cwd)
 
-  // Apps mode: the project exports `apps`. Each app is PROJECTED to a pylon-db
-  // migration group whose dir is `<dir>/<app.name>` (unless the manifest sets an
-  // explicit path). The CLI then operates per-group, in dependency order.
+  // Apps mode: models tagged via `models.app(name)` are DERIVED into migration
+  // groups from the registry (group + inferred deps). Each group's dir is
+  // `<dir>/<name>`. The CLI then operates per-group, in dependency order.
+  const derived = typeof orm.appGroups === 'function' ? orm.appGroups() : []
   const groups =
-    orm.apps && orm.apps.length > 0
-      ? orm.apps.map(a => ({
-          name: a.name,
-          models: a.models,
-          dependencies: a.dependencies,
-          dir: a.migrations ? path.resolve(cwd, a.migrations) : path.join(dir, a.name)
+    derived.length > 0
+      ? derived.map(g => ({
+          ...g,
+          dir: g.dir ? path.resolve(cwd, g.dir) : path.join(dir, g.name)
         }))
       : null
 

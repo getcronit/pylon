@@ -260,6 +260,8 @@ export interface ModelOptions {
   table?: string
   /** Abstract base model: contributes columns to subclasses but has no table. */
   abstract?: boolean
+  /** Migration-group / app this model belongs to. Prefer `models.app(name)`. */
+  app?: string
 }
 
 // Mirror the runtime validator's type buckets (validation.ts) so a DB CHECK and
@@ -470,7 +472,7 @@ export function model(options: ModelOptions = {}): ClassDecorator {
     }
 
     // 4. Finalize: merge columns/relations inherited via the prototype chain.
-    finalizeModel(Wrapped, {tableName, abstract: isAbstract})
+    finalizeModel(Wrapped, {tableName, abstract: isAbstract, app: options.app})
 
     // 5. Default manager (a custom `static objects = manager(...)` wins).
     if (
