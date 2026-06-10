@@ -13,8 +13,9 @@
  * Migration files are TS, so they're loaded via an injected `MigrationLoader`
  * (the CLI transpiles them) — keeping this package transpiler-free.
  *
- * v1: operations execute on the connected pool, sequentially (not wrapped in a
- * single transaction). Atomic migrations are a future refinement.
+ * Each migration applies in its own transaction under a session advisory lock,
+ * with a content checksum recorded in the `_pylon_migrations` ledger and
+ * re-verified on every run (tamper detection).
  */
 import {promises as fs} from 'node:fs'
 import path from 'node:path'
@@ -29,7 +30,12 @@ import {
 } from '@getcronit/pylon-ir'
 import {databaseForKysely, getDatabase, type Database} from './database.js'
 import {buildHistoricalModels} from './historical-models.js'
-import {isReversible, type MigrationContext, type MigrationModule} from './migration-ops.js'
+import {
+  isReversible,
+  migrationChecksum,
+  type MigrationContext,
+  type MigrationModule
+} from './migration-ops.js'
 import {snapshot, type Snapshot} from './migrations.js'
 
 const APPLIED_TABLE = '_pylon_migrations'
@@ -184,7 +190,7 @@ export class MigrationRunner {
     const names = await this.list()
     let unapplied = names
     if (db) {
-      const applied = await this.appliedNames(db)
+      const applied = await this.appliedMigrations(db)
       unapplied = names.filter(n => !applied.has(n))
     }
     return {pendingChanges, migrations: names, unapplied}
@@ -193,17 +199,23 @@ export class MigrationRunner {
   private async ensureTable(db: Database): Promise<void> {
     await sql
       .raw(
-        `CREATE TABLE IF NOT EXISTS "${APPLIED_TABLE}" (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`
+        `CREATE TABLE IF NOT EXISTS "${APPLIED_TABLE}" ` +
+          `(name text PRIMARY KEY, checksum text, applied_at timestamptz NOT NULL DEFAULT now())`
       )
+      .execute(db.kysely)
+    // Bring a pre-checksum ledger up to date.
+    await sql
+      .raw(`ALTER TABLE "${APPLIED_TABLE}" ADD COLUMN IF NOT EXISTS checksum text`)
       .execute(db.kysely)
   }
 
-  private async appliedNames(db: Database): Promise<Set<string>> {
+  /** Applied migrations → their stored checksum (null for pre-checksum rows). */
+  private async appliedMigrations(db: Database): Promise<Map<string, string | null>> {
     await this.ensureTable(db)
-    const rows = await sql<{name: string}>`SELECT name FROM ${sql.ref(APPLIED_TABLE)}`.execute(
-      db.kysely
-    )
-    return new Set(rows.rows.map(r => r.name))
+    const rows = await sql<{name: string; checksum: string | null}>`SELECT name, checksum FROM ${sql.ref(
+      APPLIED_TABLE
+    )}`.execute(db.kysely)
+    return new Map(rows.rows.map(r => [r.name, r.checksum]))
   }
 
   /**
@@ -260,8 +272,21 @@ export class MigrationRunner {
    * concurrent runners.
    */
   async apply(load: MigrationLoader, db: Database = getDatabase()): Promise<string[]> {
-    const applied = await this.appliedNames(db)
+    const applied = await this.appliedMigrations(db)
     const history = await this.loadAll(load)
+
+    // Integrity: an already-applied migration whose file no longer matches the
+    // checksum it was applied with has been tampered with — refuse.
+    for (const {name, mod} of history) {
+      const stored = applied.get(name)
+      if (applied.has(name) && stored && stored !== migrationChecksum(mod)) {
+        throw new Error(
+          `Migration "${name}" was modified after it was applied (checksum mismatch). ` +
+            `Applied migrations are immutable — revert the edit, or use \`pylon db resolve\`.`
+        )
+      }
+    }
+
     const pending = history.filter(h => !applied.has(h.name)).map(h => h.name)
     if (pending.length === 0) return []
 
@@ -277,7 +302,9 @@ export class MigrationRunner {
               await ctx.db.run(() => op.up(ctx)) // ambient DB = trx
               s = applyChanges(s, op.changes ?? [])
             }
-            await sql`INSERT INTO ${sql.ref(APPLIED_TABLE)} (name) VALUES (${name})`.execute(trx)
+            await sql`INSERT INTO ${sql.ref(APPLIED_TABLE)} (name, checksum) VALUES (${name}, ${migrationChecksum(
+              mod
+            )})`.execute(trx)
           })
         }
         for (const op of mod.operations) state = applyChanges(state, op.changes ?? [])
@@ -292,7 +319,7 @@ export class MigrationRunner {
     db: Database = getDatabase(),
     opts: {steps?: number} = {}
   ): Promise<string[]> {
-    const applied = await this.appliedNames(db)
+    const applied = await this.appliedMigrations(db)
     const history = await this.loadAll(load)
 
     // Reconstruct the state *after* each migration, so a `down` handler gets the
@@ -325,5 +352,28 @@ export class MigrationRunner {
       }
     })
     return target
+  }
+
+  /**
+   * Mark a migration applied WITHOUT running it — for recovery when the schema
+   * was changed out-of-band (e.g. a hotfix, or a migration applied manually).
+   * Records the file's current checksum.
+   */
+  async markApplied(
+    name: string,
+    load: MigrationLoader,
+    db: Database = getDatabase()
+  ): Promise<void> {
+    const mod = await load(this.filePath(name))
+    await this.ensureTable(db)
+    await sql`INSERT INTO ${sql.ref(APPLIED_TABLE)} (name, checksum) VALUES (${name}, ${migrationChecksum(
+      mod
+    )}) ON CONFLICT (name) DO UPDATE SET checksum = excluded.checksum`.execute(db.kysely)
+  }
+
+  /** Mark a migration NOT applied WITHOUT reversing it (ledger-only). */
+  async markRolledBack(name: string, db: Database = getDatabase()): Promise<void> {
+    await this.ensureTable(db)
+    await sql`DELETE FROM ${sql.ref(APPLIED_TABLE)} WHERE name = ${name}`.execute(db.kysely)
   }
 }

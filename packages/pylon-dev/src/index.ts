@@ -185,6 +185,28 @@ db.command('rollback')
     }
   })
 
+db.command('resolve')
+  .description('Mark a migration applied/rolled-back in the ledger without running it')
+  .argument('<name>', 'Migration name')
+  .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
+  .option('-d, --dir <path>', 'Migrations directory', './migrations')
+  .option('--rolled-back', 'Mark as rolled-back (default: applied)')
+  .action(async (name, options) => {
+    try {
+      const {resolved} = await runDbCommand({
+        command: 'resolve',
+        name,
+        models: options.models,
+        dir: options.dir,
+        resolve: options.rolledBack ? 'rolled-back' : 'applied'
+      })
+      consola.success(`Marked ${resolved!.name} as ${resolved!.as}`)
+    } catch (error) {
+      consola.error(error)
+      process.exit(1)
+    }
+  })
+
 program
   .command('dev')
   .description('Start the Pylon Development Server')

@@ -6,6 +6,7 @@ import {
   defineMigration,
   dropColumn,
   isReversible,
+  migrationChecksum,
   renameColumn,
   run,
   runSql,
@@ -151,6 +152,23 @@ describe('run() — data migration, reversible only with down', () => {
     const op = run({up: async () => {}})
     expect(op.reversible).toBe(false)
     await expect(op.down(recordingCtx().ctx)).rejects.toThrow(/irreversible/i)
+  })
+})
+
+describe('migrationChecksum — content-derived, change-sensitive', () => {
+  const mig = (sqlUp: string) =>
+    defineMigration({operations: [schema([createWidget]), runSql(sqlUp, {down: 'noop'})]})
+
+  it('is stable for identical operations', () => {
+    expect(migrationChecksum(mig('UPDATE a SET x=1'))).toBe(
+      migrationChecksum(mig('UPDATE a SET x=1'))
+    )
+  })
+
+  it('changes when an operation changes', () => {
+    expect(migrationChecksum(mig('UPDATE a SET x=1'))).not.toBe(
+      migrationChecksum(mig('UPDATE a SET x=2'))
+    )
   })
 })
 

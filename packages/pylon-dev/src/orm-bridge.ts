@@ -44,6 +44,12 @@ export interface ProjectOrm {
       db?: unknown,
       opts?: {steps?: number}
     ): Promise<string[]>
+    markApplied(
+      name: string,
+      load: (filePath: string) => Promise<unknown>,
+      db?: unknown
+    ): Promise<void>
+    markRolledBack(name: string, db?: unknown): Promise<void>
   }
   connect(opts: {connectionString: string}): unknown
 }

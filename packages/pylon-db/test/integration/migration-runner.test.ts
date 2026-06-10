@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
 import {pathToFileURL} from 'node:url'
+import {sql} from 'kysely'
 import {
   Model,
   MigrationRunner,
@@ -115,5 +116,27 @@ describe.skipIf(!runDb)('MigrationRunner.apply — tracked + idempotent (Postgre
     // ledger no longer marks it applied → it shows as unapplied again
     const status = await runner.status(load, db)
     expect(status.unapplied).toEqual(['t1_init'])
+  })
+
+  it('refuses to apply when an applied migration was tampered with (checksum)', async () => {
+    await db.kysely.schema.dropTable('runner_widget').ifExists().cascade().execute()
+    await db.kysely.schema.dropTable('_pylon_migrations').ifExists().cascade().execute()
+    const tdir = await fs.mkdtemp(path.join(os.tmpdir(), 'pylon-mig-cs-'))
+    let clock = 0
+    const runner = new MigrationRunner({
+      dir: tdir,
+      current: () => snapshot() as Snapshot,
+      now: () => `t${++clock}`
+    })
+
+    await runner.generate('init', load)
+    await runner.apply(load, db)
+
+    // simulate editing the applied migration: corrupt its stored checksum
+    await sql`UPDATE _pylon_migrations SET checksum = 'tampered' WHERE name = 't1_init'`.execute(
+      db.kysely
+    )
+
+    await expect(runner.apply(load, db)).rejects.toThrow(/modified after it was applied/i)
   })
 })

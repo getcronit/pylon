@@ -49,8 +49,8 @@ function createMigrationLoader(cwd: string) {
 }
 
 export interface DbCommandOptions {
-  command: 'status' | 'diff' | 'migrate' | 'rollback'
-  /** Migration name (for `diff`). */
+  command: 'status' | 'diff' | 'migrate' | 'rollback' | 'resolve'
+  /** Migration name (for `diff`; the target for `resolve`). */
   name?: string
   /** Entry that imports the models (default `./src/index.ts`). */
   models?: string
@@ -60,6 +60,8 @@ export interface DbCommandOptions {
   cwd?: string
   /** `rollback`: how many migrations to reverse (default 1). */
   steps?: number
+  /** `resolve`: mark the migration applied or rolled-back in the ledger. */
+  resolve?: 'applied' | 'rolled-back'
 }
 
 export interface DbCommandResult {
@@ -69,6 +71,8 @@ export interface DbCommandResult {
   applied?: string[]
   /** `rollback`: reversed migration names. */
   rolledBack?: string[]
+  /** `resolve`: `{name, as}` recorded in the ledger. */
+  resolved?: {name: string; as: 'applied' | 'rolled-back'}
   status?: {pendingChanges: unknown[]; migrations: string[]; unapplied: string[]}
 }
 
@@ -115,6 +119,18 @@ export async function runDbCommand(
       const conn = orm.connect({connectionString})
       const rolledBack = await runner.rollback(loadMigrationFile, conn, {steps: options.steps ?? 1})
       return {command: 'rollback', rolledBack}
+    }
+    case 'resolve': {
+      const connectionString = process.env.DATABASE_URL
+      if (!connectionString) {
+        throw new Error('pylon db resolve requires DATABASE_URL to be set.')
+      }
+      if (!options.name) throw new Error('pylon db resolve requires a migration name.')
+      const as = options.resolve ?? 'applied'
+      const conn = orm.connect({connectionString})
+      if (as === 'applied') await runner.markApplied(options.name, loadMigrationFile, conn)
+      else await runner.markRolledBack(options.name, conn)
+      return {command: 'resolve', resolved: {name: options.name, as}}
     }
   }
 }

@@ -75,6 +75,7 @@ export {
   runSql,
   run,
   isReversible,
+  migrationChecksum,
   type Operation,
   type MigrationModule,
   type MigrationContext,
