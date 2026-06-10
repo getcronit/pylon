@@ -34,9 +34,9 @@ export const graphql = {
 }
 
 // Runtime-only side effects — stripped during build-time model loading. The DB
-// connection is opened by useDatabase() (pylon.config.ts) before the app serves,
-// so here we just ensure tables exist and start the server.
-await db.syncSchema()
+// connection is opened by useDatabase() (pylon.config.ts) before the app serves.
+// Schema is provisioned out-of-band by `pylon db deploy` (real migration path),
+// NOT syncSchema — so the app just serves.
 serve({fetch: app.fetch, port: Number(process.env.PORT ?? 3000)}, info => {
   console.log(`ready:${info.port}`)
 })

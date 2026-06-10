@@ -16,11 +16,13 @@ import {existsSync, promises as fs} from 'node:fs'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {connect, type Database} from '@getcronit/pylon-db'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const e2eRoot = path.resolve(dir, '..')
 const cliBin = path.resolve(e2eRoot, '../packages/pylon-dev/dist/index.js')
 const appDir = path.resolve(e2eRoot, 'fixtures/runtime-app')
+const migrationsDir = path.join(appDir, 'migrations')
 const pylonDir = path.join(appDir, '.pylon')
 
 const PORT = 4757
@@ -29,6 +31,35 @@ const endpoint = `http://localhost:${PORT}/graphql`
 const connectionString = 'postgres://pylon:pylon@localhost:5434/pylon_e2e'
 
 const dockerAvailable = spawnSync('docker', ['--version'], {stdio: 'ignore'}).status === 0
+
+/** Run `pylon db <args>` against the fixture's committed migrations. */
+function pylonDb(...args: string[]) {
+  const r = spawnSync('node', [cliBin, 'db', ...args, '--dir', migrationsDir], {
+    cwd: appDir,
+    encoding: 'utf8',
+    timeout: 120_000,
+    env: {
+      ...process.env,
+      DATABASE_URL: connectionString,
+      PYLON_TELEMETRY_DISABLED: '1',
+      DO_NOT_TRACK: '1',
+      CONSOLA_LEVEL: '5'
+    }
+  })
+  return {status: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}`}
+}
+
+/** Clean slate for this fixture's tables + ledger (the DB is shared within a run). */
+async function resetSchema() {
+  const db: Database = connect({connectionString})
+  try {
+    await db.kysely.schema.dropTable('book').ifExists().cascade().execute()
+    await db.kysely.schema.dropTable('author').ifExists().cascade().execute()
+    await db.kysely.schema.dropTable('_pylon_migrations').ifExists().cascade().execute()
+  } finally {
+    await db.destroy()
+  }
+}
 
 let server: ChildProcess | undefined
 
@@ -75,6 +106,14 @@ describe.skipIf(!dockerAvailable)('runtime e2e — built server answers GraphQL 
     })
     if (build.status !== 0) throw new Error(`build failed: ${build.stderr || build.stdout}`)
 
+    // Provision the schema via the REAL migration path (committed migration +
+    // `pylon db deploy`), not syncSchema. deploy enforces prod guards — it
+    // refuses on uncaptured model changes or a tampered history — so a green
+    // run also proves the committed migration matches the models.
+    await resetSchema()
+    const deployed = pylonDb('deploy')
+    if (deployed.status !== 0) throw new Error(`db deploy failed: ${deployed.out}`)
+
     server = spawn('node', ['.pylon/index.js'], {
       cwd: appDir,
       stdio: 'ignore',
@@ -86,6 +125,7 @@ describe.skipIf(!dockerAvailable)('runtime e2e — built server answers GraphQL 
   afterAll(async () => {
     server?.kill('SIGKILL')
     await fs.rm(pylonDir, {recursive: true, force: true})
+    await resetSchema()
   }, 60_000)
 
   it('serves introspectable GraphQL', async () => {
