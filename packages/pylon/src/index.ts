@@ -13,6 +13,7 @@ export {
 } from './context.js'
 export {createDecorator} from './create-decorator.js'
 export {ServiceError} from './define-pylon.js'
+export {mutation, type UserError} from './mutation.js'
 export {getEnv} from './get-env.js'
 export {authMiddleware, requireAuth, useAuth} from './plugins/use-auth/index.js'
 export {usePages} from './plugins/use-pages/index.js'
