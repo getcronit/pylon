@@ -136,14 +136,16 @@ export async function runDbCommand(
   const runner = new orm.MigrationRunner({dir})
   const loadMigrationFile = createMigrationLoader(cwd)
 
-  // Apps mode: the project exports `apps`. Each app's migrations live in
-  // `<dir>/<app.name>` (unless the manifest sets an explicit path). The CLI
-  // commands then operate per-app, in dependency order.
-  const resolvedApps =
+  // Apps mode: the project exports `apps`. Each app is PROJECTED to a pylon-db
+  // migration group whose dir is `<dir>/<app.name>` (unless the manifest sets an
+  // explicit path). The CLI then operates per-group, in dependency order.
+  const groups =
     orm.apps && orm.apps.length > 0
       ? orm.apps.map(a => ({
-          ...a,
-          migrations: a.migrations ? path.resolve(cwd, a.migrations) : path.join(dir, a.name)
+          name: a.name,
+          models: a.models,
+          dependencies: a.dependencies,
+          dir: a.migrations ? path.resolve(cwd, a.migrations) : path.join(dir, a.name)
         }))
       : null
 
@@ -155,8 +157,9 @@ export async function runDbCommand(
       const db = process.env.DATABASE_URL
         ? orm.connect({connectionString: process.env.DATABASE_URL})
         : undefined
-      if (resolvedApps) {
-        const appsStatus = await orm.statusApps(resolvedApps, loadMigrationFile, db)
+      if (groups) {
+        const res = await orm.statusGroups(groups, loadMigrationFile, db)
+        const appsStatus = res.map(r => ({app: r.group, pendingChanges: r.pendingChanges, unapplied: r.unapplied}))
         const drift = db ? await orm.schemaDrift(db) : undefined
         return {command: 'status', appsStatus, drift}
       }
@@ -165,16 +168,16 @@ export async function runDbCommand(
       return {command: 'status', status, drift}
     }
     case 'diff': {
-      if (resolvedApps) {
+      if (groups) {
         if (!options.app) {
           throw new Error(
             `This project uses apps — specify one: \`pylon db diff --app <name>\` ` +
-              `(apps: ${resolvedApps.map(a => a.name).join(', ')}).`
+              `(apps: ${groups.map(g => g.name).join(', ')}).`
           )
         }
-        const app = resolvedApps.find(a => a.name === options.app)
-        if (!app) throw new Error(`Unknown app "${options.app}".`)
-        const made = await orm.generateApp(app, options.name ?? 'migration', loadMigrationFile)
+        const group = groups.find(g => g.name === options.app)
+        if (!group) throw new Error(`Unknown app "${options.app}".`)
+        const made = await orm.generateGroup(group, options.name ?? 'migration', loadMigrationFile)
         return {command: 'diff', created: made?.name ?? null, destructive: false, renameCandidates: []}
       }
       const created = await runner.generate(options.name ?? 'migration', loadMigrationFile, {
@@ -215,8 +218,9 @@ export async function runDbCommand(
         throw new Error('pylon db migrate requires DATABASE_URL to be set.')
       }
       const conn = orm.connect({connectionString})
-      if (resolvedApps) {
-        const apps = await orm.migrateApps(resolvedApps, loadMigrationFile, conn)
+      if (groups) {
+        const res = await orm.migrateGroups(groups, loadMigrationFile, conn)
+        const apps = res.map(r => ({app: r.group, applied: r.applied}))
         return {command: 'migrate', apps, applied: apps.flatMap(a => a.applied)}
       }
       const applied = await runner.apply(loadMigrationFile, conn)
@@ -286,9 +290,10 @@ export async function runDbCommand(
         throw new Error('pylon db deploy requires DATABASE_URL to be set.')
       }
       const conn = orm.connect({connectionString})
-      if (resolvedApps) {
-        // Per-app guard pass + dependency-ordered apply (handled by deployApps).
-        const apps = await orm.deployApps(resolvedApps, loadMigrationFile, conn)
+      if (groups) {
+        // Per-group guard pass + dependency-ordered apply (handled by deployGroups).
+        const res = await orm.deployGroups(groups, loadMigrationFile, conn)
+        const apps = res.map(r => ({app: r.group, applied: r.applied}))
         return {command: 'deploy', apps, applied: apps.flatMap(a => a.applied)}
       }
       // Prod guards: don't deploy with un-generated model changes or a tampered

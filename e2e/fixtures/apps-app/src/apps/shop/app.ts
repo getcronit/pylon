@@ -1,10 +1,10 @@
 // shop app — manifest. Depends on `blog` (its Purchase FK targets blog.Author),
 // so migrations apply after blog and the cross-app FK resolves.
-import {apps} from '@getcronit/pylon-db'
+import {defineApp} from '@getcronit/pylon'
 import {Author} from '../blog/models.js'
 import {Product, Purchase} from './models.js'
 
-export const shop = apps.defineApp({
+export const shop = defineApp({
   name: 'shop',
   models: [Product, Purchase],
   dependencies: ['blog'],

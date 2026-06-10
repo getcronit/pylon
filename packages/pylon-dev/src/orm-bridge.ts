@@ -82,40 +82,48 @@ export interface ProjectOrm {
   /** Create tables for all models directly (no migration) — `db push`. */
   syncSchema(): Promise<void>
 
-  // ── Apps (optional) ────────────────────────────────────────────────────────
+  // ── Apps / migration groups (optional) ──────────────────────────────────────
   /** The project's `export const apps` manifest list, if it uses modular apps. */
   apps?: AppLike[]
-  generateApp(
-    app: AppLike,
+  // pylon-db migration-group orchestration (the CLI projects apps → groups).
+  generateGroup(
+    group: GroupLike,
     name: string,
     load: (filePath: string) => Promise<unknown>,
     opts?: {now?: () => string}
   ): Promise<{name: string} | null>
-  migrateApps(
-    apps: AppLike[],
+  migrateGroups(
+    groups: GroupLike[],
     load: (filePath: string) => Promise<unknown>,
     db?: unknown
-  ): Promise<Array<{app: string; applied: string[]}>>
-  deployApps(
-    apps: AppLike[],
+  ): Promise<Array<{group: string; applied: string[]}>>
+  deployGroups(
+    groups: GroupLike[],
     load: (filePath: string) => Promise<unknown>,
     db?: unknown
-  ): Promise<Array<{app: string; applied: string[]}>>
-  statusApps(
-    apps: AppLike[],
+  ): Promise<Array<{group: string; applied: string[]}>>
+  statusGroups(
+    groups: GroupLike[],
     load: (filePath: string) => Promise<unknown>,
     db?: unknown
-  ): Promise<Array<{app: string; pendingChanges: number; unapplied: string[]}>>
+  ): Promise<Array<{group: string; pendingChanges: number; unapplied: string[]}>>
 }
 
-/** An app manifest as seen by the CLI (mirrors pylon-db's AppDefinition). */
+/** An app manifest as seen by the CLI (a `@getcronit/pylon` AppDefinition; the
+ *  CLI only reads the migration-relevant fields — graphql/routes are ignored). */
 export interface AppLike {
   name: string
   models?: Function[]
   dependencies?: string[]
   migrations?: string
-  graphql?: unknown
-  plugin?: unknown
+}
+
+/** A pylon-db migration group (the CLI projects each app to one). */
+export interface GroupLike {
+  name: string
+  models?: Function[]
+  dependencies?: string[]
+  dir?: string
 }
 
 let counter = 0

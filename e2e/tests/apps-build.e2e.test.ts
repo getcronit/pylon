@@ -166,6 +166,12 @@ describe.skipIf(!dockerAvailable)('multi-app e2e — two apps compose one schema
     expect(full.product).toMatchObject({title: 'Compiler', price: 100})
   })
 
+  it('mounts an app-contributed Hono route (REST, not GraphQL)', async () => {
+    const res = await fetch(`http://localhost:${PORT}/blog/ping`)
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('blog-pong')
+  })
+
   it('enforces a cross-app FK + app-level validation through the API', async () => {
     // dangling buyerId → blog_author FK violation (masked server error, not data)
     await expect(

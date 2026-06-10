@@ -1,0 +1,162 @@
+/**
+ * Migration GROUPS — the data-layer primitive behind framework "apps".
+ *
+ * A group is a named, dependency-ordered set of models with its own migrations
+ * directory. This module is deliberately app-AGNOSTIC: it knows nothing about
+ * GraphQL, Hono, or plugins (those live in `@getcronit/pylon`). The framework
+ * projects each app to a `MigrationGroup` and hands the projection here.
+ *
+ * Per-group scoping rests on two seams:
+ *   - `current: () => toIR(groupModels)` — generate only this group's tables.
+ *   - `resolveAgainst: () => toIR().entities` — resolve cross-group FK targets
+ *     against the GLOBAL registry, so an FK into another group still emits.
+ *   - `ledgerPrefix: group.name` — isolate each group's rows in the shared ledger.
+ */
+import type {Database} from './database.js'
+import {getDatabase} from './database.js'
+import {toIR} from './ir.js'
+import {MigrationRunner, type GeneratedMigration, type MigrationLoader} from './migration-runner.js'
+import {getModelDefinitionOrThrow, type ModelDefinition} from './registry.js'
+
+export interface MigrationGroup {
+  /** Unique group name — also the ledger namespace for its migrations. */
+  name: string
+  /** Model classes this group owns (scopes its migrations). */
+  models?: Function[]
+  /** Names of groups this one depends on — applied before it; FK targets resolve to them. */
+  dependencies?: string[]
+  /** This group's migrations directory (absolute, or resolved by the caller). */
+  dir?: string
+}
+
+/**
+ * Topologically order groups: every group comes after the groups it depends on.
+ * Deterministic (siblings by name). Throws on a cycle or an unknown dependency.
+ */
+export function orderGroups(groups: MigrationGroup[]): MigrationGroup[] {
+  const byName = new Map(groups.map(g => [g.name, g]))
+  const out: MigrationGroup[] = []
+  const visiting = new Set<string>()
+  const visited = new Set<string>()
+  const visit = (g: MigrationGroup): void => {
+    if (visited.has(g.name)) return
+    if (visiting.has(g.name)) throw new Error(`Migration-group dependency cycle at "${g.name}".`)
+    visiting.add(g.name)
+    for (const dep of g.dependencies ?? []) {
+      const d = byName.get(dep)
+      if (!d) throw new Error(`Group "${g.name}" depends on unknown group "${dep}".`)
+      visit(d)
+    }
+    visiting.delete(g.name)
+    visited.add(g.name)
+    out.push(g)
+  }
+  for (const g of [...groups].sort((x, y) => x.name.localeCompare(y.name))) visit(g)
+  return out
+}
+
+/** Resolve a group's model classes to their registered definitions (the scoping set). */
+export function groupModelDefinitions(group: MigrationGroup): ModelDefinition[] {
+  return (group.models ?? []).map(getModelDefinitionOrThrow)
+}
+
+/**
+ * A `MigrationRunner` scoped to one group: its own directory + models + ledger
+ * namespace, resolving cross-group FK targets against the global registry universe.
+ */
+export function groupRunner(group: MigrationGroup, opts: {now?: () => string} = {}): MigrationRunner {
+  if (!group.dir) {
+    throw new Error(`Migration group "${group.name}" has no directory configured.`)
+  }
+  const defs = groupModelDefinitions(group)
+  return new MigrationRunner({
+    dir: group.dir,
+    current: () => {
+      const ir = toIR(defs)
+      return {version: ir.version, entities: ir.entities}
+    },
+    resolveAgainst: () => toIR().entities,
+    ledgerPrefix: group.name,
+    now: opts.now
+  })
+}
+
+/** Generate a migration for ONE group (scoped to its own tables). */
+export function generateGroup(
+  group: MigrationGroup,
+  name: string,
+  load: MigrationLoader,
+  opts: {renames?: GeneratedMigration['renameCandidates']; now?: () => string} = {}
+): Promise<GeneratedMigration | null> {
+  return groupRunner(group, {now: opts.now}).generate(name, load, {renames: opts.renames})
+}
+
+export interface GroupApplyResult {
+  group: string
+  applied: string[]
+}
+
+/** Apply every group's pending migrations, in dependency order. Idempotent. */
+export async function migrateGroups(
+  groups: MigrationGroup[],
+  load: MigrationLoader,
+  db: Database = getDatabase()
+): Promise<GroupApplyResult[]> {
+  const out: GroupApplyResult[] = []
+  for (const group of orderGroups(groups)) {
+    out.push({group: group.name, applied: await groupRunner(group).apply(load, db)})
+  }
+  return out
+}
+
+/**
+ * Production apply across groups: a GUARD pass first (every group must have no
+ * uncaptured model changes and no tampered history), then apply in dependency
+ * order — so a multi-group deploy is all-or-nothing at the gate.
+ */
+export async function deployGroups(
+  groups: MigrationGroup[],
+  load: MigrationLoader,
+  db: Database = getDatabase()
+): Promise<GroupApplyResult[]> {
+  const ordered = orderGroups(groups)
+  for (const group of ordered) {
+    const runner = groupRunner(group)
+    const status = await runner.status(load, db)
+    if (status.pendingChanges.length > 0) {
+      throw new Error(
+        `Refusing to deploy group "${group.name}": uncaptured model changes — ` +
+          `generate and commit its migration first.`
+      )
+    }
+    const tampered = await runner.integrityErrors(load, db)
+    if (tampered.length > 0) {
+      throw new Error(`Refusing to deploy group "${group.name}": tampered migration(s): ${tampered.join(', ')}`)
+    }
+  }
+  const out: GroupApplyResult[] = []
+  for (const group of ordered) {
+    out.push({group: group.name, applied: await groupRunner(group).apply(load, db)})
+  }
+  return out
+}
+
+export interface GroupStatus {
+  group: string
+  pendingChanges: number
+  unapplied: string[]
+}
+
+/** Per-group status (uncaptured changes + unapplied migrations), in dependency order. */
+export async function statusGroups(
+  groups: MigrationGroup[],
+  load: MigrationLoader,
+  db?: Database
+): Promise<GroupStatus[]> {
+  const out: GroupStatus[] = []
+  for (const group of orderGroups(groups)) {
+    const status = await groupRunner(group).status(load, db)
+    out.push({group: group.name, pendingChanges: status.pendingChanges.length, unapplied: status.unapplied})
+  }
+  return out
+}

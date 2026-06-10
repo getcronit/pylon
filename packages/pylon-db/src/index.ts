@@ -108,18 +108,17 @@ export {
   type HistoricalModels
 } from './historical-models.js'
 export {
-  defineApp,
-  orderApps,
-  appRunner,
-  appModelDefinitions,
-  generateApp,
-  migrateApps,
-  deployApps,
-  statusApps,
-  type AppDefinition,
-  type AppApplyResult,
-  type AppStatus
-} from './apps.js'
+  orderGroups,
+  groupRunner,
+  groupModelDefinitions,
+  generateGroup,
+  migrateGroups,
+  deployGroups,
+  statusGroups,
+  type MigrationGroup,
+  type GroupApplyResult,
+  type GroupStatus
+} from './migration-groups.js'
 
 import {createManager} from './manager.js'
 import type {Manager as ManagerType, ModelCtor} from './manager.js'
@@ -139,7 +138,7 @@ import * as schemaSync from './schema-sync.js'
 import * as migrationApi from './migrations.js'
 import {MigrationRunner as MigrationRunnerClass} from './migration-runner.js'
 import * as migrationOps from './migration-ops.js'
-import * as appsApi from './apps.js'
+import * as groupsApi from './migration-groups.js'
 
 /**
  * Model-definition API. Field types are capitalized (Django-style):
@@ -214,14 +213,16 @@ export const migrations = {
   MigrationRunner: MigrationRunnerClass
 } as const
 
-/** Modular apps (Django-style): per-app models + migrations, dependency-ordered. */
-export const apps = {
-  defineApp: appsApi.defineApp,
-  orderApps: appsApi.orderApps,
-  appRunner: appsApi.appRunner,
-  appModelDefinitions: appsApi.appModelDefinitions,
-  generate: appsApi.generateApp,
-  migrate: appsApi.migrateApps,
-  deploy: appsApi.deployApps,
-  status: appsApi.statusApps
+/**
+ * Migration groups — the data-layer primitive behind framework "apps":
+ * per-group models + migrations, dependency-ordered, ledger-namespaced.
+ */
+export const groups = {
+  order: groupsApi.orderGroups,
+  runner: groupsApi.groupRunner,
+  modelDefinitions: groupsApi.groupModelDefinitions,
+  generate: groupsApi.generateGroup,
+  migrate: groupsApi.migrateGroups,
+  deploy: groupsApi.deployGroups,
+  status: groupsApi.statusGroups
 } as const

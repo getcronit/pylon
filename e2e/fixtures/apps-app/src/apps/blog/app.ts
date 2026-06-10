@@ -1,8 +1,9 @@
-// blog app — manifest: models + a resolver fragment the host composes.
-import {apps} from '@getcronit/pylon-db'
+// blog app — manifest: models + GraphQL fragment + a Hono route, composed by the
+// host via createApp().
+import {defineApp} from '@getcronit/pylon'
 import {Article, Author} from './models.js'
 
-export const blog = apps.defineApp({
+export const blog = defineApp({
   name: 'blog',
   models: [Author, Article],
   graphql: {
@@ -15,5 +16,9 @@ export const blog = apps.defineApp({
       addArticle: (authorId: number, title: string): Promise<Article> =>
         Article.objects.create({authorId, title})
     }
+  },
+  // Hono contribution — a plain REST endpoint mounted on the app.
+  routes(app) {
+    app.get('/blog/ping', c => c.text('blog-pong'))
   }
 })
