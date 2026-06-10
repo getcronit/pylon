@@ -35,6 +35,14 @@ export {Manager, QuerySet, createManager, type ModelCtor} from './manager.js'
 export {syncSchema, dropTables} from './schema-sync.js'
 export {useDatabase, type UseDatabaseOptions, type DatabasePlugin} from './plugin.js'
 export {
+  runWithAppContext,
+  getAppContext,
+  currentTenant,
+  currentFeatures,
+  type AppContext
+} from './app-context.js'
+export {defineFeatures, requireFeature, gateResolvers, ForbiddenError} from './features.js'
+export {
   ValidationError,
   validateInstance,
   type ValidationIssue,
@@ -141,6 +149,7 @@ import {MigrationRunner as MigrationRunnerClass} from './migration-runner.js'
 import * as migrationOps from './migration-ops.js'
 import * as groupsApi from './migration-groups.js'
 import {recordApp} from './registry.js'
+import {gateResolvers} from './features.js'
 
 /**
  * Model-definition API. Field types are capitalized (Django-style):
@@ -188,11 +197,18 @@ export const models = {
    *
    * `dependsOn` adds explicit app deps on top of the FK-inferred ones.
    */
-  app(name: string, options: {dependsOn?: string[]} = {}) {
+  app(
+    name: string,
+    options: {dependsOn?: string[]; tenant?: string; feature?: string} = {}
+  ) {
     recordApp(name, options)
     return {
       ...modelBuilders,
-      model: (opts: fields.ModelOptions = {}) => fields.model({...opts, app: name})
+      model: (opts: fields.ModelOptions = {}) =>
+        fields.model({...opts, app: name, tenant: opts.tenant ?? options.tenant}),
+      /** Gate this app's resolver fragment behind its feature (no-op if no feature). */
+      gate: <R extends Record<string, (...args: any[]) => any>>(resolvers: R): R =>
+        options.feature ? gateResolvers(options.feature, resolvers) : resolvers
     }
   }
 } as const

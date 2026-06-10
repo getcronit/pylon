@@ -20,7 +20,9 @@
  * Pylon app); the ORM core stays graphql-free.
  */
 import {GraphQLError} from 'graphql'
+import {runWithAppContext} from './app-context.js'
 import {connect, databaseForKysely, getDatabase} from './database.js'
+import {ForbiddenError} from './features.js'
 import {ValidationError, type ValidationIssue} from './validation.js'
 
 /** Maps a ValidationError's issues to a GraphQL error's message + extensions. */
@@ -50,6 +52,17 @@ export interface UseDatabaseOptions {
    * locale), or `false` to leave it masked.
    */
   validationErrors?: false | ValidationErrorMapper
+  /**
+   * Current tenant id for the request (e.g. `() => getContext().session?.organizationId`).
+   * Bound into the ambient app context so tenant-scoped models auto-filter. Must
+   * be null-safe (return undefined for unauthenticated/public requests).
+   */
+  tenant?: () => string | number | undefined
+  /**
+   * Features enabled for the current tenant (e.g. `() => getContext().session?.features`).
+   * Bound into the ambient app context for feature gating. Null-safe.
+   */
+  features?: () => readonly string[] | undefined
 }
 
 export interface DatabasePlugin {
@@ -76,15 +89,18 @@ export function useDatabase(options: UseDatabaseOptions = {}): DatabasePlugin {
 
     async middleware(_c, next) {
       const db = getDatabase()
+      // Bind the request's tenant + features so tenant-scoped models auto-filter
+      // and feature gates can read the enabled set.
+      const appCtx = {tenant: options.tenant?.(), features: options.features?.()}
+      const bound = () => runWithAppContext(appCtx, () => next())
       if (options.transactionPerRequest) {
-        await db.kysely.transaction().execute(trx => databaseForKysely(trx).run(() => next()))
+        await db.kysely.transaction().execute(trx => databaseForKysely(trx).run(bound))
       } else {
-        await db.run(() => next())
+        await db.run(bound)
       }
     },
 
     onExecute() {
-      if (!mapper) return
       return {
         onExecuteDone({result, setResult}) {
           const errors = result.errors
@@ -92,13 +108,23 @@ export function useDatabase(options: UseDatabaseOptions = {}): DatabasePlugin {
           let changed = false
           const mapped = errors.map(err => {
             const original = err.originalError
-            if (original instanceof ValidationError) {
+            // ValidationError → client-safe BAD_USER_INPUT (unless disabled).
+            if (mapper && original instanceof ValidationError) {
               changed = true
               const {message, extensions} = mapper(original.issues)
               return new GraphQLError(message ?? err.message, {
                 nodes: err.nodes,
                 path: err.path,
                 extensions: extensions ?? {}
+              })
+            }
+            // ForbiddenError (feature gate) → FORBIDDEN (always mapped, not masked).
+            if (original instanceof ForbiddenError) {
+              changed = true
+              return new GraphQLError(original.message, {
+                nodes: err.nodes,
+                path: err.path,
+                extensions: {code: 'FORBIDDEN', feature: original.feature}
               })
             }
             return err

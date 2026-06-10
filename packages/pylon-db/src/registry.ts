@@ -100,6 +100,8 @@ export interface ModelDefinition {
   app?: string
   /** Model-level composite indexes (single-column ones come from `{index:true}`). */
   indexes?: ModelIndex[]
+  /** Column name to auto-scope by tenant (resolved from `models.app(name,{tenant})`). */
+  tenantColumn?: string
 }
 
 /** Columns are accumulated per-constructor before @model finalizes the model. */
@@ -166,7 +168,14 @@ function ownRelations(ctor: Function): RelationDefinition[] {
  */
 export function finalizeModel(
   ctor: Function,
-  options: {tableName: string; abstract: boolean; app?: string; indexes?: ModelIndex[]}
+  options: {
+    tableName: string
+    abstract: boolean
+    app?: string
+    indexes?: ModelIndex[]
+    /** Property name of the tenant FK (auto-scope column); skipped if absent on this model. */
+    tenant?: string
+  }
 ): ModelDefinition {
   const merged = new Map<string, ColumnDefinition>()
   const mergedRelations = new Map<string, RelationDefinition>()
@@ -199,7 +208,10 @@ export function finalizeModel(
     relations,
     primaryKey,
     app: options.app,
-    indexes: options.indexes
+    indexes: options.indexes,
+    // Resolve the tenant property → column; skip silently if this model has no
+    // such column (lets non-tenant lookup tables live in a tenant-scoped app).
+    tenantColumn: options.tenant ? merged.get(options.tenant)?.columnName : undefined
   }
 
   if (!options.abstract) {

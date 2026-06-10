@@ -263,6 +263,8 @@ export interface ModelOptions {
   abstract?: boolean
   /** Migration-group / app this model belongs to. Prefer `models.app(name)`. */
   app?: string
+  /** Property name of the tenant FK for auto-scoping. Prefer `models.app(name,{tenant})`. */
+  tenant?: string
   /**
    * Composite (multi-column) secondary indexes. `columns` are property names.
    * Single-column indexes use the field option `{index: true}`; a composite
@@ -484,7 +486,13 @@ export function model(options: ModelOptions = {}): ClassDecorator {
     }
 
     // 4. Finalize: merge columns/relations inherited via the prototype chain.
-    finalizeModel(Wrapped, {tableName, abstract: isAbstract, app: options.app, indexes: options.indexes})
+    finalizeModel(Wrapped, {
+      tableName,
+      abstract: isAbstract,
+      app: options.app,
+      indexes: options.indexes,
+      tenant: options.tenant
+    })
 
     // 5. Default manager (a custom `static objects = manager(...)` wins).
     if (

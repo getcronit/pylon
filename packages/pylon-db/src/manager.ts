@@ -1,3 +1,4 @@
+import {currentTenant} from './app-context.js'
 import {getDatabase} from './database.js'
 import {
   ColumnDefinition,
@@ -45,6 +46,8 @@ interface QueryState {
   where: Condition[]
   orderBy: {column: string; dir: 'asc' | 'desc'}[]
   limit?: number
+  /** Skip tenant auto-scoping for this query (cross-tenant / admin). */
+  unscoped?: boolean
 }
 
 export class QuerySet<T extends object> {
@@ -61,8 +64,33 @@ export class QuerySet<T extends object> {
     return new QuerySet(this.ctor, {
       where: patch.where ?? this.state.where,
       orderBy: patch.orderBy ?? this.state.orderBy,
-      limit: patch.limit ?? this.state.limit
+      limit: patch.limit ?? this.state.limit,
+      unscoped: patch.unscoped ?? this.state.unscoped
     })
+  }
+
+  /** Bypass tenant auto-scoping (cross-tenant / admin queries). */
+  unscoped(): QuerySet<T> {
+    return this.clone({unscoped: true})
+  }
+
+  /** The tenant filter for this query (none if unscoped / not a tenant model). */
+  private tenantConditions(): Condition[] {
+    const column = this.def.tenantColumn
+    if (!column || this.state.unscoped) return []
+    const tenant = currentTenant()
+    if (tenant === undefined || tenant === null) {
+      throw new Error(
+        `Model "${this.def.tableName}" is tenant-scoped but no tenant is bound. ` +
+          `Bind one via useDatabase({tenant}) / the queue runtime, or use .unscoped().`
+      )
+    }
+    return [{column, value: tenant}]
+  }
+
+  /** Explicit filters + the implicit tenant filter. */
+  private allConditions(): Condition[] {
+    return [...this.state.where, ...this.tenantConditions()]
   }
 
   filter(conditions: Partial<Record<keyof T, unknown>>): QuerySet<T> {
@@ -93,7 +121,7 @@ export class QuerySet<T extends object> {
   private build() {
     const db = getDatabase()
     let q = db.kysely.selectFrom(this.def.tableName).selectAll()
-    for (const cond of this.state.where) {
+    for (const cond of this.allConditions()) {
       q =
         cond.value === null
           ? q.where(cond.column, 'is', null)
@@ -133,7 +161,7 @@ export class QuerySet<T extends object> {
     let q = db.kysely
       .selectFrom(this.def.tableName)
       .select(db.kysely.fn.countAll().as('count'))
-    for (const cond of this.state.where) {
+    for (const cond of this.allConditions()) {
       q =
         cond.value === null
           ? q.where(cond.column, 'is', null)
@@ -147,7 +175,7 @@ export class QuerySet<T extends object> {
   async delete(): Promise<number> {
     const db = getDatabase()
     let q = db.kysely.deleteFrom(this.def.tableName)
-    for (const cond of this.state.where) {
+    for (const cond of this.allConditions()) {
       q =
         cond.value === null
           ? q.where(cond.column, 'is', null)
@@ -165,7 +193,7 @@ export class QuerySet<T extends object> {
       data[columnFor(this.def, key).columnName] = value
     }
     let q = db.kysely.updateTable(this.def.tableName).set(data)
-    for (const cond of this.state.where) {
+    for (const cond of this.allConditions()) {
       q =
         cond.value === null
           ? q.where(cond.column, 'is', null)
@@ -207,6 +235,11 @@ export class Manager<T extends object> {
     return this.qs().count()
   }
 
+  /** Bypass tenant auto-scoping (cross-tenant / admin queries). */
+  unscoped(): QuerySet<T> {
+    return this.qs().unscoped()
+  }
+
   async create(values: Partial<T>): Promise<T> {
     const instance = new this.ctor()
     Object.assign(instance, values)
@@ -238,6 +271,26 @@ function rowFromInstance(
 
 export async function saveInstance(instance: object): Promise<object> {
   const def = getModelDefinitionOrThrow(instance.constructor)
+
+  // Tenant auto-scope on create: stamp the tenant column from the ambient tenant
+  // when not set explicitly. Existing rows keep their tenant; an explicit value
+  // (admin/cross-tenant create) is respected.
+  if (!persisted.has(instance) && def.tenantColumn) {
+    const tcol = def.columns.find(c => c.columnName === def.tenantColumn)
+    if (tcol) {
+      const current = (instance as any)[tcol.propertyKey]
+      if (current === undefined || current === null) {
+        const tenant = currentTenant()
+        if (tenant === undefined || tenant === null) {
+          throw new Error(
+            `Cannot create "${def.tableName}": tenant-scoped but no tenant bound and ` +
+              `"${tcol.propertyKey}" was not provided.`
+          )
+        }
+        ;(instance as any)[tcol.propertyKey] = tenant
+      }
+    }
+  }
 
   // Validate before touching the DB — fail fast with structured, translatable
   // issues instead of a raw Postgres constraint error.
