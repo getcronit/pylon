@@ -62,6 +62,39 @@ export default migrations.defineMigration({
         }
       ]
     }),
+    migrations.createTable({
+      "name": "Activity",
+      "table": "blog_activity",
+      "columns": [
+        {
+          "property": "id",
+          "name": "id",
+          "sqlType": "bigint",
+          "primaryKey": true,
+          "autoIncrement": true,
+          "unique": false,
+          "nullable": false
+        },
+        {
+          "property": "action",
+          "name": "action",
+          "sqlType": "text",
+          "primaryKey": false,
+          "autoIncrement": false,
+          "unique": false,
+          "nullable": false
+        },
+        {
+          "property": "target",
+          "name": "target",
+          "sqlType": "text",
+          "primaryKey": false,
+          "autoIncrement": false,
+          "unique": false,
+          "nullable": false
+        }
+      ]
+    }),
     migrations.addForeignKey({
       "table": "blog_article",
       "name": "blog_article_author_id_fkey",

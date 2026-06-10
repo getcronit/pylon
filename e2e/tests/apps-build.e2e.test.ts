@@ -60,7 +60,7 @@ function pylonDb(...args: string[]) {
 async function resetSchema() {
   const db: Database = connect({connectionString})
   try {
-    for (const t of ['shop_purchase', 'shop_product', 'blog_article', 'blog_author']) {
+    for (const t of ['shop_purchase', 'shop_product', 'blog_article', 'blog_activity', 'blog_author']) {
       await db.kysely.schema.dropTable(t).ifExists().cascade().execute()
     }
     await db.kysely.schema.dropTable('_pylon_migrations').ifExists().cascade().execute()
@@ -174,6 +174,12 @@ describe.skipIf(!dockerAvailable)('multi-app e2e — two apps compose one schema
     ).author
     expect(fetched.name).toBe('ada')
     expect(fetched.displayName).toBe('ADA') // method ran on the hydrated instance
+  })
+
+  it('a model signal writes an audit row (postSave Author → Activity)', async () => {
+    await gql('mutation($n:String!){ createAuthor(name:$n){ id } }', {n: 'Signaled'})
+    const acts = (await gql('{ activities { action target } }')).activities
+    expect(acts).toContainEqual({action: 'create', target: 'Signaled'})
   })
 
   it('mounts an app-contributed Hono route (REST, not GraphQL)', async () => {
