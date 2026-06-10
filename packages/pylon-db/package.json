@@ -33,6 +33,14 @@
     "kysely": "^0.27.4",
     "pg": "^8.13.1"
   },
+  "peerDependencies": {
+    "graphql": "^16.0.0"
+  },
+  "peerDependenciesMeta": {
+    "graphql": {
+      "optional": true
+    }
+  },
   "engines": {
     "node": ">=18.0.0"
   },
@@ -40,6 +48,7 @@
     "@types/node": "^20.0.0",
     "@types/pg": "^8.11.10",
     "esbuild": "^0.23.1",
+    "graphql": "^16.9.0",
     "rimraf": "^6.0.1",
     "typescript": "^5.7.3",
     "vitest": "^2.0.0"

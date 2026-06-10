@@ -105,6 +105,30 @@ describe.skipIf(!dockerAvailable)('runtime e2e — built server answers GraphQL 
     expect(fetched.name).toBe(name)
   })
 
+  it('surfaces a ValidationError as a client-safe BAD_USER_INPUT error (not masked)', async () => {
+    // `name` is `Text({min: 2})`; an empty name throws ValidationError in the
+    // resolver. useDatabase()'s onExecuteDone hook must rewrite it as a
+    // BAD_USER_INPUT GraphQLError carrying the structured issues — NOT let Yoga
+    // mask it to "Unexpected error".
+    await expect(
+      gql('mutation($n: String!){ createAuthor(name: $n){ id } }', {n: ''})
+    ).rejects.toThrow(/BAD_USER_INPUT/)
+
+    // and the structured issue (path + code) rides along in extensions
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify({
+        query: 'mutation($n: String!){ createAuthor(name: $n){ id } }',
+        variables: {n: ''}
+      })
+    })
+    const json = (await res.json()) as {errors?: any[]}
+    const ext = json.errors?.[0]?.extensions
+    expect(ext?.code).toBe('BAD_USER_INPUT')
+    expect(ext?.issues?.[0]).toMatchObject({path: 'name', code: 'length'})
+  })
+
   it('resolves both relation directions at runtime', async () => {
     const name = `Grace ${Date.now()}`
     const author = (await gql('mutation($n: String!){ createAuthor(name: $n){ id } }', {n: name}))

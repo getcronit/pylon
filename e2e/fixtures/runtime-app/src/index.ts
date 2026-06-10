@@ -8,7 +8,7 @@ import type {Relation} from '@getcronit/pylon-db'
 export class Author extends models.Model {
   static objects = db.manager(Author)
   id = models.ID()
-  name = models.Text()
+  name = models.Text({min: 2})
   books = models.HasMany(() => Book, {foreignKey: 'authorId'})
 }
 
