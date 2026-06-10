@@ -62,6 +62,15 @@ export interface ProjectOrm {
     integrityErrors(load: (filePath: string) => Promise<unknown>, db?: unknown): Promise<string[]>
   }
   connect(opts: {connectionString: string}): unknown
+  /** Presence-level drift between the live DB and the current models. */
+  schemaDrift(db?: unknown): Promise<{
+    missingTables: string[]
+    extraTables: string[]
+    columns: Array<{table: string; missing: string[]; extra: string[]}>
+  }>
+  hasDrift(d: {missingTables: string[]; extraTables: string[]; columns: unknown[]}): boolean
+  /** Create tables for all models directly (no migration) — `db push`. */
+  syncSchema(): Promise<void>
 }
 
 let counter = 0

@@ -157,4 +157,18 @@ describe.skipIf(!dockerAvailable)('pylon db — committed/authored migrations (l
     expect(await productTitles()).toEqual(['Intro to Pylon'])
     expect(await indexExists('shop_product_title_idx')).toBe(true)
   })
+
+  it('check fails when the live DB drifts from the models', async () => {
+    // fully applied + in sync at this point
+    expect(pylonDb('check').status).toBe(0)
+
+    // introduce drift: drop a column the models still declare
+    await withDb(db =>
+      db.kysely.schema.alterTable('shop_product').dropColumn('title').execute()
+    )
+
+    const r = pylonDb('check')
+    expect(r.status, r.out).toBe(1)
+    expect(r.out).toMatch(/drift/i)
+  })
 })

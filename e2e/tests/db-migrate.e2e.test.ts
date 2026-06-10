@@ -114,4 +114,16 @@ describe.skipIf(!dockerAvailable)('pylon db (shipped CLI) against a live databas
     expect(r.status, r.out).toBe(0)
     expect(r.out).toMatch(/Up to date/)
   })
+
+  it('db status reports the DB in sync (no drift)', () => {
+    const r = pylonDb('status')
+    expect(r.status, r.out).toBe(0)
+    expect(r.out).toMatch(/in sync|no drift/i)
+  })
+
+  it('db push syncs the schema directly (idempotent here)', () => {
+    const r = pylonDb('push')
+    expect(r.status, r.out).toBe(0)
+    expect(r.out).toMatch(/pushed/i)
+  })
 })

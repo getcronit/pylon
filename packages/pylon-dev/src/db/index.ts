@@ -49,8 +49,14 @@ function createMigrationLoader(cwd: string) {
   }
 }
 
+type SchemaDrift = {
+  missingTables: string[]
+  extraTables: string[]
+  columns: Array<{table: string; missing: string[]; extra: string[]}>
+}
+
 export interface DbCommandOptions {
-  command: 'status' | 'diff' | 'migrate' | 'rollback' | 'resolve' | 'plan' | 'check'
+  command: 'status' | 'diff' | 'migrate' | 'rollback' | 'resolve' | 'plan' | 'check' | 'push'
   /** Migration name (for `diff`; the target for `resolve`). */
   name?: string
   /** `plan`: render down SQL instead of up. */
@@ -85,8 +91,12 @@ export interface DbCommandResult {
   /** `plan`: per-migration SQL preview. */
   plan?: Array<{name: string; statements: string[]}>
   /** `check`: CI gate result. */
-  check?: {uncaptured: number; tampered: string[]; unapplied: string[]}
+  check?: {uncaptured: number; tampered: string[]; unapplied: string[]; drift?: SchemaDrift}
   status?: {pendingChanges: unknown[]; migrations: string[]; unapplied: string[]}
+  /** `status`/`check`: live-DB drift (when a database is available). */
+  drift?: SchemaDrift
+  /** `push`: whether the schema was synced. */
+  pushed?: boolean
 }
 
 export async function runDbCommand(
@@ -109,7 +119,8 @@ export async function runDbCommand(
         ? orm.connect({connectionString: process.env.DATABASE_URL})
         : undefined
       const status = await runner.status(loadMigrationFile, db)
-      return {command: 'status', status}
+      const drift = db ? await orm.schemaDrift(db) : undefined
+      return {command: 'status', status, drift}
     }
     case 'diff': {
       const created = await runner.generate(options.name ?? 'migration', loadMigrationFile, {
@@ -133,12 +144,14 @@ export async function runDbCommand(
         : undefined
       const status = await runner.status(loadMigrationFile, db)
       const tampered = db ? await runner.integrityErrors(loadMigrationFile, db) : []
+      const drift = db ? await orm.schemaDrift(db) : undefined
       return {
         command: 'check',
         check: {
           uncaptured: status.pendingChanges.length,
           tampered,
-          unapplied: status.unapplied
+          unapplied: status.unapplied,
+          drift
         }
       }
     }
@@ -171,6 +184,15 @@ export async function runDbCommand(
       if (as === 'applied') await runner.markApplied(options.name, loadMigrationFile, conn)
       else await runner.markRolledBack(options.name, conn)
       return {command: 'resolve', resolved: {name: options.name, as}}
+    }
+    case 'push': {
+      const connectionString = process.env.DATABASE_URL
+      if (!connectionString) {
+        throw new Error('pylon db push requires DATABASE_URL to be set.')
+      }
+      orm.connect({connectionString})
+      await orm.syncSchema()
+      return {command: 'push', pushed: true}
     }
   }
 }

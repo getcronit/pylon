@@ -33,6 +33,14 @@ export {
 export {Manager, QuerySet, createManager, type ModelCtor} from './manager.js'
 export {syncSchema, dropTables} from './schema-sync.js'
 export {
+  introspect,
+  expectedColumns,
+  computeDrift,
+  hasDrift,
+  schemaDrift,
+  type SchemaDrift
+} from './introspect.js'
+export {
   allModels,
   getModelDefinition,
   getModelDefinitionOrThrow,

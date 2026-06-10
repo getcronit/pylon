@@ -106,7 +106,7 @@ db.command('status')
   .option('-d, --dir <path>', 'Migrations directory', './migrations')
   .action(async options => {
     try {
-      const {status} = await runDbCommand({
+      const {status, drift} = await runDbCommand({
         command: 'status',
         models: options.models,
         dir: options.dir
@@ -116,6 +116,20 @@ db.command('status')
         `Uncaptured schema changes: ${pending}\n` +
           `Migrations: ${status!.migrations.length} (${status!.unapplied.length} unapplied)`
       )
+      if (drift) {
+        const driftN =
+          drift.missingTables.length + drift.extraTables.length + drift.columns.length
+        if (driftN === 0) consola.info('Database in sync with migrations (no drift)')
+        else {
+          consola.warn('Database drift detected:')
+          for (const t of drift.missingTables) consola.warn(`  missing table: ${t}`)
+          for (const t of drift.extraTables) consola.warn(`  extra table (not in models): ${t}`)
+          for (const c of drift.columns)
+            consola.warn(
+              `  ${c.table}: ${c.missing.map(x => `-${x}`).concat(c.extra.map(x => `+${x}`)).join(' ')}`
+            )
+        }
+      }
     } catch (error) {
       consola.error(error)
       process.exit(1)
@@ -208,6 +222,11 @@ db.command('check')
         problems.push(`${check!.uncaptured} uncaptured model change(s) — run \`pylon db diff\``)
       if (check!.tampered.length > 0)
         problems.push(`tampered migration(s): ${check!.tampered.join(', ')}`)
+      const d = check!.drift
+      if (d && (d.missingTables.length || d.extraTables.length || d.columns.length))
+        problems.push(
+          `database drift (${d.missingTables.length + d.extraTables.length + d.columns.length} difference(s) vs models)`
+        )
       if (problems.length > 0) {
         for (const p of problems) consola.error(p)
         process.exit(1)
@@ -279,6 +298,20 @@ db.command('resolve')
         resolve: options.rolledBack ? 'rolled-back' : 'applied'
       })
       consola.success(`Marked ${resolved!.name} as ${resolved!.as}`)
+    } catch (error) {
+      consola.error(error)
+      process.exit(1)
+    }
+  })
+
+db.command('push')
+  .description('Sync models to the database directly, without a migration (prototyping)')
+  .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
+  .option('-d, --dir <path>', 'Migrations directory (unused)', './migrations')
+  .action(async options => {
+    try {
+      await runDbCommand({command: 'push', models: options.models})
+      consola.success('Schema pushed to the database')
     } catch (error) {
       consola.error(error)
       process.exit(1)
