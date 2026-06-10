@@ -26,6 +26,7 @@ import {
   physicalSchemaOf,
   renameCandidates,
   renderChanges,
+  type Entity,
   type PhysicalSchema,
   type Rename,
   type SchemaChange
@@ -58,6 +59,13 @@ export type MigrationLoader = (filePath: string) => Promise<MigrationModule>
 export interface MigrationRunnerOptions {
   dir: string
   current?: () => Snapshot
+  /**
+   * FK-resolution universe (all apps' entities) — defaults to `current`'s
+   * entities. Set it for a PER-APP runner whose `current` is scoped to one app:
+   * a cross-app FK whose target table lives in another app then still resolves
+   * (instead of being dropped). Lookup-only — does not add tables/migrations.
+   */
+  resolveAgainst?: () => Record<string, Entity>
   now?: () => string
 }
 
@@ -127,12 +135,19 @@ function fileTemplate(
 export class MigrationRunner {
   private readonly dir: string
   private readonly current: () => Snapshot
+  private readonly resolveAgainst?: () => Record<string, Entity>
   private readonly now: () => string
 
   constructor(options: MigrationRunnerOptions) {
     this.dir = options.dir
     this.current = options.current ?? snapshot
+    this.resolveAgainst = options.resolveAgainst
     this.now = options.now ?? defaultStamp
+  }
+
+  /** Project the current (possibly app-scoped) entities, resolving cross-app FKs. */
+  private currentPhysical(): PhysicalSchema {
+    return physicalSchemaOf(this.current().entities, this.resolveAgainst?.())
   }
 
   /** Migration names on disk, chronological (timestamp-prefixed, sorted). */
@@ -177,7 +192,7 @@ export class MigrationRunner {
     opts: {renames?: Rename[]} = {}
   ): Promise<GeneratedMigration | null> {
     const prev = await this.foldHistory(load)
-    const next = physicalSchemaOf(this.current().entities)
+    const next = this.currentPhysical()
     const changes = diffSchema(prev, next, {renames: opts.renames})
     if (changes.length === 0) return null
 
@@ -201,10 +216,7 @@ export class MigrationRunner {
     migrations: string[]
     unapplied: string[]
   }> {
-    const pendingChanges = diffSchema(
-      await this.foldHistory(load),
-      physicalSchemaOf(this.current().entities)
-    )
+    const pendingChanges = diffSchema(await this.foldHistory(load), this.currentPhysical())
     const names = await this.list()
     let unapplied = names
     if (db) {

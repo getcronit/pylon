@@ -177,6 +177,29 @@ describe('migration engine — foreign keys (self-contained, never inline)', () 
     expect(diffSchema(schema, physicalSchemaOf({User: user(), Post: post()}))).toEqual([])
   })
 
+  it('per-app scoping: FK target resolves against the universe, not just the materialized set', () => {
+    // App "blog" materializes only Post; its FK target User lives in app "auth".
+    // Without a universe, the cross-app FK is dropped (target not in the map)…
+    const scopedAlone = physicalSchemaOf({Post: post()})
+    expect(scopedAlone.Post.foreignKeys).toEqual([])
+    expect(scopedAlone.User).toBeUndefined() // User is NOT materialized as a table
+
+    // …with the universe (all apps' entities) the FK resolves, but only Post is
+    // materialized — exactly what a per-app migration needs.
+    const scopedWithUniverse = physicalSchemaOf({Post: post()}, {User: user(), Post: post()})
+    expect(Object.keys(scopedWithUniverse)).toEqual(['Post']) // no app_user table
+    expect(scopedWithUniverse.Post.foreignKeys).toEqual([
+      {
+        table: 'post',
+        name: 'post_author_id_fkey',
+        column: 'author_id',
+        refTable: 'user',
+        refColumn: 'id',
+        onDelete: undefined
+      }
+    ])
+  })
+
   it('a new table FK to an existing table resolves at diff time (no inline FK)', () => {
     const m = makeMigration({User: user()}, {User: user(), Post: post()})
     expect(m.changes.map(c => c.kind)).toEqual(['createTable', 'addForeignKey'])

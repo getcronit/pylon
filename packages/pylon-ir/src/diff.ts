@@ -115,14 +115,26 @@ function indexEqual(a: IndexSpec, b: IndexSpec): boolean {
 
 // ── PhysicalSchema: the canonical state currency ────────────────────────────
 
-/** Project IR entities to their physical schema (columns + FKs + indexes). */
-export function physicalSchemaOf(entities: Record<string, Entity>): PhysicalSchema {
+/**
+ * Project IR entities to their physical schema (columns + FKs + indexes).
+ *
+ * `resolveAgainst` is the universe used to resolve `belongsTo` FK *targets*; it
+ * defaults to the materialized `entities`. They differ for a **per-app** schema:
+ * `entities` is the app's own (the tables it owns / migrates), while
+ * `resolveAgainst` is all apps' entities — so a cross-app FK whose target lives
+ * in another app still resolves instead of being silently dropped. Only
+ * `entities` become tables; `resolveAgainst` is lookup-only.
+ */
+export function physicalSchemaOf(
+  entities: Record<string, Entity>,
+  resolveAgainst: Record<string, Entity> = entities
+): PhysicalSchema {
   const schema: PhysicalSchema = {}
   for (const name of Object.keys(entities)) {
     const e = entities[name]
     schema[name] = {
       ...tableSpecOf(e), // {name, table, columns}
-      foreignKeys: [...foreignKeysOf(e, entities).values()],
+      foreignKeys: [...foreignKeysOf(e, resolveAgainst).values()],
       indexes: [...indexesOf(e).values()]
     }
   }
