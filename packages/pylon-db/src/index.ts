@@ -31,7 +31,15 @@ export {
   setDefaultDatabase,
   type DatabaseOptions
 } from './database.js'
-export {Manager, QuerySet, createManager, type ModelCtor} from './manager.js'
+export {
+  Manager,
+  QuerySet,
+  createManager,
+  type ModelCtor,
+  type Connection,
+  type PageInfo,
+  type PaginateArgs
+} from './manager.js'
 export {syncSchema, dropTables} from './schema-sync.js'
 export {useDatabase, type UseDatabaseOptions, type DatabasePlugin} from './plugin.js'
 export {

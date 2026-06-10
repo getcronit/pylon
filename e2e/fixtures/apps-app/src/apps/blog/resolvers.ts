@@ -9,9 +9,5 @@ export const Query = {
 export const Mutation = {
   createAuthor: (name: string): Promise<Author> => Author.objects.create({name}),
   addArticle: (authorId: number, title: string): Promise<Article> =>
-    Article.objects.create({authorId, title}),
-  createAuthorSafe: mutation(async (name: string) => {
-    const author = await Author.objects.create({name})
-    return {author}
-  })
+    Article.objects.create({authorId, title})
 }

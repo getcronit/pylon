@@ -42,6 +42,38 @@ interface Condition {
   value: unknown
 }
 
+// ── Relay-style cursor pagination ───────────────────────────────────────────
+export interface PageInfo {
+  hasNextPage: boolean
+  hasPreviousPage: boolean
+  startCursor: string | null
+  endCursor: string | null
+}
+
+export interface Connection<T> {
+  nodes: T[]
+  pageInfo: PageInfo
+  /** Total rows matching the filter (ignores the cursor window). */
+  totalCount: number
+}
+
+export interface PaginateArgs {
+  /** Page size (default 20). */
+  first?: number
+  /** Opaque cursor to start after (forward pagination). */
+  after?: string
+  /** Field to order + key on; `-` prefix for descending. Defaults to the PK. */
+  orderBy?: string
+}
+
+/** Keyset cursor = base64url(JSON(orderBy value)). */
+function encodeCursor(value: unknown): string {
+  return Buffer.from(JSON.stringify(value)).toString('base64url')
+}
+function decodeCursor(cursor: string): unknown {
+  return JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'))
+}
+
 interface QueryState {
   where: Condition[]
   orderBy: {column: string; dir: 'asc' | 'desc'}[]
@@ -185,6 +217,49 @@ export class QuerySet<T extends object> {
     return Number(res?.numDeletedRows ?? 0)
   }
 
+  /**
+   * Relay-style cursor pagination (keyset on a stable, unique `orderBy` — the PK
+   * by default). Returns `{nodes, pageInfo, totalCount}`. Respects the current
+   * filters + tenant scope. Forward pagination (`first`/`after`); `hasNextPage`
+   * is detected by over-fetching one row.
+   */
+  async paginate(args: PaginateArgs = {}): Promise<Connection<T>> {
+    const first = args.first ?? 20
+    const raw = args.orderBy ?? this.def.primaryKey?.propertyKey
+    if (!raw) {
+      throw new Error(`${this.def.tableName}: .paginate() needs an orderBy or a primary key.`)
+    }
+    const desc = raw.startsWith('-')
+    const col = columnFor(this.def, desc ? raw.slice(1) : raw).columnName
+
+    const db = getDatabase()
+    let q = db.kysely.selectFrom(this.def.tableName).selectAll()
+    for (const cond of this.allConditions()) {
+      q = cond.value === null ? q.where(cond.column, 'is', null) : q.where(cond.column, '=', cond.value as any)
+    }
+    if (args.after !== undefined) {
+      q = q.where(col, desc ? '<' : '>', decodeCursor(args.after) as any)
+    }
+    const rows = await q
+      .orderBy(col as any, desc ? 'desc' : 'asc')
+      .limit(first + 1)
+      .execute()
+
+    const hasNextPage = rows.length > first
+    const page = hasNextPage ? rows.slice(0, first) : rows
+    const cursorOf = (r: any) => encodeCursor(r[col])
+    return {
+      nodes: page.map(r => hydrate(this.ctor, r)),
+      totalCount: await this.count(), // filters + tenant, no cursor window
+      pageInfo: {
+        hasNextPage,
+        hasPreviousPage: args.after !== undefined,
+        startCursor: page.length ? cursorOf(page[0]) : null,
+        endCursor: page.length ? cursorOf(page[page.length - 1]) : null
+      }
+    }
+  }
+
   /** Update every row matching the current filter with `values`. */
   async update(values: Partial<Record<keyof T, unknown>>): Promise<number> {
     const db = getDatabase()
@@ -238,6 +313,10 @@ export class Manager<T extends object> {
   /** Bypass tenant auto-scoping (cross-tenant / admin queries). */
   unscoped(): QuerySet<T> {
     return this.qs().unscoped()
+  }
+
+  paginate(args?: PaginateArgs): Promise<Connection<T>> {
+    return this.qs().paginate(args)
   }
 
   async create(values: Partial<T>): Promise<T> {
