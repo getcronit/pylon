@@ -123,6 +123,12 @@ describe.skipIf(!dockerAvailable)('pylon db — committed/authored migrations (l
     expect(await indexExists('shop_product_title_idx')).toBe(true) // addIndex
   })
 
+  it('db seed runs the seed file (inserts via the ORM)', async () => {
+    const r = pylonDb('seed')
+    expect(r.status, r.out).toBe(0)
+    expect(await categoryNames()).toEqual(['Books', 'Gizmos', 'Toys'])
+  })
+
   it('status now reports everything applied', () => {
     const r = pylonDb('status')
     expect(r.status, r.out).toBe(0)

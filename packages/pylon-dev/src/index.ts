@@ -307,6 +307,21 @@ db.command('resolve')
     }
   })
 
+db.command('seed')
+  .description('Run the seed file to populate the database (requires DATABASE_URL)')
+  .option('-s, --seed <path>', 'Seed file (default exports a function)', './src/seed.ts')
+  .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
+  .option('-d, --dir <path>', 'Migrations directory (unused)', './migrations')
+  .action(async options => {
+    try {
+      await runDbCommand({command: 'seed', seed: options.seed, models: options.models})
+      consola.success('Seed complete')
+    } catch (error) {
+      consola.error(error)
+      process.exit(1)
+    }
+  })
+
 db.command('merge')
   .description('Reconverge divergent migration heads (after a branch merge) into a merge migration')
   .argument('[name]', 'Name for the merge migration', 'merge')

@@ -68,10 +68,13 @@ export interface DbCommandOptions {
     | 'deploy'
     | 'squash'
     | 'merge'
+    | 'seed'
   /** Migration name (for `diff`; the target for `resolve`). */
   name?: string
   /** `plan`: render down SQL instead of up. */
   down?: boolean
+  /** `seed`: path to the seed file (default `./src/seed.ts`). */
+  seed?: string
   /** `diff`: confirmed renames (drop+add → renameColumn, data-preserving). */
   renames?: Array<{table: string; from: string; to: string}>
   /** Entry that imports the models (default `./src/index.ts`). */
@@ -112,6 +115,8 @@ export interface DbCommandResult {
   squashed?: {name: string; replaced: string[]} | null
   /** `merge`: the merge migration + the heads it reconverged (or null). */
   merged?: {name: string; heads: string[]} | null
+  /** `seed`: whether the seed file ran. */
+  seeded?: boolean
 }
 
 export async function runDbCommand(
@@ -220,6 +225,22 @@ export async function runDbCommand(
     case 'merge': {
       const merged = await runner.merge(loadMigrationFile, options.name ?? 'merge')
       return {command: 'merge', merged}
+    }
+    case 'seed': {
+      const connectionString = process.env.DATABASE_URL
+      if (!connectionString) {
+        throw new Error('pylon db seed requires DATABASE_URL to be set.')
+      }
+      const conn = orm.connect({connectionString})
+      const seedPath = path.resolve(cwd, options.seed ?? './src/seed.ts')
+      // The seed file `export default`s a function; it runs against the connected
+      // database and may use the ORM (`Model.objects.*`) or the passed `db`.
+      const seedFn = (await loadMigrationFile(seedPath)) as unknown
+      if (typeof seedFn !== 'function') {
+        throw new Error(`Seed file ${options.seed ?? './src/seed.ts'} must \`export default\` a function.`)
+      }
+      await (seedFn as (db: unknown) => Promise<void>)(conn)
+      return {command: 'seed', seeded: true}
     }
     case 'deploy': {
       const connectionString = process.env.DATABASE_URL
