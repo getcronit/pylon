@@ -62,7 +62,7 @@ describe.skipIf(!runDb)('MigrationRunner.apply — tracked + idempotent (Postgre
       now: () => `t${++clock}`
     })
 
-    const generated = await runner.generate('init')
+    const generated = await runner.generate('init', load)
     expect(generated?.name).toBe('t1_init')
 
     const appliedFirst = await runner.apply(load, db)
@@ -80,7 +80,7 @@ describe.skipIf(!runDb)('MigrationRunner.apply — tracked + idempotent (Postgre
     const appliedSecond = await runner.apply(load, db)
     expect(appliedSecond).toEqual([])
 
-    const status = await runner.status(db)
+    const status = await runner.status(load, db)
     expect(status.unapplied).toEqual([])
   })
 
@@ -98,7 +98,7 @@ describe.skipIf(!runDb)('MigrationRunner.apply — tracked + idempotent (Postgre
       now: () => `t${++clock}`
     })
 
-    await runner.generate('init')
+    await runner.generate('init', load)
     await runner.apply(load, db)
 
     const rolledBack = await runner.rollback(load, db)
@@ -113,7 +113,7 @@ describe.skipIf(!runDb)('MigrationRunner.apply — tracked + idempotent (Postgre
     expect(!!exists).toBe(false)
 
     // ledger no longer marks it applied → it shows as unapplied again
-    const status = await runner.status(db)
+    const status = await runner.status(load, db)
     expect(status.unapplied).toEqual(['t1_init'])
   })
 })

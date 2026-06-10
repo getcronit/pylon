@@ -35,8 +35,9 @@ describe('pylon db CLI (model-loading bridge, no DB)', () => {
     expect(res.created).toMatch(/_init$/)
 
     const files = await fs.readdir(migrationsDir)
-    expect(files).toContain('snapshot.json')
-    // Migrations are now TS modules authored against the public API, using the
+    // No snapshot.json — the baseline is reconstructed from the migration ops.
+    expect(files).not.toContain('snapshot.json')
+    // Migrations are TS modules authored against the public API, using the
     // named (Django-style) operations — one call per schema change.
     const migration = files.find(f => f.endsWith('_init.ts'))!
     const body = await fs.readFile(path.join(migrationsDir, migration), 'utf8')
@@ -54,7 +55,7 @@ describe('pylon db CLI (model-loading bridge, no DB)', () => {
     expect(res.status!.unapplied).toHaveLength(1)
   })
 
-  it('diff is a no-op when models match the snapshot', async () => {
+  it('diff is a no-op when models match the reconstructed baseline', async () => {
     await runDbCommand({command: 'diff', name: 'init', models: 'models.ts', dir: migrationsDir, cwd: fixtureCwd})
     const res = await runDbCommand({command: 'diff', name: 'again', models: 'models.ts', dir: migrationsDir, cwd: fixtureCwd})
     expect(res.created).toBeNull()

@@ -1,8 +1,14 @@
 import {promises as fs} from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import {pathToFileURL} from 'node:url'
 import {afterEach, beforeEach, describe, expect, it} from 'vitest'
-import {MigrationRunner, type Snapshot} from '../src/index'
+import {MigrationRunner, type MigrationLoader, type Snapshot} from '../src/index'
+
+// The baseline is reconstructed by folding the migration history, so generate/
+// status take a loader. vitest transpiles the generated .ts files on import.
+const load: MigrationLoader = async filePath =>
+  (await import(pathToFileURL(filePath).href)).default
 
 function entity(name: string, cols: Array<{name: string; sqlType: any; nullable?: boolean; pk?: boolean}>): Snapshot {
   return {
@@ -56,9 +62,9 @@ describe('MigrationRunner — generate / status (file workflow, no DB)', () => {
   const fileContents = (r: MigrationRunner, name: string) =>
     fs.readFile(path.join(dir, `${name}.ts`), 'utf8')
 
-  it('generates an initial migration (TS file) and writes the baseline snapshot', async () => {
+  it('generates an initial migration (TS file); no snapshot.json', async () => {
     const r = runnerFor(() => v1)
-    const m = await r.generate('init')
+    const m = await r.generate('init', load)
     expect(m?.name).toBe('t1_init')
     expect(m?.changes.map(c => c.kind)).toEqual(['createTable'])
 
@@ -69,47 +75,44 @@ describe('MigrationRunner — generate / status (file workflow, no DB)', () => {
     expect(src).toContain('migrations.defineMigration(')
     expect(src).toContain('migrations.createTable(')
 
-    // baseline snapshot.json now reflects v1
-    const baseline = await r.loadBaseline()
-    expect(Object.keys(baseline.entities)).toEqual(['User'])
-
-    // the migration name is listed
+    // the baseline is the migration history — no snapshot.json on disk
+    expect(await fs.readdir(dir)).toEqual(['t1_init.ts'])
     expect(await r.list()).toEqual(['t1_init'])
   })
 
-  it('returns null when nothing changed', async () => {
+  it('returns null when nothing changed (baseline reconstructed from ops)', async () => {
     const r = runnerFor(() => v1)
-    await r.generate('init')
-    expect(await r.generate('noop')).toBeNull()
+    await r.generate('init', load)
+    expect(await r.generate('noop', load)).toBeNull()
   })
 
   it('generates an incremental migration after a model change', async () => {
     let cur = v1
     const r = runnerFor(() => cur)
-    await r.generate('init')
+    await r.generate('init', load)
 
     cur = v2
-    const m = await r.generate('add_email')
+    const m = await r.generate('add_email', load)
     expect(m?.name).toBe('t2_add_email')
     expect(m?.changes.map(c => c.kind)).toEqual(['addColumn'])
 
     expect(await r.list()).toEqual(['t1_init', 't2_add_email'])
   })
 
-  it('status reports uncaptured changes against the baseline', async () => {
+  it('status reports uncaptured changes against the reconstructed baseline', async () => {
     let cur = v1
     const r = runnerFor(() => cur)
-    await r.generate('init')
+    await r.generate('init', load)
 
     // before generating, status sees the pending delta
     cur = v2
-    const before = await r.status()
+    const before = await r.status(load)
     expect(before.pendingChanges.map(c => c.kind)).toEqual(['addColumn'])
     expect(before.unapplied).toEqual(['t1_init'])
 
     // after generating, the delta is captured (no pending changes)
-    await r.generate('add_email')
-    const after = await r.status()
+    await r.generate('add_email', load)
+    const after = await r.status(load)
     expect(after.pendingChanges).toEqual([])
     expect(after.unapplied).toEqual(['t1_init', 't2_add_email'])
   })

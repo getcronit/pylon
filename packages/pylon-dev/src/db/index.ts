@@ -91,11 +91,11 @@ export async function runDbCommand(
       const db = process.env.DATABASE_URL
         ? orm.connect({connectionString: process.env.DATABASE_URL})
         : undefined
-      const status = await runner.status(db)
+      const status = await runner.status(loadMigrationFile, db)
       return {command: 'status', status}
     }
     case 'diff': {
-      const created = await runner.generate(options.name ?? 'migration')
+      const created = await runner.generate(options.name ?? 'migration', loadMigrationFile)
       return {command: 'diff', created: created?.name ?? null}
     }
     case 'migrate': {

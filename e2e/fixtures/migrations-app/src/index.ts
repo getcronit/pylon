@@ -17,7 +17,10 @@ export class ShopCategory extends models.Model {
 export class ShopProduct extends models.Model {
   static objects = db.manager(ShopProduct)
   id = models.ID()
-  title = models.Text()
+  // Indexed in code so the model matches the 0004_index migration — with the
+  // baseline reconstructed from ops, `status` would otherwise (correctly) report
+  // the migration's index as uncaptured drift.
+  title = models.Text({index: true})
   categoryId = models.ForeignKey(() => ShopCategory)
   declare category: Relation<ShopCategory>
 }

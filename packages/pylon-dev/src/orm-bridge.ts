@@ -26,12 +26,18 @@ import type {PylonIR} from '@getcronit/pylon-ir'
 export interface ProjectOrm {
   toIR(): PylonIR
   MigrationRunner: new (opts: {dir: string}) => {
-    status(db?: unknown): Promise<{
+    status(
+      load: (filePath: string) => Promise<unknown>,
+      db?: unknown
+    ): Promise<{
       pendingChanges: unknown[]
       migrations: string[]
       unapplied: string[]
     }>
-    generate(name: string): Promise<{name: string} | null>
+    generate(
+      name: string,
+      load: (filePath: string) => Promise<unknown>
+    ): Promise<{name: string} | null>
     apply(load: (filePath: string) => Promise<unknown>, db?: unknown): Promise<string[]>
     rollback(
       load: (filePath: string) => Promise<unknown>,

@@ -23,7 +23,7 @@
  * historical models, it has columns + a manager only — no custom methods. And
  * tables created via raw `runSql` aren't tracked, since they carry no IR state.)
  */
-import type {TableColumn, TableSpec} from '@getcronit/pylon-ir'
+import type {PhysicalSchema, TableColumn, TableSpec} from '@getcronit/pylon-ir'
 import {createManager, type Manager} from './manager.js'
 import {Model} from './model.js'
 import {registerModelDefinition, type ColumnDefinition, type ModelDefinition} from './registry.js'
@@ -67,9 +67,7 @@ function definitionFromTableSpec(spec: TableSpec, ctor: Function): ModelDefiniti
 }
 
 /** Build the historical-model registry for a reconstructed schema state. */
-export function buildHistoricalModels(
-  tables: Record<string, TableSpec>
-): HistoricalModels {
+export function buildHistoricalModels(tables: PhysicalSchema): HistoricalModels {
   const cache = new Map<string, HistoricalModel>()
   return {
     get<Row extends object = any>(name: string): HistoricalModel<Row> {

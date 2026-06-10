@@ -2,12 +2,13 @@
  * Migration workflow — file/DB orchestration over the operations model.
  *
  *   migrations/
- *     snapshot.json                 latest IR baseline (entities)
  *     20260610T1200_init.ts         export default migrations.defineMigration({operations})
  *
- * `generate` diffs the baseline snapshot against the current models and writes a
- * timestamped TS migration (a `schema(changes)` operation) + advances the
- * baseline. `apply` runs unapplied migrations' operations in order; `rollback`
+ * The baseline is reconstructed by **folding the migration history's ops** into a
+ * `PhysicalSchema` (Django-style `state_forwards`) — there is no `snapshot.json`;
+ * the migrations are the single source of truth. `generate` diffs that
+ * reconstructed schema against the current models and writes a timestamped TS
+ * migration. `apply` runs unapplied migrations' operations in order; `rollback`
  * reverses the most-recently-applied ones (refusing irreversible migrations).
  * Migration files are TS, so they're loaded via an injected `MigrationLoader`
  * (the CLI transpiles them) — keeping this package transpiler-free.
@@ -20,17 +21,17 @@ import path from 'node:path'
 import {sql} from 'kysely'
 import {
   applyChanges,
-  diffEntities,
+  diffSchema,
+  physicalSchemaOf,
   renderChanges,
-  type SchemaChange,
-  type TableSpec
+  type PhysicalSchema,
+  type SchemaChange
 } from '@getcronit/pylon-ir'
 import {getDatabase, type Database} from './database.js'
 import {buildHistoricalModels} from './historical-models.js'
 import {isReversible, type MigrationContext, type MigrationModule} from './migration-ops.js'
 import {snapshot, type Snapshot} from './migrations.js'
 
-const EMPTY: Snapshot = {version: 1, entities: {}}
 const APPLIED_TABLE = '_pylon_migrations'
 
 export interface GeneratedMigration {
@@ -116,19 +117,6 @@ export class MigrationRunner {
     this.now = options.now ?? defaultStamp
   }
 
-  private get snapshotPath(): string {
-    return path.join(this.dir, 'snapshot.json')
-  }
-
-  async loadBaseline(): Promise<Snapshot> {
-    try {
-      return JSON.parse(await fs.readFile(this.snapshotPath, 'utf8')) as Snapshot
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return EMPTY
-      throw e
-    }
-  }
-
   /** Migration names on disk, chronological (timestamp-prefixed, sorted). */
   async list(): Promise<string[]> {
     let entries: string[]
@@ -149,31 +137,48 @@ export class MigrationRunner {
   }
 
   /**
-   * Diff the baseline against the current models; if anything changed, write a
-   * timestamped TS migration and advance the baseline. Returns it, or `null`.
+   * Reconstruct the schema baseline by folding every migration's ops — the
+   * single source of truth (no `snapshot.json`). `run`/`runSql` carry no schema
+   * `changes`, so they're skipped (Django's `RunSQL`-has-no-`state_forwards`).
    */
-  async generate(name: string): Promise<GeneratedMigration | null> {
-    const prev = await this.loadBaseline()
-    const next = this.current()
-    const changes = diffEntities(prev.entities, next.entities)
+  private async foldHistory(load: MigrationLoader): Promise<PhysicalSchema> {
+    let schema: PhysicalSchema = {}
+    for (const {mod} of await this.loadAll(load)) {
+      for (const op of mod.operations) schema = applyChanges(schema, op.changes ?? [])
+    }
+    return schema
+  }
+
+  /**
+   * Diff the reconstructed baseline against the current models; if anything
+   * changed, write a timestamped TS migration. Returns it, or `null`.
+   */
+  async generate(name: string, load: MigrationLoader): Promise<GeneratedMigration | null> {
+    const prev = await this.foldHistory(load)
+    const next = physicalSchemaOf(this.current().entities)
+    const changes = diffSchema(prev, next)
     if (changes.length === 0) return null
 
     const {unsupported} = renderChanges(changes)
     const migrationName = `${this.now()}_${name}`
     await fs.mkdir(this.dir, {recursive: true})
     await fs.writeFile(this.filePath(migrationName), fileTemplate(changes, unsupported))
-    await fs.writeFile(this.snapshotPath, JSON.stringify(next, null, 2))
     return {name: migrationName, changes, unsupported}
   }
 
   /** Uncaptured changes (baseline vs current) + which migrations are unapplied. */
-  async status(db?: Database): Promise<{
+  async status(
+    load: MigrationLoader,
+    db?: Database
+  ): Promise<{
     pendingChanges: SchemaChange[]
     migrations: string[]
     unapplied: string[]
   }> {
-    const prev = await this.loadBaseline()
-    const pendingChanges = diffEntities(prev.entities, this.current().entities)
+    const pendingChanges = diffSchema(
+      await this.foldHistory(load),
+      physicalSchemaOf(this.current().entities)
+    )
     const names = await this.list()
     let unapplied = names
     if (db) {
@@ -200,7 +205,7 @@ export class MigrationRunner {
   }
 
   /** A migration context bound to a reconstructed historical schema `state`. */
-  private ctx(db: Database, state: Record<string, TableSpec>): MigrationContext {
+  private ctx(db: Database, state: PhysicalSchema): MigrationContext {
     return {
       db,
       exec: stmt => sql.raw(stmt).execute(db.kysely).then(() => undefined),
@@ -232,7 +237,7 @@ export class MigrationRunner {
     const history = await this.loadAll(load)
     const pending = history.filter(h => !applied.has(h.name)).map(h => h.name)
 
-    let state: Record<string, TableSpec> = {}
+    let state: PhysicalSchema = {}
     for (const {name, mod} of history) {
       const isPending = !applied.has(name)
       for (const op of mod.operations) {
@@ -257,8 +262,8 @@ export class MigrationRunner {
 
     // Reconstruct the state *after* each migration, so a `down` handler gets the
     // historical models for the schema that migration left behind.
-    const stateAfter = new Map<string, Record<string, TableSpec>>()
-    let state: Record<string, TableSpec> = {}
+    const stateAfter = new Map<string, PhysicalSchema>()
+    let state: PhysicalSchema = {}
     for (const {name, mod} of history) {
       for (const op of mod.operations) state = applyChanges(state, op.changes ?? [])
       stateAfter.set(name, state)
