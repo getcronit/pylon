@@ -79,3 +79,19 @@ export function getDatabase(): Database {
   }
   return db
 }
+
+/**
+ * A `Database` view bound to a specific Kysely instance — e.g. a transaction —
+ * with no pool of its own. Used by the migration runner to run each migration's
+ * ops inside a transaction: `trxDb.run(() => …)` makes the ambient `getDatabase()`
+ * (and therefore every manager / historical model) resolve to the transaction,
+ * so all of a migration's writes commit or roll back together.
+ */
+export function databaseForKysely(kysely: Kysely<any>): Database {
+  const db = Object.create(Database.prototype) as Database
+  const w = db as unknown as {kysely: Kysely<any>; pool?: Pool; _queryCount: number}
+  w.kysely = kysely
+  w.pool = undefined
+  w._queryCount = 0
+  return db
+}

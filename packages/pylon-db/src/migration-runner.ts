@@ -18,7 +18,7 @@
  */
 import {promises as fs} from 'node:fs'
 import path from 'node:path'
-import {sql} from 'kysely'
+import {sql, type Kysely} from 'kysely'
 import {
   applyChanges,
   diffSchema,
@@ -27,12 +27,14 @@ import {
   type PhysicalSchema,
   type SchemaChange
 } from '@getcronit/pylon-ir'
-import {getDatabase, type Database} from './database.js'
+import {databaseForKysely, getDatabase, type Database} from './database.js'
 import {buildHistoricalModels} from './historical-models.js'
 import {isReversible, type MigrationContext, type MigrationModule} from './migration-ops.js'
 import {snapshot, type Snapshot} from './migrations.js'
 
 const APPLIED_TABLE = '_pylon_migrations'
+/** Fixed key for the migration advisory lock (pylon-specific constant). */
+const ADVISORY_LOCK_KEY = 4_115_411_011
 
 export interface GeneratedMigration {
   name: string
@@ -204,13 +206,36 @@ export class MigrationRunner {
     return new Set(rows.rows.map(r => r.name))
   }
 
-  /** A migration context bound to a reconstructed historical schema `state`. */
-  private ctx(db: Database, state: PhysicalSchema): MigrationContext {
+  /**
+   * A migration context bound to a transaction `trx` and a reconstructed
+   * historical schema `state`. `exec` runs on the trx; `db`/`models` resolve to
+   * the trx (via the ambient binding set in `run*`), so every write a migration
+   * makes — raw SQL, `run` data ops, historical-model writes — is in one
+   * transaction and commits or rolls back atomically.
+   */
+  private trxCtx(trx: Kysely<any>, state: PhysicalSchema): MigrationContext {
     return {
-      db,
-      exec: stmt => sql.raw(stmt).execute(db.kysely).then(() => undefined),
+      db: databaseForKysely(trx),
+      exec: stmt => sql.raw(stmt).execute(trx).then(() => undefined),
       models: buildHistoricalModels(state)
     }
+  }
+
+  /**
+   * Hold a session-level advisory lock for the duration of `fn`, so two
+   * `migrate`/`rollback` processes can't run concurrently. The lock lives on a
+   * single pinned connection; the migrations themselves run on their own
+   * (transaction) connections while it's held.
+   */
+  private async withLock<T>(db: Database, fn: () => Promise<T>): Promise<T> {
+    return db.kysely.connection().execute(async lockConn => {
+      await sql`SELECT pg_advisory_lock(${ADVISORY_LOCK_KEY})`.execute(lockConn)
+      try {
+        return await fn()
+      } finally {
+        await sql`SELECT pg_advisory_unlock(${ADVISORY_LOCK_KEY})`.execute(lockConn)
+      }
+    })
   }
 
   /** Load every migration on disk, in chronological order. */
@@ -227,27 +252,37 @@ export class MigrationRunner {
   /**
    * Apply every unapplied migration's operations in order; idempotent.
    *
-   * The full history is replayed to thread a reconstructed schema `state`
-   * (folding each op's `changes`), so a `run` op sees historical models for the
-   * schema *as of that point* — even already-applied migrations are folded (not
-   * re-executed) to keep the state accurate.
+   * Each migration runs in its OWN transaction (ops + ledger insert) — a failure
+   * rolls the whole migration back, never a partial state. The full history is
+   * folded to thread a reconstructed schema `state`, so a `run` op sees
+   * historical models for the schema *as of that point*; already-applied
+   * migrations are folded (not re-executed). An advisory lock serializes
+   * concurrent runners.
    */
   async apply(load: MigrationLoader, db: Database = getDatabase()): Promise<string[]> {
     const applied = await this.appliedNames(db)
     const history = await this.loadAll(load)
     const pending = history.filter(h => !applied.has(h.name)).map(h => h.name)
+    if (pending.length === 0) return []
 
-    let state: PhysicalSchema = {}
-    for (const {name, mod} of history) {
-      const isPending = !applied.has(name)
-      for (const op of mod.operations) {
-        if (isPending) await op.up(this.ctx(db, state)) // state BEFORE this op
-        state = applyChanges(state, op.changes ?? [])
+    await this.withLock(db, async () => {
+      let state: PhysicalSchema = {}
+      for (const {name, mod} of history) {
+        if (!applied.has(name)) {
+          const before = state
+          await db.kysely.transaction().execute(async trx => {
+            let s = before
+            for (const op of mod.operations) {
+              const ctx = this.trxCtx(trx, s)
+              await ctx.db.run(() => op.up(ctx)) // ambient DB = trx
+              s = applyChanges(s, op.changes ?? [])
+            }
+            await sql`INSERT INTO ${sql.ref(APPLIED_TABLE)} (name) VALUES (${name})`.execute(trx)
+          })
+        }
+        for (const op of mod.operations) state = applyChanges(state, op.changes ?? [])
       }
-      if (isPending) {
-        await sql`INSERT INTO ${sql.ref(APPLIED_TABLE)} (name) VALUES (${name})`.execute(db.kysely)
-      }
-    }
+    })
     return pending
   }
 
@@ -272,16 +307,23 @@ export class MigrationRunner {
     // newest first (timestamp/sequence-prefixed names sort chronologically)
     const order = history.map(h => h.name).filter(n => applied.has(n)).reverse()
     const target = order.slice(0, opts.steps ?? 1)
+    if (target.length === 0) return []
 
-    for (const name of target) {
-      const mod = history.find(h => h.name === name)!.mod
-      if (!isReversible(mod)) {
-        throw new Error(`Migration "${name}" is irreversible (an operation has no \`down\`).`)
+    await this.withLock(db, async () => {
+      for (const name of target) {
+        const mod = history.find(h => h.name === name)!.mod
+        if (!isReversible(mod)) {
+          throw new Error(`Migration "${name}" is irreversible (an operation has no \`down\`).`)
+        }
+        await db.kysely.transaction().execute(async trx => {
+          const ctx = this.trxCtx(trx, stateAfter.get(name) ?? {})
+          for (const op of [...mod.operations].reverse()) {
+            await ctx.db.run(() => op.down(ctx))
+          }
+          await sql`DELETE FROM ${sql.ref(APPLIED_TABLE)} WHERE name = ${name}`.execute(trx)
+        })
       }
-      const ctx = this.ctx(db, stateAfter.get(name) ?? {})
-      for (const op of [...mod.operations].reverse()) await op.down(ctx)
-      await sql`DELETE FROM ${sql.ref(APPLIED_TABLE)} WHERE name = ${name}`.execute(db.kysely)
-    }
+    })
     return target
   }
 }
