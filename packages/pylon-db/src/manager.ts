@@ -4,6 +4,7 @@ import {
   getModelDefinitionOrThrow,
   ModelDefinition
 } from './registry.js'
+import {ValidationError, validateInstance} from './validation.js'
 
 export type ModelCtor<T> = {new (): T}
 
@@ -237,6 +238,12 @@ function rowFromInstance(
 
 export async function saveInstance(instance: object): Promise<object> {
   const def = getModelDefinitionOrThrow(instance.constructor)
+
+  // Validate before touching the DB — fail fast with structured, translatable
+  // issues instead of a raw Postgres constraint error.
+  const issues = validateInstance(def, instance)
+  if (issues.length > 0) throw new ValidationError(issues)
+
   const db = getDatabase()
   const pk = def.primaryKey
 

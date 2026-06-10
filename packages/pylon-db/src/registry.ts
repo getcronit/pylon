@@ -37,6 +37,19 @@ export interface ColumnDefinition {
   index?: boolean
   /** A column CHECK expression (e.g. `price > 0` or an enum `IN (…)`). */
   check?: string
+  // ── Runtime validation rules (not part of the serializable IR/DDL) ──────────
+  /** Numbers: minimum value. Strings: minimum length. */
+  min?: number
+  /** Numbers: maximum value. Strings: maximum length. */
+  max?: number
+  /** String must match this pattern. */
+  pattern?: RegExp
+  /** String must be a valid email. */
+  email?: boolean
+  /** Allowed values (enum membership). */
+  enumValues?: readonly string[]
+  /** Custom rule: return `true`, or an error message string. */
+  validate?: (value: unknown) => true | string
 }
 
 export type RelationKind = 'belongsTo' | 'hasMany'

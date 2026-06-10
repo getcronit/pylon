@@ -44,6 +44,16 @@ export interface FieldOptions {
   defaultSql?: string
   /** A column CHECK expression, e.g. `price > 0` (references the column name). */
   check?: string
+  /** Validation: min value (numbers) / min length (strings). */
+  min?: number
+  /** Validation: max value (numbers) / max length (strings). */
+  max?: number
+  /** Validation: string must match this pattern. */
+  pattern?: RegExp
+  /** Validation: string must be a valid email. */
+  email?: boolean
+  /** Validation: custom rule — return `true` or an error message. */
+  validate?: (value: unknown) => true | string
   /** Force hidden from the generated GraphQL API. */
   hidden?: boolean
 }
@@ -271,7 +281,13 @@ function buildColumn(key: string, b: FieldBuilder): ColumnDefinition {
     length: b.options.length,
     default: b.options.default,
     defaultSql: b.options.defaultSql ?? b.base.defaultSql,
-    check
+    check,
+    min: b.options.min,
+    max: b.options.max,
+    pattern: b.options.pattern,
+    email: b.options.email,
+    enumValues: b.options.enumValues,
+    validate: b.options.validate
   }
 }
 

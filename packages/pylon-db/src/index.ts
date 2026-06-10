@@ -35,6 +35,12 @@ export {Manager, QuerySet, createManager, type ModelCtor} from './manager.js'
 export {syncSchema, dropTables} from './schema-sync.js'
 export {useDatabase, type UseDatabaseOptions, type DatabasePlugin} from './plugin.js'
 export {
+  ValidationError,
+  validateInstance,
+  type ValidationIssue,
+  type ValidationCode
+} from './validation.js'
+export {
   introspect,
   expectedColumns,
   computeDrift,
