@@ -32,6 +32,7 @@ export {
 } from './database.js'
 export {Manager, QuerySet, createManager, type ModelCtor} from './manager.js'
 export {syncSchema, dropTables} from './schema-sync.js'
+export {useDatabase, type UseDatabaseOptions, type DatabasePlugin} from './plugin.js'
 export {
   introspect,
   expectedColumns,
