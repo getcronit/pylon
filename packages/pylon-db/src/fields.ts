@@ -348,7 +348,12 @@ function buildColumn(key: string, b: FieldBuilder): ColumnDefinition {
 
 export function model(options: ModelOptions = {}): ClassDecorator {
   return ((Ctor: any) => {
-    const tableName = options.table ?? snakeCase(Ctor.name)
+    // An explicit `table` wins verbatim. Otherwise the name is snake_case of the
+    // class, namespaced by the app when one is set (`models.app('blog')` →
+    // `blog_author`) so each app owns its own table prefix by default.
+    const base = snakeCase(Ctor.name)
+    const tableName =
+      options.table ?? (options.app ? `${snakeCase(options.app)}_${base}` : base)
     const isAbstract = options.abstract ?? false
 
     // 1. Harvest this class's OWN fields by probing a raw instance. Inherited

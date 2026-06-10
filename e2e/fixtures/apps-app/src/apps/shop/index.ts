@@ -6,7 +6,7 @@ import {Author} from '../blog/index.js'
 
 export const shop = models.app('shop')
 
-@shop.model({table: 'shop_product'})
+@shop.model() // → table "shop_product"
 export class Product extends shop.Model {
   static objects = db.manager(Product)
   id = shop.ID()
@@ -14,7 +14,7 @@ export class Product extends shop.Model {
   price = shop.Int({min: 0})
 }
 
-@shop.model({table: 'shop_purchase'})
+@shop.model() // → table "shop_purchase"
 export class Purchase extends shop.Model {
   static objects = db.manager(Purchase)
   id = shop.ID()

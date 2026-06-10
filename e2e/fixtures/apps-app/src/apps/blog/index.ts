@@ -4,7 +4,7 @@ import type {Relation} from '@getcronit/pylon-db'
 
 export const blog = models.app('blog')
 
-@blog.model({table: 'blog_author'})
+@blog.model() // → table "blog_author" (app prefix + snake_case class)
 export class Author extends blog.Model {
   static objects = db.manager(Author)
   id = blog.ID()
@@ -12,7 +12,7 @@ export class Author extends blog.Model {
   articles = blog.HasMany(() => Article, {foreignKey: 'authorId'})
 }
 
-@blog.model({table: 'blog_article'})
+@blog.model() // → table "blog_article"
 export class Article extends blog.Model {
   static objects = db.manager(Article)
   id = blog.ID()
