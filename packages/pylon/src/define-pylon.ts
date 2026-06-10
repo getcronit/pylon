@@ -164,6 +164,15 @@ export const getSelectedFields = (
   return result
 }
 
+/**
+ * Bind a function-valued field to its parent object, so `this` inside the
+ * function is the source (e.g. an ORM model's computed-field method). Arrow
+ * functions and plain resolvers ignore the binding, so this is always safe.
+ */
+function bindIfMethod(value: ResolverType, parent: unknown): ResolverType {
+  return typeof value === 'function' ? (value as (...a: any[]) => any).bind(parent) : value
+}
+
 const wrapResolver = (
   resolver: ResolverType,
   context: ExecutionContext,
@@ -275,12 +284,10 @@ const wrapResolver = (
         const aliasKey = info.fieldNodes[0].alias?.value
         const schemaKey = info.fieldName
 
-        console.log(aliasKey, schemaKey, resolver, name)
-
         // Priority 1: Check if this specific alias exists on the resolved object (Gateway data)
         if (aliasKey && (resolver as any)[aliasKey] !== undefined) {
           return wrapResolver(
-            (resolver as any)[aliasKey],
+            bindIfMethod((resolver as any)[aliasKey], resolver),
             context,
             info.fieldNodes,
             returnType
@@ -290,7 +297,7 @@ const wrapResolver = (
         // Priority 2: Fall back to the schema key (Local execution or unaliased Gateway data)
         const schemaValue = (resolver as any)[schemaKey]
         if (schemaValue !== undefined) {
-          return wrapResolver(schemaValue, context, info.fieldNodes, returnType)
+          return wrapResolver(bindIfMethod(schemaValue, resolver), context, info.fieldNodes, returnType)
         }
 
         return undefined
@@ -299,7 +306,9 @@ const wrapResolver = (
       // Fast path: No aliases involved. Safely resolve statically.
       const rawValue = (resolver as any)[name]
       if (rawValue !== undefined) {
-        result[name] = wrapResolver(rawValue, context, childNodes, returnType)
+        // A function field is a method (e.g. a model's computed field) — bind it
+        // to its parent so `this` is the source object inside the method.
+        result[name] = wrapResolver(bindIfMethod(rawValue, resolver), context, childNodes, returnType)
       }
     }
   }

@@ -47,10 +47,20 @@ export function mergeIR(...parts: Array<Partial<PylonIR>>): PylonIR {
     if (part.operations) out.operations.push(...part.operations)
   }
 
-  // Reconcile across buckets: a persisted entity is the canonical type, so it
-  // replaces any plain object of the same name (e.g. the type-checker saw an
-  // ORM model as a resolver-returned object; the ORM's entity is authoritative).
+  // Reconcile across buckets: a persisted entity is the canonical type. The
+  // type-checker also saw the model as a plain object (resolver-returned), and
+  // that view carries any COMPUTED fields — methods/getters on the model class
+  // that aren't columns or relations. Fold those object fields into the entity
+  // (entity wins per name, so column/relation metadata stays authoritative;
+  // object-only method fields are preserved), then drop the object.
   for (const name of Object.keys(out.entities)) {
+    const obj = out.objects[name]
+    if (obj) {
+      out.entities[name] = {
+        ...out.entities[name],
+        fields: mergeFields(obj.fields, out.entities[name].fields)
+      }
+    }
     delete out.objects[name]
   }
   return out

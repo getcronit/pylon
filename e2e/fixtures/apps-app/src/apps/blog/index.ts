@@ -10,6 +10,12 @@ export class Author extends blog.Model {
   id = blog.ID()
   name = blog.Text({min: 2})
   articles = blog.HasMany(() => Article, {foreignKey: 'authorId'})
+
+  // Computed field — a plain method. Its return type IS the GraphQL type; the
+  // hydrated instance carries it, so the GraphQL layer just calls it.
+  displayName(): string {
+    return (this.name ?? '').toUpperCase()
+  }
 }
 
 @blog.model() // → table "blog_article"

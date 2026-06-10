@@ -39,3 +39,29 @@ describe('mergeIR — an entity is authoritative over a same-named object', () =
     expect(sdl).not.toMatch(/secret/)
   })
 })
+
+describe('mergeIR — computed fields (model methods) fold into the entity', () => {
+  // The type-checker saw a `displayName(): string` method on the model class.
+  const withComputed: ObjectType = {
+    name: 'User',
+    fields: [
+      ...userObject.fields,
+      {name: 'displayName', type: {kind: 'scalar', name: 'String', nullable: false}, exposed: true}
+    ]
+  }
+  const merged = mergeIR(
+    {...emptyIR(), objects: {User: withComputed}},
+    {entities: {User: userEntity}}
+  )
+
+  it('keeps the method field on the entity (column metadata still authoritative)', () => {
+    const fields = Object.fromEntries(merged.entities.User.fields.map(f => [f.name, f]))
+    expect(fields.displayName).toBeDefined() // computed method preserved
+    expect(fields.id.column?.sqlType).toBe('bigint') // entity (ORM) won for the column
+    expect(fields.secret.exposed).toBe(false) // entity's hidden flag won
+  })
+
+  it('renders the computed field in SDL', () => {
+    expect(toSDL(merged)).toMatch(/displayName: String!/)
+  })
+})

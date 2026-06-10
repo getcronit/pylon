@@ -166,6 +166,16 @@ describe.skipIf(!dockerAvailable)('multi-app e2e — two apps compose one schema
     expect(full.product).toMatchObject({title: 'Compiler', price: 100})
   })
 
+  it('exposes a computed field (a model method) on the entity', async () => {
+    const created = (await gql('mutation($n:String!){ createAuthor(name:$n){ id } }', {n: 'ada'}))
+      .createAuthor
+    const fetched = (
+      await gql('query($id:Number!){ author(id:$id){ name displayName } }', {id: Number(created.id)})
+    ).author
+    expect(fetched.name).toBe('ada')
+    expect(fetched.displayName).toBe('ADA') // method ran on the hydrated instance
+  })
+
   it('mounts an app-contributed Hono route (REST, not GraphQL)', async () => {
     const res = await fetch(`http://localhost:${PORT}/blog/ping`)
     expect(res.status).toBe(200)
