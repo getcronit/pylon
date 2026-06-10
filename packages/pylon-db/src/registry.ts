@@ -39,6 +39,8 @@ export interface ColumnDefinition {
   index?: boolean
   /** A column CHECK expression (e.g. `price > 0` or an enum `IN (…)`). */
   check?: string
+  /** Postgres array column (`<sqlType>[]`). */
+  array?: boolean
   // ── Runtime validation rules (not part of the serializable IR/DDL) ──────────
   /** Numbers: minimum value. Strings: minimum length. */
   min?: number

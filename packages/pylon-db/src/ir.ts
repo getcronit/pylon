@@ -68,7 +68,8 @@ function columnSpec(col: ColumnDefinition): ColumnSpec {
     default: col.default,
     defaultSql: col.defaultSql,
     check: col.check,
-    serialize: col.sqlType === 'jsonb' ? 'json' : undefined
+    serialize: col.sqlType === 'jsonb' ? 'json' : undefined,
+    array: col.array
   }
 }
 
@@ -78,11 +79,11 @@ function fieldName(propertyKey: string): string {
 }
 
 function columnField(col: ColumnDefinition): Field {
-  const type: TypeRef = {
-    kind: 'scalar',
-    name: scalarForColumn(col),
-    nullable: col.nullable
-  }
+  const scalar: TypeRef = {kind: 'scalar', name: scalarForColumn(col), nullable: false}
+  // An array column surfaces as a GraphQL list of the element scalar.
+  const type: TypeRef = col.array
+    ? {kind: 'list', of: scalar, nullable: col.nullable}
+    : {...scalar, nullable: col.nullable}
   return {
     name: fieldName(col.propertyKey),
     type,

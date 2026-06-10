@@ -16,6 +16,7 @@ export {
   date,
   json,
   enumColumn,
+  array,
   foreignKey,
   hasMany,
   type ModelOptions,
@@ -185,6 +186,7 @@ const modelBuilders = {
   Date: fields.date,
   JSON: fields.json,
   Enum: fields.enumColumn,
+  Array: fields.array,
   ForeignKey: fields.foreignKey,
   HasMany: fields.hasMany,
   RelatedManager: RelatedManagerClass

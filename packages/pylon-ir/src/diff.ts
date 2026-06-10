@@ -56,6 +56,7 @@ export interface Migration {
 function columnEqual(a: ColumnSpec, b: ColumnSpec): boolean {
   return (
     a.sqlType === b.sqlType &&
+    !!a.array === !!b.array &&
     a.nullable === b.nullable &&
     a.unique === b.unique &&
     a.primaryKey === b.primaryKey &&

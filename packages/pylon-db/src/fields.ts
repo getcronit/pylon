@@ -73,7 +73,7 @@ class FieldBuilder {
   constructor(
     readonly sqlType: SqlType,
     readonly base: Partial<ColumnDefinition>,
-    readonly options: FieldOptions & {length?: number; enumValues?: readonly string[]}
+    readonly options: FieldOptions & {length?: number; enumValues?: readonly string[]; array?: boolean}
   ) {}
 }
 
@@ -89,7 +89,7 @@ class RelationBuilder {
 function field(
   sqlType: SqlType,
   base: Partial<ColumnDefinition>,
-  options: FieldOptions & {length?: number; enumValues?: readonly string[]}
+  options: FieldOptions & {length?: number; enumValues?: readonly string[]; array?: boolean}
 ): unknown {
   return new FieldBuilder(sqlType, base, options)
 }
@@ -180,6 +180,26 @@ export function enumColumn<const V extends string>(
   options: FieldOptions = {}
 ): V | null {
   return field('text', {}, {...options, enumValues: values}) as V | null
+}
+
+/**
+ * A Postgres array column built from an element field: `array(text())` → `text[]`
+ * (GraphQL `[String!]`). The element provides the SQL type (and varchar length);
+ * the array column's own options (nullable, default, …) come from `options`.
+ *
+ * ```ts
+ * features = array(text())            // text[]
+ * tags = array(varchar(50), {nullable: true})
+ * ```
+ */
+export function array<E>(element: E, options: NullableOpts): E[] | null
+export function array<E>(element: E, options?: FieldOptions): E[]
+export function array<E>(element: E, options: FieldOptions = {}): E[] | null {
+  const el = element as unknown as FieldBuilder
+  if (!(el instanceof FieldBuilder)) {
+    throw new Error('array(...) expects a field builder element, e.g. array(text()).')
+  }
+  return field(el.sqlType, {}, {length: el.options.length, ...options, array: true}) as E[] | null
 }
 
 // ===========================================================================
@@ -351,7 +371,8 @@ function buildColumn(key: string, b: FieldBuilder): ColumnDefinition {
     email: b.options.email,
     enumValues: b.options.enumValues,
     validate: b.options.validate,
-    schema: b.options.schema
+    schema: b.options.schema,
+    array: b.options.array
   }
 }
 

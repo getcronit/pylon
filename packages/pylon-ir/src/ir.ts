@@ -58,6 +58,8 @@ export interface ColumnSpec {
   check?: string
   /** Stored as a single JSON(B) column rather than a derived object type. */
   serialize?: 'json'
+  /** Postgres array column (`<sqlType>[]`), e.g. `text[]`. */
+  array?: boolean
 }
 
 /** A persisted column paired with its model property name (for migrations). */

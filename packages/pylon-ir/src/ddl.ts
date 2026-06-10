@@ -26,10 +26,10 @@ export function columnDDL(c: ColumnSpec): string {
   return parts.join(' ')
 }
 
-/** The bare SQL type (with length for varchar). */
+/** The bare SQL type (with length for varchar; `[]` for array columns). */
 export function sqlTypeDDL(c: ColumnSpec): string {
-  if (c.sqlType === 'varchar' && c.length) return `varchar(${c.length})`
-  return c.sqlType
+  const base = c.sqlType === 'varchar' && c.length ? `varchar(${c.length})` : c.sqlType
+  return c.array ? `${base}[]` : base
 }
 
 /** Project a table spec to a columns-only `CREATE TABLE` statement. */

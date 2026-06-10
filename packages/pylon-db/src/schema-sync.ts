@@ -11,6 +11,10 @@ import {
 type ColumnType = string | Expression<any>
 
 function columnType(col: ColumnDefinition): ColumnType {
+  if (col.array) {
+    const base = col.sqlType === 'varchar' ? `varchar(${col.length ?? 255})` : col.sqlType
+    return sql.raw(`${base}[]`) // kysely needs a raw expression for array types
+  }
   switch (col.sqlType) {
     case 'text':
       return 'text'

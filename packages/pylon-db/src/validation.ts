@@ -62,6 +62,13 @@ function validateColumn(col: ColumnDefinition, value: unknown): ValidationIssue[
     return out
   }
 
+  // Array columns hold a list of the element type; validate array-ness and skip
+  // the scalar element rules (min/max/pattern/email apply to scalar columns).
+  if (col.array) {
+    if (!Array.isArray(value)) issue('type', `${path} must be an array`, {expected: 'array'})
+    return out
+  }
+
   if (isStringType(col.sqlType) && typeof value !== 'string') {
     issue('type', `${path} must be a string`, {expected: 'string'})
     return out
