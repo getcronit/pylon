@@ -255,6 +255,53 @@ export interface ModelOptions {
   abstract?: boolean
 }
 
+// Mirror the runtime validator's type buckets (validation.ts) so a DB CHECK and
+// the JS rule agree on what `min`/`max` mean: numeric value bounds vs string
+// length bounds.
+const CHECK_NUMBER_TYPES = new Set<SqlType>(['integer', 'bigint', 'numeric'])
+const CHECK_STRING_TYPES = new Set<SqlType>(['text', 'varchar', 'uuid'])
+
+/**
+ * Compose a single column CHECK from the field's constraints — the DB-level
+ * backstop for the SAME `min`/`max`/enum rules the runtime validator enforces
+ * (defense-in-depth: the validator fails fast with structured errors for ORM
+ * writes; the CHECK still protects against raw SQL and non-ORM writers).
+ *
+ * Only rules whose SQL is provably equivalent to the JS validator are projected:
+ * numeric `min`/`max` as value bounds, string `min`/`max` as `char_length`
+ * bounds, and enum membership as `IN (…)`. `pattern`/`email` are deliberately
+ * NOT projected — a JS `RegExp` does not translate faithfully to Postgres POSIX
+ * regex, so a DB CHECK could diverge from the app rule (a value accepted in one
+ * place, rejected in the other); they stay JS-only. A CHECK passes when the
+ * column is NULL, so nullable columns need no special-casing. (`char_length`
+ * counts code points vs JS `.length`'s UTF-16 units — they differ only for
+ * non-BMP characters, an acceptable edge for a length bound.)
+ */
+function buildCheck(
+  columnName: string,
+  sqlType: SqlType,
+  options: FieldOptions & {enumValues?: readonly string[]}
+): string | undefined {
+  const col = `"${columnName}"`
+  const clauses: string[] = []
+  if (options.enumValues) {
+    clauses.push(`${col} IN (${options.enumValues.map(v => `'${v.replace(/'/g, "''")}'`).join(', ')})`)
+  }
+  if (CHECK_NUMBER_TYPES.has(sqlType)) {
+    if (options.min !== undefined) clauses.push(`${col} >= ${options.min}`)
+    if (options.max !== undefined) clauses.push(`${col} <= ${options.max}`)
+  } else if (CHECK_STRING_TYPES.has(sqlType)) {
+    if (options.min !== undefined) clauses.push(`char_length(${col}) >= ${options.min}`)
+    if (options.max !== undefined) clauses.push(`char_length(${col}) <= ${options.max}`)
+  }
+  // An explicit `check` is author-controlled — appended verbatim.
+  if (options.check) clauses.push(options.check)
+
+  if (clauses.length === 0) return undefined
+  if (clauses.length === 1) return clauses[0]
+  return clauses.map(c => `(${c})`).join(' AND ')
+}
+
 function buildColumn(key: string, b: FieldBuilder): ColumnDefinition {
   // A `$`-prefixed property is hidden from the generated GraphQL API: `$` is not
   // a valid GraphQL field-name character, so Pylon's schema builder excludes the
@@ -263,11 +310,9 @@ function buildColumn(key: string, b: FieldBuilder): ColumnDefinition {
   const hidden = b.options.hidden ?? key.startsWith('$')
   const exposedName = key.startsWith('$') ? key.slice(1) : key
   const columnName = b.options.column ?? snakeCase(exposedName)
-  // An enum column derives its CHECK from the values (column name known now);
-  // otherwise an explicit `check` expression is used verbatim.
-  const check = b.options.enumValues
-    ? `"${columnName}" IN (${b.options.enumValues.map(v => `'${v.replace(/'/g, "''")}'`).join(', ')})`
-    : b.options.check
+  // Project enum membership + numeric/string min/max (and any explicit check)
+  // into a single DB CHECK — the DB-level backstop for the runtime validator.
+  const check = buildCheck(columnName, b.sqlType, b.options)
   return {
     propertyKey: key,
     columnName,

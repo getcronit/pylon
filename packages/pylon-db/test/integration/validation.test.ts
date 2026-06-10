@@ -54,4 +54,15 @@ describe.skipIf(!runDb)('validation on writes (Postgres)', () => {
     expect(w.id).toBeTypeOf('number')
     expect(await ValWidget.objects.count()).toBe(1)
   })
+
+  it('the DB CHECK (dual projection) rejects a RAW write that bypasses the ORM validator', async () => {
+    // `age = int({min: 0, max: 130})` is projected to a CHECK on the table, so a
+    // direct INSERT that never runs validateInstance is still rejected by Postgres.
+    await expect(
+      db.kysely
+        .insertInto('val_widget' as never)
+        .values({email: 'raw@b.co', age: -5} as never)
+        .execute()
+    ).rejects.toThrow(/check constraint|val_widget_age_check/i)
+  })
 })
