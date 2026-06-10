@@ -107,6 +107,19 @@ export {
   type HistoricalModel,
   type HistoricalModels
 } from './historical-models.js'
+export {
+  defineApp,
+  orderApps,
+  appRunner,
+  appModelDefinitions,
+  generateApp,
+  migrateApps,
+  deployApps,
+  statusApps,
+  type AppDefinition,
+  type AppApplyResult,
+  type AppStatus
+} from './apps.js'
 
 import {createManager} from './manager.js'
 import type {Manager as ManagerType, ModelCtor} from './manager.js'
@@ -126,6 +139,7 @@ import * as schemaSync from './schema-sync.js'
 import * as migrationApi from './migrations.js'
 import {MigrationRunner as MigrationRunnerClass} from './migration-runner.js'
 import * as migrationOps from './migration-ops.js'
+import * as appsApi from './apps.js'
 
 /**
  * Model-definition API. Field types are capitalized (Django-style):
@@ -198,4 +212,16 @@ export const migrations = {
   planMigration: migrationApi.planMigration,
   applyMigration: migrationApi.applyMigration,
   MigrationRunner: MigrationRunnerClass
+} as const
+
+/** Modular apps (Django-style): per-app models + migrations, dependency-ordered. */
+export const apps = {
+  defineApp: appsApi.defineApp,
+  orderApps: appsApi.orderApps,
+  appRunner: appsApi.appRunner,
+  appModelDefinitions: appsApi.appModelDefinitions,
+  generate: appsApi.generateApp,
+  migrate: appsApi.migrateApps,
+  deploy: appsApi.deployApps,
+  status: appsApi.statusApps
 } as const

@@ -66,6 +66,13 @@ export interface MigrationRunnerOptions {
    * (instead of being dropped). Lookup-only — does not add tables/migrations.
    */
   resolveAgainst?: () => Record<string, Entity>
+  /**
+   * Namespace this runner's ledger rows under `"<prefix>:"` so multiple apps —
+   * sharing the one `_pylon_migrations` table — never collide on the migration
+   * `name` PK, and each app sees only its own applied set. On-disk file names are
+   * unchanged; only the ledger key is prefixed. Omitted = bare names (default).
+   */
+  ledgerPrefix?: string
   now?: () => string
 }
 
@@ -136,13 +143,20 @@ export class MigrationRunner {
   private readonly dir: string
   private readonly current: () => Snapshot
   private readonly resolveAgainst?: () => Record<string, Entity>
+  private readonly ledgerPrefix?: string
   private readonly now: () => string
 
   constructor(options: MigrationRunnerOptions) {
     this.dir = options.dir
     this.current = options.current ?? snapshot
     this.resolveAgainst = options.resolveAgainst
+    this.ledgerPrefix = options.ledgerPrefix
     this.now = options.now ?? defaultStamp
+  }
+
+  /** The ledger key for a bare migration name (app-namespaced when configured). */
+  private ledgerName(name: string): string {
+    return this.ledgerPrefix ? `${this.ledgerPrefix}:${name}` : name
   }
 
   /** Project the current (possibly app-scoped) entities, resolving cross-app FKs. */
@@ -256,13 +270,28 @@ export class MigrationRunner {
       .execute(db.kysely)
   }
 
-  /** Applied migrations → their stored checksum (null for pre-checksum rows). */
+  /**
+   * Applied migrations → their stored checksum (null for pre-checksum rows),
+   * keyed by BARE name. When namespaced, only this runner's own rows are
+   * returned (its `"<prefix>:"` rows, with the prefix stripped) — so an app's
+   * applied set is isolated from other apps sharing the ledger.
+   */
   private async appliedMigrations(db: Database): Promise<Map<string, string | null>> {
     await this.ensureTable(db)
     const rows = await sql<{name: string; checksum: string | null}>`SELECT name, checksum FROM ${sql.ref(
       APPLIED_TABLE
     )}`.execute(db.kysely)
-    return new Map(rows.rows.map(r => [r.name, r.checksum]))
+    const prefix = this.ledgerPrefix ? `${this.ledgerPrefix}:` : undefined
+    const out = new Map<string, string | null>()
+    for (const r of rows.rows) {
+      if (prefix) {
+        if (r.name.startsWith(prefix)) out.set(r.name.slice(prefix.length), r.checksum)
+      } else if (!r.name.includes(':')) {
+        // Un-namespaced runner: ignore any app-namespaced rows that share the table.
+        out.set(r.name, r.checksum)
+      }
+    }
+    return out
   }
 
   /**
@@ -405,9 +434,9 @@ export class MigrationRunner {
               await ctx.db.run(() => op.up(ctx)) // ambient DB = trx
               s = applyChanges(s, op.changes ?? [])
             }
-            await sql`INSERT INTO ${sql.ref(APPLIED_TABLE)} (name, checksum) VALUES (${name}, ${migrationChecksum(
-              mod
-            )})`.execute(trx)
+            await sql`INSERT INTO ${sql.ref(APPLIED_TABLE)} (name, checksum) VALUES (${this.ledgerName(
+              name
+            )}, ${migrationChecksum(mod)})`.execute(trx)
           })
         }
         for (const op of mod.operations) state = applyChanges(state, op.changes ?? [])
@@ -450,7 +479,9 @@ export class MigrationRunner {
           for (const op of [...mod.operations].reverse()) {
             await ctx.db.run(() => op.down(ctx))
           }
-          await sql`DELETE FROM ${sql.ref(APPLIED_TABLE)} WHERE name = ${name}`.execute(trx)
+          await sql`DELETE FROM ${sql.ref(APPLIED_TABLE)} WHERE name = ${this.ledgerName(name)}`.execute(
+            trx
+          )
         })
       }
     })
@@ -469,7 +500,9 @@ export class MigrationRunner {
   ): Promise<void> {
     const mod = await load(this.filePath(name))
     await this.ensureTable(db)
-    await sql`INSERT INTO ${sql.ref(APPLIED_TABLE)} (name, checksum) VALUES (${name}, ${migrationChecksum(
+    await sql`INSERT INTO ${sql.ref(APPLIED_TABLE)} (name, checksum) VALUES (${this.ledgerName(
+      name
+    )}, ${migrationChecksum(
       mod
     )}) ON CONFLICT (name) DO UPDATE SET checksum = excluded.checksum`.execute(db.kysely)
   }
@@ -477,7 +510,9 @@ export class MigrationRunner {
   /** Mark a migration NOT applied WITHOUT reversing it (ledger-only). */
   async markRolledBack(name: string, db: Database = getDatabase()): Promise<void> {
     await this.ensureTable(db)
-    await sql`DELETE FROM ${sql.ref(APPLIED_TABLE)} WHERE name = ${name}`.execute(db.kysely)
+    await sql`DELETE FROM ${sql.ref(APPLIED_TABLE)} WHERE name = ${this.ledgerName(name)}`.execute(
+      db.kysely
+    )
   }
 
   /**
@@ -537,11 +572,13 @@ export class MigrationRunner {
         const mod = await load(this.filePath(squashName))
         await db.kysely.transaction().execute(async trx => {
           for (const r of replaced) {
-            await sql`DELETE FROM ${sql.ref(APPLIED_TABLE)} WHERE name = ${r}`.execute(trx)
+            await sql`DELETE FROM ${sql.ref(APPLIED_TABLE)} WHERE name = ${this.ledgerName(r)}`.execute(
+              trx
+            )
           }
-          await sql`INSERT INTO ${sql.ref(APPLIED_TABLE)} (name, checksum) VALUES (${squashName}, ${migrationChecksum(
-            mod
-          )})`.execute(trx)
+          await sql`INSERT INTO ${sql.ref(APPLIED_TABLE)} (name, checksum) VALUES (${this.ledgerName(
+            squashName
+          )}, ${migrationChecksum(mod)})`.execute(trx)
         })
       }
     }
