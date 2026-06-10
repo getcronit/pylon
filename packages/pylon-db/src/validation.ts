@@ -9,6 +9,7 @@
  * a boundary concern, not the ORM's job.
  */
 import type {ColumnDefinition, ModelDefinition} from './registry.js'
+import {validateWithSchema} from './standard-schema.js'
 
 /** Stable issue codes — these are the translation keys; treat them as API. */
 export type ValidationCode =
@@ -100,6 +101,10 @@ function validateColumn(col: ColumnDefinition, value: unknown): ValidationIssue[
     const result = col.validate(value)
     if (result !== true) issue('custom', typeof result === 'string' ? result : `${path} is invalid`)
   }
+
+  // Bring-your-own schema (Zod/Valibot/ArkType via Standard Schema) — runs last,
+  // on a present, type-correct value; the library owns the message.
+  if (col.schema) out.push(...validateWithSchema(path, col.schema, value))
 
   return out
 }

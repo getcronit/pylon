@@ -10,6 +10,7 @@ import {
   RelationDefinition,
   SqlType
 } from './registry.js'
+import type {FieldSchema} from './standard-schema.js'
 import {snakeCase} from './util.js'
 
 // ===========================================================================
@@ -54,6 +55,12 @@ export interface FieldOptions {
   email?: boolean
   /** Validation: custom rule — return `true` or an error message. */
   validate?: (value: unknown) => true | string
+  /**
+   * Validation: a Standard Schema (Zod / Valibot / ArkType, …). Runs alongside
+   * the built-in rules; the library owns the error message. The ORM never
+   * imports the library — it only reads the standard `~standard` interface.
+   */
+  schema?: FieldSchema
   /** Force hidden from the generated GraphQL API. */
   hidden?: boolean
 }
@@ -332,7 +339,8 @@ function buildColumn(key: string, b: FieldBuilder): ColumnDefinition {
     pattern: b.options.pattern,
     email: b.options.email,
     enumValues: b.options.enumValues,
-    validate: b.options.validate
+    validate: b.options.validate,
+    schema: b.options.schema
   }
 }
 

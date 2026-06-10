@@ -41,6 +41,11 @@ export {
   type ValidationCode
 } from './validation.js'
 export {
+  validateWithSchema,
+  type StandardSchemaV1,
+  type FieldSchema
+} from './standard-schema.js'
+export {
   introspect,
   expectedColumns,
   computeDrift,

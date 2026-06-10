@@ -1,3 +1,5 @@
+import type {FieldSchema} from './standard-schema.js'
+
 export type SqlType =
   | 'text'
   | 'varchar'
@@ -50,6 +52,12 @@ export interface ColumnDefinition {
   enumValues?: readonly string[]
   /** Custom rule: return `true`, or an error message string. */
   validate?: (value: unknown) => true | string
+  /**
+   * Bring-your-own schema (Zod / Valibot / ArkType — anything implementing
+   * Standard Schema). Runs after the built-in rules; its issues surface as
+   * `custom` with the library's own message. Not part of the IR/DDL.
+   */
+  schema?: FieldSchema
 }
 
 export type RelationKind = 'belongsTo' | 'hasMany'
