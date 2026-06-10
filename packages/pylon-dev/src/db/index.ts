@@ -71,6 +71,8 @@ export interface DbCommandOptions {
     | 'seed'
   /** Migration name (for `diff`; the target for `resolve`). */
   name?: string
+  /** `diff`: which app to generate a migration for (required in apps mode). */
+  app?: string
   /** `plan`: render down SQL instead of up. */
   down?: boolean
   /** `seed`: path to the seed file (default `./src/seed.ts`). */
@@ -117,6 +119,10 @@ export interface DbCommandResult {
   merged?: {name: string; heads: string[]} | null
   /** `seed`: whether the seed file ran. */
   seeded?: boolean
+  /** apps mode: per-app applied migrations (`migrate`/`deploy`). */
+  apps?: Array<{app: string; applied: string[]}>
+  /** apps mode: per-app status (`status`). */
+  appsStatus?: Array<{app: string; pendingChanges: number; unapplied: string[]}>
 }
 
 export async function runDbCommand(
@@ -130,6 +136,17 @@ export async function runDbCommand(
   const runner = new orm.MigrationRunner({dir})
   const loadMigrationFile = createMigrationLoader(cwd)
 
+  // Apps mode: the project exports `apps`. Each app's migrations live in
+  // `<dir>/<app.name>` (unless the manifest sets an explicit path). The CLI
+  // commands then operate per-app, in dependency order.
+  const resolvedApps =
+    orm.apps && orm.apps.length > 0
+      ? orm.apps.map(a => ({
+          ...a,
+          migrations: a.migrations ? path.resolve(cwd, a.migrations) : path.join(dir, a.name)
+        }))
+      : null
+
   switch (options.command) {
     case 'status': {
       // Connect when a DB is available so status can read the applied-migrations
@@ -138,11 +155,28 @@ export async function runDbCommand(
       const db = process.env.DATABASE_URL
         ? orm.connect({connectionString: process.env.DATABASE_URL})
         : undefined
+      if (resolvedApps) {
+        const appsStatus = await orm.statusApps(resolvedApps, loadMigrationFile, db)
+        const drift = db ? await orm.schemaDrift(db) : undefined
+        return {command: 'status', appsStatus, drift}
+      }
       const status = await runner.status(loadMigrationFile, db)
       const drift = db ? await orm.schemaDrift(db) : undefined
       return {command: 'status', status, drift}
     }
     case 'diff': {
+      if (resolvedApps) {
+        if (!options.app) {
+          throw new Error(
+            `This project uses apps — specify one: \`pylon db diff --app <name>\` ` +
+              `(apps: ${resolvedApps.map(a => a.name).join(', ')}).`
+          )
+        }
+        const app = resolvedApps.find(a => a.name === options.app)
+        if (!app) throw new Error(`Unknown app "${options.app}".`)
+        const made = await orm.generateApp(app, options.name ?? 'migration', loadMigrationFile)
+        return {command: 'diff', created: made?.name ?? null, destructive: false, renameCandidates: []}
+      }
       const created = await runner.generate(options.name ?? 'migration', loadMigrationFile, {
         renames: options.renames
       })
@@ -181,6 +215,10 @@ export async function runDbCommand(
         throw new Error('pylon db migrate requires DATABASE_URL to be set.')
       }
       const conn = orm.connect({connectionString})
+      if (resolvedApps) {
+        const apps = await orm.migrateApps(resolvedApps, loadMigrationFile, conn)
+        return {command: 'migrate', apps, applied: apps.flatMap(a => a.applied)}
+      }
       const applied = await runner.apply(loadMigrationFile, conn)
       return {command: 'migrate', applied}
     }
@@ -248,6 +286,11 @@ export async function runDbCommand(
         throw new Error('pylon db deploy requires DATABASE_URL to be set.')
       }
       const conn = orm.connect({connectionString})
+      if (resolvedApps) {
+        // Per-app guard pass + dependency-ordered apply (handled by deployApps).
+        const apps = await orm.deployApps(resolvedApps, loadMigrationFile, conn)
+        return {command: 'deploy', apps, applied: apps.flatMap(a => a.applied)}
+      }
       // Prod guards: don't deploy with un-generated model changes or a tampered
       // history. (Drift is reported by `status`/`check`; deploy only applies.)
       const status = await runner.status(loadMigrationFile, conn)

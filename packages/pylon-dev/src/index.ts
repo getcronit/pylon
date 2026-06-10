@@ -106,16 +106,23 @@ db.command('status')
   .option('-d, --dir <path>', 'Migrations directory', './migrations')
   .action(async options => {
     try {
-      const {status, drift} = await runDbCommand({
+      const {status, appsStatus, drift} = await runDbCommand({
         command: 'status',
         models: options.models,
         dir: options.dir
       })
-      const pending = status!.pendingChanges.length
-      consola.info(
-        `Uncaptured schema changes: ${pending}\n` +
-          `Migrations: ${status!.migrations.length} (${status!.unapplied.length} unapplied)`
-      )
+      if (appsStatus) {
+        for (const a of appsStatus)
+          consola.info(
+            `app ${a.app}: ${a.pendingChanges} uncaptured change(s), ${a.unapplied.length} unapplied`
+          )
+      } else {
+        const pending = status!.pendingChanges.length
+        consola.info(
+          `Uncaptured schema changes: ${pending}\n` +
+            `Migrations: ${status!.migrations.length} (${status!.unapplied.length} unapplied)`
+        )
+      }
       if (drift) {
         const driftN =
           drift.missingTables.length + drift.extraTables.length + drift.columns.length
@@ -141,6 +148,7 @@ db.command('diff')
   .argument('[name]', 'Migration name', 'migration')
   .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
   .option('-d, --dir <path>', 'Migrations directory', './migrations')
+  .option('-a, --app <name>', 'Generate for a specific app (apps mode)')
   .option(
     '--rename <spec...>',
     'Treat a drop+add as a rename, e.g. --rename table.old=table.new'
@@ -158,6 +166,7 @@ db.command('diff')
       const {created, destructive, renameCandidates} = await runDbCommand({
         command: 'diff',
         name,
+        app: options.app,
         models: options.models,
         dir: options.dir,
         renames
@@ -249,12 +258,16 @@ db.command('migrate')
   .option('-d, --dir <path>', 'Migrations directory', './migrations')
   .action(async options => {
     try {
-      const {applied} = await runDbCommand({
+      const {applied, apps} = await runDbCommand({
         command: 'migrate',
         models: options.models,
         dir: options.dir
       })
-      if (applied && applied.length > 0)
+      if (apps) {
+        for (const a of apps)
+          consola.success(`app ${a.app}: applied ${a.applied.length} migration(s)`)
+        if (apps.every(a => a.applied.length === 0)) consola.info('All apps up to date')
+      } else if (applied && applied.length > 0)
         consola.success(`Applied ${applied.length} migration(s): ${applied.join(', ')}`)
       else consola.info('Database is up to date')
     } catch (error) {
@@ -373,12 +386,18 @@ db.command('deploy')
   .option('-d, --dir <path>', 'Migrations directory', './migrations')
   .action(async options => {
     try {
-      const {applied} = await runDbCommand({
+      const {applied, apps} = await runDbCommand({
         command: 'deploy',
         models: options.models,
         dir: options.dir
       })
-      if (applied && applied.length > 0)
+      if (apps) {
+        const total = apps.reduce((n, a) => n + a.applied.length, 0)
+        if (total > 0)
+          for (const a of apps.filter(a => a.applied.length))
+            consola.success(`app ${a.app}: deployed ${a.applied.length} migration(s)`)
+        else consola.info('All apps up to date')
+      } else if (applied && applied.length > 0)
         consola.success(`Deployed ${applied.length} migration(s): ${applied.join(', ')}`)
       else consola.info('Database is up to date')
     } catch (error) {
