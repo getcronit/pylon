@@ -148,7 +148,17 @@ const tableSpecPart = (t: PhysicalTable): TableSpec => ({
  * history, or introspecting a live DB. FKs/indexes are already explicit on each
  * table, so there's no relation resolution here.
  */
-export function diffSchema(prev: PhysicalSchema, next: PhysicalSchema): SchemaChange[] {
+export interface Rename {
+  table: string
+  from: string
+  to: string
+}
+
+export function diffSchema(
+  prev: PhysicalSchema,
+  next: PhysicalSchema,
+  opts: {renames?: Rename[]} = {}
+): SchemaChange[] {
   const creates: SchemaChange[] = []
   const cols: SchemaChange[] = []
   const fkDrops: SchemaChange[] = []
@@ -231,6 +241,19 @@ export function diffSchema(prev: PhysicalSchema, next: PhysicalSchema): SchemaCh
     }
   }
 
+  // Apply rename hints: a `dropColumn(from)` + `addColumn(to)` pair the diff
+  // can't tell from a real rename is replaced by a data-preserving renameColumn.
+  for (const {table, from, to} of opts.renames ?? []) {
+    const di = cols.findIndex(c => c.kind === 'dropColumn' && c.table === table && c.column.name === from)
+    const ai = cols.findIndex(c => c.kind === 'addColumn' && c.table === table && c.column.name === to)
+    if (di >= 0 && ai >= 0) {
+      // splice the higher index first so the lower stays valid
+      cols.splice(Math.max(di, ai), 1)
+      cols.splice(Math.min(di, ai), 1)
+      cols.push({kind: 'renameColumn', table, from, to})
+    }
+  }
+
   // Dropped tables. DROP TABLE cascades their constraints + indexes.
   for (const name of Object.keys(prev)) {
     if (!(name in next)) drops.push({kind: 'dropTable', spec: tableSpecPart(prev[name])})
@@ -253,6 +276,34 @@ export function diffEntities(
 /** Whether a change destroys data (drops a table or column). */
 export function isDestructive(change: SchemaChange): boolean {
   return change.kind === 'dropTable' || change.kind === 'dropColumn'
+}
+
+/**
+ * Heuristic rename detection: a `dropColumn` + `addColumn` of the same SQL type
+ * on the same table looks like it *might* be a rename (the diff can't tell, and
+ * would otherwise destroy data). Returned so tooling can warn / prompt; pass the
+ * confirmed ones back via `diffSchema`'s `renames`.
+ */
+export function renameCandidates(changes: SchemaChange[]): Rename[] {
+  const byTable = new Map<string, {drops: ColumnSpec[]; adds: ColumnSpec[]}>()
+  for (const c of changes) {
+    if (c.kind !== 'dropColumn' && c.kind !== 'addColumn') continue
+    const t = byTable.get(c.table) ?? {drops: [], adds: []}
+    ;(c.kind === 'dropColumn' ? t.drops : t.adds).push(c.column)
+    byTable.set(c.table, t)
+  }
+  const out: Rename[] = []
+  for (const [table, {drops, adds}] of byTable) {
+    const used = new Set<ColumnSpec>()
+    for (const d of drops) {
+      const a = adds.find(x => !used.has(x) && x.sqlType === d.sqlType)
+      if (a) {
+        used.add(a)
+        out.push({table, from: d.name, to: a.name})
+      }
+    }
+  }
+  return out
 }
 
 function addForeignKeySQL(fk: ForeignKeyChange): string {

@@ -24,8 +24,10 @@ import {
   applyChanges,
   diffSchema,
   physicalSchemaOf,
+  renameCandidates,
   renderChanges,
   type PhysicalSchema,
+  type Rename,
   type SchemaChange
 } from '@getcronit/pylon-ir'
 import {databaseForKysely, getDatabase, type Database} from './database.js'
@@ -46,6 +48,8 @@ export interface GeneratedMigration {
   name: string
   changes: SchemaChange[]
   unsupported: string[]
+  /** Drop+add pairs that look like renames — surfaced so the CLI can warn. */
+  renameCandidates: Rename[]
 }
 
 /** Loads a migration file into its module (the CLI provides a TS transpiler). */
@@ -161,17 +165,21 @@ export class MigrationRunner {
    * Diff the reconstructed baseline against the current models; if anything
    * changed, write a timestamped TS migration. Returns it, or `null`.
    */
-  async generate(name: string, load: MigrationLoader): Promise<GeneratedMigration | null> {
+  async generate(
+    name: string,
+    load: MigrationLoader,
+    opts: {renames?: Rename[]} = {}
+  ): Promise<GeneratedMigration | null> {
     const prev = await this.foldHistory(load)
     const next = physicalSchemaOf(this.current().entities)
-    const changes = diffSchema(prev, next)
+    const changes = diffSchema(prev, next, {renames: opts.renames})
     if (changes.length === 0) return null
 
     const {unsupported} = renderChanges(changes)
     const migrationName = `${this.now()}_${name}`
     await fs.mkdir(this.dir, {recursive: true})
     await fs.writeFile(this.filePath(migrationName), fileTemplate(changes, unsupported))
-    return {name: migrationName, changes, unsupported}
+    return {name: migrationName, changes, unsupported, renameCandidates: renameCandidates(changes)}
   }
 
   /** Uncaptured changes (baseline vs current) + which migrations are unapplied. */

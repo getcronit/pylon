@@ -36,8 +36,13 @@ export interface ProjectOrm {
     }>
     generate(
       name: string,
-      load: (filePath: string) => Promise<unknown>
-    ): Promise<{name: string; changes: unknown[]} | null>
+      load: (filePath: string) => Promise<unknown>,
+      opts?: {renames?: Array<{table: string; from: string; to: string}>}
+    ): Promise<{
+      name: string
+      changes: unknown[]
+      renameCandidates: Array<{table: string; from: string; to: string}>
+    } | null>
     apply(load: (filePath: string) => Promise<unknown>, db?: unknown): Promise<string[]>
     rollback(
       load: (filePath: string) => Promise<unknown>,

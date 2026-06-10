@@ -55,6 +55,8 @@ export interface DbCommandOptions {
   name?: string
   /** `plan`: render down SQL instead of up. */
   down?: boolean
+  /** `diff`: confirmed renames (drop+add → renameColumn, data-preserving). */
+  renames?: Array<{table: string; from: string; to: string}>
   /** Entry that imports the models (default `./src/index.ts`). */
   models?: string
   /** Migrations directory (default `./migrations`). */
@@ -73,6 +75,8 @@ export interface DbCommandResult {
   created?: string | null
   /** `diff`: whether the generated migration drops data. */
   destructive?: boolean
+  /** `diff`: possible renames not confirmed via --rename (data-loss warning). */
+  renameCandidates?: Array<{table: string; from: string; to: string}>
   applied?: string[]
   /** `rollback`: reversed migration names. */
   rolledBack?: string[]
@@ -108,9 +112,16 @@ export async function runDbCommand(
       return {command: 'status', status}
     }
     case 'diff': {
-      const created = await runner.generate(options.name ?? 'migration', loadMigrationFile)
+      const created = await runner.generate(options.name ?? 'migration', loadMigrationFile, {
+        renames: options.renames
+      })
       const destructive = (created?.changes as SchemaChange[] | undefined)?.some(isDestructive)
-      return {command: 'diff', created: created?.name ?? null, destructive: destructive ?? false}
+      return {
+        command: 'diff',
+        created: created?.name ?? null,
+        destructive: destructive ?? false,
+        renameCandidates: created?.renameCandidates ?? []
+      }
     }
     case 'plan': {
       const plan = await runner.plan(loadMigrationFile, options.down ? 'down' : 'up')

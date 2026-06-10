@@ -4,6 +4,7 @@ import {
   diffSchema,
   makeMigration,
   physicalSchemaOf,
+  renameCandidates,
   renderChanges,
   tableSpecOf,
   type Entity
@@ -311,5 +312,20 @@ describe('migration engine — renameColumn (authoring-only, never inferred)', (
     const {up, down} = renderChanges([{kind: 'renameColumn', table: 'user', from: 'bio', to: 'about'}])
     expect(up).toEqual(['ALTER TABLE "user" RENAME COLUMN "bio" TO "about"'])
     expect(down).toEqual(['ALTER TABLE "user" RENAME COLUMN "about" TO "bio"'])
+  })
+
+  it('detects rename candidates and a hint collapses drop+add into renameColumn', () => {
+    const before = physicalSchemaOf(entity('User', [idField, field('bio', col({name: 'bio', sqlType: 'text'}))]))
+    const after = physicalSchemaOf(entity('User', [idField, field('about', col({name: 'about', sqlType: 'text'}))]))
+
+    const plain = diffSchema(before, after)
+    expect(plain.map(c => c.kind).sort()).toEqual(['addColumn', 'dropColumn'])
+    expect(renameCandidates(plain)).toEqual([{table: 'user', from: 'bio', to: 'about'}])
+
+    const renamed = diffSchema(before, after, {renames: [{table: 'user', from: 'bio', to: 'about'}]})
+    expect(renamed.map(c => c.kind)).toEqual(['renameColumn'])
+    expect(renderChanges(renamed).up).toEqual([
+      'ALTER TABLE "user" RENAME COLUMN "bio" TO "about"'
+    ])
   })
 })

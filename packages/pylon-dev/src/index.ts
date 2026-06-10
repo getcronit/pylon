@@ -127,16 +127,35 @@ db.command('diff')
   .argument('[name]', 'Migration name', 'migration')
   .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
   .option('-d, --dir <path>', 'Migrations directory', './migrations')
+  .option(
+    '--rename <spec...>',
+    'Treat a drop+add as a rename, e.g. --rename table.old=table.new'
+  )
   .action(async (name, options) => {
     try {
-      const {created, destructive} = await runDbCommand({
+      const renames = ((options.rename as string[]) ?? []).map(spec => {
+        const [left, right] = spec.split('=')
+        const [table, from] = (left ?? '').split('.')
+        const to = (right ?? '').split('.')[1] ?? (right ?? '')
+        if (!table || !from || !to)
+          throw new Error(`Invalid --rename "${spec}" (expected table.old=table.new)`)
+        return {table, from, to}
+      })
+      const {created, destructive, renameCandidates} = await runDbCommand({
         command: 'diff',
         name,
         models: options.models,
-        dir: options.dir
+        dir: options.dir,
+        renames
       })
       if (created) {
         consola.success(`Created migration ${created}`)
+        for (const r of renameCandidates ?? [])
+          consola.warn(
+            `Possible rename ${r.table}.${r.from} → ${r.table}.${r.to} was emitted as ` +
+              `drop+add (destroys data). If it's a rename, regenerate with ` +
+              `--rename ${r.table}.${r.from}=${r.table}.${r.to}`
+          )
         if (destructive)
           consola.warn('This migration drops a table or column — it will destroy data.')
       } else consola.info('No schema changes — nothing to generate')
