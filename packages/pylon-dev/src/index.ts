@@ -304,6 +304,26 @@ db.command('resolve')
     }
   })
 
+db.command('deploy')
+  .description('Apply pending migrations for production (refuses on uncaptured changes / tampering)')
+  .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
+  .option('-d, --dir <path>', 'Migrations directory', './migrations')
+  .action(async options => {
+    try {
+      const {applied} = await runDbCommand({
+        command: 'deploy',
+        models: options.models,
+        dir: options.dir
+      })
+      if (applied && applied.length > 0)
+        consola.success(`Deployed ${applied.length} migration(s): ${applied.join(', ')}`)
+      else consola.info('Database is up to date')
+    } catch (error) {
+      consola.error(error)
+      process.exit(1)
+    }
+  })
+
 db.command('push')
   .description('Sync models to the database directly, without a migration (prototyping)')
   .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')

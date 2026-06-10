@@ -56,7 +56,16 @@ type SchemaDrift = {
 }
 
 export interface DbCommandOptions {
-  command: 'status' | 'diff' | 'migrate' | 'rollback' | 'resolve' | 'plan' | 'check' | 'push'
+  command:
+    | 'status'
+    | 'diff'
+    | 'migrate'
+    | 'rollback'
+    | 'resolve'
+    | 'plan'
+    | 'check'
+    | 'push'
+    | 'deploy'
   /** Migration name (for `diff`; the target for `resolve`). */
   name?: string
   /** `plan`: render down SQL instead of up. */
@@ -193,6 +202,27 @@ export async function runDbCommand(
       orm.connect({connectionString})
       await orm.syncSchema()
       return {command: 'push', pushed: true}
+    }
+    case 'deploy': {
+      const connectionString = process.env.DATABASE_URL
+      if (!connectionString) {
+        throw new Error('pylon db deploy requires DATABASE_URL to be set.')
+      }
+      const conn = orm.connect({connectionString})
+      // Prod guards: don't deploy with un-generated model changes or a tampered
+      // history. (Drift is reported by `status`/`check`; deploy only applies.)
+      const status = await runner.status(loadMigrationFile, conn)
+      if (status.pendingChanges.length > 0) {
+        throw new Error(
+          'Refusing to deploy: uncaptured model changes — run `pylon db diff` and commit the migration.'
+        )
+      }
+      const tampered = await runner.integrityErrors(loadMigrationFile, conn)
+      if (tampered.length > 0) {
+        throw new Error(`Refusing to deploy: tampered migration(s): ${tampered.join(', ')}`)
+      }
+      const applied = await runner.apply(loadMigrationFile, conn)
+      return {command: 'deploy', applied}
     }
   }
 }
