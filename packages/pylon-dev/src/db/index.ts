@@ -67,6 +67,7 @@ export interface DbCommandOptions {
     | 'push'
     | 'deploy'
     | 'squash'
+    | 'merge'
   /** Migration name (for `diff`; the target for `resolve`). */
   name?: string
   /** `plan`: render down SQL instead of up. */
@@ -109,6 +110,8 @@ export interface DbCommandResult {
   pushed?: boolean
   /** `squash`: the new migration name + the ones it replaced. */
   squashed?: {name: string; replaced: string[]} | null
+  /** `merge`: the merge migration + the heads it reconverged (or null). */
+  merged?: {name: string; heads: string[]} | null
 }
 
 export async function runDbCommand(
@@ -213,6 +216,10 @@ export async function runDbCommand(
         : undefined
       const squashed = await runner.squash(loadMigrationFile, options.name ?? 'squashed', conn)
       return {command: 'squash', squashed}
+    }
+    case 'merge': {
+      const merged = await runner.merge(loadMigrationFile, options.name ?? 'merge')
+      return {command: 'merge', merged}
     }
     case 'deploy': {
       const connectionString = process.env.DATABASE_URL

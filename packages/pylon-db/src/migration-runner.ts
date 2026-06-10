@@ -98,17 +98,23 @@ function opCall(change: SchemaChange): string {
   }
 }
 
-function fileTemplate(changes: SchemaChange[], unsupported: string[]): string {
+function fileTemplate(
+  changes: SchemaChange[],
+  unsupported: string[],
+  dependencies: string[] = []
+): string {
   const notes = unsupported.length
     ? unsupported.map(u => ` *   - ${u}`).join('\n')
     : ''
   const ops = changes.map(c => `    ${opCall(c)}`).join(',\n')
+  const deps = dependencies.length ? `  dependencies: ${JSON.stringify(dependencies)},\n` : ''
   return (
     `import {migrations} from '@getcronit/pylon-db'\n\n` +
     (notes
       ? `/**\n * Manual attention needed (the diff couldn't express these):\n${notes}\n */\n`
       : '') +
     `export default migrations.defineMigration({\n` +
+    deps +
     `  // Generated schema delta. Add migrations.runSql(...) / migrations.run(...)\n` +
     `  // operations for data migrations (each with a \`down\` to stay reversible).\n` +
     `  operations: [\n` +
@@ -177,8 +183,12 @@ export class MigrationRunner {
 
     const {unsupported} = renderChanges(changes)
     const migrationName = `${this.now()}_${name}`
+    const dependencies = await this.heads(load) // the migration(s) this one builds on
     await fs.mkdir(this.dir, {recursive: true})
-    await fs.writeFile(this.filePath(migrationName), fileTemplate(changes, unsupported))
+    await fs.writeFile(
+      this.filePath(migrationName),
+      fileTemplate(changes, unsupported, dependencies)
+    )
     return {name: migrationName, changes, unsupported, renameCandidates: renameCandidates(changes)}
   }
 
@@ -275,15 +285,71 @@ export class MigrationRunner {
     })
   }
 
-  /** Load every migration on disk, in chronological order. */
+  /**
+   * Load every migration, ordered topologically by `dependencies` (the DAG).
+   * A migration without explicit `dependencies` falls back to an implicit chain
+   * (the previous migration by name), so dep-less histories keep their name
+   * order. Branches (two migrations sharing a parent) order deterministically by
+   * name; `down`/reverse callers reverse this list.
+   */
   private async loadAll(
     load: MigrationLoader
   ): Promise<Array<{name: string; mod: MigrationModule}>> {
-    const out: Array<{name: string; mod: MigrationModule}> = []
-    for (const name of await this.list()) {
-      out.push({name, mod: await load(this.filePath(name))})
+    const names = await this.list()
+    const items = new Map<string, MigrationModule>()
+    for (const name of names) items.set(name, await load(this.filePath(name)))
+
+    const depsOf = (name: string): string[] => {
+      const explicit = items.get(name)?.dependencies?.filter(d => items.has(d))
+      if (explicit && explicit.length) return explicit
+      const idx = names.indexOf(name)
+      return idx > 0 ? [names[idx - 1]] : []
     }
+
+    const out: Array<{name: string; mod: MigrationModule}> = []
+    const visiting = new Set<string>()
+    const visited = new Set<string>()
+    const visit = (name: string): void => {
+      if (visited.has(name)) return
+      if (visiting.has(name)) throw new Error(`Migration dependency cycle at "${name}".`)
+      visiting.add(name)
+      for (const dep of depsOf(name)) visit(dep)
+      visiting.delete(name)
+      visited.add(name)
+      out.push({name, mod: items.get(name)!})
+    }
+    for (const name of names) visit(name) // names are sorted → deterministic
     return out
+  }
+
+  /** Leaf migrations — those nothing else depends on. >1 means divergent heads. */
+  async heads(load: MigrationLoader): Promise<string[]> {
+    const ordered = await this.loadAll(load)
+    const names = ordered.map(o => o.name)
+    const sorted = [...names].sort()
+    const depended = new Set<string>()
+    for (const {name, mod} of ordered) {
+      const explicit = mod.dependencies?.filter(d => names.includes(d))
+      if (explicit && explicit.length) explicit.forEach(d => depended.add(d))
+      else {
+        const idx = sorted.indexOf(name)
+        if (idx > 0) depended.add(sorted[idx - 1])
+      }
+    }
+    return names.filter(n => !depended.has(n))
+  }
+
+  /**
+   * If the history has diverged into multiple heads (two branches added
+   * migrations on the same parent), write a merge migration that depends on all
+   * of them — re-converging the DAG. Returns null if there's ≤1 head.
+   */
+  async merge(load: MigrationLoader, name = 'merge'): Promise<{name: string; heads: string[]} | null> {
+    const h = await this.heads(load)
+    if (h.length <= 1) return null
+    const mergeName = `${this.now()}_${name}`
+    await fs.writeFile(this.filePath(mergeName), fileTemplate([], [], h))
+    return {name: mergeName, heads: h}
   }
 
   /**

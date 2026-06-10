@@ -307,6 +307,27 @@ db.command('resolve')
     }
   })
 
+db.command('merge')
+  .description('Reconverge divergent migration heads (after a branch merge) into a merge migration')
+  .argument('[name]', 'Name for the merge migration', 'merge')
+  .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
+  .option('-d, --dir <path>', 'Migrations directory', './migrations')
+  .action(async (name, options) => {
+    try {
+      const {merged} = await runDbCommand({
+        command: 'merge',
+        name,
+        models: options.models,
+        dir: options.dir
+      })
+      if (!merged) consola.info('No divergent heads — nothing to merge')
+      else consola.success(`Merged heads [${merged.heads.join(', ')}] into ${merged.name}`)
+    } catch (error) {
+      consola.error(error)
+      process.exit(1)
+    }
+  })
+
 db.command('squash')
   .description('Collapse the schema migration history into a single migration (rewrites history)')
   .argument('[name]', 'Name for the squashed migration', 'squashed')

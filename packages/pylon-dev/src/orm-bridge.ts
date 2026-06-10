@@ -65,6 +65,11 @@ export interface ProjectOrm {
       name?: string,
       db?: unknown
     ): Promise<{name: string; replaced: string[]} | null>
+    heads(load: (filePath: string) => Promise<unknown>): Promise<string[]>
+    merge(
+      load: (filePath: string) => Promise<unknown>,
+      name?: string
+    ): Promise<{name: string; heads: string[]} | null>
   }
   connect(opts: {connectionString: string}): unknown
   /** Presence-level drift between the live DB and the current models. */

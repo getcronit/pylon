@@ -111,6 +111,30 @@ describe('MigrationRunner — generate / status (file workflow, no DB)', () => {
     expect(down[0].statements.join('\n')).toMatch(/DROP TABLE "user"/)
   })
 
+  it('detects divergent heads and reconverges them with a merge migration (DAG)', async () => {
+    const r = runnerFor(() => v1)
+    const mig = (deps?: string[]) =>
+      `import {migrations} from '@getcronit/pylon-db'\n` +
+      `export default migrations.defineMigration({${deps ? `dependencies: ${JSON.stringify(deps)}, ` : ''}operations: []})\n`
+    // root, then two branches off it (two heads)
+    await fs.writeFile(path.join(dir, 't1_init.ts'), mig())
+    await fs.writeFile(path.join(dir, 't2a.ts'), mig(['t1_init']))
+    await fs.writeFile(path.join(dir, 't2b.ts'), mig(['t1_init']))
+
+    expect((await r.heads(load)).sort()).toEqual(['t2a', 't2b'])
+
+    const merged = await r.merge(load, 'merge')
+    expect(merged?.heads.sort()).toEqual(['t2a', 't2b'])
+    expect(await r.heads(load)).toEqual([merged!.name]) // single head again
+
+    // topological order: root first, both branches before the merge node
+    const order = (await r.plan(load)).map(p => p.name)
+    expect(order[0]).toBe('t1_init')
+    expect(order[order.length - 1]).toBe(merged!.name)
+    expect(order).toContain('t2a')
+    expect(order).toContain('t2b')
+  })
+
   it('squash collapses the schema history into one migration', async () => {
     let cur = v1
     const r = runnerFor(() => cur)
