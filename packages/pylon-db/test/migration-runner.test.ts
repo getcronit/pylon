@@ -111,6 +111,23 @@ describe('MigrationRunner — generate / status (file workflow, no DB)', () => {
     expect(down[0].statements.join('\n')).toMatch(/DROP TABLE "user"/)
   })
 
+  it('squash collapses the schema history into one migration', async () => {
+    let cur = v1
+    const r = runnerFor(() => cur)
+    await r.generate('init', load)
+    cur = v2
+    await r.generate('add_email', load)
+    expect(await r.list()).toEqual(['t1_init', 't2_add_email'])
+
+    const res = await r.squash(load, 'squash') // no DB
+    expect(res?.replaced).toEqual(['t1_init', 't2_add_email'])
+    // originals removed, a single squashed migration remains
+    expect(await r.list()).toEqual([res!.name])
+    const src = await fileContents(r, res!.name)
+    expect(src).toContain('migrations.createTable(')
+    expect(src).toMatch(/"name":\s*"email"/) // the net schema includes the added column
+  })
+
   it('status reports uncaptured changes against the reconstructed baseline', async () => {
     let cur = v1
     const r = runnerFor(() => cur)

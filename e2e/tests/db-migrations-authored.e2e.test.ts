@@ -171,4 +171,11 @@ describe.skipIf(!dockerAvailable)('pylon db — committed/authored migrations (l
     expect(r.status, r.out).toBe(1)
     expect(r.out).toMatch(/missing|drift/i)
   })
+
+  it('squash refuses when the history contains data migrations', () => {
+    // 0002_seed (runSql) + 0003_backfill (run) can't be folded into a schema diff
+    const r = pylonDb('squash')
+    expect(r.status, r.out).toBe(1)
+    expect(r.out).toMatch(/cannot squash/i)
+  })
 })

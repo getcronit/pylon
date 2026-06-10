@@ -60,6 +60,11 @@ export interface ProjectOrm {
       direction?: 'up' | 'down'
     ): Promise<Array<{name: string; statements: string[]}>>
     integrityErrors(load: (filePath: string) => Promise<unknown>, db?: unknown): Promise<string[]>
+    squash(
+      load: (filePath: string) => Promise<unknown>,
+      name?: string,
+      db?: unknown
+    ): Promise<{name: string; replaced: string[]} | null>
   }
   connect(opts: {connectionString: string}): unknown
   /** Presence-level drift between the live DB and the current models. */

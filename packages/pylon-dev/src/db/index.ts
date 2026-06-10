@@ -66,6 +66,7 @@ export interface DbCommandOptions {
     | 'check'
     | 'push'
     | 'deploy'
+    | 'squash'
   /** Migration name (for `diff`; the target for `resolve`). */
   name?: string
   /** `plan`: render down SQL instead of up. */
@@ -106,6 +107,8 @@ export interface DbCommandResult {
   drift?: SchemaDrift
   /** `push`: whether the schema was synced. */
   pushed?: boolean
+  /** `squash`: the new migration name + the ones it replaced. */
+  squashed?: {name: string; replaced: string[]} | null
 }
 
 export async function runDbCommand(
@@ -202,6 +205,14 @@ export async function runDbCommand(
       orm.connect({connectionString})
       await orm.syncSchema()
       return {command: 'push', pushed: true}
+    }
+    case 'squash': {
+      // Connect only if a DB is available, so the ledger can be reconciled.
+      const conn = process.env.DATABASE_URL
+        ? orm.connect({connectionString: process.env.DATABASE_URL})
+        : undefined
+      const squashed = await runner.squash(loadMigrationFile, options.name ?? 'squashed', conn)
+      return {command: 'squash', squashed}
     }
     case 'deploy': {
       const connectionString = process.env.DATABASE_URL

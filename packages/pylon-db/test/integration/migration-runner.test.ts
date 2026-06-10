@@ -139,4 +139,52 @@ describe.skipIf(!runDb)('MigrationRunner.apply — tracked + idempotent (Postgre
 
     await expect(runner.apply(load, db)).rejects.toThrow(/modified after it was applied/i)
   })
+
+  it('squash collapses an all-applied schema history and reconciles the ledger', async () => {
+    await db.kysely.schema.dropTable('runner_widget').ifExists().cascade().execute()
+    await db.kysely.schema.dropTable('_pylon_migrations').ifExists().cascade().execute()
+    const sdir = await fs.mkdtemp(path.join(os.tmpdir(), 'pylon-mig-sq-'))
+
+    const idField = {
+      name: 'id',
+      type: {kind: 'scalar' as const, name: 'ID', nullable: false},
+      exposed: true,
+      column: {name: 'id', sqlType: 'bigint' as const, primaryKey: true, autoIncrement: true, unique: false, nullable: false}
+    }
+    const labelField = {
+      name: 'label',
+      type: {kind: 'scalar' as const, name: 'String', nullable: false},
+      exposed: true,
+      column: {name: 'label', sqlType: 'text' as const, primaryKey: false, autoIncrement: false, unique: false, nullable: false}
+    }
+    const snap = (fields: unknown[]): Snapshot => ({
+      version: 1,
+      entities: {
+        RunnerWidget: {name: 'RunnerWidget', table: 'runner_widget', abstract: false, primaryKey: 'id', implements: [], fields: fields as never}
+      }
+    })
+
+    let clock = 0
+    let cur = snap([idField])
+    const runner = new MigrationRunner({dir: sdir, current: () => cur, now: () => `s${++clock}`})
+
+    await runner.generate('init', load)
+    await runner.apply(load, db)
+    cur = snap([idField, labelField])
+    await runner.generate('label', load)
+    await runner.apply(load, db)
+
+    const res = await runner.squash(load, 'sq', db)
+    expect(res!.replaced).toEqual(['s1_init', 's2_label'])
+    expect(await runner.list()).toEqual([res!.name])
+
+    // ledger reconciled: the squashed migration is recorded applied, so a fresh
+    // apply is a no-op (it does NOT try to re-create the existing tables).
+    expect(await runner.apply(load, db)).toEqual([])
+    const status = await runner.status(load, db)
+    expect(status.unapplied).toEqual([])
+    expect(status.pendingChanges).toEqual([])
+
+    await fs.rm(sdir, {recursive: true, force: true})
+  })
 })

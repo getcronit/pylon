@@ -307,6 +307,30 @@ db.command('resolve')
     }
   })
 
+db.command('squash')
+  .description('Collapse the schema migration history into a single migration (rewrites history)')
+  .argument('[name]', 'Name for the squashed migration', 'squashed')
+  .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
+  .option('-d, --dir <path>', 'Migrations directory', './migrations')
+  .action(async (name, options) => {
+    try {
+      const {squashed} = await runDbCommand({
+        command: 'squash',
+        name,
+        models: options.models,
+        dir: options.dir
+      })
+      if (!squashed) consola.info('No migrations to squash')
+      else
+        consola.success(
+          `Squashed ${squashed.replaced.length} migration(s) into ${squashed.name}`
+        )
+    } catch (error) {
+      consola.error(error)
+      process.exit(1)
+    }
+  })
+
 db.command('deploy')
   .description('Apply pending migrations for production (refuses on uncaptured changes / tampering)')
   .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')

@@ -402,6 +402,74 @@ export class MigrationRunner {
     await sql`DELETE FROM ${sql.ref(APPLIED_TABLE)} WHERE name = ${name}`.execute(db.kysely)
   }
 
+  /**
+   * Collapse the whole schema history into a single migration. Refuses if any
+   * migration carries a data op (`runSql`/`run` can't be folded into a schema
+   * diff) or if the history is only partially applied. When a DB is given and
+   * everything was applied, the ledger is reconciled (old rows → the squashed
+   * one) so applied environments stay consistent; the original files are removed.
+   * History rewrite — safe only before the migrations are shared/deployed.
+   */
+  async squash(
+    load: MigrationLoader,
+    name = 'squashed',
+    db?: Database
+  ): Promise<{name: string; replaced: string[]} | null> {
+    const history = await this.loadAll(load)
+    if (history.length === 0) return null
+
+    for (const {name: n, mod} of history) {
+      for (const op of mod.operations) {
+        if (op.changes === undefined) {
+          throw new Error(
+            `Cannot squash: "${n}" contains a runSql/run operation that can't be folded ` +
+              `into a schema diff. Squash schema-only history, or do it by hand.`
+          )
+        }
+      }
+    }
+
+    const replaced = history.map(h => h.name)
+    if (db) {
+      const applied = await this.appliedMigrations(db)
+      const appliedCount = replaced.filter(r => applied.has(r)).length
+      if (appliedCount !== 0 && appliedCount !== replaced.length) {
+        throw new Error(
+          'Cannot squash: the history is partially applied. Apply or roll back fully first.'
+        )
+      }
+    }
+
+    let folded: PhysicalSchema = {}
+    for (const {mod} of history) {
+      for (const op of mod.operations) folded = applyChanges(folded, op.changes ?? [])
+    }
+    const changes = diffSchema({}, folded)
+    const {unsupported} = renderChanges(changes)
+    const squashName = `${this.now()}_${name}`
+
+    await fs.writeFile(this.filePath(squashName), fileTemplate(changes, unsupported))
+    for (const r of replaced) await fs.rm(this.filePath(r), {force: true})
+
+    // If the originals were all applied, the DB already has this schema — record
+    // the squashed migration as applied in their place.
+    if (db) {
+      const applied = await this.appliedMigrations(db)
+      if (replaced.length > 0 && replaced.every(r => applied.has(r))) {
+        const mod = await load(this.filePath(squashName))
+        await db.kysely.transaction().execute(async trx => {
+          for (const r of replaced) {
+            await sql`DELETE FROM ${sql.ref(APPLIED_TABLE)} WHERE name = ${r}`.execute(trx)
+          }
+          await sql`INSERT INTO ${sql.ref(APPLIED_TABLE)} (name, checksum) VALUES (${squashName}, ${migrationChecksum(
+            mod
+          )})`.execute(trx)
+        })
+      }
+    }
+    return {name: squashName, replaced}
+  }
+
   /** Applied migrations whose file no longer matches their stored checksum. */
   async integrityErrors(load: MigrationLoader, db: Database = getDatabase()): Promise<string[]> {
     const applied = await this.appliedMigrations(db)
