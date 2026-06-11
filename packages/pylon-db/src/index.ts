@@ -52,7 +52,7 @@ export {
   type PaginateArgs
 } from './manager.js'
 export {syncSchema, dropTables} from './schema-sync.js'
-export {useDatabase, type UseDatabaseOptions, type DatabasePlugin} from './plugin.js'
+export {useDatabase, type UseDatabaseOptions} from './plugin.js'
 export {
   runWithAppContext,
   getAppContext,

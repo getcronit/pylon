@@ -15,10 +15,12 @@
  *   (`extensions.code = 'BAD_USER_INPUT'` + structured issues) so it ISN'T masked
  *   to "Unexpected error" — clients get the field-level issues to translate.
  *
- * Decoupled: returns a plain object that's structurally a Pylon `Plugin`. The
- * only boundary-specific import is `graphql` (an optional peer present in every
- * Pylon app); the ORM core stays graphql-free.
+ * Returns a real Pylon `Plugin` — `@getcronit/pylon` is a TYPE-ONLY import here
+ * (an optional peer; erased at runtime), so the conformance is checked at compile
+ * time without coupling the ORM core to the framework at runtime. The CLI/build
+ * use the rest of pylon-db without ever importing this plugin.
  */
+import type {Plugin} from '@getcronit/pylon'
 import {GraphQLError} from 'graphql'
 import {runWithAppContext} from './app-context.js'
 import {connect, databaseForKysely, getDatabase} from './database.js'
@@ -65,18 +67,7 @@ export interface UseDatabaseOptions {
   features?: () => readonly string[] | undefined
 }
 
-export interface DatabasePlugin {
-  setup(): void
-  middleware(c: unknown, next: () => Promise<void>): Promise<void>
-  onExecute?(): {onExecuteDone(payload: ExecuteDonePayload): void} | void
-}
-
-interface ExecuteDonePayload {
-  result: {errors?: readonly GraphQLError[]} & Record<string, unknown>
-  setResult(result: unknown): void
-}
-
-export function useDatabase(options: UseDatabaseOptions = {}): DatabasePlugin {
+export function useDatabase(options: UseDatabaseOptions = {}): Plugin {
   const mapper =
     options.validationErrors === false
       ? null
@@ -103,7 +94,12 @@ export function useDatabase(options: UseDatabaseOptions = {}): DatabasePlugin {
     onExecute() {
       return {
         onExecuteDone({result, setResult}) {
-          const errors = result.errors
+          // `result` may be an async iterator (streamed/incremental delivery) —
+          // only single execution results carry `errors` to remap.
+          if (result == null || typeof (result as any)[Symbol.asyncIterator] === 'function') {
+            return
+          }
+          const errors = (result as {errors?: readonly GraphQLError[]}).errors
           if (!Array.isArray(errors) || errors.length === 0) return
           let changed = false
           const mapped = errors.map(err => {

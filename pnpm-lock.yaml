@@ -345,6 +345,9 @@ importers:
         specifier: ^8.13.1
         version: 8.18.0
     devDependencies:
+      '@getcronit/pylon':
+        specifier: workspace:*
+        version: link:../pylon
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.33
