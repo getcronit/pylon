@@ -19,6 +19,7 @@
  * cascade, so the constraint is not separately re-created on rollback.
  */
 import {columnDDL, sqlTypeDDL, toDDL} from './ddl.js'
+import {postgres} from './dialect.js'
 import {joinColumn, joinTableName, tableSpecOf} from './ir.js'
 import type {
   ColumnSpec,
@@ -410,8 +411,7 @@ function dropForeignKeySQL(fk: ForeignKeyChange): string {
 
 function addIndexSQL(ix: IndexSpec): string {
   const cols = ix.columns.map(c => `"${c}"`).join(', ')
-  const using = ix.method && ix.method !== 'btree' ? ` USING ${ix.method}` : ''
-  return `CREATE ${ix.unique ? 'UNIQUE ' : ''}INDEX "${ix.name}" ON "${ix.table}"${using} (${cols})`
+  return `CREATE ${ix.unique ? 'UNIQUE ' : ''}INDEX "${ix.name}" ON "${ix.table}"${postgres.indexMethod(ix.method)} (${cols})`
 }
 
 function dropIndexSQL(ix: IndexSpec): string {

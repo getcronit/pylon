@@ -346,6 +346,9 @@ export class MigrationRunner {
    * `migrate`/`rollback` processes can't run concurrently. The lock lives on a
    * single pinned connection; the migrations themselves run on their own
    * (transaction) connections while it's held.
+   *
+   * Postgres-specific (dialect override point): `pg_advisory_lock`. A non-PG
+   * adapter would serialize migrations with its own mechanism (or a lock table).
    */
   private async withLock<T>(db: Database, fn: () => Promise<T>): Promise<T> {
     return db.kysely.connection().execute(async lockConn => {

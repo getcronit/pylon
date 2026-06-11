@@ -106,6 +106,7 @@ export function uuid(options: NullableOpts): string | null
 export function uuid(options?: FieldOptions): string
 export function uuid(options: FieldOptions = {}): string | null {
   const base: Partial<ColumnDefinition> = {}
+  // Postgres-specific (dialect override point): server-side uuid default.
   if (options.primaryKey) base.defaultSql = 'gen_random_uuid()'
   return field('uuid', base, options) as string | null
 }

@@ -9,15 +9,16 @@
  * `CREATE TABLE` here is always columns-only.
  */
 import type {ColumnSpec, TableSpec} from './ir.js'
+import {postgres} from './dialect.js'
 
 /** The `"name" type CONSTRAINTS` fragment for a column, reused by CREATE/ADD. */
 export function columnDDL(c: ColumnSpec): string {
   const parts = [`"${c.name}"`]
   if (c.primaryKey && c.autoIncrement) {
-    parts.push('bigint', 'PRIMARY KEY', 'GENERATED ALWAYS AS IDENTITY')
+    parts.push(postgres.autoIncrementPrimaryKey())
   } else if (c.generatedAs) {
     // A stored generated column (e.g. a tsvector derived from text columns).
-    parts.push(sqlTypeDDL(c), `GENERATED ALWAYS AS (${c.generatedAs}) STORED`)
+    parts.push(sqlTypeDDL(c), postgres.generatedColumn(c.generatedAs))
   } else {
     parts.push(sqlTypeDDL(c))
     if (c.primaryKey) parts.push('PRIMARY KEY')
@@ -31,15 +32,7 @@ export function columnDDL(c: ColumnSpec): string {
 
 /** The bare SQL type (varchar length / numeric precision+scale; `[]` for arrays). */
 export function sqlTypeDDL(c: ColumnSpec): string {
-  let base: string = c.sqlType
-  if (c.sqlType === 'varchar' && c.length) base = `varchar(${c.length})`
-  else if (c.sqlType === 'numeric' && c.precision != null) {
-    base =
-      c.scale != null
-        ? `numeric(${c.precision}, ${c.scale})`
-        : `numeric(${c.precision})`
-  }
-  return c.array ? `${base}[]` : base
+  return postgres.columnType(c)
 }
 
 /** Project a table spec to a columns-only `CREATE TABLE` statement. */

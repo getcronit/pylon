@@ -11,7 +11,11 @@ import {
 
 type ColumnType = string | Expression<any>
 
-function columnType(col: ColumnDefinition): ColumnType {
+// Postgres-specific (dialect override point). This is the `db push` (kysely)
+// type renderer — the runtime parallel to the migration DDL renderer in
+// `@getcronit/pylon-ir` (`dialect.ts`/`ddl.ts`). A non-Postgres adapter would
+// supply its own mapping here (`serial`/`bigserial`, `text[]`, `tsvector`).
+function pgColumnType(col: ColumnDefinition): ColumnType {
   if (col.array) {
     const base = col.sqlType === 'varchar' ? `varchar(${col.length ?? 255})` : col.sqlType
     return sql.raw(`${base}[]`) // kysely needs a raw expression for array types
@@ -61,7 +65,7 @@ async function createTable(db: Database, def: ModelDefinition): Promise<void> {
   for (const col of def.columns) {
     builder = builder.addColumn(
       col.columnName,
-      columnType(col) as any,
+      pgColumnType(col) as any,
       build => {
         let c = build
         // A stored generated column (e.g. a tsvector) owns its value entirely —
@@ -134,11 +138,11 @@ function joinTablePlans(models: ModelDefinition[]): JoinTablePlan[] {
         joinTable,
         ownerTable: def.tableName,
         ownerColumn: rel.sourceColumn ?? joinColumn(def.tableName, ownerPk.columnName),
-        ownerType: columnType({...ownerPk, autoIncrement: false}),
+        ownerType: pgColumnType({...ownerPk, autoIncrement: false}),
         ownerRef: `${def.tableName}.${ownerPk.columnName}`,
         targetTable: targetDef.tableName,
         targetColumn: rel.targetColumn ?? joinColumn(targetDef.tableName, targetPk.columnName),
-        targetType: columnType({...targetPk, autoIncrement: false}),
+        targetType: pgColumnType({...targetPk, autoIncrement: false}),
         targetRef: `${targetDef.tableName}.${targetPk.columnName}`
       })
     }

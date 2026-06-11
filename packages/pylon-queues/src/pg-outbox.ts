@@ -50,7 +50,9 @@ export async function createPgOutbox(): Promise<OutboxDriver> {
     },
 
     async claim(limit: number): Promise<OutboxRow[]> {
-      // Atomic claim+remove of committed rows; SKIP LOCKED lets relays run in parallel.
+      // Atomic claim+remove of committed rows; SKIP LOCKED lets relays run in
+      // parallel. Postgres-specific (dialect override point): FOR UPDATE SKIP
+      // LOCKED (also MySQL 8). A different store would need its own claim scheme.
       const rows = (await k()
         .deleteFrom(TABLE)
         .where('id', 'in', (eb: any) =>
