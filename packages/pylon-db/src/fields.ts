@@ -73,7 +73,7 @@ class FieldBuilder {
   constructor(
     readonly sqlType: SqlType,
     readonly base: Partial<ColumnDefinition>,
-    readonly options: FieldOptions & {length?: number; enumValues?: readonly string[]; array?: boolean}
+    readonly options: FieldOptions & {length?: number; enumValues?: readonly string[]; enumName?: string; array?: boolean}
   ) {}
 }
 
@@ -91,7 +91,7 @@ class RelationBuilder {
 function field(
   sqlType: SqlType,
   base: Partial<ColumnDefinition>,
-  options: FieldOptions & {length?: number; enumValues?: readonly string[]; array?: boolean}
+  options: FieldOptions & {length?: number; enumValues?: readonly string[]; enumName?: string; array?: boolean}
 ): unknown {
   return new FieldBuilder(sqlType, base, options)
 }
@@ -164,24 +164,40 @@ export function json<T = unknown>(options: FieldOptions = {}): T | null {
   return field('jsonb', {}, options) as T | null
 }
 
+/** Options for {@link enumColumn} — a `name` pins the generated GraphQL enum. */
+export interface EnumOptions extends FieldOptions {
+  /**
+   * GraphQL enum type name. Defaults to `<Model><Field>` (e.g. `UserRole`),
+   * which matches Prisma's convention and lets a named TS union of the same
+   * name merge cleanly. Set it to bind to an existing enum type name.
+   */
+  name?: string
+}
+export interface NullableEnumOptions extends EnumOptions {
+  nullable: true
+}
+
 /**
  * A constrained string column: stored as `text` with a `CHECK (… IN (…))`
- * constraint (not a native Postgres enum type — those are painful to migrate).
- * Typed as the union of the given values.
+ * constraint (not a native Postgres enum type — those are painful to migrate),
+ * and surfaced in GraphQL as a real `enum`. Typed as the union of the values.
  */
 export function enumColumn<const V extends string>(
   values: readonly V[],
-  options: NullableOpts
+  options: NullableEnumOptions
 ): V | null
 export function enumColumn<const V extends string>(
   values: readonly V[],
-  options?: FieldOptions
+  options?: EnumOptions
 ): V
 export function enumColumn<const V extends string>(
   values: readonly V[],
-  options: FieldOptions = {}
+  options: EnumOptions = {}
 ): V | null {
-  return field('text', {}, {...options, enumValues: values}) as V | null
+  const {name, ...rest} = options
+  return field('text', {}, {...rest, enumValues: values, enumName: name}) as
+    | V
+    | null
 }
 
 /**
@@ -412,6 +428,7 @@ function buildColumn(key: string, b: FieldBuilder): ColumnDefinition {
     pattern: b.options.pattern,
     email: b.options.email,
     enumValues: b.options.enumValues,
+    enumName: b.options.enumName,
     validate: b.options.validate,
     schema: b.options.schema,
     array: b.options.array

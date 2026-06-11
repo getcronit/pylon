@@ -7,7 +7,7 @@
  * contributor *intent*: the checker knows a field's type, the ORM knows whether
  * it is persisted/hidden. They merge by name into one `Field`.
  */
-import type {Entity, Field, PylonIR} from './ir.js'
+import type {Entity, Field, PylonIR, TypeRef} from './ir.js'
 import {emptyIR} from './ir.js'
 
 /** Merge contributor `Field`s into base `Field`s by name (later wins per key). */
@@ -64,4 +64,36 @@ export function mergeIR(...parts: Array<Partial<PylonIR>>): PylonIR {
     delete out.objects[name]
   }
   return out
+}
+
+/**
+ * Drop enum types no field/argument/return references. When two contributors
+ * describe the same field (e.g. the type-checker infers an enum from a string
+ * union while the ORM names the same enum authoritatively), the loser's enum is
+ * left dangling after the field reconciles. An unreferenced GraphQL enum is dead
+ * weight — and at scale, a source of name collisions — so prune it. Only enums
+ * are pruned; everything else is left intact.
+ */
+export function pruneUnreferencedEnums(ir: PylonIR): PylonIR {
+  const referenced = new Set<string>()
+  const visit = (t?: TypeRef): void => {
+    if (!t) return
+    if (t.kind === 'ref') referenced.add(t.name)
+    else if (t.kind === 'list') visit(t.of)
+  }
+  const visitFields = (fields: Field[]): void => {
+    for (const f of fields) visit(f.type)
+  }
+  for (const e of Object.values(ir.entities)) visitFields(e.fields)
+  for (const o of Object.values(ir.objects)) visitFields(o.fields)
+  for (const i of Object.values(ir.interfaces)) visitFields(i.fields)
+  for (const inp of Object.values(ir.inputs)) visitFields(inp.fields)
+  for (const op of ir.operations) {
+    for (const a of op.args) visit(a.type)
+    visit(op.returns)
+  }
+  const enums = Object.fromEntries(
+    Object.entries(ir.enums).filter(([name]) => referenced.has(name))
+  )
+  return {...ir, enums}
 }

@@ -14,6 +14,10 @@ import {fileURLToPath} from 'node:url'
 import {describe, expect, it, beforeAll} from 'vitest'
 // Import Pylon's real schema builder from source (no public export exists).
 import {SchemaBuilder} from '../../../pylon-dev/src/builder/schema/builder'
+// Execute the fixture's models so the ORM registry is populated, then we can
+// build with the real ORM IR contribution (`pylon build`'s actual path).
+import './fixtures/schema-app'
+import {toIR} from '../../src/index'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const fixture = path.resolve(dir, 'fixtures/schema-app.ts')
@@ -51,6 +55,7 @@ describe('ORM ↔ GraphQL schema derivation (real SchemaBuilder)', () => {
     expect(typeDefs).toMatch(/type Tag\b/)
     expect(typeDefs).toMatch(/tags:\s*\[Tag[!]?\]/)
   })
+
 
   it('[#43] derives a nullable ref resolver (T | null) as a NULLABLE field', () => {
     // `maybeUser(): Promise<User | null>` must be `maybeUser: User` (no `!`).
@@ -100,5 +105,30 @@ describe('ORM ↔ GraphQL schema derivation (real SchemaBuilder)', () => {
         `resolver "${key}" must be a declared type in the SDL`
       ).toMatch(new RegExp(`\\b(type|interface|union|enum|input|scalar) ${key}\\b`))
     }
+  })
+})
+
+// The REAL `pylon build` path: parser IR merged with the ORM's `contributeIR`
+// (this is where enum columns + nullable refs resolve, and orphan enums prune).
+describe('merged schema (parser IR + ORM contributeIR)', () => {
+  let sdl: string
+  beforeAll(() => {
+    sdl = new SchemaBuilder(fixture).build({contributeIR: toIR()}).typeDefs
+  })
+
+  it('derives an enumColumn as a GraphQL enum named <Model><Field>, not String', () => {
+    expect(sdl).toMatch(/role:\s*UserRole/)
+    expect(sdl).toMatch(/enum UserRole\b/)
+    expect(sdl).not.toMatch(/role:\s*String/)
+  })
+
+  it('prunes the type-checker orphan enum left after the field reconciles', () => {
+    expect(sdl).not.toMatch(/enum Role\b/)
+    expect(sdl).not.toMatch(/enum ADMIN_USER\b/)
+  })
+
+  it('keeps the ORM intent for scalar/relation fields (id: ID, m2m list)', () => {
+    expect(sdl).toMatch(/id:\s*ID!/)
+    expect(sdl).toMatch(/tags:\s*\[Tag[!]?\]/)
   })
 })

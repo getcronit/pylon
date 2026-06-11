@@ -1,5 +1,5 @@
 import ts from 'typescript'
-import {mergeIR, toSDL, type PylonIR} from '@getcronit/pylon-ir'
+import {mergeIR, pruneUnreferencedEnums, toSDL, type PylonIR} from '@getcronit/pylon-ir'
 import {SchemaParser} from './schema-parser'
 import path from 'path'
 
@@ -150,7 +150,7 @@ export class SchemaBuilder {
     // Default path (no contribution) is byte-for-byte unchanged. With an
     // authoritative contribution we render the schema from the merged IR.
     const ir = options.contributeIR
-      ? mergeIR(parser.toIR(), options.contributeIR)
+      ? pruneUnreferencedEnums(mergeIR(parser.toIR(), options.contributeIR))
       : undefined
 
     return {

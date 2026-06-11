@@ -1,5 +1,12 @@
 import {describe, expect, it} from 'vitest'
-import {emptyIR, mergeIR, toSDL, type Entity, type ObjectType} from '../src/index'
+import {
+  emptyIR,
+  mergeIR,
+  pruneUnreferencedEnums,
+  toSDL,
+  type Entity,
+  type ObjectType
+} from '../src/index'
 
 const userObject: ObjectType = {
   name: 'User',
@@ -63,5 +70,46 @@ describe('mergeIR — computed fields (model methods) fold into the entity', () 
 
   it('renders the computed field in SDL', () => {
     expect(toSDL(merged)).toMatch(/displayName: String!/)
+  })
+})
+
+describe('pruneUnreferencedEnums', () => {
+  it('drops enums no field/arg/return references, keeps referenced ones', () => {
+    const ir = emptyIR()
+    ir.enums.UserRole = {name: 'UserRole', values: ['ADMIN', 'USER']}
+    ir.enums.Orphan = {name: 'Orphan', values: ['A', 'B']}
+    ir.entities.User = {
+      name: 'User',
+      table: 'user',
+      abstract: false,
+      implements: [],
+      fields: [
+        {name: 'role', type: {kind: 'ref', name: 'UserRole', nullable: false}, exposed: true}
+      ]
+    }
+    const pruned = pruneUnreferencedEnums(ir)
+    expect(pruned.enums.UserRole).toBeDefined()
+    expect(pruned.enums.Orphan).toBeUndefined()
+  })
+
+  it('keeps an enum referenced only through a list type or an operation arg', () => {
+    const ir = emptyIR()
+    ir.enums.Tag = {name: 'Tag', values: ['A']}
+    ir.enums.Status = {name: 'Status', values: ['OPEN']}
+    ir.objects.Post = {
+      name: 'Post',
+      fields: [
+        {name: 'tags', type: {kind: 'list', of: {kind: 'ref', name: 'Tag', nullable: false}, nullable: false}, exposed: true}
+      ]
+    }
+    ir.operations.push({
+      root: 'Query',
+      name: 'byStatus',
+      args: [{name: 'status', type: {kind: 'ref', name: 'Status', nullable: false}, exposed: true}],
+      returns: {kind: 'scalar', name: 'Int', nullable: false}
+    })
+    const pruned = pruneUnreferencedEnums(ir)
+    expect(pruned.enums.Tag).toBeDefined()
+    expect(pruned.enums.Status).toBeDefined()
   })
 })

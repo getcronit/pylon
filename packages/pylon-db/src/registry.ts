@@ -52,6 +52,8 @@ export interface ColumnDefinition {
   email?: boolean
   /** Allowed values (enum membership). */
   enumValues?: readonly string[]
+  /** GraphQL enum type name (defaults to `<Model><Field>`). Persisted as text. */
+  enumName?: string
   /** Custom rule: return `true`, or an error message string. */
   validate?: (value: unknown) => true | string
   /**
