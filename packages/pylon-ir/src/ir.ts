@@ -138,14 +138,26 @@ export type PhysicalSchema = Record<string, PhysicalTable>
 
 /** How a field relates to another entity (entities only). */
 export interface RelationSpec {
-  kind: 'belongsTo' | 'hasMany'
+  kind: 'belongsTo' | 'hasMany' | 'manyToMany'
   /** Target entity name. */
   target: string
   /** belongsTo: the local FK scalar field (e.g. `authorId`). */
   fkField?: string
   /** hasMany: the FK field on the target pointing back (e.g. `authorId`). */
   targetFkField?: string
+  /** manyToMany: explicit join-table name (default: the two tables, sorted). */
+  through?: string
   onDelete?: OnDelete
+}
+
+/** Join-table name for a many-to-many (deterministic so both sides agree). */
+export function joinTableName(aTable: string, bTable: string, through?: string): string {
+  return through ?? [aTable, bTable].sort().join('_')
+}
+
+/** Join-table FK column referencing `table`'s primary key (e.g. post.id → post_id). */
+export function joinColumn(table: string, pkColumn: string): string {
+  return `${table}_${pkColumn}`
 }
 
 /** A single member of an entity or object type. */

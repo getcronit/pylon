@@ -47,6 +47,11 @@ describe('ORM ↔ GraphQL schema derivation (real SchemaBuilder)', () => {
     expect(typeDefs).toMatch(/author:\s*User/)
   })
 
+  it('derives a manyToMany relation as a LIST of the target type', () => {
+    expect(typeDefs).toMatch(/type Tag\b/)
+    expect(typeDefs).toMatch(/tags:\s*\[Tag[!]?\]/)
+  })
+
   it('excludes $-prefixed hidden columns from the schema', () => {
     expect(typeDefs).not.toMatch(/passwordHash/i)
   })

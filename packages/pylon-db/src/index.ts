@@ -19,12 +19,14 @@ export {
   array,
   foreignKey,
   hasMany,
+  manyToMany,
   type ModelOptions,
   type FieldOptions,
   type ForeignKeyOptions,
-  type HasManyOptions
+  type HasManyOptions,
+  type ManyToManyOptions
 } from './fields.js'
-export {RelatedManager, type Relation} from './relations.js'
+export {RelatedManager, ManyToManyManager, type Relation} from './relations.js'
 export {
   Database,
   connect,
@@ -156,7 +158,10 @@ export function manager<T extends object>(ctor: ModelCtor<T>): ManagerType<T> {
 // ── Namespaced public API (recommended) ──────────────────────────────────────
 import {Model as ModelClass} from './model.js'
 import * as fields from './fields.js'
-import {RelatedManager as RelatedManagerClass} from './relations.js'
+import {
+  ManyToManyManager as ManyToManyManagerClass,
+  RelatedManager as RelatedManagerClass
+} from './relations.js'
 import * as database from './database.js'
 import * as managerApi from './manager.js'
 import * as schemaSync from './schema-sync.js'
@@ -196,7 +201,9 @@ const modelBuilders = {
   Array: fields.array,
   ForeignKey: fields.foreignKey,
   HasMany: fields.hasMany,
-  RelatedManager: RelatedManagerClass
+  ManyToMany: fields.manyToMany,
+  RelatedManager: RelatedManagerClass,
+  ManyToManyManager: ManyToManyManagerClass
 }
 
 export const models = {

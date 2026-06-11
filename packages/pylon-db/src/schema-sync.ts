@@ -1,3 +1,4 @@
+import {joinColumn, joinTableName} from '@getcronit/pylon-ir'
 import {sql, type Expression} from 'kysely'
 import {Database, getDatabase} from './database.js'
 import {
@@ -86,6 +87,70 @@ async function createTable(db: Database, def: ModelDefinition): Promise<void> {
   await builder.execute()
 }
 
+/** The synthesized join table backing one `manyToMany` relation, or null. */
+interface JoinTablePlan {
+  joinTable: string
+  ownerTable: string
+  ownerColumn: string
+  ownerType: ColumnType
+  ownerRef: string
+  targetTable: string
+  targetColumn: string
+  targetType: ColumnType
+  targetRef: string
+}
+
+/** Plan the unique set of m2m join tables across `models` (deduped by name). */
+function joinTablePlans(models: ModelDefinition[]): JoinTablePlan[] {
+  const byCtor = new Map(models.map(m => [m.ctor, m]))
+  const seen = new Set<string>()
+  const plans: JoinTablePlan[] = []
+  for (const def of models) {
+    const ownerPk = def.primaryKey
+    if (!ownerPk) continue
+    for (const rel of def.relations) {
+      if (rel.kind !== 'manyToMany') continue
+      const targetDef = byCtor.get(rel.target()) ?? getModelDefinition(rel.target())
+      const targetPk = targetDef?.primaryKey
+      if (!targetDef || !targetPk) continue
+      const joinTable = joinTableName(def.tableName, targetDef.tableName, rel.through)
+      if (seen.has(joinTable)) continue
+      seen.add(joinTable)
+      // The join FK columns mirror the referenced PK's *stored* type (a
+      // bigserial PK is stored as bigint, so strip auto-increment).
+      plans.push({
+        joinTable,
+        ownerTable: def.tableName,
+        ownerColumn: joinColumn(def.tableName, ownerPk.columnName),
+        ownerType: columnType({...ownerPk, autoIncrement: false}),
+        ownerRef: `${def.tableName}.${ownerPk.columnName}`,
+        targetTable: targetDef.tableName,
+        targetColumn: joinColumn(targetDef.tableName, targetPk.columnName),
+        targetType: columnType({...targetPk, autoIncrement: false}),
+        targetRef: `${targetDef.tableName}.${targetPk.columnName}`
+      })
+    }
+  }
+  return plans
+}
+
+async function createJoinTable(db: Database, p: JoinTablePlan): Promise<void> {
+  await db.kysely.schema
+    .createTable(p.joinTable)
+    .ifNotExists()
+    .addColumn(p.ownerColumn, p.ownerType as any, c =>
+      c.notNull().references(p.ownerRef).onDelete('cascade')
+    )
+    .addColumn(p.targetColumn, p.targetType as any, c =>
+      c.notNull().references(p.targetRef).onDelete('cascade')
+    )
+    .addUniqueConstraint(`${p.joinTable}_${p.ownerColumn}_${p.targetColumn}_key`, [
+      p.ownerColumn,
+      p.targetColumn
+    ])
+    .execute()
+}
+
 /**
  * Order models so that a table is created after the tables it references via a
  * belongsTo foreign key (parents before children). Cycles and self-references
@@ -126,12 +191,19 @@ export async function syncSchema(
   for (const def of orderByDependencies(models)) {
     await createTable(db, def)
   }
+  // m2m join tables reference both sides, so create them after all base tables.
+  for (const plan of joinTablePlans(models)) {
+    await createJoinTable(db, plan)
+  }
 }
 
 export async function dropTables(
   models: ModelDefinition[] = allModels()
 ): Promise<void> {
   const db = getDatabase()
+  for (const plan of joinTablePlans(models)) {
+    await db.kysely.schema.dropTable(plan.joinTable).ifExists().cascade().execute()
+  }
   for (const def of models) {
     await db.kysely.schema.dropTable(def.tableName).ifExists().cascade().execute()
   }

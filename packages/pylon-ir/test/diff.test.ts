@@ -368,3 +368,56 @@ describe('migration engine — renameColumn (authoring-only, never inferred)', (
     ])
   })
 })
+
+describe('many-to-many join tables', () => {
+  const m2mField = (name: string, target: string, through?: string) => ({
+    name,
+    type: {
+      kind: 'list' as const,
+      of: {kind: 'ref' as const, name: target, nullable: false},
+      nullable: false
+    },
+    exposed: true,
+    relation: {kind: 'manyToMany' as const, target, through}
+  })
+  const ent = (name: string, fields: Entity['fields']): Entity => ({
+    name,
+    table: name.toLowerCase(),
+    abstract: false,
+    primaryKey: 'id',
+    implements: [],
+    fields
+  })
+  const post = () => ent('Post', [idField, m2mField('tags', 'Tag')])
+  const tag = () => ent('Tag', [idField, m2mField('posts', 'Post')])
+
+  it('synthesizes one shared join table from both relation sides', () => {
+    const schema = physicalSchemaOf({Post: post(), Tag: tag()})
+    const jt = schema.post_tag
+    expect(jt).toBeDefined()
+    expect(jt.columns.map(c => c.name)).toEqual(['post_id', 'tag_id'])
+    expect(jt.columns.every(c => !c.nullable && c.sqlType === 'bigint')).toBe(true)
+    expect(jt.foreignKeys?.map(f => f.refTable).sort()).toEqual(['post', 'tag'])
+    expect(jt.foreignKeys?.every(f => f.onDelete === 'cascade')).toBe(true)
+    expect(jt.indexes?.[0]).toMatchObject({
+      columns: ['post_id', 'tag_id'],
+      unique: true
+    })
+  })
+
+  it('emits a CREATE TABLE for the join table in a migration', () => {
+    const m = makeMigration({}, {Post: post(), Tag: tag()})
+    expect(m.up.some(s => /CREATE TABLE "post_tag"/.test(s))).toBe(true)
+    // synthesized exactly once even though both sides declare the relation
+    expect(m.up.filter(s => /CREATE TABLE "post_tag"/.test(s))).toHaveLength(1)
+  })
+
+  it('honors an explicit `through` table name', () => {
+    const schema = physicalSchemaOf({
+      Post: ent('Post', [idField, m2mField('tags', 'Tag', 'tagging')]),
+      Tag: ent('Tag', [idField, m2mField('posts', 'Post', 'tagging')])
+    })
+    expect(schema.tagging).toBeDefined()
+    expect(schema.post_tag).toBeUndefined()
+  })
+})

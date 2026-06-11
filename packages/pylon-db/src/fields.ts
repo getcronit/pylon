@@ -1,5 +1,5 @@
 import {createManager, ModelCtor} from './manager.js'
-import {loadBelongsTo, RelatedManager} from './relations.js'
+import {loadBelongsTo, ManyToManyManager, RelatedManager} from './relations.js'
 import {
   ColumnDefinition,
   finalizeModel,
@@ -80,9 +80,11 @@ class FieldBuilder {
 /** Internal descriptor produced by a relation builder. */
 class RelationBuilder {
   constructor(
-    readonly kind: 'belongsTo' | 'hasMany',
+    readonly kind: 'belongsTo' | 'hasMany' | 'manyToMany',
     readonly target: () => Function,
-    readonly options: ForeignKeyOptions & HasManyOptions & {length?: number}
+    readonly options: ForeignKeyOptions &
+      HasManyOptions &
+      ManyToManyOptions & {length?: number}
   ) {}
 }
 
@@ -268,8 +270,40 @@ export function hasMany<R extends object>(
   return new RelationBuilder(
     'hasMany',
     target as () => Function,
-    options as ForeignKeyOptions & HasManyOptions
+    options as ForeignKeyOptions & HasManyOptions & ManyToManyOptions
   ) as unknown as RelatedManager<R>
+}
+
+export interface ManyToManyOptions {
+  /**
+   * Explicit join-table name. Defaults to both tables sorted and joined with
+   * `_` (e.g. `post` + `tag` → `post_tag`), so both relation sides agree
+   * without coordination.
+   */
+  through?: string
+}
+
+/**
+ * Many-to-many. Declare it on *both* sides; a join table is synthesized (two
+ * FK columns + a composite UNIQUE index) and shared by both. Resolves to a
+ * {@link ManyToManyManager} scoped to the parent row.
+ *
+ * ```ts
+ * // on Post
+ * tags = manyToMany(() => Tag)
+ * // on Tag
+ * posts = manyToMany(() => Post)
+ * ```
+ */
+export function manyToMany<R extends object>(
+  target: () => ModelCtor<R>,
+  options: ManyToManyOptions = {}
+): ManyToManyManager<R> {
+  return new RelationBuilder(
+    'manyToMany',
+    target as () => Function,
+    options as ForeignKeyOptions & HasManyOptions & ManyToManyOptions
+  ) as unknown as ManyToManyManager<R>
 }
 
 // ===========================================================================
@@ -428,6 +462,16 @@ export function model(options: ModelOptions = {}): ClassDecorator {
           }
           registerRelation(Ctor, rel)
           relations.push(rel)
+        } else if (value.kind === 'manyToMany') {
+          const rel: RelationDefinition = {
+            kind: 'manyToMany',
+            propertyKey: key,
+            target: value.target,
+            nullable: true,
+            through: value.options.through
+          }
+          registerRelation(Ctor, rel)
+          relations.push(rel)
         } else {
           const rel: RelationDefinition = {
             kind: 'hasMany',
@@ -476,6 +520,30 @@ export function model(options: ModelOptions = {}): ClassDecorator {
             const fk = this[fkProperty!]
             if (fk === null || fk === undefined) return Promise.resolve(null)
             return loadBelongsTo(target() as ModelCtor<any>, fk)
+          }
+        })
+      } else if (rel.kind === 'manyToMany') {
+        const {target, through} = rel
+        Object.defineProperty(Wrapped.prototype, rel.propertyKey, {
+          configurable: true,
+          enumerable: false,
+          get(this: any) {
+            const def = getModelDefinitionOrThrow(this.constructor)
+            const pkProperty = def.primaryKey?.propertyKey
+            if (!pkProperty) {
+              throw new Error(
+                `Cannot resolve manyToMany "${rel.propertyKey}": "${def.tableName}" has no primary key.`
+              )
+            }
+            return new ManyToManyManager(
+              this.constructor as ModelCtor<any>,
+              target() as ModelCtor<any>,
+              this[pkProperty],
+              through
+            )
+          },
+          set() {
+            /* no-op: relation is a computed accessor, not stored state */
           }
         })
       } else {

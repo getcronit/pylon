@@ -110,6 +110,22 @@ function relationField(rel: RelationDefinition): Field {
       }
     }
   }
+  if (rel.kind === 'manyToMany') {
+    return {
+      name: rel.propertyKey,
+      type: {
+        kind: 'list',
+        of: {kind: 'ref', name: target, nullable: false},
+        nullable: false
+      },
+      exposed: true,
+      relation: {
+        kind: 'manyToMany',
+        target,
+        through: rel.through
+      }
+    }
+  }
   return {
     name: rel.propertyKey,
     type: {kind: 'ref', name: target, nullable: rel.nullable},

@@ -62,7 +62,7 @@ export interface ColumnDefinition {
   schema?: FieldSchema
 }
 
-export type RelationKind = 'belongsTo' | 'hasMany'
+export type RelationKind = 'belongsTo' | 'hasMany' | 'manyToMany'
 
 export type OnDelete = 'cascade' | 'set null' | 'restrict' | 'no action'
 
@@ -81,6 +81,8 @@ export interface RelationDefinition {
   onDelete?: OnDelete
   /** hasMany: the FK *property* on the target model that points back here. */
   targetForeignKey?: string
+  /** manyToMany: explicit join-table name (default: the two tables, sorted). */
+  through?: string
 }
 
 /** A model-level (possibly composite) secondary index. `columns` are PROPERTY keys. */

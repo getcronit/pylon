@@ -19,7 +19,7 @@
  * cascade, so the constraint is not separately re-created on rollback.
  */
 import {columnDDL, sqlTypeDDL, toDDL} from './ddl.js'
-import {tableSpecOf} from './ir.js'
+import {joinColumn, joinTableName, tableSpecOf} from './ir.js'
 import type {
   ColumnSpec,
   Entity,
@@ -139,7 +139,80 @@ export function physicalSchemaOf(
       indexes: [...indexesOf(e).values()]
     }
   }
+  // Many-to-many join tables are not entities: synthesize them from the m2m
+  // relations declared on either side. Keyed by the (deterministic) join-table
+  // name so the two sides collapse to one table.
+  for (const [joinT, table] of joinTablesOf(entities, resolveAgainst)) {
+    if (!schema[joinT]) schema[joinT] = table
+  }
   return schema
+}
+
+/**
+ * Synthesize the implicit join tables backing every `manyToMany` relation. Each
+ * join table carries two non-null FK columns (`<table>_<pk>`), both referenced
+ * by a composite UNIQUE index, with `ON DELETE CASCADE` to either side. The
+ * derivation is deterministic (sorted table names) so both relation sides — and
+ * every fold/diff — agree on a single table.
+ */
+function joinTablesOf(
+  entities: Record<string, Entity>,
+  resolveAgainst: Record<string, Entity>
+): Map<string, PhysicalTable> {
+  const out = new Map<string, PhysicalTable>()
+  const pkColOf = (e: Entity): ColumnSpec | undefined =>
+    e.fields.find(f => f.name === e.primaryKey)?.column
+  for (const e of Object.values(entities)) {
+    const aPk = pkColOf(e)
+    if (!aPk) continue
+    for (const f of e.fields) {
+      const rel = f.relation
+      if (rel?.kind !== 'manyToMany') continue
+      const target = resolveAgainst[rel.target]
+      const bPk = target && pkColOf(target)
+      if (!target || !bPk) continue
+      const joinT = joinTableName(e.table, target.table, rel.through)
+      if (out.has(joinT)) continue
+      const aCol = joinColumn(e.table, aPk.name)
+      const bCol = joinColumn(target.table, bPk.name)
+      const col = (name: string, src: ColumnSpec): TableColumn => ({
+        property: name,
+        name,
+        sqlType: src.sqlType,
+        primaryKey: false,
+        autoIncrement: false,
+        unique: false,
+        nullable: false
+      })
+      out.set(joinT, {
+        name: joinT,
+        table: joinT,
+        columns: [col(aCol, aPk), col(bCol, bPk)],
+        foreignKeys: [
+          {
+            table: joinT,
+            name: `${joinT}_${aCol}_fkey`,
+            column: aCol,
+            refTable: e.table,
+            refColumn: aPk.name,
+            onDelete: 'cascade'
+          },
+          {
+            table: joinT,
+            name: `${joinT}_${bCol}_fkey`,
+            column: bCol,
+            refTable: target.table,
+            refColumn: bPk.name,
+            onDelete: 'cascade'
+          }
+        ],
+        indexes: [
+          {name: `${joinT}_${aCol}_${bCol}_key`, table: joinT, columns: [aCol, bCol], unique: true}
+        ]
+      })
+    }
+  }
+  return out
 }
 
 const pColumns = (t: PhysicalTable): Map<string, TableColumn> =>

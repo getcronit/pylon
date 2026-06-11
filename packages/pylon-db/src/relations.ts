@@ -1,3 +1,4 @@
+import {joinColumn, joinTableName} from '@getcronit/pylon-ir'
 import {Database, getDatabase} from './database.js'
 import {createManager, hydrate, ModelCtor, QuerySet} from './manager.js'
 import {getModelDefinitionOrThrow} from './registry.js'
@@ -181,5 +182,135 @@ export class RelatedManager<T extends object> {
     onrejected?: ((reason: unknown) => R2 | PromiseLike<R2>) | null
   ): Promise<R1 | R2> {
     return this.base.all().then(onfulfilled, onrejected)
+  }
+}
+
+// Type-only merge so a `manyToMany` field presents as a GraphQL list (`[T]`),
+// mirroring `RelatedManager`. The runtime value is a join-table-backed manager.
+export interface ManyToManyManager<T extends object> extends Array<T> {}
+
+/**
+ * A `manyToMany` accessor, scoped to the owning row's primary key. Reads resolve
+ * through the synthesized join table (`await post.tags` / `.all()`); writes mutate
+ * only the join table (`.add()`, `.remove()`, `.set()`, `.clear()`), never the
+ * target rows. The join-table name + columns are derived lazily (so forward
+ * references resolve) and deterministically, so both relation sides agree.
+ */
+export class ManyToManyManager<T extends object> {
+  constructor(
+    private readonly ownerCtor: ModelCtor<any>,
+    private readonly targetCtor: ModelCtor<T>,
+    private readonly ownerPk: unknown,
+    private readonly through?: string
+  ) {}
+
+  private spec() {
+    const ownerDef = getModelDefinitionOrThrow(this.ownerCtor)
+    const targetDef = getModelDefinitionOrThrow(this.targetCtor)
+    const ownerPk = ownerDef.primaryKey
+    const targetPk = targetDef.primaryKey
+    if (!ownerPk || !targetPk) {
+      throw new Error(
+        `Cannot resolve manyToMany between "${ownerDef.tableName}" and "${targetDef.tableName}": both need a primary key.`
+      )
+    }
+    const joinTable = joinTableName(
+      ownerDef.tableName,
+      targetDef.tableName,
+      this.through
+    )
+    return {
+      joinTable,
+      localColumn: joinColumn(ownerDef.tableName, ownerPk.columnName),
+      targetColumn: joinColumn(targetDef.tableName, targetPk.columnName),
+      targetTable: targetDef.tableName,
+      targetPkColumn: targetPk.columnName,
+      targetPkProperty: targetPk.propertyKey
+    }
+  }
+
+  private targetPkValue(instance: T, prop: string): unknown {
+    return (instance as any)[prop]
+  }
+
+  /** All related rows, via a join. */
+  async all(): Promise<T[]> {
+    const s = this.spec()
+    const rows = await getDatabase()
+      .kysely.selectFrom(s.targetTable)
+      .innerJoin(
+        s.joinTable,
+        `${s.joinTable}.${s.targetColumn}` as any,
+        `${s.targetTable}.${s.targetPkColumn}` as any
+      )
+      .where(`${s.joinTable}.${s.localColumn}` as any, '=', this.ownerPk as any)
+      .selectAll(s.targetTable)
+      .execute()
+    return rows.map(r => hydrate(this.targetCtor, r))
+  }
+
+  async count(): Promise<number> {
+    const s = this.spec()
+    const row = await getDatabase()
+      .kysely.selectFrom(s.joinTable)
+      .select(eb => eb.fn.countAll().as('count'))
+      .where(s.localColumn as any, '=', this.ownerPk as any)
+      .executeTakeFirst()
+    return Number((row as any)?.count ?? 0)
+  }
+
+  /** Link one or more rows (idempotent — duplicate links are ignored). */
+  async add(...instances: T[]): Promise<void> {
+    if (!instances.length) return
+    const s = this.spec()
+    const values = instances.map(i => ({
+      [s.localColumn]: this.ownerPk,
+      [s.targetColumn]: this.targetPkValue(i, s.targetPkProperty)
+    }))
+    await getDatabase()
+      .kysely.insertInto(s.joinTable)
+      .values(values as any)
+      .onConflict(oc => oc.columns([s.localColumn, s.targetColumn]).doNothing())
+      .execute()
+  }
+
+  /** Unlink one or more rows (the target rows themselves are untouched). */
+  async remove(...instances: T[]): Promise<void> {
+    if (!instances.length) return
+    const s = this.spec()
+    await getDatabase()
+      .kysely.deleteFrom(s.joinTable)
+      .where(s.localColumn as any, '=', this.ownerPk as any)
+      .where(
+        s.targetColumn as any,
+        'in',
+        instances.map(i => this.targetPkValue(i, s.targetPkProperty)) as any
+      )
+      .execute()
+  }
+
+  /** Drop every link for this row. */
+  async clear(): Promise<void> {
+    const s = this.spec()
+    await getDatabase()
+      .kysely.deleteFrom(s.joinTable)
+      .where(s.localColumn as any, '=', this.ownerPk as any)
+      .execute()
+  }
+
+  /** Replace the full link set in a single transaction. */
+  async set(instances: T[]): Promise<void> {
+    await getDatabase().transaction(async () => {
+      await this.clear()
+      await this.add(...instances)
+    })
+  }
+
+  /** Thenable: `await post.tags` resolves to the full list. */
+  then<R1 = T[], R2 = never>(
+    onfulfilled?: ((value: T[]) => R1 | PromiseLike<R1>) | null,
+    onrejected?: ((reason: unknown) => R2 | PromiseLike<R2>) | null
+  ): Promise<R1 | R2> {
+    return this.all().then(onfulfilled, onrejected)
   }
 }
