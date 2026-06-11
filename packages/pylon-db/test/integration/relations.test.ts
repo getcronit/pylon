@@ -133,4 +133,27 @@ describe.skipIf(!runDb)('Relations (Postgres)', () => {
     await author.posts.set([{title: 'new1'}, {title: 'new2'}, {title: 'new3'}])
     expect((await author.posts.all()).map(p => p.title).sort()).toEqual(['new1', 'new2', 'new3'])
   })
+
+  it('batches hasMany loads across parents into a single query (no N+1)', async () => {
+    const p = await Author.objects.create({name: 'P'})
+    const q = await Author.objects.create({name: 'Q'})
+    await p.posts.createMany([{title: 'p-a'}, {title: 'p-b'}])
+    await q.posts.createMany([{title: 'q-a'}])
+    const r = await Author.objects.create({name: 'R'}) // no posts
+
+    const authors = await Author.objects
+      .filter({})
+      .orderBy('id')
+      .all()
+      .then(all => all.filter(a => ['P', 'Q', 'R'].includes(a.name)))
+
+    db.resetQueryCount()
+    // Resolve every author's posts in the same tick → one SELECT ... WHERE fk IN (...)
+    const lists = await Promise.all(authors.map(a => a.posts))
+    expect(db.queryCount).toBe(1)
+    const byName = Object.fromEntries(authors.map((a, i) => [a.name, lists[i]]))
+    expect(byName.P.map(x => x.title).sort()).toEqual(['p-a', 'p-b'])
+    expect(byName.Q.map(x => x.title)).toEqual(['q-a'])
+    expect(byName.R).toEqual([]) // a parent with no children → empty array
+  })
 })

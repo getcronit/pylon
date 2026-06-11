@@ -112,6 +112,89 @@ async function flush(db: Database, token: string): Promise<void> {
   }
 }
 
+interface HasManyBatch {
+  childTable: string
+  fkColumn: string
+  child: ModelCtor<any>
+  /** Parent PK value → waiters wanting that parent's children. */
+  waiters: Map<unknown, Array<{resolve: (rows: any[]) => void; reject: (e: unknown) => void}>>
+  scheduled: boolean
+}
+
+// Per-database, per-(childTable.fkColumn) batches: many `parent.children.all()`
+// accesses in one microtask collapse into a single `WHERE fk IN (…)` and are
+// grouped back by FK. The read-side twin of the belongsTo batcher — it makes a
+// nested list field (`authors { posts { … } }`) resolve in one query per level
+// instead of one per parent. Loads by FK only (tenant-agnostic, like belongsTo's
+// by-PK load): the parent already scopes its children.
+const hasManyBatchesByDb = new WeakMap<Database, Map<string, HasManyBatch>>()
+
+/** Load a parent's `hasMany` children by FK value, batched per microtask. */
+function loadHasMany<T extends object>(
+  child: ModelCtor<T>,
+  fkColumn: string,
+  parentValue: unknown
+): Promise<T[]> {
+  const db = getDatabase()
+  const def = getModelDefinitionOrThrow(child)
+  const token = `${def.tableName}.${fkColumn}`
+  let perDb = hasManyBatchesByDb.get(db)
+  if (!perDb) {
+    perDb = new Map()
+    hasManyBatchesByDb.set(db, perDb)
+  }
+  let batch = perDb.get(token)
+  if (!batch) {
+    batch = {childTable: def.tableName, fkColumn, child, waiters: new Map(), scheduled: false}
+    perDb.set(token, batch)
+  }
+
+  const b = batch
+  return new Promise<T[]>((resolve, reject) => {
+    const list = b.waiters.get(parentValue) ?? []
+    list.push({resolve, reject})
+    b.waiters.set(parentValue, list)
+    if (!b.scheduled) {
+      b.scheduled = true
+      queueMicrotask(() => void flushHasMany(db, token))
+    }
+  })
+}
+
+async function flushHasMany(db: Database, token: string): Promise<void> {
+  const perDb = hasManyBatchesByDb.get(db)
+  const batch = perDb?.get(token)
+  if (!perDb || !batch) return
+  perDb.delete(token)
+
+  const keys = [...batch.waiters.keys()]
+  try {
+    const rows = await db.kysely
+      .selectFrom(batch.childTable)
+      .selectAll()
+      .where(batch.fkColumn as any, 'in', keys as any)
+      .execute()
+
+    // Group rows by their FK value → each parent gets its own list.
+    const byKey = new Map<unknown, any[]>()
+    for (const row of rows) {
+      const k = (row as any)[batch.fkColumn]
+      const list = byKey.get(k) ?? []
+      list.push(row)
+      byKey.set(k, list)
+    }
+
+    for (const [key, waiters] of batch.waiters) {
+      const instances = (byKey.get(key) ?? []).map(r => hydrate(batch.child, r))
+      for (const w of waiters) w.resolve(instances)
+    }
+  } catch (err) {
+    for (const waiters of batch.waiters.values()) {
+      for (const w of waiters) w.reject(err)
+    }
+  }
+}
+
 // NOTE: plain `//` comments (not `/** */`) on purpose. A JSDoc block here is
 // read by Pylon's schema builder as the GraphQL *description* of the derived
 // list element type, leaking ORM internals into the user's schema.
@@ -160,8 +243,20 @@ export class RelatedManager<T extends object> {
     return this.base.limit(n)
   }
 
+  /** The DB column the FK property maps to (e.g. `authorId` → `author_id`). */
+  private get fkColumn(): string {
+    const def = getModelDefinitionOrThrow(this.ctor)
+    return def.columns.find(c => c.propertyKey === this.fkProperty)?.columnName ?? this.fkProperty
+  }
+
+  /**
+   * Resolve all children. **Batched** across the microtask: N parents resolving
+   * the same relation collapse into one `WHERE fk IN (…)` (no N+1). For a
+   * filtered/ordered/limited subset, chain off the manager (`posts.filter(…)`),
+   * which returns a plain `QuerySet` (a distinct, un-batched query).
+   */
   all(): Promise<T[]> {
-    return this.base.all()
+    return loadHasMany(this.ctor, this.fkColumn, this.fkValue)
   }
 
   first(): Promise<T | null> {
@@ -208,12 +303,12 @@ export class RelatedManager<T extends object> {
     return this.createMany(values, options)
   }
 
-  /** Thenable: `await user.posts` resolves to the full list. */
+  /** Thenable: `await user.posts` resolves to the full list (batched). */
   then<R1 = T[], R2 = never>(
     onfulfilled?: ((value: T[]) => R1 | PromiseLike<R1>) | null,
     onrejected?: ((reason: unknown) => R2 | PromiseLike<R2>) | null
   ): Promise<R1 | R2> {
-    return this.base.all().then(onfulfilled, onrejected)
+    return this.all().then(onfulfilled, onrejected)
   }
 }
 
