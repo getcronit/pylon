@@ -293,8 +293,13 @@ export interface ForeignKeyOptions extends FieldOptions {
  * declare author: Relation<Author>
  * ```
  */
-/** The scalar type of a model's `id` primary key (the FK references it). */
-type IdOf<R> = R extends {id: infer I} ? Exclude<I, null> : number
+/**
+ * The scalar type of the FK target's primary key. Inferred precisely when the
+ * PK is named `id` (the convention — and what Prisma/most ORMs default to);
+ * for a differently-named PK it widens to `string | number` (safe, just loose —
+ * the runtime always resolves the *actual* PK type regardless of its name).
+ */
+type IdOf<R> = R extends {id: infer I} ? Exclude<I, null> : string | number
 
 export function foreignKey<R extends object>(
   target: () => ModelCtor<R>,
