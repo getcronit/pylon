@@ -1,11 +1,13 @@
 import {sql, type Expression, type ExpressionBuilder, type SqlBool} from 'kysely'
+import {joinColumn, joinTableName} from '@getcronit/pylon-ir'
 import {currentTenant} from './app-context.js'
 import {getDatabase} from './database.js'
 import {signals} from './signals.js'
 import {
   ColumnDefinition,
   getModelDefinitionOrThrow,
-  ModelDefinition
+  ModelDefinition,
+  RelationDefinition
 } from './registry.js'
 import {ValidationError, uniqueViolation, validateInstance} from './validation.js'
 import {NotFoundError} from './errors.js'
@@ -97,9 +99,44 @@ type Filterable<T> = {
         : K
 }[keyof T]
 
-/** A Prisma-shaped where clause for model `T`. */
+/** To-one relation accessors (belongsTo): `declare author: Relation<R>`. */
+type ToOneKeys<T> = {
+  [K in keyof T]-?: T[K] extends Promise<any> ? K : never
+}[keyof T]
+/** To-many relation accessors (hasMany / manyToMany). */
+type ToManyKeys<T> = {
+  [K in keyof T]-?: T[K] extends RelatedManager<any> | ManyToManyManager<any>
+    ? K
+    : never
+}[keyof T]
+/** The related model behind a relation accessor. */
+type TargetOf<X> = X extends Promise<infer R>
+  ? NonNullable<R>
+  : X extends RelatedManager<infer R>
+    ? R
+    : X extends ManyToManyManager<infer R>
+      ? R
+      : never
+
+/** To-many relation predicate — Prisma-style existential quantifiers. */
+interface ToManyFilter<R> {
+  /** At least one related row matches. */
+  some?: WhereInput<R>
+  /** Every related row matches (vacuously true if none). */
+  every?: WhereInput<R>
+  /** No related row matches. */
+  none?: WhereInput<R>
+}
+
+/** A Prisma-shaped where clause for model `T` (scalar fields + relations). */
 export type WhereInput<T> = {
   [K in Filterable<T>]?: T[K] | FieldFilter<T[K]>
+} & {
+  // belongsTo → nest the target's WhereInput (compiled to a correlated EXISTS).
+  [K in ToOneKeys<T>]?: WhereInput<TargetOf<T[K]>>
+} & {
+  // hasMany / manyToMany → some/every/none over the target.
+  [K in ToManyKeys<T>]?: ToManyFilter<TargetOf<T[K]>>
 } & {
   AND?: WhereInput<T> | WhereInput<T>[]
   OR?: WhereInput<T>[]
@@ -144,13 +181,33 @@ function isFieldFilter(
   )
 }
 
+/**
+ * The table a (sub)query level refers to + how its columns are qualified. At the
+ * top level refs are bare (`name`); inside a correlated subquery they are
+ * qualified with the table alias (`__r0.name`) to disambiguate from the outer
+ * table and to correlate against it.
+ */
+interface Scope {
+  def: ModelDefinition
+  /** SQL name to qualify/correlate against (table name at top, alias in a sub). */
+  ref: string
+  /** Qualify field column refs as `ref.col` (true inside correlated subqueries). */
+  qualify: boolean
+}
+const colRef = (scope: Scope, columnName: string): string =>
+  scope.qualify ? `${scope.ref}.${columnName}` : columnName
+
+/** A mutable alias counter, unique per compiled statement. */
+type Counter = {n: number}
+
 /** Compile one field's filter (operator object or equality literal) to SQL. */
 function compileField(
   eb: ExpressionBuilder<any, any>,
+  scope: Scope,
   col: ColumnDefinition,
   value: unknown
 ): Expression<SqlBool> {
-  const ref = col.columnName
+  const ref = colRef(scope, col.columnName)
   if (!isFieldFilter(col, value)) {
     return value === null ? eb(ref, 'is', null) : eb(ref, '=', value as any)
   }
@@ -171,7 +228,7 @@ function compileField(
         break
       case 'not':
         if (v === null) terms.push(eb(ref, 'is not', null))
-        else if (isFieldFilter(col, v)) terms.push(eb.not(compileField(eb, col, v)))
+        else if (isFieldFilter(col, v)) terms.push(eb.not(compileField(eb, scope, col, v)))
         else terms.push(eb(ref, '<>', v as any))
         break
       case 'in':
@@ -230,26 +287,128 @@ function compileField(
   return terms.length === 1 ? terms[0] : eb.and(terms)
 }
 
-/** Compile a whole `WhereInput` (fields + AND/OR/NOT) to one boolean expression. */
+/** DB column name for a property on a (related) model. */
+const relColumn = (def: ModelDefinition, prop: string): string =>
+  def.columns.find(c => c.propertyKey === prop)?.columnName ?? prop
+
+/** AND the related model's tenant scope into a subquery (when a tenant is bound). */
+function scopeTenant(q: any, scope: Scope): any {
+  const tcol = scope.def.tenantColumn
+  if (!tcol) return q
+  const tenant = currentTenant()
+  // Unbound tenant → leave the subquery unscoped (the outer query enforces it for
+  // tenant-scoped roots). `.unscoped()` on the outer query does NOT propagate here.
+  if (tenant === undefined || tenant === null) return q
+  return q.where(`${scope.ref}.${tcol}`, '=', tenant)
+}
+
+/**
+ * Compile a relation predicate to a correlated `EXISTS` (Prisma-style, NOT a
+ * join — so no row duplication, no `DISTINCT`, pagination/counts stay correct):
+ *  - belongsTo → `EXISTS (SELECT 1 FROM target a WHERE a.pk = outer.fk AND <sub>)`
+ *    (a filter on only the target PK collapses to the local FK column — no subquery)
+ *  - hasMany/m2m `some`  → `EXISTS (… AND <sub>)`
+ *               `none`  → `NOT EXISTS (… AND <sub>)`
+ *               `every` → `NOT EXISTS (… AND NOT <sub>)`
+ */
+function compileRelation(
+  eb: ExpressionBuilder<any, any>,
+  outer: Scope,
+  rel: RelationDefinition,
+  value: unknown,
+  counter: Counter
+): Expression<SqlBool> {
+  const targetDef = getModelDefinitionOrThrow(rel.target())
+
+  if (rel.kind === 'belongsTo') {
+    const pk = targetDef.primaryKey
+    const sub = (value ?? {}) as Record<string, unknown>
+    const keys = Object.keys(sub)
+    // Peephole: filter on ONLY the target PK → local FK column (no subquery).
+    if (pk && rel.fkColumn && keys.length === 1 && keys[0] === pk.propertyKey) {
+      return compileField(eb, outer, {...pk, columnName: rel.fkColumn}, sub[pk.propertyKey])
+    }
+    const alias = `__r${counter.n++}`
+    const inner: Scope = {def: targetDef, ref: alias, qualify: true}
+    let q: any = eb
+      .selectFrom(`${targetDef.tableName} as ${alias}`)
+      .select(sql`1`.as('one'))
+      .whereRef(`${alias}.${pk!.columnName}`, '=', `${outer.ref}.${rel.fkColumn}`)
+    q = scopeTenant(q, inner)
+    if (keys.length) q = q.where((eb2: any) => compileWhere(eb2, inner, sub, counter))
+    return eb.exists(q)
+  }
+
+  // To-many (hasMany / manyToMany): build the correlated base, then quantify.
+  const make = (sub: Record<string, unknown> | undefined, negateSub: boolean) => {
+    const alias = `__r${counter.n++}`
+    const inner: Scope = {def: targetDef, ref: alias, qualify: true}
+    let q: any
+    if (rel.kind === 'hasMany') {
+      const backFk = relColumn(targetDef, rel.targetForeignKey!)
+      const opk = outer.def.primaryKey!.columnName
+      q = eb
+        .selectFrom(`${targetDef.tableName} as ${alias}`)
+        .select(sql`1`.as('one'))
+        .whereRef(`${alias}.${backFk}`, '=', `${outer.ref}.${opk}`)
+    } else {
+      const jAlias = `__j${counter.n++}`
+      const joinT = joinTableName(outer.def.tableName, targetDef.tableName, rel.through)
+      const opk = outer.def.primaryKey!.columnName
+      const tpk = targetDef.primaryKey!.columnName
+      const src = rel.sourceColumn ?? joinColumn(outer.def.tableName, opk)
+      const tgt = rel.targetColumn ?? joinColumn(targetDef.tableName, tpk)
+      q = eb
+        .selectFrom(`${targetDef.tableName} as ${alias}`)
+        .innerJoin(`${joinT} as ${jAlias}`, `${jAlias}.${tgt}`, `${alias}.${tpk}`)
+        .select(sql`1`.as('one'))
+        .whereRef(`${jAlias}.${src}`, '=', `${outer.ref}.${opk}`)
+    }
+    q = scopeTenant(q, inner)
+    if (sub && Object.keys(sub).length) {
+      q = q.where((eb2: any) => {
+        const p = compileWhere(eb2, inner, sub, counter)
+        return negateSub ? eb2.not(p) : p
+      })
+    }
+    return q
+  }
+
+  const v = (value ?? {}) as {some?: any; every?: any; none?: any}
+  const terms: Expression<SqlBool>[] = []
+  if (v.some !== undefined) terms.push(eb.exists(make(v.some, false)))
+  if (v.none !== undefined) terms.push(eb.not(eb.exists(make(v.none, false))))
+  if (v.every !== undefined) terms.push(eb.not(eb.exists(make(v.every, true))))
+  if (terms.length === 0) return TRUE()
+  return terms.length === 1 ? terms[0] : eb.and(terms)
+}
+
+/** Compile a whole `WhereInput` (fields + relations + AND/OR/NOT) to one expression. */
 function compileWhere(
   eb: ExpressionBuilder<any, any>,
-  def: ModelDefinition,
-  where: Record<string, unknown>
+  scope: Scope,
+  where: Record<string, unknown>,
+  counter: Counter
 ): Expression<SqlBool> {
+  const def = scope.def
   const terms: Expression<SqlBool>[] = []
   for (const [key, value] of Object.entries(where)) {
     if (value === undefined) continue
     if (key === 'AND') {
       const ws = asArray(value as any)
-      if (ws.length) terms.push(eb.and(ws.map(w => compileWhere(eb, def, w))))
+      if (ws.length) terms.push(eb.and(ws.map(w => compileWhere(eb, scope, w, counter))))
     } else if (key === 'OR') {
       const ws = asArray(value as any)
-      if (ws.length) terms.push(eb.or(ws.map(w => compileWhere(eb, def, w))))
+      if (ws.length) terms.push(eb.or(ws.map(w => compileWhere(eb, scope, w, counter))))
     } else if (key === 'NOT') {
       const ws = asArray(value as any)
-      if (ws.length) terms.push(eb.not(eb.and(ws.map(w => compileWhere(eb, def, w)))))
+      if (ws.length) {
+        terms.push(eb.not(eb.and(ws.map(w => compileWhere(eb, scope, w, counter)))))
+      }
     } else {
-      terms.push(compileField(eb, columnFor(def, key), value))
+      const rel = def.relations.find(r => r.propertyKey === key)
+      if (rel) terms.push(compileRelation(eb, scope, rel, value, counter))
+      else terms.push(compileField(eb, scope, columnFor(def, key), value))
     }
   }
   if (terms.length === 0) return TRUE()
@@ -344,8 +503,10 @@ export class QuerySet<T extends object> {
   /** Every predicate for this query: structured filters + raw + tenant scope. */
   private predicates(): Predicate[] {
     const def = this.def
+    const scope: Scope = {def, ref: def.tableName, qualify: false}
+    const counter: Counter = {n: 0} // shared across all fragments → no alias clash
     const ps: Predicate[] = []
-    for (const w of this.state.where) ps.push(eb => compileWhere(eb, def, w))
+    for (const w of this.state.where) ps.push(eb => compileWhere(eb, scope, w, counter))
     ps.push(...this.state.raw)
     const tenantColumn = def.tenantColumn
     if (tenantColumn && !this.state.unscoped) {
