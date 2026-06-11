@@ -26,6 +26,11 @@ function columnType(col: ColumnDefinition): ColumnType {
     case 'bigint':
       return col.autoIncrement ? sql`bigserial` : 'bigint'
     case 'numeric':
+      if (col.precision != null) {
+        return col.scale != null
+          ? `numeric(${col.precision}, ${col.scale})`
+          : `numeric(${col.precision})`
+      }
       return 'numeric'
     case 'boolean':
       return 'boolean'

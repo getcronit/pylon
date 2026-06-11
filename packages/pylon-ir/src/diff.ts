@@ -61,6 +61,8 @@ function columnEqual(a: ColumnSpec, b: ColumnSpec): boolean {
     a.unique === b.unique &&
     a.primaryKey === b.primaryKey &&
     a.length === b.length &&
+    a.precision === b.precision &&
+    a.scale === b.scale &&
     a.defaultSql === b.defaultSql &&
     a.default === b.default &&
     a.check === b.check

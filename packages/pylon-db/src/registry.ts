@@ -31,6 +31,12 @@ export interface ColumnDefinition {
    */
   hidden: boolean
   length?: number
+  /** `numeric(precision, scale)` — decimal precision (total digits). */
+  precision?: number
+  /** `numeric(precision, scale)` — decimal scale (digits after the point). */
+  scale?: number
+  /** Auto-set this timestamp to `now()` on every write (Prisma's `@updatedAt`). */
+  onUpdateNow?: boolean
   /** Literal default value applied client-side on insert. */
   default?: unknown
   /**

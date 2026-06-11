@@ -213,7 +213,11 @@ function fieldFor(
       return `  ${prop} = bigint(${optsLiteral(common)})`
     case 'numeric':
       used.add('numeric')
-      return `  ${prop} = numeric(${optsLiteral(common)})`
+      return `  ${prop} = numeric(${optsLiteral({
+        ...common,
+        precision: col.precision,
+        scale: col.scale
+      })})`
     case 'boolean':
       used.add('boolean')
       return `  ${prop} = boolean(${optsLiteral(common)})`

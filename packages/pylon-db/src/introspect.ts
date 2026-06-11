@@ -64,6 +64,8 @@ interface RawColumn {
   is_nullable: 'YES' | 'NO'
   column_default: string | null
   character_maximum_length: number | null
+  numeric_precision: number | null
+  numeric_scale: number | null
   is_identity: 'YES' | 'NO'
 }
 
@@ -163,7 +165,8 @@ export async function introspectPhysical(
 ): Promise<PhysicalSchema> {
   const columns = await sql<RawColumn>`
     SELECT table_name, column_name, data_type, udt_name, is_nullable,
-           column_default, character_maximum_length, is_identity
+           column_default, character_maximum_length, numeric_precision,
+           numeric_scale, is_identity
     FROM information_schema.columns
     WHERE table_schema = 'public'
     ORDER BY table_name, ordinal_position
@@ -276,7 +279,11 @@ export async function introspectPhysical(
       unique: singleUnique.get(c.table_name)?.has(c.column_name) ?? false,
       nullable: c.is_nullable === 'YES',
       ...(isArray ? {array: true} : {}),
-      ...(c.character_maximum_length ? {length: c.character_maximum_length} : {})
+      ...(c.character_maximum_length ? {length: c.character_maximum_length} : {}),
+      // Decimal precision/scale, only for genuinely constrained numeric columns.
+      ...(c.data_type === 'numeric' && c.numeric_precision != null
+        ? {precision: c.numeric_precision, scale: c.numeric_scale ?? 0}
+        : {})
     }
     table.columns.push(col)
   }

@@ -73,7 +73,7 @@ class FieldBuilder {
   constructor(
     readonly sqlType: SqlType,
     readonly base: Partial<ColumnDefinition>,
-    readonly options: FieldOptions & {length?: number; enumValues?: readonly string[]; enumName?: string; array?: boolean}
+    readonly options: FieldOptions & {length?: number; precision?: number; scale?: number; onUpdateNow?: boolean; enumValues?: readonly string[]; enumName?: string; array?: boolean}
   ) {}
 }
 
@@ -91,7 +91,7 @@ class RelationBuilder {
 function field(
   sqlType: SqlType,
   base: Partial<ColumnDefinition>,
-  options: FieldOptions & {length?: number; enumValues?: readonly string[]; enumName?: string; array?: boolean}
+  options: FieldOptions & {length?: number; precision?: number; scale?: number; onUpdateNow?: boolean; enumValues?: readonly string[]; enumName?: string; array?: boolean}
 ): unknown {
   return new FieldBuilder(sqlType, base, options)
 }
@@ -134,9 +134,19 @@ export function bigint(options: FieldOptions = {}): number | null {
   return field('bigint', {}, options) as number | null
 }
 
-export function numeric(options: NullableOpts): number | null
-export function numeric(options?: FieldOptions): number
-export function numeric(options: FieldOptions = {}): number | null {
+/** Options for {@link numeric} — `precision`/`scale` map to `numeric(p, s)`. */
+export interface NumericOptions extends FieldOptions {
+  /** Total significant digits (e.g. 12 in `Decimal(12, 2)`). */
+  precision?: number
+  /** Digits after the decimal point (e.g. 2 in `Decimal(12, 2)`). */
+  scale?: number
+}
+export interface NullableNumericOptions extends NumericOptions {
+  nullable: true
+}
+export function numeric(options: NullableNumericOptions): number | null
+export function numeric(options?: NumericOptions): number
+export function numeric(options: NumericOptions = {}): number | null {
   return field('numeric', {}, options) as number | null
 }
 
@@ -156,6 +166,19 @@ export function date(options: NullableOpts): Date | null
 export function date(options?: FieldOptions): Date
 export function date(options: FieldOptions = {}): Date | null {
   return field('date', {}, options) as Date | null
+}
+
+/**
+ * A timestamp auto-set to `now()` on every write — Prisma's `@updatedAt`.
+ * Seeded by a `now()` server default on insert, then stamped client-side on
+ * each update (and refreshed on insert) so it always reflects the last write.
+ */
+export function updatedAt(options: FieldOptions = {}): Date {
+  return field(
+    'timestamptz',
+    {defaultSql: 'now()'},
+    {...options, onUpdateNow: true}
+  ) as Date
 }
 
 export function json<T = unknown>(options: NullableOpts): T | null
@@ -420,6 +443,9 @@ function buildColumn(key: string, b: FieldBuilder): ColumnDefinition {
     hidden,
     index: b.options.index ?? false,
     length: b.options.length,
+    precision: b.options.precision,
+    scale: b.options.scale,
+    onUpdateNow: b.options.onUpdateNow,
     // A literal default is persisted (→ IR/DDL); a function default is a
     // client-side generator resolved at insert (never serialized).
     default: typeof b.options.default === 'function' ? undefined : b.options.default,

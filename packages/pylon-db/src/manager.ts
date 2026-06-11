@@ -395,6 +395,14 @@ export async function saveInstance(instance: object): Promise<object> {
   const created = !(persisted.has(instance) && pk)
   const model = instance.constructor as Function
 
+  // `@updatedAt`: stamp on every UPDATE. On INSERT the `now()` server default
+  // applies (the column is left unset → DB fills it), keeping one source.
+  if (!created) {
+    for (const col of def.columns) {
+      if (col.onUpdateNow) (instance as any)[col.propertyKey] = new Date()
+    }
+  }
+
   await signals.preSave.emit({instance, created, model})
 
   if (!created) {

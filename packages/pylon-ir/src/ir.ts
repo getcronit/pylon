@@ -52,6 +52,10 @@ export interface ColumnSpec {
   unique: boolean
   nullable: boolean
   length?: number
+  /** `numeric(precision, scale)` — decimal precision (total digits). */
+  precision?: number
+  /** `numeric(precision, scale)` — decimal scale (digits after the point). */
+  scale?: number
   default?: unknown
   defaultSql?: string
   /** A column CHECK expression, e.g. `price > 0` or `"status" IN ('a','b')`. */

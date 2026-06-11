@@ -66,6 +66,8 @@ function columnSpec(col: ColumnDefinition): ColumnSpec {
     unique: col.unique,
     nullable: col.nullable,
     length: col.length,
+    precision: col.precision,
+    scale: col.scale,
     default: col.default,
     defaultSql: col.defaultSql,
     check: col.check,

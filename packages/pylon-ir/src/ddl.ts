@@ -26,9 +26,16 @@ export function columnDDL(c: ColumnSpec): string {
   return parts.join(' ')
 }
 
-/** The bare SQL type (with length for varchar; `[]` for array columns). */
+/** The bare SQL type (varchar length / numeric precision+scale; `[]` for arrays). */
 export function sqlTypeDDL(c: ColumnSpec): string {
-  const base = c.sqlType === 'varchar' && c.length ? `varchar(${c.length})` : c.sqlType
+  let base: string = c.sqlType
+  if (c.sqlType === 'varchar' && c.length) base = `varchar(${c.length})`
+  else if (c.sqlType === 'numeric' && c.precision != null) {
+    base =
+      c.scale != null
+        ? `numeric(${c.precision}, ${c.scale})`
+        : `numeric(${c.precision})`
+  }
   return c.array ? `${base}[]` : base
 }
 

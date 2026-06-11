@@ -73,9 +73,18 @@ function validateColumn(col: ColumnDefinition, value: unknown): ValidationIssue[
     issue('type', `${path} must be a string`, {expected: 'string'})
     return out
   }
-  if (isNumberType(col.sqlType) && typeof value !== 'number') {
-    issue('type', `${path} must be a number`, {expected: 'number'})
-    return out
+  if (isNumberType(col.sqlType)) {
+    // Postgres returns `numeric`/`bigint` as a string (to preserve precision),
+    // so a hydrated instance carries a numeric string — accept it on re-save.
+    const numericString =
+      (col.sqlType === 'numeric' || col.sqlType === 'bigint') &&
+      typeof value === 'string' &&
+      value.trim() !== '' &&
+      Number.isFinite(Number(value))
+    if (typeof value !== 'number' && !numericString) {
+      issue('type', `${path} must be a number`, {expected: 'number'})
+      return out
+    }
   }
   if (col.sqlType === 'boolean' && typeof value !== 'boolean') {
     issue('type', `${path} must be a boolean`, {expected: 'boolean'})
