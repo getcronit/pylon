@@ -48,6 +48,7 @@ describe.skipIf(!run)('transactional outbox (Postgres + Redis)', () => {
     q.process(({data}) => {
       seen.push(data.v)
     })
+    q.startWorker()
 
     await db.transaction(async () => {
       await q.add({v: 1}) // → outbox row in this txn, NOT Redis
@@ -69,6 +70,7 @@ describe.skipIf(!run)('transactional outbox (Postgres + Redis)', () => {
     q.process(({data}) => {
       seen.push(data.v)
     })
+    q.startWorker()
 
     await db
       .transaction(async () => {
@@ -90,6 +92,7 @@ describe.skipIf(!run)('transactional outbox (Postgres + Redis)', () => {
     q.process(({data}) => {
       seen.push(data.v)
     })
+    q.startWorker()
     await db.run(async () => {
       await q.add({v: 3}) // no txn → direct enqueue
     })

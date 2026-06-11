@@ -41,11 +41,20 @@ export type Processor<T> = (ctx: JobContext<T>) => Promise<void> | void
 
 const registry = new Map<string, QueueDefinition<any>>()
 
+// A wrapper run around every job (set by useQueues to bind the ORM connection /
+// tenant). Default: run the handler directly.
+type JobRunner = (job: Job, fn: () => Promise<void>) => Promise<void>
+let jobRunner: JobRunner = (_job, fn) => fn()
+export function setJobRunner(runner: JobRunner): void {
+  jobRunner = runner
+}
+
 export class QueueDefinition<T> {
   // BullMQ's generics are intricate; we keep the public API typed and treat the
   // BullMQ instances loosely at the boundary (runtime types are correct).
   private readonly queue: BullQueue<T>
   private worker?: Worker<T>
+  private handler?: Processor<T>
 
   constructor(
     readonly name: string,
@@ -88,25 +97,38 @@ export class QueueDefinition<T> {
   }
 
   /**
-   * Register the processor and START consuming (call this in the worker process,
-   * not the web process). Returns the BullMQ Worker.
+   * REGISTER a processor (does not start consuming). Safe to call on import in
+   * any process — only `startWorker()`/`startWorkers()` (the worker process)
+   * actually consumes. Returns `this` for chaining.
    */
-  process(handler: Processor<T>): Worker<T> {
+  process(handler: Processor<T>): this {
+    this.handler = handler
+    return this
+  }
+
+  /** Start consuming (worker process only). No-op without a registered handler. */
+  startWorker(): Worker<T> | undefined {
+    if (!this.handler || this.worker) return this.worker
+    const handler = this.handler
     this.worker = new Worker<T>(
       this.name,
       async job => {
         const data = this.validate(job.data)
-        await handler({
-          data,
-          job,
-          log: async m => {
-            await job.log(m)
-          }
-        })
+        await jobRunner(job, () =>
+          Promise.resolve(handler({data, job, log: async m => void (await job.log(m))}))
+        )
       },
       {connection: getConnection() as any, concurrency: this.options.concurrency ?? 1}
     )
     return this.worker
+  }
+
+  /** Schedule a repeatable (cron) job. Idempotent (BullMQ dedupes by repeat key). */
+  async scheduleRepeatable(pattern: string): Promise<void> {
+    await this.queue.add(this.name as any, undefined as any, {
+      repeat: {pattern},
+      removeOnComplete: true
+    })
   }
 
   /** Close the worker (if started) and the queue. */
@@ -133,4 +155,37 @@ export function defineQueue<T = unknown>(name: string, options: QueueOptions<T> 
 /** Every queue defined this process (used by the worker runner + observability). */
 export function registeredQueues(): QueueDefinition<unknown>[] {
   return [...registry.values()]
+}
+
+interface CronEntry {
+  queue: QueueDefinition<void>
+  pattern: string
+}
+const crons: CronEntry[] = []
+
+/**
+ * Define a scheduled (cron / repeatable) job: a queue whose handler runs on the
+ * `pattern` schedule. The repeatable is scheduled when workers start.
+ *
+ *   cron('email-sync', '*\/10 * * * * *', async () => { … })  // every 10s
+ */
+export function cron(
+  name: string,
+  pattern: string,
+  handler: Processor<void>,
+  options: QueueOptions<void> = {}
+): QueueDefinition<void> {
+  const q = defineQueue<void>(name, options)
+  q.process(handler)
+  crons.push({queue: q, pattern})
+  return q
+}
+
+/**
+ * Start consuming for every registered queue with a handler, and schedule all
+ * crons. Call this in the worker process (`pylon worker`) or in-process dev mode.
+ */
+export async function startWorkers(): Promise<void> {
+  for (const q of registeredQueues()) q.startWorker()
+  for (const {queue, pattern} of crons) await queue.scheduleRepeatable(pattern)
 }

@@ -20,6 +20,7 @@ describe.skipIf(!runRedis)('queues (Redis)', () => {
         resolve()
       })
     })
+    q.startWorker()
     await q.add({n: 21})
     await done
     expect(out).toEqual([42])
@@ -52,6 +53,7 @@ describe.skipIf(!runRedis)('queues (Redis)', () => {
         resolve()
       })
     })
+    q.startWorker()
     await q.add({x: 1})
     await succeeded
     expect(tries).toBe(3) // failed twice, succeeded on the 3rd attempt
