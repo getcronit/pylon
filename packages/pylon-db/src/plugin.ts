@@ -23,7 +23,7 @@
 import type {Plugin} from '@getcronit/pylon'
 import {GraphQLError} from 'graphql'
 import {runWithAppContext} from './app-context.js'
-import {connect, databaseForKysely, getDatabase} from './database.js'
+import {connect, type Database, databaseForKysely} from './database.js'
 import {NotFoundError} from './errors.js'
 import {ForbiddenError} from './features.js'
 import {ValidationError, type ValidationIssue} from './validation.js'
@@ -74,13 +74,20 @@ export function useDatabase(options: UseDatabaseOptions = {}): Plugin {
       ? null
       : options.validationErrors ?? defaultValidationErrorMapper
 
+  // The plugin owns its connection — captured from `connect()` in `setup`, used
+  // directly in `middleware`. We don't re-fetch it via `getDatabase()`: that
+  // accessor's global fallback is for the CLI/migrations/tests that run without a
+  // plugin, and bouncing the handle through the module global here would be a
+  // needless coupling (and a worse error if `setup` somehow hadn't run).
+  let db: Database | undefined
+
   return {
     setup() {
-      connect({connectionString: options.connectionString ?? process.env.DATABASE_URL})
+      db = connect({connectionString: options.connectionString ?? process.env.DATABASE_URL})
     },
 
     async middleware(_c, next) {
-      const db = getDatabase()
+      if (!db) throw new Error('useDatabase: setup() did not run before the first request')
       // Bind the request's tenant + features so tenant-scoped models auto-filter
       // and feature gates can read the enabled set.
       const appCtx = {tenant: options.tenant?.(), features: options.features?.()}
