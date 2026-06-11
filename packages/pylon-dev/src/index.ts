@@ -1,8 +1,11 @@
 import {program} from 'commander'
 
 import {spawn, type ChildProcess} from 'child_process'
+import {promises as fs} from 'node:fs'
+import path from 'node:path'
 import consola from 'consola'
 import dotenv from 'dotenv'
+import esbuild from 'esbuild'
 import {version} from '../package.json'
 import {
   analytics,
@@ -558,6 +561,90 @@ We value your feedback—help us make Pylon even better!`)
       }
     })
   })
+
+program
+  .command('worker')
+  .description(
+    'Run the Pylon background worker: bundle the worker entry and run it (queue consumers + outbox relay). The entry should call startWorkers()/runOutboxRelay() from @getcronit/pylon-queues.'
+  )
+  .option('-e, --entry <path>', 'Worker entry that starts the queue workers', './src/worker.ts')
+  .option('-o, --output <path>', 'Bundled worker output', './.pylon/worker.js')
+  .option('-c, --command <command>', 'Command to run the built worker', 'bun run .pylon/worker.js')
+  .action(async options => {
+    const entry = path.resolve(process.cwd(), options.entry)
+    try {
+      await fs.access(entry)
+    } catch {
+      consola.error(
+        `Worker entry not found: ${options.entry}\n` +
+          `Create one that registers your queues and starts them, e.g.:\n\n` +
+          `  import {startWorkers, runOutboxRelay} from '@getcronit/pylon-queues'\n` +
+          `  import './index' // side-effect import: registers queues + processors\n\n` +
+          `  await startWorkers()\n` +
+          `  await runOutboxRelay()\n`
+      )
+      process.exit(1)
+    }
+
+    const output = path.resolve(process.cwd(), options.output)
+    await esbuild.build({
+      entryPoints: [entry],
+      outfile: output,
+      bundle: true,
+      platform: 'node',
+      target: 'node18',
+      format: 'esm',
+      sourcemap: 'linked',
+      packages: 'external',
+      logLevel: 'silent',
+      tsconfigRaw: {
+        compilerOptions: {
+          experimentalDecorators: true,
+          useDefineForClassFields: false
+        }
+      }
+    })
+
+    let worker: ChildProcess | null = startWorkerProcess(options.command)
+
+    const shutdown = (signal: NodeJS.Signals) => {
+      if (worker?.pid) {
+        try {
+          treeKillSync(worker.pid)
+        } catch (e: any) {
+          consola.error('Failed to stop worker process', e)
+        }
+      }
+      worker = null
+      process.exit(signal === 'SIGINT' ? 0 : 0)
+    }
+    process.on('SIGINT', () => shutdown('SIGINT'))
+    process.on('SIGTERM', () => shutdown('SIGTERM'))
+    process.on('exit', () => worker?.pid && treeKillSync(worker.pid))
+
+    consola.success('Pylon worker started — consuming queues + relaying the outbox.')
+
+    await new Promise<void>(resolve => {
+      worker?.on('exit', code => {
+        if (code && code !== 0) consola.error(`Worker exited with code ${code}`)
+        resolve()
+      })
+    })
+  })
+
+const startWorkerProcess = (command: string) => {
+  const [script, ...args] = command.split(' ')
+  const child = spawn(script, args, {
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      NODE_ENV: process.env.NODE_ENV ?? 'production',
+      FORCE_COLOR: '1'
+    }
+  })
+  child.on('error', err => consola.error(err))
+  return child
+}
 
 const startDevServer = async (command: string) => {
   const [script, ...args] = command.split(' ')
