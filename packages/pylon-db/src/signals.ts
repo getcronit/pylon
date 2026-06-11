@@ -4,43 +4,51 @@
  * dispatcher you `connect()` receivers to, per-model or globally, with a `created`
  * flag and TYPED instances.
  *
- *   signals.postSave.connect(User, ({instance, created}) => { ... })  // typed: instance is User
- *   signals.postSave.connect(({instance, model, created}) => { ... }) // every model
- *   const off = signals.preDelete.connect(Order, ({instance}) => { ... })  // off() to disconnect
+ *   signals.postSave.connect(User, ({instances, created}) => { ... })  // typed: instances is User[]
+ *   signals.postSave.connect(({instances, model, created}) => { ... }) // every model
+ *   const off = signals.preDelete.connect(Order, ({instances}) => { ... })  // off() to disconnect
  *
- * Signals fire from instance writes (`.create()`, `$save`, `deleteInstance`) inside
- * the active transaction, so a receiver's own writes (e.g. an audit row) commit or
- * roll back atomically, and it can read the ambient tenant/context for the actor.
+ * A signal carries the SET of rows the operation touched: a single `.create()`/
+ * `$save`/`$delete` fires once with a 1-element `instances` array; `.createMany()`/
+ * relation `.set()` fire once with all of them. So handlers iterate (and stay
+ * bulk-correct — e.g. an audit handler does one `Activity.objects.createMany(...)`).
  *
- * Like Django, BULK queryset ops (`QuerySet.update()/.delete()`) do NOT fire signals
- * — they're set-based and never load instances. Use instance writes for audited paths.
+ * Signals fire inside the active transaction, so a receiver's own writes (e.g. an
+ * audit row) commit or roll back atomically, and it can read the ambient
+ * tenant/context for the actor.
+ *
+ * Like Django, set-based `QuerySet.update()/.delete()` do NOT fire signals — they
+ * never load instances. Bulk instance ops (`createMany`, relation `.set()`) DO,
+ * unless called with `{signals: false}` (raw seed/import throughput).
  */
 
 export interface SaveSignalPayload<T = unknown> {
-  instance: T
-  /** true on INSERT, false on UPDATE. */
+  /** The rows written (1-element for a single create/save). */
+  instances: T[]
+  /** true on INSERT, false on UPDATE (homogeneous for the batch). */
   created: boolean
   model: Function
 }
 
 export interface DeleteSignalPayload<T = unknown> {
-  instance: T
+  /** The rows deleted (1-element for a single delete). */
+  instances: T[]
   model: Function
 }
 
 type Receiver<P> = (payload: P) => void | Promise<void>
 type ModelCtor<T> = {new (): T}
 
-class Signal<P extends {model: Function; instance: unknown}> {
+class Signal<P extends {model: Function; instances: unknown[]}> {
   private readonly global = new Set<Receiver<P>>()
   private readonly byModel = new Map<Function, Set<Receiver<P>>>()
 
   /** Subscribe to every model. Returns a disconnect function. */
   connect(receiver: Receiver<P>): () => void
-  /** Subscribe to one model (instance is typed). Returns a disconnect function. */
+  /** Subscribe to one model (instances are typed). Returns a disconnect function. */
   connect<T extends object>(
     model: ModelCtor<T>,
-    receiver: Receiver<Omit<P, 'instance'> & {instance: T}>
+    receiver: Receiver<Omit<P, 'instances'> & {instances: T[]}>
   ): () => void
   connect(a: ModelCtor<any> | Receiver<P>, b?: Receiver<any>): () => void {
     if (typeof b === 'function') {
@@ -57,6 +65,7 @@ class Signal<P extends {model: Function; instance: unknown}> {
 
   /** Internal: dispatch to model-scoped then global receivers, in order, awaited. */
   async emit(payload: P): Promise<void> {
+    if (payload.instances.length === 0) return
     for (const r of this.byModel.get(payload.model) ?? []) await r(payload)
     for (const r of this.global) await r(payload)
   }
@@ -65,7 +74,7 @@ class Signal<P extends {model: Function; instance: unknown}> {
 export const signals = {
   /** Before an INSERT or UPDATE (after validation). Throwing vetoes the write. */
   preSave: new Signal<SaveSignalPayload>(),
-  /** After an INSERT or UPDATE (instance reflects DB-generated values). */
+  /** After an INSERT or UPDATE (instances reflect DB-generated values). */
   postSave: new Signal<SaveSignalPayload>(),
   /** Before a delete. */
   preDelete: new Signal<DeleteSignalPayload>(),

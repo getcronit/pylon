@@ -5,9 +5,10 @@
 import {signals} from '@getcronit/pylon-db'
 import {Activity, Author} from './models.js'
 
-signals.postSave.connect(Author, ({instance, created}) => {
-  return Activity.objects.create({
-    action: created ? 'create' : 'update',
-    target: instance.name // `instance` is typed as Author
-  })
-})
+signals.postSave.connect(Author, ({instances, created}) =>
+  // `instances` is typed Author[] (1 element for a single create/save); a bulk
+  // createMany fires once with all of them, so the audit write batches too.
+  Activity.objects.createMany(
+    instances.map(a => ({action: created ? 'create' : 'update', target: a.name}))
+  )
+)

@@ -64,8 +64,8 @@ describe.skipIf(!runDb)('model signals (Postgres)', () => {
     const {saveInstance} = await import('../../src/manager')
     const seen: Array<{name: string; created: boolean}> = []
     disconnects.push(
-      signals.postSave.connect(Widget, ({instance, created}) => {
-        seen.push({name: instance.name, created}) // instance typed as Widget
+      signals.postSave.connect(Widget, ({instances, created}) => {
+        for (const w of instances) seen.push({name: w.name, created}) // instances typed Widget[]
       })
     )
     const w = await Widget.objects.create({name: 'a'}) // insert → created:true
@@ -100,8 +100,10 @@ describe.skipIf(!runDb)('model signals (Postgres)', () => {
 
   it('an audit receiver writes inside the same transaction (rolls back with it)', async () => {
     disconnects.push(
-      signals.postSave.connect(Widget, async ({instance, created}) => {
-        await Audit.objects.create({action: created ? 'create' : 'update', target: instance.name})
+      signals.postSave.connect(Widget, async ({instances, created}) => {
+        await Audit.objects.createMany(
+          instances.map(w => ({action: created ? 'create' : 'update', target: w.name}))
+        )
       })
     )
     // commit path: audit row is written
@@ -122,5 +124,26 @@ describe.skipIf(!runDb)('model signals (Postgres)', () => {
       })
       .catch(() => {})
     expect((await Audit.objects.filter({target: 'e'}).all()).length).toBe(0)
+  })
+
+  it('createMany inserts in one round-trip and fires postSave once with the array', async () => {
+    const batches: number[] = []
+    disconnects.push(
+      signals.postSave.connect(Widget, ({instances, created}) => {
+        if (created) batches.push(instances.length)
+      })
+    )
+    const made = await Widget.objects.createMany([{name: 'm1'}, {name: 'm2'}, {name: 'm3'}])
+    expect(made).toHaveLength(3)
+    expect(made.every(w => typeof w.id === 'number')).toBe(true) // generated PKs assigned
+    expect(batches).toEqual([3]) // ONE postSave carrying all three (not 3 separate)
+    expect((await Widget.objects.filter({}).count()) >= 3).toBe(true)
+  })
+
+  it('createMany({signals:false}) skips lifecycle hooks', async () => {
+    let fired = 0
+    disconnects.push(signals.postSave.connect(Widget, () => { fired++ }))
+    await Widget.objects.createMany([{name: 'q1'}, {name: 'q2'}], {signals: false})
+    expect(fired).toBe(0)
   })
 })

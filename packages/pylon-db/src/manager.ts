@@ -383,6 +383,22 @@ export class Manager<T extends object> {
     await saveInstance(instance as object)
     return instance
   }
+
+  /**
+   * Insert many rows in a single round-trip (one `INSERT … VALUES (…),(…)`).
+   * Each row gets create defaults + validation, then `preSave`/`postSave` fire
+   * ONCE with the whole `instances` array (so an audit handler can itself batch).
+   * Pass `{signals: false}` for raw seed/import throughput (no lifecycle hooks).
+   */
+  createMany(values: Partial<T>[], options?: BulkOptions): Promise<T[]> {
+    return createMany(this.ctor, values, options)
+  }
+}
+
+/** Options for bulk instance ops. */
+export interface BulkOptions {
+  /** Fire lifecycle signals (default true). `false` = raw, for seeds/imports. */
+  signals?: boolean
 }
 
 export function createManager<T extends object>(
@@ -406,16 +422,17 @@ function rowFromInstance(
   return data
 }
 
-export async function saveInstance(instance: object): Promise<object> {
-  const def = getModelDefinitionOrThrow(instance.constructor)
-
-  // Tenant auto-scope on create: stamp the tenant column from the ambient tenant
-  // when not set explicitly. Existing rows keep their tenant; an explicit value
-  // (admin/cross-tenant create) is respected.
-  if (!persisted.has(instance) && def.tenantColumn) {
+/**
+ * Create-time prep shared by `saveInstance` (insert path) and `createMany`:
+ * stamp the ambient tenant on the tenant column when unset, then resolve
+ * client-side default generators (cuid/uuid ids). Runs before validation so a
+ * generated NOT NULL PK satisfies its constraint.
+ */
+function applyCreateDefaults(def: ModelDefinition, instance: any): void {
+  if (def.tenantColumn) {
     const tcol = def.columns.find(c => c.columnName === def.tenantColumn)
     if (tcol) {
-      const current = (instance as any)[tcol.propertyKey]
+      const current = instance[tcol.propertyKey]
       if (current === undefined || current === null) {
         const tenant = currentTenant()
         if (tenant === undefined || tenant === null) {
@@ -424,23 +441,21 @@ export async function saveInstance(instance: object): Promise<object> {
               `"${tcol.propertyKey}" was not provided.`
           )
         }
-        ;(instance as any)[tcol.propertyKey] = tenant
+        instance[tcol.propertyKey] = tenant
       }
     }
   }
+  for (const col of def.columns) {
+    if (!col.defaultFn) continue
+    const cur = instance[col.propertyKey]
+    if (cur === undefined || cur === null) instance[col.propertyKey] = col.defaultFn()
+  }
+}
 
-  // Client-side default generators (e.g. cuid/uuid ids) resolve on create when
-  // no value was provided. Runs before validation so a generated NOT NULL PK
-  // satisfies its constraint.
-  if (!persisted.has(instance)) {
-    for (const col of def.columns) {
-      if (!col.defaultFn) continue
-      const cur = (instance as any)[col.propertyKey]
-      if (cur === undefined || cur === null) {
-        ;(instance as any)[col.propertyKey] = col.defaultFn()
-      }
-    }
-  }
+export async function saveInstance(instance: object): Promise<object> {
+  const def = getModelDefinitionOrThrow(instance.constructor)
+
+  if (!persisted.has(instance)) applyCreateDefaults(def, instance)
 
   // Validate before touching the DB — fail fast with structured, translatable
   // issues instead of a raw Postgres constraint error.
@@ -460,7 +475,7 @@ export async function saveInstance(instance: object): Promise<object> {
     }
   }
 
-  await signals.preSave.emit({instance, created, model})
+  await signals.preSave.emit({instances: [instance], created, model})
 
   try {
     if (!created) {
@@ -493,7 +508,7 @@ export async function saveInstance(instance: object): Promise<object> {
     throw err
   }
 
-  await signals.postSave.emit({instance, created, model})
+  await signals.postSave.emit({instances: [instance], created, model})
   return instance
 }
 
@@ -505,11 +520,90 @@ export async function deleteInstance(instance: object): Promise<void> {
   }
   const db = getDatabase()
   const model = instance.constructor as Function
-  await signals.preDelete.emit({instance, model})
+  await signals.preDelete.emit({instances: [instance], model})
   await db.kysely
     .deleteFrom(def.tableName)
     .where(pk.columnName, '=', (instance as any)[pk.propertyKey])
     .execute()
   persisted.delete(instance)
-  await signals.postDelete.emit({instance, model})
+  await signals.postDelete.emit({instances: [instance], model})
+}
+
+/**
+ * Insert many rows in one round-trip. See `Manager.createMany`. The Postgres
+ * `RETURNING` rows come back in VALUES order, so generated values map back by
+ * index.
+ */
+export async function createMany<T extends object>(
+  ctor: ModelCtor<T>,
+  values: Partial<T>[],
+  options: BulkOptions = {}
+): Promise<T[]> {
+  if (values.length === 0) return []
+  const def = getModelDefinitionOrThrow(ctor)
+  const emit = options.signals !== false
+  const model = ctor as Function
+
+  const instances = values.map(v => {
+    const inst = new ctor()
+    Object.assign(inst, v)
+    applyCreateDefaults(def, inst as any)
+    const issues = validateInstance(def, inst as object)
+    if (issues.length > 0) throw new ValidationError(issues)
+    return inst
+  })
+
+  if (emit) await signals.preSave.emit({instances, created: true, model})
+
+  const rows = instances.map(i =>
+    rowFromInstance(def, i, {includePrimaryKey: true})
+  )
+  let inserted: any[]
+  try {
+    inserted = await getDatabase()
+      .kysely.insertInto(def.tableName)
+      .values(rows as any)
+      .returningAll()
+      .execute()
+  } catch (err) {
+    const ve = uniqueViolation(def, err)
+    if (ve) throw ve
+    throw err
+  }
+  inserted.forEach((row, idx) => {
+    const inst = instances[idx] as any
+    for (const col of def.columns) {
+      if (col.columnName in row) inst[col.propertyKey] = row[col.columnName]
+    }
+    persisted.add(instances[idx] as object)
+  })
+
+  if (emit) await signals.postSave.emit({instances, created: true, model})
+  return instances
+}
+
+/**
+ * Delete many already-loaded instances in one round-trip (`DELETE … WHERE pk IN
+ * (…)`), firing `preDelete`/`postDelete` once with the whole `instances` array.
+ * `{signals: false}` skips the hooks.
+ */
+export async function deleteManyInstances<T extends object>(
+  instances: T[],
+  options: BulkOptions = {}
+): Promise<void> {
+  if (instances.length === 0) return
+  const def = getModelDefinitionOrThrow((instances[0] as object).constructor)
+  const pk = def.primaryKey
+  if (!pk) {
+    throw new Error(`Cannot delete "${def.tableName}": no primary key defined.`)
+  }
+  const emit = options.signals !== false
+  const model = (instances[0] as object).constructor as Function
+  if (emit) await signals.preDelete.emit({instances, model})
+  await getDatabase()
+    .kysely.deleteFrom(def.tableName)
+    .where(pk.columnName, 'in', instances.map(i => (i as any)[pk.propertyKey]) as any)
+    .execute()
+  for (const i of instances) persisted.delete(i as object)
+  if (emit) await signals.postDelete.emit({instances, model})
 }

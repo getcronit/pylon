@@ -116,4 +116,21 @@ describe.skipIf(!runDb)('Relations (Postgres)', () => {
     expect(authors.every(a => a instanceof Author)).toBe(true)
     expect(posts.length).toBe(1)
   })
+
+  it('hasMany.createMany inserts children in one round-trip with the FK pre-filled', async () => {
+    const author = await Author.objects.create({name: 'Bulk'})
+    db.resetQueryCount()
+    const posts = await author.posts.createMany([{title: 'p1'}, {title: 'p2'}, {title: 'p3'}])
+    expect(db.queryCount).toBe(1) // single INSERT, not 3
+    expect(posts).toHaveLength(3)
+    expect(posts.every(p => (p as any).authorId === author.id)).toBe(true)
+    expect((await author.posts.all()).map(p => p.title).sort()).toEqual(['p1', 'p2', 'p3'])
+  })
+
+  it('hasMany.set replaces the whole child set (delete + bulk insert)', async () => {
+    const author = await Author.objects.create({name: 'Setter'})
+    await author.posts.createMany([{title: 'old1'}, {title: 'old2'}])
+    await author.posts.set([{title: 'new1'}, {title: 'new2'}, {title: 'new3'}])
+    expect((await author.posts.all()).map(p => p.title).sort()).toEqual(['new1', 'new2', 'new3'])
+  })
 })

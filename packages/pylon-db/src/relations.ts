@@ -1,6 +1,14 @@
 import {joinColumn, joinTableName} from '@getcronit/pylon-ir'
 import {Database, getDatabase} from './database.js'
-import {createManager, hydrate, ModelCtor, QuerySet} from './manager.js'
+import {
+  type BulkOptions,
+  createManager,
+  createMany,
+  deleteManyInstances,
+  hydrate,
+  ModelCtor,
+  QuerySet
+} from './manager.js'
 import {getModelDefinitionOrThrow} from './registry.js'
 
 /** Return type of a `belongsTo` accessor. */
@@ -174,6 +182,30 @@ export class RelatedManager<T extends object> {
       ...values,
       [this.fkProperty]: this.fkValue
     } as Partial<T>)
+  }
+
+  private withFk(values: Partial<T>): Partial<T> {
+    return {...values, [this.fkProperty]: this.fkValue} as Partial<T>
+  }
+
+  /** Create many child rows in one round-trip, FK pre-filled (see Manager.createMany). */
+  createMany(values: Partial<T>[], options?: BulkOptions): Promise<T[]> {
+    return createMany(this.ctor, values.map(v => this.withFk(v)), options)
+  }
+
+  /**
+   * Replace the entire child set: delete the current children, then bulk-create
+   * the given ones — in a few queries regardless of count. Signal-aware by
+   * default (`preDelete`/`postDelete` + `preSave`/`postSave` each fire once with
+   * the affected array); `{signals: false}` uses a raw bulk delete for speed.
+   */
+  async set(values: Partial<T>[], options: BulkOptions = {}): Promise<T[]> {
+    if (options.signals === false) {
+      await this.base.delete()
+    } else {
+      await deleteManyInstances(await this.base.all(), options)
+    }
+    return this.createMany(values, options)
   }
 
   /** Thenable: `await user.posts` resolves to the full list. */
