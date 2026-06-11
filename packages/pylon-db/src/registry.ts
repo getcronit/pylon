@@ -53,6 +53,9 @@ export interface ColumnDefinition {
   check?: string
   /** Postgres array column (`<sqlType>[]`). */
   array?: boolean
+  /** This FK column's type follows its target's primary key (resolved lazily,
+   *  since the target is a forward reference at decoration time). */
+  fkInferType?: boolean
   /** Stored generated-column expression (e.g. a `tsvector` from text columns). */
   generatedAs?: string
   /** Full-text search config/language for a `tsvector` column (e.g. `english`). */
@@ -292,6 +295,25 @@ export function finalizeModel(
     models.set(ctor, definition)
   }
   return definition
+}
+
+/**
+ * The concrete SQL type of a column. For a foreign-key column whose type was
+ * left to follow its target (the common case — no explicit `{type}`), this is
+ * the referenced model's primary-key type, resolved now that all models exist
+ * (e.g. a cuid `text` PK → a `text` FK, not the `bigint` default). Falls back to
+ * the column's stored type if the target/PK can't be resolved.
+ */
+export function resolveColumnSqlType(
+  def: ModelDefinition,
+  col: ColumnDefinition
+): SqlType {
+  if (!col.fkInferType) return col.sqlType
+  const rel = def.relations.find(
+    r => r.kind === 'belongsTo' && r.fkProperty === col.propertyKey
+  )
+  const target = rel && models.get(rel.target())
+  return target?.primaryKey?.sqlType ?? col.sqlType
 }
 
 export function getModelDefinition(ctor: Function): ModelDefinition | undefined {

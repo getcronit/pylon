@@ -547,7 +547,11 @@ export function model(options: ModelOptions = {}): ClassDecorator {
           registerColumn(Ctor, {
             propertyKey: fkProperty,
             columnName: fkColumn,
+            // Without an explicit `{type}`, the FK type follows the target's PK
+            // (resolved lazily — see resolveColumnSqlType). `bigint` is only a
+            // fallback for when the target/PK can't be resolved.
             sqlType: value.options.type ?? 'bigint',
+            fkInferType: value.options.type === undefined,
             primaryKey: false,
             autoIncrement: false,
             unique: value.options.unique ?? false,

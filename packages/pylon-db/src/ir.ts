@@ -22,7 +22,7 @@ import type {
   RelationDefinition,
   SqlType
 } from './registry.js'
-import {allModels} from './registry.js'
+import {allModels, resolveColumnSqlType} from './registry.js'
 
 /**
  * Map a SQL column to a GraphQL scalar. The ORM knows precise intent the raw
@@ -198,7 +198,11 @@ export function entityFromDefinition(def: ModelDefinition): Entity {
     // (e.g. `IModel` from the shared `Model` base); the registry doesn't track it.
     implements: [],
     fields: [
-      ...def.columns.map(columnField),
+      // Resolve FK column types against their target PK (cuid `text` PKs etc.)
+      // before projecting — the stored type is a `bigint` fallback.
+      ...def.columns.map(col =>
+        columnField({...col, sqlType: resolveColumnSqlType(def, col)})
+      ),
       ...def.relations.map(relationField)
     ],
     ...(indexes.length ? {indexes} : {})

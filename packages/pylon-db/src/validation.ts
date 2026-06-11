@@ -9,6 +9,7 @@
  * a boundary concern, not the ORM's job.
  */
 import type {ColumnDefinition, ModelDefinition} from './registry.js'
+import {resolveColumnSqlType} from './registry.js'
 import {validateWithSchema} from './standard-schema.js'
 
 /** Stable issue codes — these are the translation keys; treat them as API. */
@@ -129,7 +130,12 @@ function validateColumn(col: ColumnDefinition, value: unknown): ValidationIssue[
 export function validateInstance(def: ModelDefinition, instance: object): ValidationIssue[] {
   const issues: ValidationIssue[] = []
   for (const col of def.columns) {
-    issues.push(...validateColumn(col, (instance as Record<string, unknown>)[col.propertyKey]))
+    // FK columns store a `bigint` fallback but follow the target PK's type
+    // (e.g. a cuid `text`); validate against the resolved type.
+    const resolved = col.fkInferType
+      ? {...col, sqlType: resolveColumnSqlType(def, col)}
+      : col
+    issues.push(...validateColumn(resolved, (instance as Record<string, unknown>)[col.propertyKey]))
   }
   return issues
 }

@@ -7,7 +7,8 @@ import {
   ColumnDefinition,
   getModelDefinition,
   ModelDefinition,
-  RelationDefinition
+  RelationDefinition,
+  resolveColumnSqlType
 } from './registry.js'
 
 type ColumnType = string | Expression<any>
@@ -64,9 +65,12 @@ async function createTable(db: Database, def: ModelDefinition): Promise<void> {
   }
 
   for (const col of def.columns) {
+    // Resolve FK column types against the target PK (e.g. cuid `text`) — the
+    // stored type is a `bigint` fallback.
+    const resolved = {...col, sqlType: resolveColumnSqlType(def, col)}
     builder = builder.addColumn(
       col.columnName,
-      pgColumnType(col) as any,
+      pgColumnType(resolved) as any,
       build => {
         let c = build
         // A stored generated column (e.g. a tsvector) owns its value entirely —
