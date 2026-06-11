@@ -66,12 +66,14 @@ export {
   type AppContext
 } from './app-context.js'
 export {defineFeatures, requireFeature, gateResolvers, ForbiddenError} from './features.js'
+export {runAsSystem} from './app-context.js'
 export {
   definePolicy,
   type ModelPolicy,
   type PolicyContext,
   type FilterRule,
-  type CreateRule
+  type CreateRule,
+  type AppPolicy
 } from './policies.js'
 export {
   signals,
@@ -180,6 +182,7 @@ export function manager<T extends object>(ctor: ModelCtor<T>): ManagerType<T> {
 // ── Namespaced public API (recommended) ──────────────────────────────────────
 import {Model as ModelClass} from './model.js'
 import * as fields from './fields.js'
+import * as policyApi from './policies.js'
 import {createId as createIdFn, uuidv4 as uuidv4Fn} from './id.js'
 import {
   ManyToManyManager as ManyToManyManagerClass,
@@ -251,13 +254,28 @@ export const models = {
    */
   app(
     name: string,
-    options: {dependsOn?: string[]; tenant?: string; feature?: string} = {}
+    options: {
+      dependsOn?: string[]
+      tenant?: string
+      feature?: string
+      /** Deny-by-default for every model in this app (per-model `{secure}` overrides). */
+      secure?: boolean
+      /** App-wide DEFAULT policy: the fallback rule for any model/action a
+       *  per-model `definePolicy` doesn't cover (e.g. "authenticated org member"). */
+      policy?: policyApi.AppPolicy
+    } = {}
   ) {
     recordApp(name, options)
+    if (options.policy) policyApi.defineAppPolicy(name, options.policy)
     return {
       ...modelBuilders,
       model: (opts: fields.ModelOptions = {}) =>
-        fields.model({...opts, app: name, tenant: opts.tenant ?? options.tenant}),
+        fields.model({
+          ...opts,
+          app: name,
+          tenant: opts.tenant ?? options.tenant,
+          secure: opts.secure ?? options.secure
+        }),
       /** Gate this app's resolver fragment behind its feature (no-op if no feature). */
       gate: <R extends Record<string, (...args: any[]) => any>>(resolvers: R): R =>
         options.feature ? gateResolvers(options.feature, resolvers) : resolvers

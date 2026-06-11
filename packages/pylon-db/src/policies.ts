@@ -72,6 +72,31 @@ export function getPolicy(def: ModelDefinition): ModelPolicy<any> | undefined {
   return policies.get(def)
 }
 
+/**
+ * An app-wide DEFAULT policy (via `models.app(name, {policy})`). Applies to every
+ * model in the app for any action a per-model `definePolicy` doesn't cover — so
+ * "the common case" (e.g. "must be an authenticated org member"; tenant scoping
+ * draws the org boundary) is declared ONCE, and only the exceptions (credentials,
+ * owned rows, admin-only) need their own rule. A bare function is the rule for
+ * read/update/delete and a create gate (non-`false` ⇒ allowed).
+ */
+export type AppPolicy = ModelPolicy<any> | FilterRule<any>
+
+const appPolicies = new Map<string, ModelPolicy<any>>()
+
+export function defineAppPolicy(app: string, policy: AppPolicy): void {
+  appPolicies.set(
+    app,
+    typeof policy === 'function'
+      ? {read: policy, update: policy, delete: policy, create: ctx => policy(ctx) !== false}
+      : policy
+  )
+}
+
+export function getAppPolicy(app: string | undefined): ModelPolicy<any> | undefined {
+  return app ? appPolicies.get(app) : undefined
+}
+
 /** Snapshot the ambient context for a rule. */
 export function policyContext(): PolicyContext {
   const ctx = getAppContext()

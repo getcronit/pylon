@@ -14,6 +14,9 @@ export interface AppContext {
   features?: readonly string[]
   /** The authenticated principal (session/user) — read by row-level policies. */
   principal?: unknown
+  /** Trusted/system scope: bypasses tenant scoping AND row-level policies for
+   *  every op inside (reads, writes, creates). Set via `runAsSystem`. */
+  system?: boolean
 }
 
 const appContext = new AsyncLocalStorage<AppContext>()
@@ -45,6 +48,22 @@ export function currentFeatures(): readonly string[] {
 /** The authenticated principal for the active request/job, or undefined. */
 export function currentPrincipal(): unknown {
   return appContext.getStore()?.principal
+}
+
+/** True inside `runAsSystem` — trusted scope that bypasses tenant + policy. */
+export function isSystem(): boolean {
+  return appContext.getStore()?.system === true
+}
+
+/**
+ * Run `fn` as TRUSTED SYSTEM code: tenant auto-scoping and row-level policies are
+ * bypassed for every op inside (reads, writes, AND creates) — the global twin of
+ * `.unscoped()`, which only covers a single query and not `create`. For seeding,
+ * crons, login-time audit writes, admin tasks. Preserves the bound tenant/principal
+ * (so explicit values still resolve); only lifts enforcement.
+ */
+export function runAsSystem<T>(fn: () => T): T {
+  return appContext.run({...getAppContext(), system: true}, fn)
 }
 
 /** The bound context's object identity (a stable singleton when none is bound).

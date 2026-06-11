@@ -1,6 +1,6 @@
 import {sql, type Expression, type ExpressionBuilder, type SqlBool} from 'kysely'
 import {joinColumn, joinTableName} from '@getcronit/pylon-ir'
-import {currentTenant} from './app-context.js'
+import {currentTenant, isSystem} from './app-context.js'
 import {getDatabase} from './database.js'
 import {signals} from './signals.js'
 import {
@@ -12,7 +12,7 @@ import {
 import {ValidationError, uniqueViolation, validateInstance} from './validation.js'
 import {NotFoundError} from './errors.js'
 import {ForbiddenError} from './features.js'
-import {type FilterAction, getPolicy, policyContext} from './policies.js'
+import {type FilterAction, getAppPolicy, getPolicy, policyContext} from './policies.js'
 // Type-only (erased at runtime → no import cycle with relations.ts) — used to
 // exclude relation accessors from the set of filterable fields.
 import type {ManyToManyManager, RelatedManager} from './relations.js'
@@ -437,7 +437,8 @@ function policyOutcome(
   def: ModelDefinition,
   action: FilterAction
 ): 'allow' | 'deny' | Record<string, unknown> {
-  const rule = getPolicy(def)?.[action]
+  // per-model rule → app-wide default (models.app({policy})) → secure deny / allow.
+  const rule = getPolicy(def)?.[action] ?? getAppPolicy(def.app)?.[action]
   if (!rule) return def.secure ? 'deny' : 'allow' // secure ⇒ fail closed
   const result = rule(policyContext())
   if (result === true) return 'allow'
@@ -458,6 +459,7 @@ export function applyPolicyWhere<Q>(
   action: FilterAction,
   ref: string = def.tableName
 ): Q {
+  if (isSystem()) return qb
   const outcome = policyOutcome(def, action)
   if (outcome === 'allow') return qb
   const scope: Scope = {def, ref, qualify: true}
@@ -564,8 +566,10 @@ export class QuerySet<T extends object> {
     const ps: Predicate[] = []
     for (const w of this.state.where) ps.push(eb => compileWhere(eb, scope, w, counter))
     ps.push(...this.state.raw)
+    // `.unscoped()` (per-query) or `runAsSystem` (ambient) lift tenant + policy.
+    const scoped = !this.state.unscoped && !isSystem()
     const tenantColumn = def.tenantColumn
-    if (tenantColumn && !this.state.unscoped) {
+    if (tenantColumn && scoped) {
       const tenant = currentTenant()
       if (tenant === undefined || tenant === null) {
         throw new Error(
@@ -575,7 +579,7 @@ export class QuerySet<T extends object> {
       }
       ps.push(eb => eb(tenantColumn, '=', tenant as any))
     }
-    if (!this.state.unscoped) {
+    if (scoped) {
       const outcome = policyOutcome(def, action)
       if (outcome === 'deny') ps.push(() => FALSE())
       else if (outcome !== 'allow') ps.push(eb => compileWhere(eb, scope, outcome, counter))
@@ -919,19 +923,21 @@ export function selectableColumns(def: ModelDefinition, table?: string): string[
  * NOT NULL column satisfies its constraint.
  */
 function enforceCreatePolicy(def: ModelDefinition, instance: any): void {
+  if (isSystem()) return // trusted scope (seeding/crons/login audit) bypasses
   const policy = getPolicy(def)
-  if (!policy && !def.secure) return
+  const appPolicy = getAppPolicy(def.app)
+  const createRule = policy?.create ?? appPolicy?.create
+  const onCreate = policy?.onCreate ?? appPolicy?.onCreate
+  if (!createRule && !onCreate && !def.secure) return
   const ctx = policyContext()
-  if (policy?.create) {
-    if (!policy.create(ctx)) {
-      throw new ForbiddenError(`Not permitted to create "${def.tableName}".`)
-    }
+  if (createRule) {
+    if (!createRule(ctx)) throw new ForbiddenError(`Not permitted to create "${def.tableName}".`)
   } else if (def.secure) {
     throw new ForbiddenError(
       `"${def.tableName}": create denied (secure model has no \`create\` policy).`
     )
   }
-  policy?.onCreate?.(ctx, instance)
+  onCreate?.(ctx, instance)
 }
 
 function applyCreateDefaults(def: ModelDefinition, instance: any): void {
@@ -989,7 +995,7 @@ export async function saveInstance(instance: object): Promise<object> {
       // Row-level write authorization: AND the `update` policy into the WHERE. A
       // persisted instance always existed, so 0 affected rows ⇒ the policy
       // rejected it → ForbiddenError (not a silent no-op, not a NotFound mask).
-      const outcome = policyOutcome(def, 'update')
+      const outcome = isSystem() ? 'allow' : policyOutcome(def, 'update')
       if (outcome === 'deny') throw new ForbiddenError(`Not permitted to update "${def.tableName}".`)
       const scope: Scope = {def, ref: def.tableName, qualify: false}
       const withPolicy = (q: any) =>
@@ -1049,7 +1055,7 @@ export async function deleteInstance(instance: object): Promise<void> {
 
   // Row-level delete authorization (mirrors the update path): AND the `delete`
   // policy into the WHERE; a persisted instance that deletes 0 rows ⇒ forbidden.
-  const outcome = policyOutcome(def, 'delete')
+  const outcome = isSystem() ? 'allow' : policyOutcome(def, 'delete')
   if (outcome === 'deny') throw new ForbiddenError(`Not permitted to delete "${def.tableName}".`)
 
   await signals.preDelete.emit({instances: [instance], model})
