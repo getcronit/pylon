@@ -293,23 +293,26 @@ export interface ForeignKeyOptions extends FieldOptions {
  * declare author: Relation<Author>
  * ```
  */
+/** The scalar type of a model's `id` primary key (the FK references it). */
+type IdOf<R> = R extends {id: infer I} ? Exclude<I, null> : number
+
 export function foreignKey<R extends object>(
   target: () => ModelCtor<R>,
   options: ForeignKeyOptions & {nullable: true}
-): number | null
+): IdOf<R> | null
 export function foreignKey<R extends object>(
   target: () => ModelCtor<R>,
   options?: ForeignKeyOptions
-): number
+): IdOf<R>
 export function foreignKey<R extends object>(
   target: () => ModelCtor<R>,
   options: ForeignKeyOptions = {}
-): number | null {
+): IdOf<R> | null {
   return new RelationBuilder(
     'belongsTo',
     target as () => Function,
     options as ForeignKeyOptions & HasManyOptions
-  ) as unknown as number | null
+  ) as unknown as IdOf<R> | null
 }
 
 export interface HasManyOptions {
