@@ -1,7 +1,7 @@
 import {describe, expect, it} from 'vitest'
 import {
   Model,
-  enumField,
+  enumOf,
   getModelDefinitionOrThrow,
   id,
   int,
@@ -20,7 +20,7 @@ class Product extends Model {
   price = numeric({min: 0}) // numeric lower bound
   qty = int({min: 1, max: 999}) // numeric range
   sku = text({min: 3, max: 12}) // string length range → char_length
-  status = enumField(['draft', 'live'] as const) // enum membership
+  status = enumOf(['draft', 'live'] as const) // enum membership
   code = varchar(20, {min: 2, check: "code <> 'XX'"}) // enum-less + min + explicit
   email = text({email: true, pattern: /x/}) // JS-only — no CHECK
   plain = text() // no constraints — no CHECK

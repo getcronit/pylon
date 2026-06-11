@@ -1,7 +1,7 @@
 import {describe, expect, it} from 'vitest'
 import {
   Model,
-  enumField,
+  enumOf,
   getModelDefinitionOrThrow,
   id,
   int,
@@ -16,7 +16,7 @@ class Account extends Model {
   id = id()
   email = text({email: true, max: 50})
   age = int({min: 0, max: 130})
-  role = enumField(['admin', 'user'] as const)
+  role = enumOf(['admin', 'user'] as const)
   username = text({min: 3, pattern: /^[a-z0-9_]+$/})
   bio = text({nullable: true})
   slug = text({validate: v => /^[a-z-]+$/.test(v as string) || 'must be kebab-case'})

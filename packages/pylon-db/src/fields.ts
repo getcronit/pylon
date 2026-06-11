@@ -210,27 +210,27 @@ type StringEnum = Record<string, string>
  *
  * ```ts
  * enum UserRole { SUPER_ADMIN = 'SUPER_ADMIN', ADMIN = 'ADMIN', USER = 'USER' }
- * role = enumField(UserRole, {default: UserRole.USER})   // → `role: UserRole`
- * status = enumField(['draft', 'live'] as const)         // → ad-hoc union enum
+ * role = enumOf(UserRole, {default: UserRole.USER})   // → `role: UserRole`
+ * status = enumOf(['draft', 'live'] as const)         // → ad-hoc union enum
  * ```
  */
-export function enumField<E extends StringEnum>(
+export function enumOf<E extends StringEnum>(
   enumObject: E,
   options?: NullableOpts
 ): E[keyof E] | null
-export function enumField<E extends StringEnum>(
+export function enumOf<E extends StringEnum>(
   enumObject: E,
   options?: FieldOptions
 ): E[keyof E]
-export function enumField<const V extends string>(
+export function enumOf<const V extends string>(
   values: readonly V[],
   options?: NullableOpts
 ): V | null
-export function enumField<const V extends string>(
+export function enumOf<const V extends string>(
   values: readonly V[],
   options?: FieldOptions
 ): V
-export function enumField(
+export function enumOf(
   source: StringEnum | readonly string[],
   options: FieldOptions = {}
 ): unknown {
@@ -239,7 +239,7 @@ export function enumField(
     : Object.values(source as StringEnum)
   if (values.some(v => typeof v !== 'string')) {
     throw new Error(
-      'enumField requires string values — numeric/heterogeneous TS enums are not supported as DB enums.'
+      'enumOf requires string values — numeric/heterogeneous TS enums are not supported as DB enums.'
     )
   }
   return field('text', {}, {...options, enumValues: values as string[]})
