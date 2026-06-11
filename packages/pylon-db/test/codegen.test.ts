@@ -67,6 +67,39 @@ describe('generateModelSource', () => {
     expect(out).toMatch(/authorId = foreignKey\(\(\) => Author, \{nullable: true, onDelete: "cascade"\}\)/)
   })
 
+  it('disambiguates colliding class names (real table vs `_`-join table)', () => {
+    // `ProductNotice` and the Prisma implicit join `_ProductNotice` both pascal
+    // to `ProductNotice`; the real table keeps the clean name, the join is suffixed.
+    const collide: PhysicalSchema = {
+      ProductNotice: {
+        name: 'ProductNotice',
+        table: 'ProductNotice',
+        columns: [col({name: 'id', sqlType: 'text', primaryKey: true})],
+        foreignKeys: [],
+        indexes: []
+      },
+      _ProductNotice: {
+        name: '_ProductNotice',
+        table: '_ProductNotice',
+        columns: [
+          col({name: 'A', sqlType: 'text'}),
+          col({name: 'B', sqlType: 'text'})
+        ],
+        foreignKeys: [
+          {table: '_ProductNotice', name: 'fk_a', column: 'A', refTable: 'ProductNotice', refColumn: 'id', onDelete: 'cascade'}
+        ],
+        indexes: []
+      }
+    }
+    const src = generateModelSource(collide)
+    const classNames = [...src.matchAll(/export class (\w+) extends/g)].map(m => m[1])
+    expect(new Set(classNames).size).toBe(classNames.length) // all unique
+    expect(classNames).toContain('ProductNotice') // real table keeps clean name
+    expect(classNames).toContain('ProductNotice2') // join table disambiguated
+    // the join's FK still targets the real model's class
+    expect(src).toMatch(/A = foreignKey\(\(\) => ProductNotice[,)]/)
+  })
+
   it('imports exactly the builders it uses', () => {
     const importLine = out.split('\n').find(l => l.startsWith('import'))!
     expect(importLine).toContain('Model')

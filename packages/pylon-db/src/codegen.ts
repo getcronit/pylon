@@ -59,21 +59,47 @@ function elementBuilder(sqlType: string): {call: string; used: string} {
   }
 }
 
+/**
+ * Assign every table a unique class identifier. Real tables claim their name
+ * before `_`-prefixed implicit join tables (Prisma's `_AToB`), so a join table
+ * colliding with a real one (`_ProductNotice` vs `ProductNotice`) is the side
+ * that gets disambiguated — keeping the domain model's name clean.
+ */
+function classNameMap(tables: PhysicalTable[]): Map<string, string> {
+  const ordered = [...tables].sort((a, b) => {
+    const au = a.table.startsWith('_') ? 1 : 0
+    const bu = b.table.startsWith('_') ? 1 : 0
+    return au - bu || a.table.localeCompare(b.table)
+  })
+  const used = new Set<string>()
+  const map = new Map<string, string>()
+  for (const t of ordered) {
+    const base = pascal(t.table)
+    let name = base
+    for (let i = 2; used.has(name); i++) name = `${base}${i}`
+    used.add(name)
+    map.set(t.table, name)
+  }
+  return map
+}
+
 /** Render one column as a model field, recording the builders it uses. */
 function fieldFor(
   col: TableColumn,
   fk: ForeignKeyChange | undefined,
-  used: Set<string>
+  used: Set<string>,
+  names: Map<string, string>
 ): string {
   const prop = camel(col.name)
 
   if (fk) {
     used.add('foreignKey')
+    const target = names.get(fk.refTable) ?? pascal(fk.refTable)
     const opts = optsLiteral({
       nullable: col.nullable || undefined,
       onDelete: fk.onDelete && fk.onDelete !== 'no action' ? fk.onDelete : undefined
     })
-    const args = opts ? `() => ${pascal(fk.refTable)}, ${opts}` : `() => ${pascal(fk.refTable)}`
+    const args = opts ? `() => ${target}, ${opts}` : `() => ${target}`
     return `  ${prop} = foreignKey(${args})`
   }
 
@@ -134,17 +160,21 @@ function fieldFor(
   }
 }
 
-function classFor(table: PhysicalTable, used: Set<string>): string {
+function classFor(
+  table: PhysicalTable,
+  used: Set<string>,
+  names: Map<string, string>
+): string {
   used.add('model')
   used.add('Model')
   used.add('manager')
-  const cls = pascal(table.table)
+  const cls = names.get(table.table) ?? pascal(table.table)
   const fkByColumn = new Map<string, ForeignKeyChange>()
   for (const fk of table.foreignKeys ?? []) fkByColumn.set(fk.column, fk)
 
   const hasPk = table.columns.some(c => c.primaryKey)
   const fields = table.columns
-    .map(c => fieldFor(c, fkByColumn.get(c.name), used))
+    .map(c => fieldFor(c, fkByColumn.get(c.name), used, names))
     .join('\n')
 
   const indexNote =
@@ -173,7 +203,8 @@ function classFor(table: PhysicalTable, used: Set<string>): string {
 export function generateModelSource(schema: PhysicalSchema): string {
   const used = new Set<string>()
   const tables = Object.values(schema).sort((a, b) => a.table.localeCompare(b.table))
-  const classes = tables.map(t => classFor(t, used)).join('\n\n')
+  const names = classNameMap(tables)
+  const classes = tables.map(t => classFor(t, used, names)).join('\n\n')
 
   // Stable import order: core first, then field builders alphabetically.
   const core = ['Model', 'model', 'manager'].filter(n => used.has(n))

@@ -29,6 +29,9 @@ import {toIR} from './ir.js'
 
 const LEDGER_TABLE = '_pylon_migrations'
 
+/** Migration-ledger / framework bookkeeping tables to never surface as models. */
+const IGNORED_TABLES = new Set([LEDGER_TABLE, '_prisma_migrations'])
+
 /** Columns present in the live DB (public schema), keyed by table name. */
 export async function introspect(db: Database = getDatabase()): Promise<Map<string, Set<string>>> {
   const rows = await sql<{table_name: string; column_name: string}>`
@@ -253,7 +256,7 @@ export async function introspectPhysical(
   // Assemble one PhysicalTable per table.
   const schema: PhysicalSchema = {}
   for (const c of columns.rows) {
-    if (c.table_name === LEDGER_TABLE) continue
+    if (IGNORED_TABLES.has(c.table_name)) continue
     let table = schema[c.table_name]
     if (!table) {
       table = {name: c.table_name, table: c.table_name, columns: [], foreignKeys: [], indexes: []}
