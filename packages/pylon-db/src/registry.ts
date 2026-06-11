@@ -36,8 +36,8 @@ export interface ColumnDefinition {
   precision?: number
   /** `numeric(precision, scale)` — decimal scale (digits after the point). */
   scale?: number
-  /** Auto-set this timestamp to `now()` on every write (Prisma's `@updatedAt`). */
-  onUpdateNow?: boolean
+  /** Client-side generator re-run on every UPDATE (e.g. updatedAt timestamp). Runtime-only. */
+  onUpdateFn?: () => unknown
   /** Literal default value applied client-side on insert. */
   default?: unknown
   /**
@@ -70,8 +70,6 @@ export interface ColumnDefinition {
   email?: boolean
   /** Allowed values (enum membership). */
   enumValues?: readonly string[]
-  /** GraphQL enum type name (defaults to `<Model><Field>`). Persisted as text. */
-  enumName?: string
   /** Custom rule: return `true`, or an error message string. */
   validate?: (value: unknown) => true | string
   /**
@@ -205,6 +203,8 @@ export function finalizeModel(
     indexes?: ModelIndex[]
     /** Property name of the tenant FK (auto-scope column); skipped if absent on this model. */
     tenant?: string
+    /** Full-text search: synthesize a hidden generated tsvector column + GIN. */
+    search?: {columns: string[]; language?: string; name?: string}
   }
 ): ModelDefinition {
   const merged = new Map<string, ColumnDefinition>()
@@ -224,6 +224,37 @@ export function finalizeModel(
     for (const rel of ownRelations(link)) {
       mergedRelations.set(rel.propertyKey, rel)
     }
+  }
+
+  // Full-text search: synthesize a hidden, STORED-generated tsvector column from
+  // the source properties' columns (resolved now that the chain is merged).
+  if (options.search) {
+    const language = options.search.language ?? 'english'
+    const name = options.search.name ?? 'fts'
+    const expr = `to_tsvector('${language}', ${options.search.columns
+      .map(prop => {
+        const colName = merged.get(prop)?.columnName
+        if (!colName) {
+          throw new Error(
+            `@model search: unknown property "${prop}" on "${options.tableName}".`
+          )
+        }
+        return `coalesce("${colName}", '')`
+      })
+      .join(" || ' ' || ")})`
+    merged.set(name, {
+      propertyKey: name,
+      columnName: name,
+      sqlType: 'tsvector',
+      primaryKey: false,
+      autoIncrement: false,
+      unique: false,
+      nullable: true,
+      hidden: true,
+      generatedAs: expr,
+      ftsLanguage: language,
+      requires: 'postgres'
+    })
   }
 
   const columns = Array.from(merged.values())

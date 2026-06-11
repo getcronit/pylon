@@ -16,7 +16,16 @@ export function mergeFields(base: Field[], extra: Field[]): Field[] {
   for (const f of base) byName.set(f.name, f)
   for (const f of extra) {
     const prev = byName.get(f.name)
-    byName.set(f.name, prev ? {...prev, ...f} : f)
+    if (!prev) {
+      byName.set(f.name, f)
+      continue
+    }
+    const merged = {...prev, ...f}
+    // Enum columns: the ORM owns persistence (text + CHECK) but the type-checker
+    // owns the GraphQL enum's identity (name + members). Keep the parser's type
+    // rather than the ORM's placeholder `String`.
+    if (f.column?.enum && prev.type) merged.type = prev.type
+    byName.set(f.name, merged)
   }
   return Array.from(byName.values())
 }

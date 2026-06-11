@@ -73,7 +73,7 @@ class FieldBuilder {
   constructor(
     readonly sqlType: SqlType,
     readonly base: Partial<ColumnDefinition>,
-    readonly options: FieldOptions & {length?: number; precision?: number; scale?: number; onUpdateNow?: boolean; enumValues?: readonly string[]; enumName?: string; array?: boolean; generatedAs?: string; ftsLanguage?: string; requires?: 'postgres'}
+    readonly options: FieldOptions & {length?: number; precision?: number; scale?: number; onUpdate?: () => unknown; enumValues?: readonly string[]; array?: boolean; generatedAs?: string; ftsLanguage?: string; requires?: 'postgres'}
   ) {}
 }
 
@@ -91,7 +91,7 @@ class RelationBuilder {
 function field(
   sqlType: SqlType,
   base: Partial<ColumnDefinition>,
-  options: FieldOptions & {length?: number; precision?: number; scale?: number; onUpdateNow?: boolean; enumValues?: readonly string[]; enumName?: string; array?: boolean; generatedAs?: string; ftsLanguage?: string; requires?: 'postgres'}
+  options: FieldOptions & {length?: number; precision?: number; scale?: number; onUpdate?: () => unknown; enumValues?: readonly string[]; array?: boolean; generatedAs?: string; ftsLanguage?: string; requires?: 'postgres'}
 ): unknown {
   return new FieldBuilder(sqlType, base, options)
 }
@@ -169,16 +169,26 @@ export function date(options: FieldOptions = {}): Date | null {
 }
 
 /**
- * A timestamp auto-set to `now()` on every write — Prisma's `@updatedAt`.
- * Seeded by a `now()` server default on insert, then stamped client-side on
- * each update (and refreshed on insert) so it always reflects the last write.
+ * A timestamp set once on insert — Prisma's `@default(now())` for `createdAt`.
+ * The value is generated client-side (`new Date()`), so no SQL default leaks
+ * into the model. For a DB-authoritative timestamp use the escape hatch
+ * `timestamp({defaultSql: 'now()'})`.
+ */
+export function createdAt(options: FieldOptions = {}): Date {
+  return field('timestamptz', {}, {...options, default: () => new Date()}) as Date
+}
+
+/**
+ * A timestamp set on insert AND re-stamped on every update — Prisma's
+ * `@updatedAt`. Same client-side generator: `default` fills it on insert,
+ * `onUpdate` re-runs it on every write.
  */
 export function updatedAt(options: FieldOptions = {}): Date {
-  return field(
-    'timestamptz',
-    {defaultSql: 'now()'},
-    {...options, onUpdateNow: true}
-  ) as Date
+  return field('timestamptz', {}, {
+    ...options,
+    default: () => new Date(),
+    onUpdate: () => new Date()
+  }) as Date
 }
 
 export function json<T = unknown>(options: NullableOpts): T | null
@@ -187,76 +197,52 @@ export function json<T = unknown>(options: FieldOptions = {}): T | null {
   return field('jsonb', {}, options) as T | null
 }
 
-/** Options for {@link searchVector}. */
-export interface SearchVectorOptions {
-  /** Postgres text-search config (e.g. `english`, `german`). Default `english`. */
-  language?: string
-  /** Override the column name. */
-  column?: string
-}
+/** A string-valued TS enum object (`enum X { A = 'a' }` compiles to this). */
+type StringEnum = Record<string, string>
 
 /**
- * A Postgres full-text `tsvector` column, STORED-generated from the given source
- * properties (`to_tsvector(language, coalesce(a,'') || ' ' || …)`) so it stays in
- * sync with no triggers. Hidden from the GraphQL API (search infrastructure);
- * pair with `.search(query)`. POSTGRES-ONLY — tagged `requires: 'postgres'`.
+ * An enum column. Pass a native (string) TS `enum` — the recommended form, since
+ * its members are usable in backend code (`UserRole.ADMIN`) and the GraphQL enum
+ * takes the enum's name — or a plain list of string values. Stored as `text`
+ * with a `CHECK (… IN (…))` (portable; not a native Postgres enum type, which is
+ * painful to migrate). The GraphQL enum itself is named by the type-checker from
+ * the field's TS type; the ORM only contributes the column + constraint.
  *
  * ```ts
- * fts = searchVector(['title', 'body'], {language: 'german'})
+ * enum UserRole { SUPER_ADMIN = 'SUPER_ADMIN', ADMIN = 'ADMIN', USER = 'USER' }
+ * role = enumField(UserRole, {default: UserRole.USER})   // → `role: UserRole`
+ * status = enumField(['draft', 'live'] as const)         // → ad-hoc union enum
  * ```
  */
-export function searchVector(
-  sources: string[],
-  options: SearchVectorOptions = {}
-): string {
-  const language = options.language ?? 'english'
-  const expr = `to_tsvector('${language}', ${sources
-    .map(s => `coalesce("${snakeCase(s)}", '')`)
-    .join(" || ' ' || ")})`
-  return field('tsvector', {}, {
-    column: options.column,
-    hidden: true,
-    nullable: true,
-    generatedAs: expr,
-    ftsLanguage: language,
-    requires: 'postgres'
-  }) as unknown as string
-}
-
-/** Options for {@link enumColumn} — a `name` pins the generated GraphQL enum. */
-export interface EnumOptions extends FieldOptions {
-  /**
-   * GraphQL enum type name. Defaults to `<Model><Field>` (e.g. `UserRole`),
-   * which matches Prisma's convention and lets a named TS union of the same
-   * name merge cleanly. Set it to bind to an existing enum type name.
-   */
-  name?: string
-}
-export interface NullableEnumOptions extends EnumOptions {
-  nullable: true
-}
-
-/**
- * A constrained string column: stored as `text` with a `CHECK (… IN (…))`
- * constraint (not a native Postgres enum type — those are painful to migrate),
- * and surfaced in GraphQL as a real `enum`. Typed as the union of the values.
- */
-export function enumColumn<const V extends string>(
+export function enumField<E extends StringEnum>(
+  enumObject: E,
+  options?: NullableOpts
+): E[keyof E] | null
+export function enumField<E extends StringEnum>(
+  enumObject: E,
+  options?: FieldOptions
+): E[keyof E]
+export function enumField<const V extends string>(
   values: readonly V[],
-  options: NullableEnumOptions
+  options?: NullableOpts
 ): V | null
-export function enumColumn<const V extends string>(
+export function enumField<const V extends string>(
   values: readonly V[],
-  options?: EnumOptions
+  options?: FieldOptions
 ): V
-export function enumColumn<const V extends string>(
-  values: readonly V[],
-  options: EnumOptions = {}
-): V | null {
-  const {name, ...rest} = options
-  return field('text', {}, {...rest, enumValues: values, enumName: name}) as
-    | V
-    | null
+export function enumField(
+  source: StringEnum | readonly string[],
+  options: FieldOptions = {}
+): unknown {
+  const values = Array.isArray(source)
+    ? [...source]
+    : Object.values(source as StringEnum)
+  if (values.some(v => typeof v !== 'string')) {
+    throw new Error(
+      'enumField requires string values — numeric/heterogeneous TS enums are not supported as DB enums.'
+    )
+  }
+  return field('text', {}, {...options, enumValues: values as string[]})
 }
 
 /**
@@ -408,6 +394,27 @@ export interface ModelOptions {
    * unique constraint is `{columns: [...], unique: true}`.
    */
   indexes?: ModelIndex[]
+  /**
+   * Full-text search (Postgres). Synthesizes a hidden, STORED-generated
+   * `tsvector` column from the given property columns (kept in sync with no
+   * triggers) plus a GIN index — search infrastructure, never a GraphQL field.
+   * Query it with `Model.objects.search(text)`.
+   *
+   * ```ts
+   * @model({search: {columns: ['title', 'body'], language: 'german'}})
+   * ```
+   */
+  search?: SearchOptions
+}
+
+/** Full-text search config for `@model({search})`. */
+export interface SearchOptions {
+  /** Property names whose columns feed the search vector. */
+  columns: string[]
+  /** Postgres text-search config (e.g. `english`, `german`). Default `english`. */
+  language?: string
+  /** Generated column name (default `fts`). */
+  name?: string
 }
 
 // Mirror the runtime validator's type buckets (validation.ts) so a DB CHECK and
@@ -481,7 +488,7 @@ function buildColumn(key: string, b: FieldBuilder): ColumnDefinition {
     length: b.options.length,
     precision: b.options.precision,
     scale: b.options.scale,
-    onUpdateNow: b.options.onUpdateNow,
+    onUpdateFn: b.options.onUpdate,
     generatedAs: b.options.generatedAs,
     ftsLanguage: b.options.ftsLanguage,
     requires: b.options.requires,
@@ -499,7 +506,6 @@ function buildColumn(key: string, b: FieldBuilder): ColumnDefinition {
     pattern: b.options.pattern,
     email: b.options.email,
     enumValues: b.options.enumValues,
-    enumName: b.options.enumName,
     validate: b.options.validate,
     schema: b.options.schema,
     array: b.options.array
@@ -681,7 +687,8 @@ export function model(options: ModelOptions = {}): ClassDecorator {
       abstract: isAbstract,
       app: options.app,
       indexes: options.indexes,
-      tenant: options.tenant
+      tenant: options.tenant,
+      search: options.search
     })
 
     // 5. Default manager (a custom `static objects = manager(...)` wins).

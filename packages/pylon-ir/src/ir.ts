@@ -67,6 +67,10 @@ export interface ColumnSpec {
   array?: boolean
   /** A stored generated column: `GENERATED ALWAYS AS (<expr>) STORED`. */
   generatedAs?: string
+  /** This text column is an enum (CHECK-constrained); its GraphQL type is the
+   *  enum the type-checker names. Signals `mergeFields` to keep the parser's
+   *  enum type rather than the ORM's `String`. */
+  enum?: boolean
   /** Requires a specific dialect (e.g. `tsvector`/GIN need Postgres). A future
    *  non-Postgres adapter reads this to reimplement or reject the feature. */
   requires?: 'postgres'

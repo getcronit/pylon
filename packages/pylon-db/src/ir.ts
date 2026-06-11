@@ -10,7 +10,6 @@
 import type {
   ColumnSpec,
   Entity,
-  EnumType,
   Field,
   PylonIR,
   ScalarName,
@@ -78,7 +77,8 @@ function columnSpec(col: ColumnDefinition): ColumnSpec {
     serialize: col.sqlType === 'jsonb' ? 'json' : undefined,
     array: col.array,
     generatedAs: col.generatedAs,
-    requires: col.requires
+    requires: col.requires,
+    enum: col.enumValues?.length ? true : undefined
   }
 }
 
@@ -87,38 +87,21 @@ function fieldName(propertyKey: string): string {
   return propertyKey.startsWith('$') ? propertyKey.slice(1) : propertyKey
 }
 
-/** GraphQL enum type name for an enum column: explicit, else `<Entity><Field>`. */
-function enumNameFor(entityName: string, col: ColumnDefinition): string {
-  if (col.enumName) return col.enumName
-  const f = fieldName(col.propertyKey)
-  return `${entityName}${f.charAt(0).toUpperCase()}${f.slice(1)}`
-}
-
-function columnField(col: ColumnDefinition, entityName: string): Field {
-  // An enum column surfaces as a real GraphQL enum (ref), not a String scalar.
-  const base: TypeRef = col.enumValues?.length
-    ? {kind: 'ref', name: enumNameFor(entityName, col), nullable: false}
-    : {kind: 'scalar', name: scalarForColumn(col), nullable: false}
+function columnField(col: ColumnDefinition): Field {
+  // Enum columns emit a `String` placeholder; the type-checker contributes the
+  // real GraphQL enum (with its name), and `mergeFields` keeps that type because
+  // the column is flagged `enum` (see columnSpec).
+  const scalar: TypeRef = {kind: 'scalar', name: scalarForColumn(col), nullable: false}
   // An array column surfaces as a GraphQL list of the element type.
   const type: TypeRef = col.array
-    ? {kind: 'list', of: base, nullable: col.nullable}
-    : {...base, nullable: col.nullable}
+    ? {kind: 'list', of: scalar, nullable: col.nullable}
+    : {...scalar, nullable: col.nullable}
   return {
     name: fieldName(col.propertyKey),
     type,
     exposed: !col.hidden,
     column: columnSpec(col)
   }
-}
-
-/** The EnumTypes declared by a model's enum columns (keyed by enum name). */
-function enumsFromDefinition(def: ModelDefinition): EnumType[] {
-  return def.columns
-    .filter(c => c.enumValues?.length)
-    .map(c => ({
-      name: enumNameFor(def.ctor.name, c),
-      values: [...(c.enumValues as readonly string[])]
-    }))
 }
 
 function relationField(rel: RelationDefinition): Field {
@@ -215,7 +198,7 @@ export function entityFromDefinition(def: ModelDefinition): Entity {
     // (e.g. `IModel` from the shared `Model` base); the registry doesn't track it.
     implements: [],
     fields: [
-      ...def.columns.map(col => columnField(col, def.ctor.name)),
+      ...def.columns.map(columnField),
       ...def.relations.map(relationField)
     ],
     ...(indexes.length ? {indexes} : {})
@@ -231,7 +214,6 @@ export function toIR(defs: ModelDefinition[] = allModels()): PylonIR {
   const ir = emptyIR()
   for (const def of defs) {
     ir.entities[def.ctor.name] = entityFromDefinition(def)
-    for (const e of enumsFromDefinition(def)) ir.enums[e.name] = e
   }
   return ir
 }

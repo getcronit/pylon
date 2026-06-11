@@ -10,7 +10,6 @@ import {
   manager,
   Model,
   model,
-  searchVector,
   setDefaultDatabase,
   syncSchema,
   text
@@ -18,13 +17,12 @@ import {
 import {entityFromDefinition} from '../../src/ir'
 import {getModelDefinitionOrThrow} from '../../src/registry'
 
-@model({table: 'fts_doc'})
+@model({table: 'fts_doc', search: {columns: ['title', 'body'], language: 'english'}})
 class FtsDoc extends Model {
   static objects = manager(FtsDoc)
   id = id()
   title = text()
   body = text()
-  fts = searchVector(['title', 'body'], {language: 'english'})
 }
 
 const connectionString =

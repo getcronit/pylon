@@ -5,17 +5,24 @@
  * integration test asserts on the emitted SDL, exercising the ACTUAL ORM types
  * against the ACTUAL schema introspection (no mirrored predicates).
  */
-import {Model, model, id, text, boolean, timestamp, foreignKey, hasMany, manyToMany, enumColumn} from '../../../src/index.js'
+import {Model, model, id, text, boolean, createdAt, foreignKey, hasMany, manyToMany, enumField} from '../../../src/index.js'
 import type {Relation} from '../../../src/index.js'
+
+// A native TS string enum — usable in backend code (UserRole.ADMIN) and the
+// source of the GraphQL enum's name.
+export enum UserRole {
+  ADMIN = 'ADMIN',
+  USER = 'USER'
+}
 
 @model()
 export class User extends Model {
   id = id()
   email = text({unique: true})
   isActive = boolean({default: true})
-  createdAt = timestamp({defaultSql: 'now()'})
+  createdAt = createdAt()
   // enum column: should derive as a GraphQL ENUM (UserRole), not String.
-  role = enumColumn(['ADMIN', 'USER'] as const, {default: 'USER'})
+  role = enumField(UserRole, {default: UserRole.USER})
   posts = hasMany(() => Post, {foreignKey: 'authorId'})
   // Hidden column: `$` is not a valid GraphQL field char → excluded from schema.
   $passwordHash = text({nullable: true})

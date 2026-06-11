@@ -182,7 +182,7 @@ export class QuerySet<T extends object> {
   /**
    * Postgres full-text search: filters to rows whose `tsvector` column matches
    * `query` (via `websearch_to_tsquery`, which accepts plain user input). The
-   * column defaults to the model's `searchVector()` column and the language to
+   * column defaults to the model's `@model({search})` vector and the language to
    * the one it was declared with. POSTGRES-ONLY.
    */
   search(
@@ -451,11 +451,11 @@ export async function saveInstance(instance: object): Promise<object> {
   const created = !(persisted.has(instance) && pk)
   const model = instance.constructor as Function
 
-  // `@updatedAt`: stamp on every UPDATE. On INSERT the `now()` server default
-  // applies (the column is left unset → DB fills it), keeping one source.
+  // Re-run client-side update generators (e.g. updatedAt) on every UPDATE.
+  // (On INSERT, the `default` generator already filled the value.)
   if (!created) {
     for (const col of def.columns) {
-      if (col.onUpdateNow) (instance as any)[col.propertyKey] = new Date()
+      if (col.onUpdateFn) (instance as any)[col.propertyKey] = col.onUpdateFn()
     }
   }
 
