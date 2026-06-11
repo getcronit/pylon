@@ -455,6 +455,9 @@ importers:
       esbuild:
         specifier: ^0.23.1
         version: 0.23.1
+      kysely:
+        specifier: ^0.27.4
+        version: 0.27.6
       rimraf:
         specifier: ^6.0.1
         version: 6.1.2

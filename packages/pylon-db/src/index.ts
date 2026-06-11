@@ -30,6 +30,8 @@ export {
   connect,
   getDatabase,
   setDefaultDatabase,
+  inTransaction,
+  databaseForKysely,
   type DatabaseOptions
 } from './database.js'
 export {

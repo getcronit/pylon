@@ -11,6 +11,7 @@
  */
 import {Queue as BullQueue, Worker, type Job, type JobsOptions} from 'bullmq'
 import {getConnection} from './connection.js'
+import {getOutboxDriver} from './outbox.js'
 
 /** Anything with a synchronous `.parse()` (Zod/Valibot/ArkType, …). Optional. */
 export interface PayloadSchema<T> {
@@ -65,9 +66,20 @@ export class QueueDefinition<T> {
     return this.options.schema ? this.options.schema.parse(data) : (data as T)
   }
 
-  /** Enqueue a job (validated). `jobId` in `options` dedupes. */
+  /**
+   * Enqueue a job (validated). `jobId` in `options` dedupes. If a DB transaction
+   * is active (and an outbox driver is set), routes through the transactional
+   * outbox so the job is enqueued iff the transaction commits; otherwise enqueues
+   * straight to Redis.
+   */
   async add(data: T, options?: JobsOptions): Promise<void> {
-    await this.queue.add(this.name as any, this.validate(data) as any, options)
+    const validated = this.validate(data)
+    const driver = getOutboxDriver()
+    if (driver?.inTransaction()) {
+      await driver.enqueue(this.name, validated, options)
+    } else {
+      await this.queue.add(this.name as any, validated as any, options)
+    }
   }
 
   /** Enqueue after a delay (ms). */

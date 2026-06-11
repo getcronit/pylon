@@ -8,3 +8,12 @@ export {
   type PayloadSchema
 } from './queue.js'
 export {getConnection, setConnection, closeConnection} from './connection.js'
+export {
+  setOutboxDriver,
+  getOutboxDriver,
+  relayOnce,
+  runOutboxRelay,
+  type OutboxDriver,
+  type OutboxRow
+} from './outbox.js'
+export {createPgOutbox} from './pg-outbox.js'

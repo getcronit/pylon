@@ -17,6 +17,8 @@ export interface DatabaseOptions {
 
 export class Database {
   readonly kysely: Kysely<any>
+  /** True when this Database is bound to a transaction (not a pool). */
+  readonly transactional: boolean = false
   private readonly pool: Pool
   private _queryCount = 0
 
@@ -46,6 +48,14 @@ export class Database {
   /** Run a function with this database bound as the ambient connection. */
   run<T>(fn: () => T): T {
     return databaseContext.run(this, fn)
+  }
+
+  /**
+   * Run `fn` inside a transaction, bound as the ambient connection — every ORM
+   * write within (and any signal/outbox enqueue) commits or rolls back together.
+   */
+  async transaction<T>(fn: () => Promise<T>): Promise<T> {
+    return this.kysely.transaction().execute(trx => databaseForKysely(trx).run(fn))
   }
 
   async destroy(): Promise<void> {
@@ -80,6 +90,11 @@ export function getDatabase(): Database {
   return db
 }
 
+/** True when the ambient bound database is a transaction (for the outbox path). */
+export function inTransaction(): boolean {
+  return databaseContext.getStore()?.transactional === true
+}
+
 /**
  * A `Database` view bound to a specific Kysely instance — e.g. a transaction —
  * with no pool of its own. Used by the migration runner to run each migration's
@@ -89,9 +104,15 @@ export function getDatabase(): Database {
  */
 export function databaseForKysely(kysely: Kysely<any>): Database {
   const db = Object.create(Database.prototype) as Database
-  const w = db as unknown as {kysely: Kysely<any>; pool?: Pool; _queryCount: number}
+  const w = db as unknown as {
+    kysely: Kysely<any>
+    pool?: Pool
+    _queryCount: number
+    transactional: boolean
+  }
   w.kysely = kysely
   w.pool = undefined
   w._queryCount = 0
+  w.transactional = true
   return db
 }
