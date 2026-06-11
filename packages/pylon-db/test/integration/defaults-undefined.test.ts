@@ -138,4 +138,23 @@ describe.skipIf(!runDb)('explicit undefined vs default — Prisma semantics (Pos
     expect(w.label).toBeNull()
     expect((await Widget.objects.get({id: w.id})).label).toBeNull()
   })
+
+  it('inst.x = undefined is a no-op IN MEMORY (before any save); null still assigns', async () => {
+    const w = await Widget.objects.create({status: 'active', label: 'keep'})
+    ;(w as any).status = undefined // ignored — never even transiently corrupts
+    ;(w as any).label = undefined
+    expect(w.status).toBe('active') // unchanged, no save involved
+    expect(w.label).toBe('keep')
+    ;(w as any).label = null
+    expect(w.label).toBeNull() // null is a real assignment
+  })
+
+  it('instances stay plain objects — spread / Object.keys / JSON include columns', async () => {
+    const w = await Widget.objects.create({status: 'active', label: 'x'})
+    expect({...w}).toMatchObject({status: 'active', label: 'x'}) // spread works
+    expect(Object.keys(w)).toEqual(
+      expect.arrayContaining(['id', 'code', 'status', 'label', 'createdAt'])
+    )
+    expect(JSON.parse(JSON.stringify(w))).toMatchObject({status: 'active', label: 'x'})
+  })
 })

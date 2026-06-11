@@ -88,6 +88,41 @@ class RelationBuilder {
   ) {}
 }
 
+/**
+ * Per-instance backing store for column values, behind the accessors installed
+ * by `@model`. Held under a non-enumerable Symbol so it never leaks into a
+ * spread / `JSON.stringify` of the instance.
+ */
+const COLUMN_STORE = Symbol('pylon.columns')
+
+/**
+ * An OWN, enumerable accessor descriptor for a column property. The getter/setter
+ * are shared across instances (cached by column name — no per-instance closures).
+ * The setter IGNORES `undefined` so `inst.col = undefined` is a true no-op (keeps
+ * the current value), matching Prisma's "field not provided" semantics. `null` is
+ * a real value and IS stored. Enumerable + own ⇒ spread / `Object.keys` /
+ * `JSON.stringify` still see the value (it's read through the getter).
+ */
+const columnAccessors = new Map<string, PropertyDescriptor>()
+function columnAccessor(key: string): PropertyDescriptor {
+  let descriptor = columnAccessors.get(key)
+  if (!descriptor) {
+    descriptor = {
+      enumerable: true,
+      configurable: true,
+      get(this: any) {
+        return this[COLUMN_STORE]?.[key]
+      },
+      set(this: any, value: unknown) {
+        if (value === undefined) return // no-op: "not provided" keeps the current value
+        this[COLUMN_STORE][key] = value
+      }
+    }
+    columnAccessors.set(key, descriptor)
+  }
+  return descriptor
+}
+
 function field(
   sqlType: SqlType,
   base: Partial<ColumnDefinition>,
@@ -611,23 +646,42 @@ export function model(options: ModelOptions = {}): ClassDecorator {
     }
 
     // 2. Wrapper subclass: every real construction runs the field initializers
-    //    (producing descriptors) and we immediately replace them with the real
-    //    runtime value (default or undefined). belongsTo descriptors sit on the
-    //    FK scalar prop; hasMany descriptors never become own props (swallowed
-    //    by the accessor's setter installed below).
+    //    (producing builder descriptors) and we immediately replace them. Column
+    //    props (scalar fields + belongsTo FK scalars) become OWN, enumerable
+    //    accessors backed by a per-instance store, whose setter ignores
+    //    `undefined` (so `inst.x = undefined` is a no-op, never corrupting a
+    //    value). hasMany/m2m descriptors are dropped so the prototype getter
+    //    (installed below) shows through.
     const Wrapped = class extends Ctor {
       constructor(...args: any[]) {
         super(...args)
+        // Per-instance backing store (non-enumerable). Guarded so a subclass
+        // wrapper doesn't reset the store a parent wrapper already populated.
+        if (!Object.prototype.hasOwnProperty.call(this, COLUMN_STORE)) {
+          Object.defineProperty(this, COLUMN_STORE, {
+            value: {} as Record<string, unknown>,
+            enumerable: false,
+            writable: true,
+            configurable: true
+          })
+        }
+        const store = (this as any)[COLUMN_STORE] as Record<string, unknown>
         for (const k of Object.keys(this as object)) {
           const v = (this as any)[k]
-          if (v instanceof FieldBuilder) {
-            // A function default is a client-side generator (e.g. cuid/uuid):
-            // it's resolved at insert time in saveInstance, not at construction.
-            const d = v.options.default
-            ;(this as any)[k] =
-              'default' in v.options && typeof d !== 'function' ? d : undefined
+          const isColumn =
+            v instanceof FieldBuilder ||
+            (v instanceof RelationBuilder && v.kind === 'belongsTo') // FK scalar column
+          if (isColumn) {
+            delete (this as any)[k]
+            Object.defineProperty(this, k, columnAccessor(k))
+            if (v instanceof FieldBuilder) {
+              // A literal default is applied at construction; a function default
+              // (cuid/uuid) is resolved at insert time in saveInstance.
+              const d = v.options.default
+              if ('default' in v.options && typeof d !== 'function') store[k] = d
+            }
           } else if (v instanceof RelationBuilder) {
-            ;(this as any)[k] = undefined
+            delete (this as any)[k] // hasMany / manyToMany → prototype accessor
           }
         }
       }
