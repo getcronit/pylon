@@ -819,6 +819,10 @@ function rowFromInstance(
   const data: Record<string, unknown> = {}
   for (const col of def.columns) {
     if (col.autoIncrement) continue
+    // Generated columns (e.g. a STORED `tsvector` from `@model({search})`) are
+    // DB-managed — `GENERATED ALWAYS`. They're hydrated by `selectAll()`, so a
+    // loaded instance carries them; never write them back or Postgres rejects it.
+    if (col.generatedAs) continue
     if (col.primaryKey && !includePrimaryKey) continue
     const value = instance[col.propertyKey]
     if (value !== undefined) data[col.columnName] = value

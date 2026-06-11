@@ -90,6 +90,21 @@ describe.skipIf(!runDb)('full-text search (Postgres)', () => {
       .execute()
     expect(idx.some((r: any) => /USING gin/.test(r.indexdef))).toBe(true)
   })
+
+  it('$save updates a loaded row WITHOUT writing the generated tsvector', async () => {
+    // .get() selectAll() hydrates the STORED generated `fts` column onto the
+    // instance; $save() must NOT write it back (Postgres rejects GENERATED
+    // ALWAYS columns). This regression once blocked every update on a
+    // search-enabled model.
+    const doc = await FtsDoc.objects.get({title: 'Unrelated'})
+    doc.body = 'now mentions falcon'
+    await expect(doc.$save()).resolves.toBeTruthy()
+
+    // the field changed AND the generated vector re-synced to the new body
+    const reloaded = await FtsDoc.objects.get({id: doc.id})
+    expect(reloaded.body).toBe('now mentions falcon')
+    expect((await FtsDoc.objects.search('falcon').all()).map(d => d.id)).toContain(doc.id)
+  })
 })
 
 @model({
