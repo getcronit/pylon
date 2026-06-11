@@ -38,6 +38,7 @@ export {
   getDatabase,
   setDefaultDatabase,
   inTransaction,
+  transaction,
   databaseForKysely,
   type DatabaseOptions
 } from './database.js'
@@ -262,6 +263,7 @@ export const db = {
   connect: database.connect,
   getDatabase: database.getDatabase,
   setDefaultDatabase: database.setDefaultDatabase,
+  transaction: database.transaction,
   Manager: managerApi.Manager,
   QuerySet: managerApi.QuerySet,
   manager,

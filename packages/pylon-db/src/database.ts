@@ -96,6 +96,20 @@ export function inTransaction(): boolean {
 }
 
 /**
+ * Run `fn` inside a transaction on the AMBIENT connection — free-function sugar
+ * for `getDatabase().transaction(fn)`:
+ *
+ *   await transaction(async () => { … })   // not getDatabase().transaction(…)
+ *
+ * Resolvers shouldn't touch the `Database` handle just to open a transaction; it
+ * resolves the ambient connection the same way `Model.objects` does. Every ORM
+ * write within (and any signal/outbox enqueue) commits or rolls back together.
+ */
+export function transaction<T>(fn: () => Promise<T>): Promise<T> {
+  return getDatabase().transaction(fn)
+}
+
+/**
  * A `Database` view bound to a specific Kysely instance — e.g. a transaction —
  * with no pool of its own. Used by the migration runner to run each migration's
  * ops inside a transaction: `trxDb.run(() => …)` makes the ambient `getDatabase()`
