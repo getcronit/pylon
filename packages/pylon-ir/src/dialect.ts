@@ -16,6 +16,9 @@
  *   • pylon-db `migration-runner.ts` — `pg_advisory_lock` serializes migrations.
  *   • pylon-queues `pg-outbox.ts` — `FOR UPDATE SKIP LOCKED` claim.
  *   • `tsvector`/GIN/`websearch_to_tsquery` — tagged `requires: 'postgres'` in the IR.
+ *   • pylon-db `manager.ts` `compileField` / `.search()` — the WhereInput query
+ *     compiler: `ILIKE` (case-insensitive `mode`), array ops (`= ANY`, `&&`, `@>`,
+ *     `array_length`), and FTS `websearch_to_tsquery` / `ts_rank` ordering.
  */
 import type {ColumnSpec} from './ir.js'
 

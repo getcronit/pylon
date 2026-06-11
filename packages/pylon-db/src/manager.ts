@@ -1,4 +1,4 @@
-import {sql} from 'kysely'
+import {sql, type Expression, type ExpressionBuilder, type SqlBool} from 'kysely'
 import {currentTenant} from './app-context.js'
 import {getDatabase} from './database.js'
 import {signals} from './signals.js'
@@ -9,6 +9,9 @@ import {
 } from './registry.js'
 import {ValidationError, uniqueViolation, validateInstance} from './validation.js'
 import {NotFoundError} from './errors.js'
+// Type-only (erased at runtime → no import cycle with relations.ts) — used to
+// exclude relation accessors from the set of filterable fields.
+import type {ManyToManyManager, RelatedManager} from './relations.js'
 
 export type ModelCtor<T> = {new (): T}
 
@@ -40,22 +43,217 @@ export function hydrate<T extends object>(ctor: ModelCtor<T>, row: any): T {
   return instance
 }
 
-interface Condition {
-  column?: string
-  value?: unknown
-  /** A raw predicate (e.g. a full-text `@@` match) applied verbatim. */
-  raw?: import('kysely').Expression<import('kysely').SqlBool>
+// ── Typed, Prisma-style filtering (WhereInput) ──────────────────────────────
+// `.filter()` accepts either the shorthand `{field: value}` (equality) or a
+// per-field operator object (`{field: {gt, in, contains, …}}`), plus the logical
+// combinators `AND`/`OR`/`NOT`. Operators are typed against each field's real
+// type; relation accessors and computed-field methods are excluded.
+
+interface EqualityFilter<V> {
+  equals?: V
+  not?: V | EqualityFilter<V>
+  in?: NonNullable<V>[]
+  notIn?: NonNullable<V>[]
+}
+interface ComparableFilter<V> extends EqualityFilter<V> {
+  lt?: NonNullable<V>
+  lte?: NonNullable<V>
+  gt?: NonNullable<V>
+  gte?: NonNullable<V>
+}
+interface StringFilter<V> extends ComparableFilter<V> {
+  contains?: string
+  startsWith?: string
+  endsWith?: string
+  /** `'insensitive'` → case-insensitive (`ILIKE`). Postgres-only. */
+  mode?: 'default' | 'insensitive'
+}
+/** Postgres array-column operators (`text[]`, `int[]`, …). */
+interface ListFilter<E> {
+  equals?: E[]
+  has?: E
+  hasEvery?: E[]
+  hasSome?: E[]
+  isEmpty?: boolean
 }
 
-/** Apply equality + raw conditions to any kysely where-able builder. */
-function applyConditions<Q>(q: Q, conds: Condition[]): Q {
-  let out: any = q
-  for (const cond of conds) {
-    if (cond.raw) out = out.where(cond.raw)
-    else if (cond.value === null) out = out.where(cond.column, 'is', null)
-    else out = out.where(cond.column, '=', cond.value)
+/** Pick the operator set that fits a field's underlying (non-null) type. */
+type FieldFilter<V> = [NonNullable<V>] extends [ReadonlyArray<infer E>]
+  ? ListFilter<E>
+  : [NonNullable<V>] extends [string]
+    ? StringFilter<V>
+    : [NonNullable<V>] extends [number | bigint | Date]
+      ? ComparableFilter<V>
+      : EqualityFilter<V>
+
+/** Field keys that are filterable columns (not methods or relation accessors). */
+type Filterable<T> = {
+  [K in keyof T]-?: T[K] extends (...args: any[]) => any
+    ? never
+    : T[K] extends RelatedManager<any> | ManyToManyManager<any>
+      ? never
+      : T[K] extends Promise<any> // Relation<T> = Promise<T | null>
+        ? never
+        : K
+}[keyof T]
+
+/** A Prisma-shaped where clause for model `T`. */
+export type WhereInput<T> = {
+  [K in Filterable<T>]?: T[K] | FieldFilter<T[K]>
+} & {
+  AND?: WhereInput<T> | WhereInput<T>[]
+  OR?: WhereInput<T>[]
+  NOT?: WhereInput<T> | WhereInput<T>[]
+}
+
+/** A predicate factory bound to a kysely expression builder. */
+type Predicate = (eb: ExpressionBuilder<any, any>) => Expression<SqlBool>
+
+const asArray = <X>(v: X | X[]): X[] => (Array.isArray(v) ? v : [v])
+const TRUE = (): Expression<SqlBool> => sql<SqlBool>`true`
+const FALSE = (): Expression<SqlBool> => sql<SqlBool>`false`
+
+/** Escape LIKE/ILIKE metacharacters in a user-supplied substring. */
+const escapeLike = (s: string): string => s.replace(/[\\%_]/g, m => `\\${m}`)
+/** `array[v1, v2, …]` with each element bound as a parameter. */
+const arrayLiteral = (vs: readonly unknown[]) =>
+  sql`array[${sql.join(vs.map(v => sql.val(v)))}]`
+
+const FIELD_OPERATORS = new Set([
+  'equals', 'not', 'in', 'notIn', 'lt', 'lte', 'gt', 'gte',
+  'contains', 'startsWith', 'endsWith', 'mode',
+  'has', 'hasEvery', 'hasSome', 'isEmpty'
+])
+
+/**
+ * Is `value` a per-field operator object (`{gt: …}`) rather than an equality
+ * literal? A non-null plain object qualifies — EXCEPT a `Date` (equality) or a
+ * `jsonb` column (matched whole). Arrays are equality (whole-array match); array
+ * *operators* arrive as `{has: …}` objects.
+ */
+function isFieldFilter(
+  col: ColumnDefinition,
+  value: unknown
+): value is Record<string, unknown> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    !(value instanceof Date) &&
+    col.sqlType !== 'jsonb'
+  )
+}
+
+/** Compile one field's filter (operator object or equality literal) to SQL. */
+function compileField(
+  eb: ExpressionBuilder<any, any>,
+  col: ColumnDefinition,
+  value: unknown
+): Expression<SqlBool> {
+  const ref = col.columnName
+  if (!isFieldFilter(col, value)) {
+    return value === null ? eb(ref, 'is', null) : eb(ref, '=', value as any)
   }
-  return out
+  for (const k of Object.keys(value)) {
+    if (!FIELD_OPERATORS.has(k)) {
+      throw new Error(`Unknown filter operator "${k}" on field "${col.propertyKey}".`)
+    }
+  }
+  const ops = value as Record<string, unknown>
+  const likeOp = ops.mode === 'insensitive' ? 'ilike' : 'like' // ilike: Postgres-specific (dialect override point)
+  const terms: Expression<SqlBool>[] = []
+  for (const [op, v] of Object.entries(ops)) {
+    switch (op) {
+      case 'mode':
+        break
+      case 'equals':
+        terms.push(v === null ? eb(ref, 'is', null) : eb(ref, '=', v as any))
+        break
+      case 'not':
+        if (v === null) terms.push(eb(ref, 'is not', null))
+        else if (isFieldFilter(col, v)) terms.push(eb.not(compileField(eb, col, v)))
+        else terms.push(eb(ref, '<>', v as any))
+        break
+      case 'in':
+        terms.push((v as unknown[]).length ? eb(ref, 'in', v as any) : FALSE())
+        break
+      case 'notIn':
+        terms.push((v as unknown[]).length ? eb(ref, 'not in', v as any) : TRUE())
+        break
+      case 'lt':
+        terms.push(eb(ref, '<', v as any))
+        break
+      case 'lte':
+        terms.push(eb(ref, '<=', v as any))
+        break
+      case 'gt':
+        terms.push(eb(ref, '>', v as any))
+        break
+      case 'gte':
+        terms.push(eb(ref, '>=', v as any))
+        break
+      case 'contains':
+        terms.push(eb(ref, likeOp, `%${escapeLike(String(v))}%`))
+        break
+      case 'startsWith':
+        terms.push(eb(ref, likeOp, `${escapeLike(String(v))}%`))
+        break
+      case 'endsWith':
+        terms.push(eb(ref, likeOp, `%${escapeLike(String(v))}`))
+        break
+      // Array operators — Postgres-specific (dialect override point).
+      case 'has':
+        terms.push(sql<SqlBool>`${sql.val(v)} = any(${sql.ref(ref)})`)
+        break
+      case 'hasEvery':
+        terms.push(
+          (v as unknown[]).length
+            ? sql<SqlBool>`${sql.ref(ref)} @> ${arrayLiteral(v as unknown[])}`
+            : TRUE()
+        )
+        break
+      case 'hasSome':
+        terms.push(
+          (v as unknown[]).length
+            ? sql<SqlBool>`${sql.ref(ref)} && ${arrayLiteral(v as unknown[])}`
+            : FALSE()
+        )
+        break
+      case 'isEmpty': {
+        const empty = sql<SqlBool>`coalesce(array_length(${sql.ref(ref)}, 1), 0) = 0`
+        terms.push(v ? empty : eb.not(empty))
+        break
+      }
+    }
+  }
+  if (terms.length === 0) return TRUE()
+  return terms.length === 1 ? terms[0] : eb.and(terms)
+}
+
+/** Compile a whole `WhereInput` (fields + AND/OR/NOT) to one boolean expression. */
+function compileWhere(
+  eb: ExpressionBuilder<any, any>,
+  def: ModelDefinition,
+  where: Record<string, unknown>
+): Expression<SqlBool> {
+  const terms: Expression<SqlBool>[] = []
+  for (const [key, value] of Object.entries(where)) {
+    if (value === undefined) continue
+    if (key === 'AND') {
+      const ws = asArray(value as any)
+      if (ws.length) terms.push(eb.and(ws.map(w => compileWhere(eb, def, w))))
+    } else if (key === 'OR') {
+      const ws = asArray(value as any)
+      if (ws.length) terms.push(eb.or(ws.map(w => compileWhere(eb, def, w))))
+    } else if (key === 'NOT') {
+      const ws = asArray(value as any)
+      if (ws.length) terms.push(eb.not(eb.and(ws.map(w => compileWhere(eb, def, w)))))
+    } else {
+      terms.push(compileField(eb, columnFor(def, key), value))
+    }
+  }
+  if (terms.length === 0) return TRUE()
+  return terms.length === 1 ? terms[0] : eb.and(terms)
 }
 
 // ── Relay-style cursor pagination ───────────────────────────────────────────
@@ -105,8 +303,13 @@ function decodeCursor(cursor: string): unknown {
 }
 
 interface QueryState {
-  where: Condition[]
+  /** Structured filter fragments (ANDed with each other + the tenant scope). */
+  where: WhereInput<any>[]
+  /** Raw predicate factories (e.g. a full-text match), ANDed in. */
+  raw: Predicate[]
   orderBy: {column: string; dir: 'asc' | 'desc'}[]
+  /** Relevance ordering from `.search(q, {rank:true})` (applied before orderBy). */
+  rank?: {ref: string; language: string; query: string}
   limit?: number
   /** Skip tenant auto-scoping for this query (cross-tenant / admin). */
   unscoped?: boolean
@@ -115,7 +318,7 @@ interface QueryState {
 export class QuerySet<T extends object> {
   constructor(
     private readonly ctor: ModelCtor<T>,
-    private readonly state: QueryState = {where: [], orderBy: []}
+    private readonly state: QueryState = {where: [], raw: [], orderBy: []}
   ) {}
 
   private get def(): ModelDefinition {
@@ -125,7 +328,9 @@ export class QuerySet<T extends object> {
   private clone(patch: Partial<QueryState>): QuerySet<T> {
     return new QuerySet(this.ctor, {
       where: patch.where ?? this.state.where,
+      raw: patch.raw ?? this.state.raw,
       orderBy: patch.orderBy ?? this.state.orderBy,
+      rank: patch.rank ?? this.state.rank,
       limit: patch.limit ?? this.state.limit,
       unscoped: patch.unscoped ?? this.state.unscoped
     })
@@ -136,31 +341,37 @@ export class QuerySet<T extends object> {
     return this.clone({unscoped: true})
   }
 
-  /** The tenant filter for this query (none if unscoped / not a tenant model). */
-  private tenantConditions(): Condition[] {
-    const column = this.def.tenantColumn
-    if (!column || this.state.unscoped) return []
-    const tenant = currentTenant()
-    if (tenant === undefined || tenant === null) {
-      throw new Error(
-        `Model "${this.def.tableName}" is tenant-scoped but no tenant is bound. ` +
-          `Bind one via useDatabase({tenant}) / the queue runtime, or use .unscoped().`
-      )
+  /** Every predicate for this query: structured filters + raw + tenant scope. */
+  private predicates(): Predicate[] {
+    const def = this.def
+    const ps: Predicate[] = []
+    for (const w of this.state.where) ps.push(eb => compileWhere(eb, def, w))
+    ps.push(...this.state.raw)
+    const tenantColumn = def.tenantColumn
+    if (tenantColumn && !this.state.unscoped) {
+      const tenant = currentTenant()
+      if (tenant === undefined || tenant === null) {
+        throw new Error(
+          `Model "${def.tableName}" is tenant-scoped but no tenant is bound. ` +
+            `Bind one via useDatabase({tenant}) / the queue runtime, or use .unscoped().`
+        )
+      }
+      ps.push(eb => eb(tenantColumn, '=', tenant as any))
     }
-    return [{column, value: tenant}]
+    return ps
   }
 
-  /** Explicit filters + the implicit tenant filter. */
-  private allConditions(): Condition[] {
-    return [...this.state.where, ...this.tenantConditions()]
+  /** AND every predicate onto a kysely where-able builder (no-op if none). */
+  private applyWhere<Q>(q: Q): Q {
+    const ps = this.predicates()
+    if (ps.length === 0) return q
+    return (q as any).where((eb: ExpressionBuilder<any, any>) =>
+      eb.and(ps.map(p => p(eb)))
+    )
   }
 
-  filter(conditions: Partial<Record<keyof T, unknown>>): QuerySet<T> {
-    const next = [...this.state.where]
-    for (const [key, value] of Object.entries(conditions)) {
-      next.push({column: columnFor(this.def, key).columnName, value})
-    }
-    return this.clone({where: next})
+  filter(where: WhereInput<T>): QuerySet<T> {
+    return this.clone({where: [...this.state.where, where]})
   }
 
   /** Order by a field; prefix with `-` for descending (e.g. `-createdAt`). */
@@ -184,31 +395,45 @@ export class QuerySet<T extends object> {
    * Postgres full-text search: filters to rows whose `tsvector` column matches
    * `query` (via `websearch_to_tsquery`, which accepts plain user input). The
    * column defaults to the model's `@model({search})` vector and the language to
-   * the one it was declared with. POSTGRES-ONLY.
+   * the one it was declared with. ANDs with `.filter()` / tenant scope like any
+   * other predicate. Pass `{rank: true}` to also order by relevance
+   * (`ts_rank` DESC) — applied to `.all()`/`.first()`, not keyset `.paginate()`.
+   * POSTGRES-ONLY.
    */
   search(
     query: string,
-    options: {column?: string; language?: string} = {}
+    options: {column?: string; language?: string; rank?: boolean} = {}
   ): QuerySet<T> {
     const ftsCol = options.column
       ? columnFor(this.def, options.column)
       : this.def.columns.find(c => c.sqlType === 'tsvector')
     if (!ftsCol) {
       throw new Error(
-        `${this.def.tableName}: .search() needs a tsvector column (see searchVector()).`
+        `${this.def.tableName}: .search() needs a tsvector column (see @model({search})).`
       )
     }
     const language = options.language ?? ftsCol.ftsLanguage ?? 'english'
-    const raw = sql<import('kysely').SqlBool>`${sql.ref(
-      ftsCol.columnName
-    )} @@ websearch_to_tsquery(${language}, ${query})`
-    return this.clone({where: [...this.state.where, {raw}]})
+    const ref = ftsCol.columnName
+    // Postgres-specific (dialect override point): tsvector @@ websearch_to_tsquery.
+    const predicate: Predicate = () =>
+      sql<SqlBool>`${sql.ref(ref)} @@ websearch_to_tsquery(${language}, ${query})`
+    const patch: Partial<QueryState> = {raw: [...this.state.raw, predicate]}
+    if (options.rank) patch.rank = {ref, language, query}
+    return this.clone(patch)
   }
 
   private build() {
     const db = getDatabase()
-    let q = db.kysely.selectFrom(this.def.tableName).selectAll()
-    q = applyConditions(q, this.allConditions())
+    let q: any = db.kysely.selectFrom(this.def.tableName).selectAll()
+    q = this.applyWhere(q)
+    if (this.state.rank) {
+      const {ref, language, query} = this.state.rank
+      // Relevance first, then any explicit orderBy as a tiebreak.
+      q = q.orderBy(
+        sql`ts_rank(${sql.ref(ref)}, websearch_to_tsquery(${language}, ${query}))` as any,
+        'desc'
+      )
+    }
     for (const o of this.state.orderBy) {
       q = q.orderBy(o.column as any, o.dir)
     }
@@ -226,7 +451,7 @@ export class QuerySet<T extends object> {
     return rows.length ? hydrate(this.ctor, rows[0]) : null
   }
 
-  async get(conditions?: Partial<Record<keyof T, unknown>>): Promise<T> {
+  async get(conditions?: WhereInput<T>): Promise<T> {
     const qs = conditions ? this.filter(conditions) : this
     const rows = await qs.limit(2).build().execute()
     if (rows.length === 0) {
@@ -240,10 +465,10 @@ export class QuerySet<T extends object> {
 
   async count(): Promise<number> {
     const db = getDatabase()
-    let q = db.kysely
+    let q: any = db.kysely
       .selectFrom(this.def.tableName)
       .select(db.kysely.fn.countAll().as('count'))
-    q = applyConditions(q, this.allConditions())
+    q = this.applyWhere(q)
     const row = await q.executeTakeFirstOrThrow()
     return Number((row as any).count)
   }
@@ -251,8 +476,8 @@ export class QuerySet<T extends object> {
   /** Delete every row matching the current filter. Returns the count deleted. */
   async delete(): Promise<number> {
     const db = getDatabase()
-    let q = db.kysely.deleteFrom(this.def.tableName)
-    q = applyConditions(q, this.allConditions())
+    let q: any = db.kysely.deleteFrom(this.def.tableName)
+    q = this.applyWhere(q)
     const res = await q.executeTakeFirst()
     return Number(res?.numDeletedRows ?? 0)
   }
@@ -285,8 +510,8 @@ export class QuerySet<T extends object> {
         : 'desc'
 
     const db = getDatabase()
-    let q = db.kysely.selectFrom(this.def.tableName).selectAll()
-    q = applyConditions(q, this.allConditions())
+    let q: any = db.kysely.selectFrom(this.def.tableName).selectAll()
+    q = this.applyWhere(q)
     if (!backward && args.after !== undefined) {
       q = q.where(col, desc ? '<' : '>', decodeCursor(args.after) as any)
     }
@@ -325,8 +550,8 @@ export class QuerySet<T extends object> {
     for (const [key, value] of Object.entries(values)) {
       data[columnFor(this.def, key).columnName] = value
     }
-    let q = db.kysely.updateTable(this.def.tableName).set(data)
-    q = applyConditions(q, this.allConditions())
+    let q: any = db.kysely.updateTable(this.def.tableName).set(data)
+    q = this.applyWhere(q)
     const res = await q.executeTakeFirst()
     return Number(res?.numUpdatedRows ?? 0)
   }
@@ -339,8 +564,8 @@ export class Manager<T extends object> {
     return new QuerySet(this.ctor)
   }
 
-  filter(conditions: Partial<Record<keyof T, unknown>>): QuerySet<T> {
-    return this.qs().filter(conditions)
+  filter(where: WhereInput<T>): QuerySet<T> {
+    return this.qs().filter(where)
   }
 
   orderBy(field: keyof T | `-${string & keyof T}`): QuerySet<T> {
@@ -348,7 +573,10 @@ export class Manager<T extends object> {
   }
 
   /** Postgres full-text search (see `QuerySet.search`). */
-  search(query: string, options?: {column?: string; language?: string}): QuerySet<T> {
+  search(
+    query: string,
+    options?: {column?: string; language?: string; rank?: boolean}
+  ): QuerySet<T> {
     return this.qs().search(query, options)
   }
 
@@ -360,7 +588,7 @@ export class Manager<T extends object> {
     return this.qs().first()
   }
 
-  get(conditions?: Partial<Record<keyof T, unknown>>): Promise<T> {
+  get(conditions?: WhereInput<T>): Promise<T> {
     return this.qs().get(conditions)
   }
 

@@ -7,7 +7,8 @@ import {
   deleteManyInstances,
   hydrate,
   ModelCtor,
-  QuerySet
+  QuerySet,
+  type WhereInput
 } from './manager.js'
 import {getModelDefinitionOrThrow} from './registry.js'
 
@@ -220,13 +221,13 @@ export class RelatedManager<T extends object> {
   ) {
     this.base = new QuerySet(ctor).filter({
       [fkProperty]: fkValue
-    } as Partial<Record<keyof T, unknown>>)
+    } as WhereInput<T>)
   }
 
   // The first overload is the ORM query filter; the second exists only to stay
   // structurally compatible with the merged `Array<T>.filter` (it is never used
   // at runtime).
-  filter(conditions: Partial<Record<keyof T, unknown>>): QuerySet<T>
+  filter(where: WhereInput<T>): QuerySet<T>
   filter(
     predicate: (value: T, index: number, array: T[]) => unknown,
     thisArg?: any
@@ -263,7 +264,7 @@ export class RelatedManager<T extends object> {
     return this.base.first()
   }
 
-  get(conditions?: Partial<Record<keyof T, unknown>>): Promise<T> {
+  get(conditions?: WhereInput<T>): Promise<T> {
     return this.base.get(conditions)
   }
 

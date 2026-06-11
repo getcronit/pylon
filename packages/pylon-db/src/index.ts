@@ -53,7 +53,8 @@ export {
   type Connection,
   type Edge,
   type PageInfo,
-  type PaginateArgs
+  type PaginateArgs,
+  type WhereInput
 } from './manager.js'
 export {syncSchema, dropTables} from './schema-sync.js'
 export {useDatabase, type UseDatabaseOptions} from './plugin.js'
