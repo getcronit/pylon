@@ -15,6 +15,9 @@ export function columnDDL(c: ColumnSpec): string {
   const parts = [`"${c.name}"`]
   if (c.primaryKey && c.autoIncrement) {
     parts.push('bigint', 'PRIMARY KEY', 'GENERATED ALWAYS AS IDENTITY')
+  } else if (c.generatedAs) {
+    // A stored generated column (e.g. a tsvector derived from text columns).
+    parts.push(sqlTypeDDL(c), `GENERATED ALWAYS AS (${c.generatedAs}) STORED`)
   } else {
     parts.push(sqlTypeDDL(c))
     if (c.primaryKey) parts.push('PRIMARY KEY')

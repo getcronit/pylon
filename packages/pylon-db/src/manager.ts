@@ -1,3 +1,4 @@
+import {sql} from 'kysely'
 import {currentTenant} from './app-context.js'
 import {getDatabase} from './database.js'
 import {signals} from './signals.js'
@@ -39,8 +40,21 @@ export function hydrate<T extends object>(ctor: ModelCtor<T>, row: any): T {
 }
 
 interface Condition {
-  column: string
-  value: unknown
+  column?: string
+  value?: unknown
+  /** A raw predicate (e.g. a full-text `@@` match) applied verbatim. */
+  raw?: import('kysely').Expression<import('kysely').SqlBool>
+}
+
+/** Apply equality + raw conditions to any kysely where-able builder. */
+function applyConditions<Q>(q: Q, conds: Condition[]): Q {
+  let out: any = q
+  for (const cond of conds) {
+    if (cond.raw) out = out.where(cond.raw)
+    else if (cond.value === null) out = out.where(cond.column, 'is', null)
+    else out = out.where(cond.column, '=', cond.value)
+  }
+  return out
 }
 
 // ── Relay-style cursor pagination ───────────────────────────────────────────
@@ -165,15 +179,35 @@ export class QuerySet<T extends object> {
     return this.clone({limit: n})
   }
 
+  /**
+   * Postgres full-text search: filters to rows whose `tsvector` column matches
+   * `query` (via `websearch_to_tsquery`, which accepts plain user input). The
+   * column defaults to the model's `searchVector()` column and the language to
+   * the one it was declared with. POSTGRES-ONLY.
+   */
+  search(
+    query: string,
+    options: {column?: string; language?: string} = {}
+  ): QuerySet<T> {
+    const ftsCol = options.column
+      ? columnFor(this.def, options.column)
+      : this.def.columns.find(c => c.sqlType === 'tsvector')
+    if (!ftsCol) {
+      throw new Error(
+        `${this.def.tableName}: .search() needs a tsvector column (see searchVector()).`
+      )
+    }
+    const language = options.language ?? ftsCol.ftsLanguage ?? 'english'
+    const raw = sql<import('kysely').SqlBool>`${sql.ref(
+      ftsCol.columnName
+    )} @@ websearch_to_tsquery(${language}, ${query})`
+    return this.clone({where: [...this.state.where, {raw}]})
+  }
+
   private build() {
     const db = getDatabase()
     let q = db.kysely.selectFrom(this.def.tableName).selectAll()
-    for (const cond of this.allConditions()) {
-      q =
-        cond.value === null
-          ? q.where(cond.column, 'is', null)
-          : q.where(cond.column, '=', cond.value as any)
-    }
+    q = applyConditions(q, this.allConditions())
     for (const o of this.state.orderBy) {
       q = q.orderBy(o.column as any, o.dir)
     }
@@ -208,12 +242,7 @@ export class QuerySet<T extends object> {
     let q = db.kysely
       .selectFrom(this.def.tableName)
       .select(db.kysely.fn.countAll().as('count'))
-    for (const cond of this.allConditions()) {
-      q =
-        cond.value === null
-          ? q.where(cond.column, 'is', null)
-          : q.where(cond.column, '=', cond.value as any)
-    }
+    q = applyConditions(q, this.allConditions())
     const row = await q.executeTakeFirstOrThrow()
     return Number((row as any).count)
   }
@@ -222,12 +251,7 @@ export class QuerySet<T extends object> {
   async delete(): Promise<number> {
     const db = getDatabase()
     let q = db.kysely.deleteFrom(this.def.tableName)
-    for (const cond of this.allConditions()) {
-      q =
-        cond.value === null
-          ? q.where(cond.column, 'is', null)
-          : q.where(cond.column, '=', cond.value as any)
-    }
+    q = applyConditions(q, this.allConditions())
     const res = await q.executeTakeFirst()
     return Number(res?.numDeletedRows ?? 0)
   }
@@ -261,9 +285,7 @@ export class QuerySet<T extends object> {
 
     const db = getDatabase()
     let q = db.kysely.selectFrom(this.def.tableName).selectAll()
-    for (const cond of this.allConditions()) {
-      q = cond.value === null ? q.where(cond.column, 'is', null) : q.where(cond.column, '=', cond.value as any)
-    }
+    q = applyConditions(q, this.allConditions())
     if (!backward && args.after !== undefined) {
       q = q.where(col, desc ? '<' : '>', decodeCursor(args.after) as any)
     }
@@ -303,12 +325,7 @@ export class QuerySet<T extends object> {
       data[columnFor(this.def, key).columnName] = value
     }
     let q = db.kysely.updateTable(this.def.tableName).set(data)
-    for (const cond of this.allConditions()) {
-      q =
-        cond.value === null
-          ? q.where(cond.column, 'is', null)
-          : q.where(cond.column, '=', cond.value as any)
-    }
+    q = applyConditions(q, this.allConditions())
     const res = await q.executeTakeFirst()
     return Number(res?.numUpdatedRows ?? 0)
   }
@@ -327,6 +344,11 @@ export class Manager<T extends object> {
 
   orderBy(field: keyof T | `-${string & keyof T}`): QuerySet<T> {
     return this.qs().orderBy(field)
+  }
+
+  /** Postgres full-text search (see `QuerySet.search`). */
+  search(query: string, options?: {column?: string; language?: string}): QuerySet<T> {
+    return this.qs().search(query, options)
   }
 
   all(): Promise<T[]> {

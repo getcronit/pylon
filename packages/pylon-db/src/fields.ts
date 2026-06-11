@@ -73,7 +73,7 @@ class FieldBuilder {
   constructor(
     readonly sqlType: SqlType,
     readonly base: Partial<ColumnDefinition>,
-    readonly options: FieldOptions & {length?: number; precision?: number; scale?: number; onUpdateNow?: boolean; enumValues?: readonly string[]; enumName?: string; array?: boolean}
+    readonly options: FieldOptions & {length?: number; precision?: number; scale?: number; onUpdateNow?: boolean; enumValues?: readonly string[]; enumName?: string; array?: boolean; generatedAs?: string; ftsLanguage?: string; requires?: 'postgres'}
   ) {}
 }
 
@@ -91,7 +91,7 @@ class RelationBuilder {
 function field(
   sqlType: SqlType,
   base: Partial<ColumnDefinition>,
-  options: FieldOptions & {length?: number; precision?: number; scale?: number; onUpdateNow?: boolean; enumValues?: readonly string[]; enumName?: string; array?: boolean}
+  options: FieldOptions & {length?: number; precision?: number; scale?: number; onUpdateNow?: boolean; enumValues?: readonly string[]; enumName?: string; array?: boolean; generatedAs?: string; ftsLanguage?: string; requires?: 'postgres'}
 ): unknown {
   return new FieldBuilder(sqlType, base, options)
 }
@@ -185,6 +185,42 @@ export function json<T = unknown>(options: NullableOpts): T | null
 export function json<T = unknown>(options?: FieldOptions): T
 export function json<T = unknown>(options: FieldOptions = {}): T | null {
   return field('jsonb', {}, options) as T | null
+}
+
+/** Options for {@link searchVector}. */
+export interface SearchVectorOptions {
+  /** Postgres text-search config (e.g. `english`, `german`). Default `english`. */
+  language?: string
+  /** Override the column name. */
+  column?: string
+}
+
+/**
+ * A Postgres full-text `tsvector` column, STORED-generated from the given source
+ * properties (`to_tsvector(language, coalesce(a,'') || ' ' || …)`) so it stays in
+ * sync with no triggers. Hidden from the GraphQL API (search infrastructure);
+ * pair with `.search(query)`. POSTGRES-ONLY — tagged `requires: 'postgres'`.
+ *
+ * ```ts
+ * fts = searchVector(['title', 'body'], {language: 'german'})
+ * ```
+ */
+export function searchVector(
+  sources: string[],
+  options: SearchVectorOptions = {}
+): string {
+  const language = options.language ?? 'english'
+  const expr = `to_tsvector('${language}', ${sources
+    .map(s => `coalesce("${snakeCase(s)}", '')`)
+    .join(" || ' ' || ")})`
+  return field('tsvector', {}, {
+    column: options.column,
+    hidden: true,
+    nullable: true,
+    generatedAs: expr,
+    ftsLanguage: language,
+    requires: 'postgres'
+  }) as unknown as string
 }
 
 /** Options for {@link enumColumn} — a `name` pins the generated GraphQL enum. */
@@ -446,6 +482,9 @@ function buildColumn(key: string, b: FieldBuilder): ColumnDefinition {
     precision: b.options.precision,
     scale: b.options.scale,
     onUpdateNow: b.options.onUpdateNow,
+    generatedAs: b.options.generatedAs,
+    ftsLanguage: b.options.ftsLanguage,
+    requires: b.options.requires,
     // A literal default is persisted (→ IR/DDL); a function default is a
     // client-side generator resolved at insert (never serialized).
     default: typeof b.options.default === 'function' ? undefined : b.options.default,

@@ -54,6 +54,10 @@ function scalarForSqlType(t: SqlType): ScalarName {
       return 'Date'
     case 'jsonb':
       return 'JSON'
+    case 'tsvector':
+      // Search infrastructure; never exposed (the column is hidden), but the
+      // field still needs a scalar name to be well-formed.
+      return 'String'
   }
 }
 
@@ -72,7 +76,9 @@ function columnSpec(col: ColumnDefinition): ColumnSpec {
     defaultSql: col.defaultSql,
     check: col.check,
     serialize: col.sqlType === 'jsonb' ? 'json' : undefined,
-    array: col.array
+    array: col.array,
+    generatedAs: col.generatedAs,
+    requires: col.requires
   }
 }
 
@@ -184,10 +190,21 @@ export function entityFromDefinition(def: ModelDefinition): Entity {
       name: ix.name ?? `${def.tableName}_${cols.join('_')}_idx`,
       table: def.tableName,
       columns: cols,
-      unique: ix.unique ?? false
+      unique: ix.unique ?? false,
+      ...(ix.method ? {method: ix.method} : {})
     }
   })
-  const indexes = [...singleColumn, ...composite]
+  // Full-text columns get a GIN index automatically (the point of a tsvector).
+  const ginIndexes = def.columns
+    .filter(col => col.sqlType === 'tsvector')
+    .map(col => ({
+      name: `${def.tableName}_${col.columnName}_gin`,
+      table: def.tableName,
+      columns: [col.columnName],
+      unique: false,
+      method: 'gin' as const
+    }))
+  const indexes = [...singleColumn, ...composite, ...ginIndexes]
 
   return {
     name: def.ctor.name,

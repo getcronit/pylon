@@ -421,3 +421,43 @@ describe('many-to-many join tables', () => {
     expect(schema.post_tag).toBeUndefined()
   })
 })
+
+describe('full-text search DDL (generated tsvector + GIN index)', () => {
+  const ftsEntity = (): Entity => ({
+    name: 'Doc',
+    table: 'doc',
+    abstract: false,
+    primaryKey: 'id',
+    implements: [],
+    fields: [
+      idField,
+      field('title', col({name: 'title', sqlType: 'text'})),
+      {
+        name: 'fts',
+        type: {kind: 'scalar' as const, name: 'String', nullable: true},
+        exposed: false,
+        column: col({
+          name: 'fts',
+          sqlType: 'tsvector',
+          nullable: true,
+          generatedAs: "to_tsvector('english', coalesce(\"title\", ''))",
+          requires: 'postgres'
+        })
+      }
+    ],
+    indexes: [{name: 'doc_fts_gin', table: 'doc', columns: ['fts'], method: 'gin'}]
+  })
+
+  it('emits a STORED generated column + a GIN index', () => {
+    const m = makeMigration({}, {Doc: ftsEntity()})
+    const up = m.up.join('\n')
+    expect(up).toMatch(/"fts" tsvector GENERATED ALWAYS AS \(to_tsvector\('english'/)
+    expect(up).toMatch(/STORED/)
+    expect(up).toMatch(/CREATE INDEX "doc_fts_gin" ON "doc" USING gin \("fts"\)/)
+  })
+
+  it('round-trips with no spurious diff (generatedAs is compared)', () => {
+    const schema = physicalSchemaOf({Doc: ftsEntity()})
+    expect(diffSchema(schema, physicalSchemaOf({Doc: ftsEntity()}))).toEqual([])
+  })
+})

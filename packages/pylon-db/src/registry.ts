@@ -11,6 +11,7 @@ export type SqlType =
   | 'date'
   | 'jsonb'
   | 'uuid'
+  | 'tsvector'
 
 export interface ColumnDefinition {
   /** Name of the class property this column maps to. */
@@ -52,6 +53,12 @@ export interface ColumnDefinition {
   check?: string
   /** Postgres array column (`<sqlType>[]`). */
   array?: boolean
+  /** Stored generated-column expression (e.g. a `tsvector` from text columns). */
+  generatedAs?: string
+  /** Full-text search config/language for a `tsvector` column (e.g. `english`). */
+  ftsLanguage?: string
+  /** Dialect requirement (Postgres-only features like tsvector/GIN). */
+  requires?: 'postgres'
   // ── Runtime validation rules (not part of the serializable IR/DDL) ──────────
   /** Numbers: minimum value. Strings: minimum length. */
   min?: number
@@ -106,6 +113,8 @@ export interface RelationDefinition {
 export interface ModelIndex {
   columns: string[]
   unique?: boolean
+  /** Index method — `gin` for full-text (`tsvector`); default btree. */
+  method?: 'gin' | 'btree'
   /** Override the generated index name. */
   name?: string
 }

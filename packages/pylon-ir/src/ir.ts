@@ -40,6 +40,7 @@ export type SqlType =
   | 'date'
   | 'jsonb'
   | 'uuid'
+  | 'tsvector'
 
 export type OnDelete = 'cascade' | 'set null' | 'restrict' | 'no action'
 
@@ -64,6 +65,11 @@ export interface ColumnSpec {
   serialize?: 'json'
   /** Postgres array column (`<sqlType>[]`), e.g. `text[]`. */
   array?: boolean
+  /** A stored generated column: `GENERATED ALWAYS AS (<expr>) STORED`. */
+  generatedAs?: string
+  /** Requires a specific dialect (e.g. `tsvector`/GIN need Postgres). A future
+   *  non-Postgres adapter reads this to reimplement or reject the feature. */
+  requires?: 'postgres'
 }
 
 /** A persisted column paired with its model property name (for migrations). */
@@ -105,6 +111,8 @@ export interface IndexSpec {
   /** Column names, in index order. */
   columns: string[]
   unique?: boolean
+  /** Index method — `gin` for full-text (`tsvector`); default btree. */
+  method?: 'gin' | 'btree'
 }
 
 /** A resolved foreign-key constraint — self-contained, no schema lookup needed. */

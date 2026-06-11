@@ -42,6 +42,8 @@ function columnType(col: ColumnDefinition): ColumnType {
       return 'jsonb'
     case 'uuid':
       return 'uuid'
+    case 'tsvector':
+      return sql.raw('tsvector')
   }
 }
 
@@ -62,6 +64,11 @@ async function createTable(db: Database, def: ModelDefinition): Promise<void> {
       columnType(col) as any,
       build => {
         let c = build
+        // A stored generated column (e.g. a tsvector) owns its value entirely —
+        // no PK/unique/default/notnull, just the GENERATED expression.
+        if (col.generatedAs) {
+          return c.generatedAlwaysAs(sql.raw(col.generatedAs)).stored()
+        }
         if (col.primaryKey) c = c.primaryKey()
         else if (col.unique) c = c.unique()
 

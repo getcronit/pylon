@@ -63,6 +63,7 @@ function columnEqual(a: ColumnSpec, b: ColumnSpec): boolean {
     a.length === b.length &&
     a.precision === b.precision &&
     a.scale === b.scale &&
+    a.generatedAs === b.generatedAs &&
     a.defaultSql === b.defaultSql &&
     a.default === b.default &&
     a.check === b.check
@@ -409,7 +410,8 @@ function dropForeignKeySQL(fk: ForeignKeyChange): string {
 
 function addIndexSQL(ix: IndexSpec): string {
   const cols = ix.columns.map(c => `"${c}"`).join(', ')
-  return `CREATE ${ix.unique ? 'UNIQUE ' : ''}INDEX "${ix.name}" ON "${ix.table}" (${cols})`
+  const using = ix.method && ix.method !== 'btree' ? ` USING ${ix.method}` : ''
+  return `CREATE ${ix.unique ? 'UNIQUE ' : ''}INDEX "${ix.name}" ON "${ix.table}"${using} (${cols})`
 }
 
 function dropIndexSQL(ix: IndexSpec): string {
