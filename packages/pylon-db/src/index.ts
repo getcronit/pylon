@@ -68,10 +68,12 @@ export {
 } from './signals.js'
 export {
   ValidationError,
+  uniqueViolation,
   validateInstance,
   type ValidationIssue,
   type ValidationCode
 } from './validation.js'
+export {NotFoundError} from './errors.js'
 export {
   validateWithSchema,
   type StandardSchemaV1,

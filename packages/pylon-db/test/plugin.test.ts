@@ -1,6 +1,6 @@
 import {GraphQLError} from 'graphql'
 import {afterEach, describe, expect, it} from 'vitest'
-import {getDatabase, setDefaultDatabase, useDatabase, ValidationError} from '../src/index'
+import {getDatabase, NotFoundError, setDefaultDatabase, useDatabase, ValidationError} from '../src/index'
 
 // Build the shape envelop hands onExecuteDone: a result with GraphQL errors and
 // a setResult spy. A resolver-thrown error is wrapped by graphql-js so the
@@ -91,5 +91,15 @@ describe('useDatabase() plugin', () => {
     const other = new GraphQLError('boom', {originalError: new Error('db down')})
     // nothing matched → setResult not called
     expect(runOnExecuteDone(plugin, [other])).toBeUndefined()
+  })
+
+  it('maps a NotFoundError (.get() miss) to a NOT_FOUND GraphQLError', () => {
+    const plugin = useDatabase()
+    const err = new GraphQLError('User not found', {
+      path: ['user'],
+      originalError: new NotFoundError('user', {id: '123'})
+    })
+    const next = runOnExecuteDone(plugin, [err])
+    expect(next?.errors?.[0].extensions).toMatchObject({code: 'NOT_FOUND', entity: 'user'})
   })
 })

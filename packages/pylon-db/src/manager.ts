@@ -7,7 +7,8 @@ import {
   getModelDefinitionOrThrow,
   ModelDefinition
 } from './registry.js'
-import {ValidationError, validateInstance} from './validation.js'
+import {ValidationError, uniqueViolation, validateInstance} from './validation.js'
+import {NotFoundError} from './errors.js'
 
 export type ModelCtor<T> = {new (): T}
 
@@ -229,7 +230,7 @@ export class QuerySet<T extends object> {
     const qs = conditions ? this.filter(conditions) : this
     const rows = await qs.limit(2).build().execute()
     if (rows.length === 0) {
-      throw new Error(`${this.def.tableName}: no row matched .get()`)
+      throw new NotFoundError(this.def.tableName, conditions as Record<string, unknown> | undefined)
     }
     if (rows.length > 1) {
       throw new Error(`${this.def.tableName}: .get() matched multiple rows`)
@@ -461,27 +462,35 @@ export async function saveInstance(instance: object): Promise<object> {
 
   await signals.preSave.emit({instance, created, model})
 
-  if (!created) {
-    const data = rowFromInstance(def, instance, {includePrimaryKey: false})
-    await db.kysely
-      .updateTable(def.tableName)
-      .set(data)
-      .where(pk!.columnName, '=', (instance as any)[pk!.propertyKey])
-      .execute()
-  } else {
-    const data = rowFromInstance(def, instance, {includePrimaryKey: true})
-    const inserted = await db.kysely
-      .insertInto(def.tableName)
-      .values(data)
-      .returningAll()
-      .executeTakeFirstOrThrow()
-    // Pull back generated values (identity PKs, SQL defaults).
-    for (const col of def.columns) {
-      if (col.columnName in (inserted as any)) {
-        ;(instance as any)[col.propertyKey] = (inserted as any)[col.columnName]
+  try {
+    if (!created) {
+      const data = rowFromInstance(def, instance, {includePrimaryKey: false})
+      await db.kysely
+        .updateTable(def.tableName)
+        .set(data)
+        .where(pk!.columnName, '=', (instance as any)[pk!.propertyKey])
+        .execute()
+    } else {
+      const data = rowFromInstance(def, instance, {includePrimaryKey: true})
+      const inserted = await db.kysely
+        .insertInto(def.tableName)
+        .values(data)
+        .returningAll()
+        .executeTakeFirstOrThrow()
+      // Pull back generated values (identity PKs, SQL defaults).
+      for (const col of def.columns) {
+        if (col.columnName in (inserted as any)) {
+          ;(instance as any)[col.propertyKey] = (inserted as any)[col.columnName]
+        }
       }
+      persisted.add(instance)
     }
-    persisted.add(instance)
+  } catch (err) {
+    // A unique violation (23505) → a precise `'unique'` field error, so a
+    // duplicate surfaces as a userError instead of a masked "Unexpected error".
+    const ve = uniqueViolation(def, err)
+    if (ve) throw ve
+    throw err
   }
 
   await signals.postSave.emit({instance, created, model})

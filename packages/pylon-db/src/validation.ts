@@ -22,6 +22,7 @@ export type ValidationCode =
   | 'pattern'
   | 'email'
   | 'enum'
+  | 'unique'
   | 'custom'
 
 export interface ValidationIssue {
@@ -42,6 +43,44 @@ export class ValidationError extends Error {
     )
     this.name = 'ValidationError'
   }
+}
+
+/**
+ * Map a Postgres unique-violation (SQLSTATE 23505) to a `'unique'`
+ * `ValidationError` on the offending column(s) — so a duplicate surfaces as a
+ * precise field-level userError (via `mutation()`) instead of a masked
+ * "Unexpected error". Returns `undefined` for any other error. The columns are
+ * read from the driver's `detail` (`Key (a, b)=(…) already exists.`) and mapped
+ * back to model property names.
+ */
+export function uniqueViolation(
+  def: ModelDefinition,
+  err: unknown
+): ValidationError | undefined {
+  const e = err as {code?: string; detail?: string; constraint?: string}
+  if (e?.code !== '23505') return undefined
+  const cols =
+    e.detail?.match(/^Key \(([^)]+)\)=/)?.[1]?.split(',').map(s =>
+      s.replace(/"/g, '').trim()
+    ) ?? []
+  const props = cols.map(
+    col => def.columns.find(c => c.columnName === col)?.propertyKey ?? col
+  )
+  const params = {constraint: e.constraint}
+  if (props.length === 0) {
+    return new ValidationError([
+      {path: '', code: 'unique', message: 'A record with these values already exists.', params}
+    ])
+  }
+  const combined = props.length > 1 ? `combination of ${props.join(', ')}` : props[0]
+  return new ValidationError(
+    props.map(p => ({
+      path: p,
+      code: 'unique' as const,
+      message: `This ${combined} already exists.`,
+      params
+    }))
+  )
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/

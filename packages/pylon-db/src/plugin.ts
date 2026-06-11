@@ -24,6 +24,7 @@ import type {Plugin} from '@getcronit/pylon'
 import {GraphQLError} from 'graphql'
 import {runWithAppContext} from './app-context.js'
 import {connect, databaseForKysely, getDatabase} from './database.js'
+import {NotFoundError} from './errors.js'
 import {ForbiddenError} from './features.js'
 import {ValidationError, type ValidationIssue} from './validation.js'
 
@@ -121,6 +122,15 @@ export function useDatabase(options: UseDatabaseOptions = {}): Plugin {
                 nodes: err.nodes,
                 path: err.path,
                 extensions: {code: 'FORBIDDEN', feature: original.feature}
+              })
+            }
+            // NotFoundError (a `.get()` miss) → NOT_FOUND (not masked).
+            if (original instanceof NotFoundError) {
+              changed = true
+              return new GraphQLError(original.message, {
+                nodes: err.nodes,
+                path: err.path,
+                extensions: {code: 'NOT_FOUND', entity: original.entity}
               })
             }
             return err
