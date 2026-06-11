@@ -199,4 +199,62 @@ describe.skipIf(!dockerAvailable)('multi-app e2e — two apps compose one schema
       gql('mutation{ createAuthor(name: ""){ id } }')
     ).rejects.toThrow(/BAD_USER_INPUT/)
   })
+
+  it('resolves a 3-level nested query in O(depth) round-trips, not O(rows) (no N+1)', async () => {
+    // Seed a distinctly-named set so we can assert on our rows while `authors`
+    // still returns everything other tests created.
+    const AUTHORS = 4
+    const ARTICLES = 3
+    const tag = 'n1' // unique name prefix for this test's authors
+    const mine: Record<string, string[]> = {}
+    for (let a = 0; a < AUTHORS; a++) {
+      const name = `${tag}-author-${a}`
+      const author = (await gql('mutation($n:String!){ createAuthor(name:$n){ id } }', {n: name}))
+        .createAuthor
+      mine[name] = []
+      for (let t = 0; t < ARTICLES; t++) {
+        const title = `${name}-art-${t}`
+        await gql('mutation($id:Number!,$t:String!){ addArticle(authorId:$id, title:$t){ id } }', {
+          id: Number(author.id),
+          t: title
+        })
+        mine[name].push(title)
+      }
+    }
+
+    // Measure ONLY the nested read: reset the server-side counter, run the query,
+    // then read the counter back (each is its own request; nothing else queries
+    // the DB in between).
+    await gql('mutation{ _dbQueryReset }')
+    const data = await gql(
+      '{ authors { name displayName articles { title author { name } } } }'
+    )
+    const queries = (await gql('{ _dbQueryCount }'))._dbQueryCount as number
+
+    // Data is correct: each of our authors carries exactly its articles, and each
+    // article's belongsTo back-ref points to its own author.
+    const authors: Array<{
+      name: string
+      displayName: string
+      articles: Array<{title: string; author: {name: string}}>
+    }> = data.authors
+    for (const [name, titles] of Object.entries(mine)) {
+      const row = authors.find(x => x.name === name)
+      expect(row, `author ${name} present`).toBeTruthy()
+      expect(row!.displayName).toBe(name.toUpperCase()) // computed method ran
+      expect(row!.articles.map(ar => ar.title).sort()).toEqual([...titles].sort())
+      for (const ar of row!.articles) {
+        expect(ar.author.name).toBe(name) // batched belongsTo resolves to the right parent
+      }
+    }
+
+    // The whole nest is 3 levels: authors → articles (hasMany) → author (belongsTo).
+    // Batched, that is ~3 round-trips total regardless of row count. A naive N+1
+    // implementation would issue 1 + (#authors) + (#articles) queries, far larger
+    // and growing with the seed. Allow a little slack but stay well below linear.
+    const naive = 1 + authors.length + authors.reduce((n, x) => n + x.articles.length, 0)
+    expect(queries).toBeGreaterThan(0)
+    expect(queries).toBeLessThanOrEqual(4)
+    expect(queries).toBeLessThan(naive)
+  })
 })

@@ -5,6 +5,7 @@
 // Migration GROUPS are DERIVED from the `models.app(name)` tags in the registry
 // (and ordered by inferred cross-app FKs) — there is no `apps` array to maintain.
 import {app} from '@getcronit/pylon'
+import {getDatabase} from '@getcronit/pylon-db'
 import {serve} from '@hono/node-server'
 
 // Importing the resolvers pulls in each app's index → registers its models.
@@ -15,11 +16,20 @@ import {registerBlogRoutes} from './apps/blog/routes.js'
 export const graphql = {
   Query: {
     ...blog.Query,
-    ...shop.Query
+    ...shop.Query,
+    // Debug-only: read the request DB's cumulative query counter so an e2e can
+    // prove a deeply nested query resolves in O(depth) round-trips (relation
+    // batching), not O(rows). Not part of the real app surface.
+    _dbQueryCount: (): number => getDatabase().queryCount
   },
   Mutation: {
     ...blog.Mutation,
-    ...shop.Mutation
+    ...shop.Mutation,
+    // Debug-only: zero the counter right before a measured query.
+    _dbQueryReset: (): boolean => {
+      getDatabase().resetQueryCount()
+      return true
+    }
   }
 }
 
