@@ -30,16 +30,24 @@ const dockerAvailable = spawnSync('docker', ['--version'], {stdio: 'ignore'}).st
 
 let server: ChildProcess | undefined
 
-async function gql(query: string, variables?: Record<string, unknown>) {
+async function gql(
+  query: string,
+  variables?: Record<string, unknown>,
+  headers: Record<string, string> = {}
+) {
   const res = await fetch(endpoint, {
     method: 'POST',
-    headers: {'content-type': 'application/json'},
+    headers: {'content-type': 'application/json', ...headers},
     body: JSON.stringify({query, variables})
   })
   const json = (await res.json()) as {data?: any; errors?: any}
   if (json.errors) throw new Error(JSON.stringify(json.errors))
   return json.data
 }
+
+/** Simulate an authenticated request (test-only header → principal). */
+const asUser = (id: number) => ({'x-user-id': String(id)})
+const asAdmin = () => ({'x-user-id': '99', 'x-role': 'ADMIN'})
 
 function pylonDb(...args: string[]) {
   const r = spawnSync('node', [cliBin, 'db', ...args, '--dir', migrationsDir], {
@@ -60,7 +68,7 @@ function pylonDb(...args: string[]) {
 async function resetSchema() {
   const db: Database = connect({connectionString})
   try {
-    for (const t of ['shop_purchase', 'shop_product', 'blog_article', 'blog_activity', 'blog_author']) {
+    for (const t of ['notes_note', 'shop_purchase', 'shop_product', 'blog_article', 'blog_activity', 'blog_author']) {
       await db.kysely.schema.dropTable(t).ifExists().cascade().execute()
     }
     await db.kysely.schema.dropTable('_pylon_migrations').ifExists().cascade().execute()
@@ -256,5 +264,57 @@ describe.skipIf(!dockerAvailable)('multi-app e2e — two apps compose one schema
     expect(queries).toBeGreaterThan(0)
     expect(queries).toBeLessThanOrEqual(4)
     expect(queries).toBeLessThan(naive)
+  })
+
+  // ── Row-level authorization (definePolicy) through the real request path ────
+  describe('row-level policy (notes app) — principal bound from headers', () => {
+    it('seeds notes as two users; CREATE stamps owner from the principal', async () => {
+      const c1 = (
+        await gql('mutation($t:String!){ createNote(title:$t, shared:false){ ownerId } }', {t: 'a1'}, asUser(1))
+      ).createNote
+      expect(c1.ownerId).toBe(1) // stamped from the principal
+      await gql('mutation($t:String!){ createNote(title:$t, shared:true){ id } }', {t: 'a2'}, asUser(1))
+      await gql('mutation($t:String!){ createNote(title:$t, shared:false){ id } }', {t: 'b1'}, asUser(2))
+    })
+
+    it('READ is scoped to the requesting principal (own + shared; admin all)', async () => {
+      const u1 = (await gql('{ notes { title } }', {}, asUser(1))).notes.map((n: any) => n.title)
+      expect(u1).toEqual(['a1', 'a2'])
+      const u2 = (await gql('{ notes { title } }', {}, asUser(2))).notes.map((n: any) => n.title)
+      expect(u2).toEqual(['a2', 'b1']) // shared a2 + own b1
+      const admin = (await gql('{ notes { title } }', {}, asAdmin())).notes.map((n: any) => n.title)
+      expect(admin).toEqual(['a1', 'a2', 'b1'])
+    })
+
+    it('CREATE without a principal is FORBIDDEN', async () => {
+      await expect(
+        gql('mutation{ createNote(title:"x", shared:false){ id } }')
+      ).rejects.toThrow(/FORBIDDEN/)
+    })
+
+    it('UPDATE a readable-but-unowned row → FORBIDDEN; owner may update', async () => {
+      // user 2 can READ a2 (shared) but not UPDATE it (owned by user 1).
+      const a2 = (await gql('{ notes { id title } }', {}, asUser(2))).notes.find(
+        (n: any) => n.title === 'a2'
+      )
+      await expect(
+        gql(
+          'mutation($id:Number!){ renameNote(id:$id, title:"hax"){ id } }',
+          {id: Number(a2.id)},
+          asUser(2)
+        )
+      ).rejects.toThrow(/FORBIDDEN/)
+      const ok = await gql(
+        'mutation($id:Number!){ renameNote(id:$id, title:"a2!"){ title } }',
+        {id: Number(a2.id)},
+        asUser(1)
+      )
+      expect(ok.renameNote.title).toBe('a2!')
+    })
+
+    it('.unscoped() bypasses policy for a system path', async () => {
+      const all = (await gql('{ notesAsSystem { title } }', {}, asUser(1))).notesAsSystem
+      expect(all.length).toBeGreaterThanOrEqual(3) // sees others' rows despite being user 1
+    })
   })
 })

@@ -11,6 +11,8 @@ import {
 } from './registry.js'
 import {ValidationError, uniqueViolation, validateInstance} from './validation.js'
 import {NotFoundError} from './errors.js'
+import {ForbiddenError} from './features.js'
+import {type FilterAction, getPolicy, policyContext} from './policies.js'
 // Type-only (erased at runtime → no import cycle with relations.ts) — used to
 // exclude relation accessors from the set of filterable fields.
 import type {ManyToManyManager, RelatedManager} from './relations.js'
@@ -428,6 +430,42 @@ function compileWhere(
   return terms.length === 1 ? terms[0] : eb.and(terms)
 }
 
+// ── Row-level policy enforcement ─────────────────────────────────────────────
+
+/** Resolve a model's policy rule for an action into 'allow' / 'deny' / a filter. */
+function policyOutcome(
+  def: ModelDefinition,
+  action: FilterAction
+): 'allow' | 'deny' | Record<string, unknown> {
+  const rule = getPolicy(def)?.[action]
+  if (!rule) return def.secure ? 'deny' : 'allow' // secure ⇒ fail closed
+  const result = rule(policyContext())
+  if (result === true) return 'allow'
+  if (result === false) return 'deny'
+  return result as Record<string, unknown>
+}
+
+/**
+ * AND a model's row-level policy for `action` onto a kysely query builder. Used
+ * by the relation loaders (a relation read re-applies the target's read policy,
+ * so traversal can't surface rows you couldn't query directly). Refs are
+ * qualified by `ref` (the table/alias) so it composes inside joins. QuerySet
+ * applies policy through `predicates()` instead (bare top-level refs).
+ */
+export function applyPolicyWhere<Q>(
+  qb: Q,
+  def: ModelDefinition,
+  action: FilterAction,
+  ref: string = def.tableName
+): Q {
+  const outcome = policyOutcome(def, action)
+  if (outcome === 'allow') return qb
+  const scope: Scope = {def, ref, qualify: true}
+  return (qb as any).where((eb: ExpressionBuilder<any, any>) =>
+    outcome === 'deny' ? FALSE() : compileWhere(eb, scope, outcome, {n: 0})
+  )
+}
+
 // ── Relay-style cursor pagination ───────────────────────────────────────────
 export interface PageInfo {
   hasNextPage: boolean
@@ -513,8 +551,13 @@ export class QuerySet<T extends object> {
     return this.clone({unscoped: true})
   }
 
-  /** Every predicate for this query: structured filters + raw + tenant scope. */
-  private predicates(): Predicate[] {
+  /**
+   * Every predicate for this query: structured filters + raw FTS + tenant scope +
+   * the row-level policy for `action`. `.unscoped()` drops BOTH tenant and policy
+   * (trusted system/admin code). `action` selects which policy rule applies —
+   * 'read' for selects/counts, 'update'/'delete' for the bulk writers.
+   */
+  private predicates(action: FilterAction): Predicate[] {
     const def = this.def
     const scope: Scope = {def, ref: def.tableName, qualify: false}
     const counter: Counter = {n: 0} // shared across all fragments → no alias clash
@@ -532,12 +575,17 @@ export class QuerySet<T extends object> {
       }
       ps.push(eb => eb(tenantColumn, '=', tenant as any))
     }
+    if (!this.state.unscoped) {
+      const outcome = policyOutcome(def, action)
+      if (outcome === 'deny') ps.push(() => FALSE())
+      else if (outcome !== 'allow') ps.push(eb => compileWhere(eb, scope, outcome, counter))
+    }
     return ps
   }
 
-  /** AND every predicate onto a kysely where-able builder (no-op if none). */
-  private applyWhere<Q>(q: Q): Q {
-    const ps = this.predicates()
+  /** AND every predicate for `action` onto a kysely where-able builder. */
+  private applyWhere<Q>(q: Q, action: FilterAction = 'read'): Q {
+    const ps = this.predicates(action)
     if (ps.length === 0) return q
     return (q as any).where((eb: ExpressionBuilder<any, any>) =>
       eb.and(ps.map(p => p(eb)))
@@ -651,7 +699,7 @@ export class QuerySet<T extends object> {
   async delete(): Promise<number> {
     const db = getDatabase()
     let q: any = db.kysely.deleteFrom(this.def.tableName)
-    q = this.applyWhere(q)
+    q = this.applyWhere(q, 'delete')
     const res = await q.executeTakeFirst()
     return Number(res?.numDeletedRows ?? 0)
   }
@@ -727,7 +775,7 @@ export class QuerySet<T extends object> {
     }
     if (Object.keys(data).length === 0) return 0 // nothing to set → no-op
     let q: any = db.kysely.updateTable(this.def.tableName).set(data)
-    q = this.applyWhere(q)
+    q = this.applyWhere(q, 'update')
     const res = await q.executeTakeFirst()
     return Number(res?.numUpdatedRows ?? 0)
   }
@@ -863,7 +911,31 @@ export function selectableColumns(def: ModelDefinition, table?: string): string[
  * client-side default generators (cuid/uuid ids). Runs before validation so a
  * generated NOT NULL PK satisfies its constraint.
  */
+/**
+ * Create authorization: there's no row to filter, so the `create` rule is a
+ * boolean gate; `onCreate` then stamps server-owned columns (e.g. ownerId) from
+ * the principal so they're never trusted from input. On a `secure` model, the
+ * absence of a create rule denies. Runs before defaults/validation so a stamped
+ * NOT NULL column satisfies its constraint.
+ */
+function enforceCreatePolicy(def: ModelDefinition, instance: any): void {
+  const policy = getPolicy(def)
+  if (!policy && !def.secure) return
+  const ctx = policyContext()
+  if (policy?.create) {
+    if (!policy.create(ctx)) {
+      throw new ForbiddenError(`Not permitted to create "${def.tableName}".`)
+    }
+  } else if (def.secure) {
+    throw new ForbiddenError(
+      `"${def.tableName}": create denied (secure model has no \`create\` policy).`
+    )
+  }
+  policy?.onCreate?.(ctx, instance)
+}
+
 function applyCreateDefaults(def: ModelDefinition, instance: any): void {
+  enforceCreatePolicy(def, instance)
   if (def.tenantColumn) {
     const tcol = def.columns.find(c => c.columnName === def.tenantColumn)
     if (tcol) {
@@ -914,23 +986,32 @@ export async function saveInstance(instance: object): Promise<object> {
 
   try {
     if (!created) {
+      // Row-level write authorization: AND the `update` policy into the WHERE. A
+      // persisted instance always existed, so 0 affected rows ⇒ the policy
+      // rejected it → ForbiddenError (not a silent no-op, not a NotFound mask).
+      const outcome = policyOutcome(def, 'update')
+      if (outcome === 'deny') throw new ForbiddenError(`Not permitted to update "${def.tableName}".`)
+      const scope: Scope = {def, ref: def.tableName, qualify: false}
+      const withPolicy = (q: any) =>
+        outcome === 'allow' ? q : q.where((eb: any) => compileWhere(eb, scope, outcome, {n: 0}))
+
       const data = rowFromInstance(def, instance, {includePrimaryKey: false})
       const pkVal = (instance as any)[pk!.propertyKey]
       // RETURNING refreshes the instance from the row — so a field set to
       // `undefined` (omitted from the SET) is healed back to its DB value rather
       // than left stale. An empty SET (nothing to write) re-reads instead.
       const row = Object.keys(data).length
-        ? await db.kysely
-            .updateTable(def.tableName)
-            .set(data)
-            .where(pk!.columnName, '=', pkVal)
+        ? await withPolicy(
+            db.kysely.updateTable(def.tableName).set(data).where(pk!.columnName, '=', pkVal)
+          )
             .returningAll()
             .executeTakeFirst()
-        : await db.kysely
-            .selectFrom(def.tableName)
-            .select(selectableColumns(def))
-            .where(pk!.columnName, '=', pkVal)
-            .executeTakeFirst()
+        : await withPolicy(
+            db.kysely.selectFrom(def.tableName).select(selectableColumns(def)).where(pk!.columnName, '=', pkVal)
+          ).executeTakeFirst()
+      if (!row && outcome !== 'allow') {
+        throw new ForbiddenError(`Not permitted to update "${def.tableName}".`)
+      }
       if (row) copyRowOnto(def, instance, row)
     } else {
       const data = rowFromInstance(def, instance, {includePrimaryKey: true})
@@ -965,11 +1046,24 @@ export async function deleteInstance(instance: object): Promise<void> {
   }
   const db = getDatabase()
   const model = instance.constructor as Function
+
+  // Row-level delete authorization (mirrors the update path): AND the `delete`
+  // policy into the WHERE; a persisted instance that deletes 0 rows ⇒ forbidden.
+  const outcome = policyOutcome(def, 'delete')
+  if (outcome === 'deny') throw new ForbiddenError(`Not permitted to delete "${def.tableName}".`)
+
   await signals.preDelete.emit({instances: [instance], model})
-  await db.kysely
+  let q: any = db.kysely
     .deleteFrom(def.tableName)
     .where(pk.columnName, '=', (instance as any)[pk.propertyKey])
-    .execute()
+  if (outcome !== 'allow') {
+    const scope: Scope = {def, ref: def.tableName, qualify: false}
+    q = q.where((eb: any) => compileWhere(eb, scope, outcome, {n: 0}))
+  }
+  const res = await q.executeTakeFirst()
+  if (Number(res?.numDeletedRows ?? 0) === 0 && outcome !== 'allow') {
+    throw new ForbiddenError(`Not permitted to delete "${def.tableName}".`)
+  }
   persisted.delete(instance)
   await signals.postDelete.emit({instances: [instance], model})
 }

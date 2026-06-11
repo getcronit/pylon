@@ -4,6 +4,7 @@ import {
   type BulkOptions,
   createManager,
   createMany,
+  applyPolicyWhere,
   deleteManyInstances,
   hydrate,
   ModelCtor,
@@ -11,6 +12,7 @@ import {
   selectableColumns,
   type WhereInput
 } from './manager.js'
+import {appContextKey} from './app-context.js'
 import {getModelDefinitionOrThrow} from './registry.js'
 
 /** Return type of a `belongsTo` accessor. */
@@ -31,11 +33,15 @@ interface Batch {
 }
 
 /**
- * Per-database, per-target batches. Many `belongsTo` accesses in the same
- * microtask collapse into a single `WHERE pk IN (...)` query — this is the N+1
- * elimination seam, and it works underneath the GraphQL array resolution path.
+ * Per-REQUEST, per-target batches. Many `belongsTo` accesses in the same
+ * microtask collapse into a single `WHERE pk IN (...)` query — the N+1
+ * elimination seam, working underneath the GraphQL array resolution path. Keyed
+ * by the ambient app-context (not the connection): the connection is shared
+ * across concurrent requests, but each request has its own context — so two
+ * requests with different principals never share a batch (and thus never mix
+ * each other's row-level policy).
  */
-const batchesByDb = new WeakMap<Database, Map<string, Batch>>()
+const belongsToBatches = new WeakMap<object, Map<string, Batch>>()
 
 /** Load a single related instance by foreign-key value, batched per microtask. */
 export function loadBelongsTo<R extends object>(
@@ -51,13 +57,14 @@ export function loadBelongsTo<R extends object>(
     )
   }
 
+  const ctxKey = appContextKey()
   const token = `${def.tableName}.${pk.columnName}`
-  let perDb = batchesByDb.get(db)
-  if (!perDb) {
-    perDb = new Map()
-    batchesByDb.set(db, perDb)
+  let perCtx = belongsToBatches.get(ctxKey)
+  if (!perCtx) {
+    perCtx = new Map()
+    belongsToBatches.set(ctxKey, perCtx)
   }
-  let batch = perDb.get(token)
+  let batch = perCtx.get(token)
   if (!batch) {
     batch = {
       tableName: def.tableName,
@@ -66,7 +73,7 @@ export function loadBelongsTo<R extends object>(
       waiters: new Map(),
       scheduled: false
     }
-    perDb.set(token, batch)
+    perCtx.set(token, batch)
   }
 
   const b = batch
@@ -77,27 +84,32 @@ export function loadBelongsTo<R extends object>(
     if (!b.scheduled) {
       b.scheduled = true
       queueMicrotask(() => {
-        void flush(db, token)
+        void flush(db, ctxKey, token)
       })
     }
   })
 }
 
-async function flush(db: Database, token: string): Promise<void> {
-  const perDb = batchesByDb.get(db)
-  if (!perDb) return
-  const batch = perDb.get(token)
-  if (!batch) return
+async function flush(db: Database, ctxKey: object, token: string): Promise<void> {
+  const perCtx = belongsToBatches.get(ctxKey)
+  const batch = perCtx?.get(token)
+  if (!perCtx || !batch) return
   // Drop the batch before awaiting so accesses on the next tick start fresh.
-  perDb.delete(token)
+  perCtx.delete(token)
 
+  const targetDef = getModelDefinitionOrThrow(batch.target)
   const keys = [...batch.waiters.keys()]
   try {
-    const rows = await db.kysely
-      .selectFrom(batch.tableName)
-      .select(selectableColumns(getModelDefinitionOrThrow(batch.target)))
-      .where(batch.pkColumn as any, 'in', keys as any)
-      .execute()
+    // A relation read re-applies the target's READ policy — traversal can't
+    // surface a row you couldn't have queried directly.
+    const rows = await applyPolicyWhere(
+      db.kysely
+        .selectFrom(batch.tableName)
+        .select(selectableColumns(targetDef))
+        .where(batch.pkColumn as any, 'in', keys as any),
+      targetDef,
+      'read'
+    ).execute()
 
     const byKey = new Map<unknown, any>()
     for (const row of rows) byKey.set((row as any)[batch.pkColumn], row)
@@ -123,13 +135,13 @@ interface HasManyBatch {
   scheduled: boolean
 }
 
-// Per-database, per-(childTable.fkColumn) batches: many `parent.children.all()`
+// Per-REQUEST, per-(childTable.fkColumn) batches: many `parent.children.all()`
 // accesses in one microtask collapse into a single `WHERE fk IN (…)` and are
 // grouped back by FK. The read-side twin of the belongsTo batcher — it makes a
 // nested list field (`authors { posts { … } }`) resolve in one query per level
-// instead of one per parent. Loads by FK only (tenant-agnostic, like belongsTo's
-// by-PK load): the parent already scopes its children.
-const hasManyBatchesByDb = new WeakMap<Database, Map<string, HasManyBatch>>()
+// instead of one per parent. Keyed by the ambient app-context (see belongsTo)
+// so concurrent requests never share a batch.
+const hasManyBatches = new WeakMap<object, Map<string, HasManyBatch>>()
 
 /** Load a parent's `hasMany` children by FK value, batched per microtask. */
 function loadHasMany<T extends object>(
@@ -139,16 +151,17 @@ function loadHasMany<T extends object>(
 ): Promise<T[]> {
   const db = getDatabase()
   const def = getModelDefinitionOrThrow(child)
+  const ctxKey = appContextKey()
   const token = `${def.tableName}.${fkColumn}`
-  let perDb = hasManyBatchesByDb.get(db)
-  if (!perDb) {
-    perDb = new Map()
-    hasManyBatchesByDb.set(db, perDb)
+  let perCtx = hasManyBatches.get(ctxKey)
+  if (!perCtx) {
+    perCtx = new Map()
+    hasManyBatches.set(ctxKey, perCtx)
   }
-  let batch = perDb.get(token)
+  let batch = perCtx.get(token)
   if (!batch) {
     batch = {childTable: def.tableName, fkColumn, child, waiters: new Map(), scheduled: false}
-    perDb.set(token, batch)
+    perCtx.set(token, batch)
   }
 
   const b = batch
@@ -158,24 +171,29 @@ function loadHasMany<T extends object>(
     b.waiters.set(parentValue, list)
     if (!b.scheduled) {
       b.scheduled = true
-      queueMicrotask(() => void flushHasMany(db, token))
+      queueMicrotask(() => void flushHasMany(db, ctxKey, token))
     }
   })
 }
 
-async function flushHasMany(db: Database, token: string): Promise<void> {
-  const perDb = hasManyBatchesByDb.get(db)
-  const batch = perDb?.get(token)
-  if (!perDb || !batch) return
-  perDb.delete(token)
+async function flushHasMany(db: Database, ctxKey: object, token: string): Promise<void> {
+  const perCtx = hasManyBatches.get(ctxKey)
+  const batch = perCtx?.get(token)
+  if (!perCtx || !batch) return
+  perCtx.delete(token)
 
+  const childDef = getModelDefinitionOrThrow(batch.child)
   const keys = [...batch.waiters.keys()]
   try {
-    const rows = await db.kysely
-      .selectFrom(batch.childTable)
-      .select(selectableColumns(getModelDefinitionOrThrow(batch.child)))
-      .where(batch.fkColumn as any, 'in', keys as any)
-      .execute()
+    // Children are re-scoped by the child model's READ policy.
+    const rows = await applyPolicyWhere(
+      db.kysely
+        .selectFrom(batch.childTable)
+        .select(selectableColumns(childDef))
+        .where(batch.fkColumn as any, 'in', keys as any),
+      childDef,
+      'read'
+    ).execute()
 
     // Group rows by their FK value → each parent gets its own list.
     const byKey = new Map<unknown, any[]>()
@@ -378,19 +396,24 @@ export class ManyToManyManager<T extends object> {
     return (instance as any)[prop]
   }
 
-  /** All related rows, via a join. */
+  /** All related rows, via a join (re-scoped by the target's READ policy). */
   async all(): Promise<T[]> {
     const s = this.spec()
-    const rows = await getDatabase()
-      .kysely.selectFrom(s.targetTable)
-      .innerJoin(
-        s.joinTable,
-        `${s.joinTable}.${s.targetColumn}` as any,
-        `${s.targetTable}.${s.targetPkColumn}` as any
-      )
-      .where(`${s.joinTable}.${s.localColumn}` as any, '=', this.ownerPk as any)
-      .select(selectableColumns(getModelDefinitionOrThrow(this.targetCtor), s.targetTable) as any)
-      .execute()
+    const targetDef = getModelDefinitionOrThrow(this.targetCtor)
+    const rows = await applyPolicyWhere(
+      getDatabase()
+        .kysely.selectFrom(s.targetTable)
+        .innerJoin(
+          s.joinTable,
+          `${s.joinTable}.${s.targetColumn}` as any,
+          `${s.targetTable}.${s.targetPkColumn}` as any
+        )
+        .where(`${s.joinTable}.${s.localColumn}` as any, '=', this.ownerPk as any)
+        .select(selectableColumns(targetDef, s.targetTable) as any),
+      targetDef,
+      'read',
+      s.targetTable
+    ).execute()
     return rows.map(r => hydrate(this.targetCtor, r))
   }
 

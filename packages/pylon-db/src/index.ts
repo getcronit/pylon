@@ -67,6 +67,13 @@ export {
 } from './app-context.js'
 export {defineFeatures, requireFeature, gateResolvers, ForbiddenError} from './features.js'
 export {
+  definePolicy,
+  type ModelPolicy,
+  type PolicyContext,
+  type FilterRule,
+  type CreateRule
+} from './policies.js'
+export {
   signals,
   type SaveSignalPayload,
   type DeleteSignalPayload

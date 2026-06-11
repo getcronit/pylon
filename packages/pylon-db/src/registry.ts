@@ -133,6 +133,9 @@ export interface ModelDefinition {
   indexes?: ModelIndex[]
   /** Column name to auto-scope by tenant (resolved from `models.app(name,{tenant})`). */
   tenantColumn?: string
+  /** Deny-by-default: an action with no matching policy rule is rejected
+   *  (`@model({secure: true})`). Without it, an action with no rule is allowed. */
+  secure?: boolean
 }
 
 /** Columns are accumulated per-constructor before @model finalizes the model. */
@@ -206,6 +209,8 @@ export function finalizeModel(
     indexes?: ModelIndex[]
     /** Property name of the tenant FK (auto-scope column); skipped if absent on this model. */
     tenant?: string
+    /** Deny-by-default for policy actions with no matching rule. */
+    secure?: boolean
     /** Full-text search: synthesize hidden generated tsvector column(s) + GIN. */
     search?:
       | {columns: string[]; language?: string; name?: string}
@@ -288,7 +293,8 @@ export function finalizeModel(
     indexes: options.indexes,
     // Resolve the tenant property → column; skip silently if this model has no
     // such column (lets non-tenant lookup tables live in a tenant-scoped app).
-    tenantColumn: options.tenant ? merged.get(options.tenant)?.columnName : undefined
+    tenantColumn: options.tenant ? merged.get(options.tenant)?.columnName : undefined,
+    secure: options.secure
   }
 
   if (!options.abstract) {

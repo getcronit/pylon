@@ -433,6 +433,14 @@ export interface ModelOptions {
   /** Property name of the tenant FK for auto-scoping. Prefer `models.app(name,{tenant})`. */
   tenant?: string
   /**
+   * Deny-by-default authorization. With `secure: true`, any action (read /
+   * create / update / delete) that has no matching rule in `definePolicy()` is
+   * rejected. Without it, an action with no rule is allowed (policies are
+   * additive restrictions). Use for high-stakes models where forgetting a rule
+   * should fail closed, not open.
+   */
+  secure?: boolean
+  /**
    * Composite (multi-column) secondary indexes. `columns` are property names.
    * Single-column indexes use the field option `{index: true}`; a composite
    * unique constraint is `{columns: [...], unique: true}`.
@@ -762,6 +770,7 @@ export function model(options: ModelOptions = {}): ClassDecorator {
       app: options.app,
       indexes: options.indexes,
       tenant: options.tenant,
+      secure: options.secure,
       search: options.search
     })
 

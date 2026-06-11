@@ -11,12 +11,14 @@ import {serve} from '@hono/node-server'
 // Importing the resolvers pulls in each app's index → registers its models.
 import * as blog from './apps/blog/resolvers.js'
 import * as shop from './apps/shop/resolvers.js'
+import * as notes from './apps/notes/resolvers.js'
 import {registerBlogRoutes} from './apps/blog/routes.js'
 
 export const graphql = {
   Query: {
     ...blog.Query,
     ...shop.Query,
+    ...notes.Query,
     // Debug-only: read the request DB's cumulative query counter so an e2e can
     // prove a deeply nested query resolves in O(depth) round-trips (relation
     // batching), not O(rows). Not part of the real app surface.
@@ -25,6 +27,7 @@ export const graphql = {
   Mutation: {
     ...blog.Mutation,
     ...shop.Mutation,
+    ...notes.Mutation,
     // Debug-only: zero the counter right before a measured query.
     _dbQueryReset: (): boolean => {
       getDatabase().resetQueryCount()

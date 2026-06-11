@@ -56,16 +56,23 @@ export interface UseDatabaseOptions {
    */
   validationErrors?: false | ValidationErrorMapper
   /**
-   * Current tenant id for the request (e.g. `() => getContext().session?.organizationId`).
-   * Bound into the ambient app context so tenant-scoped models auto-filter. Must
-   * be null-safe (return undefined for unauthenticated/public requests).
+   * Current tenant id for the request. Receives the request's Hono context (so it
+   * works without relying on `getContext()` ALS timing): `c => c.get('session')?.orgId`.
+   * Bound into the ambient app context so tenant-scoped models auto-filter.
+   * Null-safe (return undefined for unauthenticated/public requests).
    */
-  tenant?: () => string | number | undefined
+  tenant?: (context: any) => string | number | undefined
   /**
-   * Features enabled for the current tenant (e.g. `() => getContext().session?.features`).
+   * Features enabled for the current tenant: `c => c.get('session')?.features`.
    * Bound into the ambient app context for feature gating. Null-safe.
    */
-  features?: () => readonly string[] | undefined
+  features?: (context: any) => readonly string[] | undefined
+  /**
+   * The authenticated principal for the request: `c => c.get('session')`. Bound
+   * into the ambient app context so row-level policies (`definePolicy`) can
+   * authorize. Null-safe (return undefined for public requests).
+   */
+  principal?: (context: any) => unknown
 }
 
 export function useDatabase(options: UseDatabaseOptions = {}): Plugin {
@@ -86,11 +93,18 @@ export function useDatabase(options: UseDatabaseOptions = {}): Plugin {
       db = connect({connectionString: options.connectionString ?? process.env.DATABASE_URL})
     },
 
-    async middleware(_c, next) {
+    async middleware(c, next) {
       if (!db) throw new Error('useDatabase: setup() did not run before the first request')
-      // Bind the request's tenant + features so tenant-scoped models auto-filter
-      // and feature gates can read the enabled set.
-      const appCtx = {tenant: options.tenant?.(), features: options.features?.()}
+      // Bind the request connection + tenant/features/principal AROUND `next`, so
+      // the binding covers resolver execution. Pylon composes plugin middlewares
+      // into a chain (each `next` runs the rest → the GraphQL handler), so this
+      // wrapping reaches the resolvers. The context is derived from the request
+      // `c` (no `getContext()` ALS-timing dependency).
+      const appCtx = {
+        tenant: options.tenant?.(c),
+        features: options.features?.(c),
+        principal: options.principal?.(c)
+      }
       const bound = () => runWithAppContext(appCtx, () => next())
       if (options.transactionPerRequest) {
         await db.kysely.transaction().execute(trx => databaseForKysely(trx).run(bound))
