@@ -33,6 +33,19 @@ function columnFor(
   return col
 }
 
+/**
+ * Assign only DEFINED values onto an instance. An explicit `undefined` means
+ * "not provided" (Prisma semantics) — it must NOT clobber a default the model
+ * constructor already applied, so it's skipped (≡ omitting the key). `null` is a
+ * real value and IS assigned (sets the column null).
+ */
+function assignDefined<T extends object>(instance: T, values: Partial<T>): void {
+  for (const key in values) {
+    const v = values[key]
+    if (v !== undefined) (instance as any)[key] = v
+  }
+}
+
 export function hydrate<T extends object>(ctor: ModelCtor<T>, row: any): T {
   const def = getModelDefinitionOrThrow(ctor)
   const instance = new ctor()
@@ -709,8 +722,10 @@ export class QuerySet<T extends object> {
     const db = getDatabase()
     const data: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(values)) {
-      data[columnFor(this.def, key).columnName] = value
+      // `undefined` = "don't touch this column" (Prisma semantics); `null` sets null.
+      if (value !== undefined) data[columnFor(this.def, key).columnName] = value
     }
+    if (Object.keys(data).length === 0) return 0 // nothing to set → no-op
     let q: any = db.kysely.updateTable(this.def.tableName).set(data)
     q = this.applyWhere(q)
     const res = await q.executeTakeFirst()
@@ -768,7 +783,7 @@ export class Manager<T extends object> {
 
   async create(values: Partial<T>): Promise<T> {
     const instance = new this.ctor()
-    Object.assign(instance, values)
+    assignDefined(instance, values)
     await saveInstance(instance as object)
     return instance
   }
@@ -876,9 +891,12 @@ export async function saveInstance(instance: object): Promise<object> {
         .execute()
     } else {
       const data = rowFromInstance(def, instance, {includePrimaryKey: true})
-      const inserted = await db.kysely
-        .insertInto(def.tableName)
-        .values(data)
+      const insert = db.kysely.insertInto(def.tableName)
+      // An all-defaults row (every settable column omitted/undefined) must emit
+      // `INSERT … DEFAULT VALUES`, not `() VALUES ()` (a Postgres syntax error).
+      const inserted = await (
+        Object.keys(data).length ? insert.values(data) : insert.defaultValues()
+      )
         .returningAll()
         .executeTakeFirstOrThrow()
       // Pull back generated values (identity PKs, SQL defaults).
@@ -935,7 +953,7 @@ export async function createMany<T extends object>(
 
   const instances = values.map(v => {
     const inst = new ctor()
-    Object.assign(inst, v)
+    assignDefined(inst, v)
     applyCreateDefaults(def, inst as any)
     const issues = validateInstance(def, inst as object)
     if (issues.length > 0) throw new ValidationError(issues)
@@ -947,13 +965,20 @@ export async function createMany<T extends object>(
   const rows = instances.map(i =>
     rowFromInstance(def, i, {includePrimaryKey: true})
   )
+  // Mixed rows are fine (kysely fills missing keys with `default`); only an
+  // ALL-empty batch needs `DEFAULT VALUES` per row (an empty `() values (),()`
+  // is a Postgres syntax error).
+  const allDefaults = rows.every(r => Object.keys(r).length === 0)
   let inserted: any[]
   try {
-    inserted = await getDatabase()
-      .kysely.insertInto(def.tableName)
-      .values(rows as any)
-      .returningAll()
-      .execute()
+    const kysely = getDatabase().kysely
+    inserted = allDefaults
+      ? await Promise.all(
+          rows.map(() =>
+            kysely.insertInto(def.tableName).defaultValues().returningAll().executeTakeFirstOrThrow()
+          )
+        )
+      : await kysely.insertInto(def.tableName).values(rows as any).returningAll().execute()
   } catch (err) {
     const ve = uniqueViolation(def, err)
     if (ve) throw ve
