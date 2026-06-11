@@ -420,7 +420,13 @@ function buildColumn(key: string, b: FieldBuilder): ColumnDefinition {
     hidden,
     index: b.options.index ?? false,
     length: b.options.length,
-    default: b.options.default,
+    // A literal default is persisted (→ IR/DDL); a function default is a
+    // client-side generator resolved at insert (never serialized).
+    default: typeof b.options.default === 'function' ? undefined : b.options.default,
+    defaultFn:
+      typeof b.options.default === 'function'
+        ? (b.options.default as () => unknown)
+        : undefined,
     defaultSql: b.options.defaultSql ?? b.base.defaultSql,
     check,
     min: b.options.min,
@@ -524,8 +530,11 @@ export function model(options: ModelOptions = {}): ClassDecorator {
         for (const k of Object.keys(this as object)) {
           const v = (this as any)[k]
           if (v instanceof FieldBuilder) {
+            // A function default is a client-side generator (e.g. cuid/uuid):
+            // it's resolved at insert time in saveInstance, not at construction.
+            const d = v.options.default
             ;(this as any)[k] =
-              'default' in v.options ? v.options.default : undefined
+              'default' in v.options && typeof d !== 'function' ? d : undefined
           } else if (v instanceof RelationBuilder) {
             ;(this as any)[k] = undefined
           }

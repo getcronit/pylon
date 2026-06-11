@@ -33,6 +33,11 @@ export interface ColumnDefinition {
   length?: number
   /** Literal default value applied client-side on insert. */
   default?: unknown
+  /**
+   * Client-side default *generator*, resolved at insert when no value is set
+   * (e.g. a cuid/uuid id). Runtime-only — never serialized to the IR/DDL.
+   */
+  defaultFn?: () => unknown
   /** Raw SQL default (e.g. `now()`, `gen_random_uuid()`). */
   defaultSql?: string
   /** Create a secondary (non-unique) btree index on this column. */

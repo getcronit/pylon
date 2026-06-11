@@ -26,6 +26,7 @@ export {
   type HasManyOptions,
   type ManyToManyOptions
 } from './fields.js'
+export {createId, uuidv4} from './id.js'
 export {RelatedManager, ManyToManyManager, type Relation} from './relations.js'
 export {
   Database,
@@ -160,6 +161,7 @@ export function manager<T extends object>(ctor: ModelCtor<T>): ManagerType<T> {
 // ── Namespaced public API (recommended) ──────────────────────────────────────
 import {Model as ModelClass} from './model.js'
 import * as fields from './fields.js'
+import {createId as createIdFn, uuidv4 as uuidv4Fn} from './id.js'
 import {
   ManyToManyManager as ManyToManyManagerClass,
   RelatedManager as RelatedManagerClass
@@ -205,7 +207,10 @@ const modelBuilders = {
   HasMany: fields.hasMany,
   ManyToMany: fields.manyToMany,
   RelatedManager: RelatedManagerClass,
-  ManyToManyManager: ManyToManyManagerClass
+  ManyToManyManager: ManyToManyManagerClass,
+  /** Client-side id generators for text PKs (`default: createId`/`uuidv4`). */
+  createId: createIdFn,
+  uuidv4: uuidv4Fn
 }
 
 export const models = {

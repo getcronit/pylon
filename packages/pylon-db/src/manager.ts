@@ -372,6 +372,19 @@ export async function saveInstance(instance: object): Promise<object> {
     }
   }
 
+  // Client-side default generators (e.g. cuid/uuid ids) resolve on create when
+  // no value was provided. Runs before validation so a generated NOT NULL PK
+  // satisfies its constraint.
+  if (!persisted.has(instance)) {
+    for (const col of def.columns) {
+      if (!col.defaultFn) continue
+      const cur = (instance as any)[col.propertyKey]
+      if (cur === undefined || cur === null) {
+        ;(instance as any)[col.propertyKey] = col.defaultFn()
+      }
+    }
+  }
+
   // Validate before touching the DB — fail fast with structured, translatable
   // issues instead of a raw Postgres constraint error.
   const issues = validateInstance(def, instance)
