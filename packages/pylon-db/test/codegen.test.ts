@@ -100,6 +100,48 @@ describe('generateModelSource', () => {
     expect(src).toMatch(/A = foreignKey\(\(\) => ProductNotice[,)]/)
   })
 
+  it('detects an implicit m2m join table: omits it + injects manyToMany on both sides', () => {
+    const m2m: PhysicalSchema = {
+      Product: {
+        name: 'Product',
+        table: 'Product',
+        columns: [col({name: 'id', sqlType: 'text', primaryKey: true})],
+        foreignKeys: [],
+        indexes: []
+      },
+      ProductCollection: {
+        name: 'ProductCollection',
+        table: 'ProductCollection',
+        columns: [col({name: 'id', sqlType: 'text', primaryKey: true})],
+        foreignKeys: [],
+        indexes: []
+      },
+      // Prisma implicit join table: 2 FK columns, no own PK.
+      _ProductToProductCollection: {
+        name: '_ProductToProductCollection',
+        table: '_ProductToProductCollection',
+        columns: [col({name: 'A', sqlType: 'text'}), col({name: 'B', sqlType: 'text'})],
+        foreignKeys: [
+          {table: '_ProductToProductCollection', name: 'fkA', column: 'A', refTable: 'Product', refColumn: 'id', onDelete: 'cascade'},
+          {table: '_ProductToProductCollection', name: 'fkB', column: 'B', refTable: 'ProductCollection', refColumn: 'id', onDelete: 'cascade'}
+        ],
+        indexes: [{name: 'uq', table: '_ProductToProductCollection', columns: ['A', 'B'], unique: true}]
+      }
+    }
+    const src = generateModelSource(m2m)
+    // the join table is NOT emitted as a model
+    expect(src).not.toMatch(/class ProductToProductCollection\b/)
+    expect(src).not.toMatch(/export class \w*ProductToProductCollection/)
+    // both endpoints get a manyToMany bound to the real join table + columns
+    expect(src).toMatch(
+      /productCollections = manyToMany\(\(\) => ProductCollection, \{through: "_ProductToProductCollection", sourceColumn: "A", targetColumn: "B"\}\)/
+    )
+    expect(src).toMatch(
+      /products = manyToMany\(\(\) => Product, \{through: "_ProductToProductCollection", sourceColumn: "B", targetColumn: "A"\}\)/
+    )
+    expect(src).toMatch(/import \{[^}]*manyToMany/)
+  })
+
   it('imports exactly the builders it uses', () => {
     const importLine = out.split('\n').find(l => l.startsWith('import'))!
     expect(importLine).toContain('Model')

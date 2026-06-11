@@ -196,13 +196,27 @@ export interface ManyToManyManager<T extends object> extends Array<T> {}
  * target rows. The join-table name + columns are derived lazily (so forward
  * references resolve) and deterministically, so both relation sides agree.
  */
+export interface ManyToManyBinding {
+  through?: string
+  sourceColumn?: string
+  targetColumn?: string
+}
+
 export class ManyToManyManager<T extends object> {
+  private readonly through?: string
+  private readonly sourceColumn?: string
+  private readonly targetColumn?: string
+
   constructor(
     private readonly ownerCtor: ModelCtor<any>,
     private readonly targetCtor: ModelCtor<T>,
     private readonly ownerPk: unknown,
-    private readonly through?: string
-  ) {}
+    binding: ManyToManyBinding = {}
+  ) {
+    this.through = binding.through
+    this.sourceColumn = binding.sourceColumn
+    this.targetColumn = binding.targetColumn
+  }
 
   private spec() {
     const ownerDef = getModelDefinitionOrThrow(this.ownerCtor)
@@ -221,8 +235,10 @@ export class ManyToManyManager<T extends object> {
     )
     return {
       joinTable,
-      localColumn: joinColumn(ownerDef.tableName, ownerPk.columnName),
-      targetColumn: joinColumn(targetDef.tableName, targetPk.columnName),
+      localColumn:
+        this.sourceColumn ?? joinColumn(ownerDef.tableName, ownerPk.columnName),
+      targetColumn:
+        this.targetColumn ?? joinColumn(targetDef.tableName, targetPk.columnName),
       targetTable: targetDef.tableName,
       targetPkColumn: targetPk.columnName,
       targetPkProperty: targetPk.propertyKey

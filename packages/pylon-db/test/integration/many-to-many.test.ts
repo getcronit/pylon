@@ -129,3 +129,71 @@ describe.skipIf(!runDb)('Many-to-many (Postgres)', () => {
     expect(await post.tags.count()).toBe(0)
   })
 })
+
+// A Prisma-style binding: an explicit join table with `A`/`B` columns (what
+// `pylon db baseline` emits for an adopted implicit join table).
+@model({table: 'm2m_px'})
+class M2MPx extends Model {
+  static objects = manager(M2MPx)
+  id = id()
+  name = text()
+  tags = manyToMany(() => M2MTx, {
+    through: '_PxToTx',
+    sourceColumn: 'A',
+    targetColumn: 'B'
+  })
+}
+
+@model({table: 'm2m_tx'})
+class M2MTx extends Model {
+  static objects = manager(M2MTx)
+  id = id()
+  label = text()
+  posts = manyToMany(() => M2MPx, {
+    through: '_PxToTx',
+    sourceColumn: 'B',
+    targetColumn: 'A'
+  })
+}
+
+describe.skipIf(!runDb)('Many-to-many with explicit join columns (Postgres)', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    db = connect({connectionString})
+    await db.kysely.schema.dropTable('_PxToTx').ifExists().cascade().execute()
+    await db.kysely.schema.dropTable('m2m_px').ifExists().cascade().execute()
+    await db.kysely.schema.dropTable('m2m_tx').ifExists().cascade().execute()
+    await syncSchema()
+  })
+
+  afterAll(async () => {
+    if (db) {
+      await db.kysely.schema.dropTable('_PxToTx').ifExists().cascade().execute()
+      await db.kysely.schema.dropTable('m2m_px').ifExists().cascade().execute()
+      await db.kysely.schema.dropTable('m2m_tx').ifExists().cascade().execute()
+      await db.destroy()
+    }
+    setDefaultDatabase(undefined)
+  })
+
+  it('synthesizes the named join table with the explicit A/B columns', async () => {
+    const tables = await db.kysely.introspection.getTables()
+    const join = tables.find(t => t.name === '_PxToTx')
+    expect(join).toBeDefined()
+    expect(join!.columns.map(c => c.name).sort()).toEqual(['A', 'B'])
+  })
+
+  it('round-trips through the explicit columns (both directions)', async () => {
+    const px = await M2MPx.objects.create({name: 'p'})
+    const t1 = await M2MTx.objects.create({label: 't1'})
+    const t2 = await M2MTx.objects.create({label: 't2'})
+    await px.tags.add(t1, t2)
+    expect((await px.tags.all()).map(t => t.label).sort()).toEqual(['t1', 't2'])
+    // reverse side uses the mirrored columns (B/A)
+    expect((await t1.posts.all()).map(p => p.name)).toEqual(['p'])
+
+    await px.tags.remove(t1)
+    expect((await px.tags.all()).map(t => t.label)).toEqual(['t2'])
+  })
+})

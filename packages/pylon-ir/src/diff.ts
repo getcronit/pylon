@@ -173,8 +173,8 @@ function joinTablesOf(
       if (!target || !bPk) continue
       const joinT = joinTableName(e.table, target.table, rel.through)
       if (out.has(joinT)) continue
-      const aCol = joinColumn(e.table, aPk.name)
-      const bCol = joinColumn(target.table, bPk.name)
+      const aCol = rel.sourceColumn ?? joinColumn(e.table, aPk.name)
+      const bCol = rel.targetColumn ?? joinColumn(target.table, bPk.name)
       const col = (name: string, src: ColumnSpec): TableColumn => ({
         property: name,
         name,

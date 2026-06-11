@@ -121,11 +121,11 @@ function joinTablePlans(models: ModelDefinition[]): JoinTablePlan[] {
       plans.push({
         joinTable,
         ownerTable: def.tableName,
-        ownerColumn: joinColumn(def.tableName, ownerPk.columnName),
+        ownerColumn: rel.sourceColumn ?? joinColumn(def.tableName, ownerPk.columnName),
         ownerType: columnType({...ownerPk, autoIncrement: false}),
         ownerRef: `${def.tableName}.${ownerPk.columnName}`,
         targetTable: targetDef.tableName,
-        targetColumn: joinColumn(targetDef.tableName, targetPk.columnName),
+        targetColumn: rel.targetColumn ?? joinColumn(targetDef.tableName, targetPk.columnName),
         targetType: columnType({...targetPk, autoIncrement: false}),
         targetRef: `${targetDef.tableName}.${targetPk.columnName}`
       })

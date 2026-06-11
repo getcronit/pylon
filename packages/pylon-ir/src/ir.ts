@@ -147,6 +147,10 @@ export interface RelationSpec {
   targetFkField?: string
   /** manyToMany: explicit join-table name (default: the two tables, sorted). */
   through?: string
+  /** manyToMany: join column referencing THIS entity (default: `<table>_<pk>`). */
+  sourceColumn?: string
+  /** manyToMany: join column referencing the TARGET (default: `<table>_<pk>`). */
+  targetColumn?: string
   onDelete?: OnDelete
 }
 

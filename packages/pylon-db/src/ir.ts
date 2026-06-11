@@ -122,7 +122,9 @@ function relationField(rel: RelationDefinition): Field {
       relation: {
         kind: 'manyToMany',
         target,
-        through: rel.through
+        through: rel.through,
+        sourceColumn: rel.sourceColumn,
+        targetColumn: rel.targetColumn
       }
     }
   }

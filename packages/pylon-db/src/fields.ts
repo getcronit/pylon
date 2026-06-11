@@ -281,6 +281,14 @@ export interface ManyToManyOptions {
    * without coordination.
    */
   through?: string
+  /**
+   * Join column referencing THIS model. Defaults to `<table>_<pk>`. Set this
+   * (with `through`/`targetColumn`) to bind to an existing join table whose
+   * columns don't follow the default convention — e.g. Prisma's `A`/`B`.
+   */
+  sourceColumn?: string
+  /** Join column referencing the TARGET model. Defaults to `<table>_<pk>`. */
+  targetColumn?: string
 }
 
 /**
@@ -468,7 +476,9 @@ export function model(options: ModelOptions = {}): ClassDecorator {
             propertyKey: key,
             target: value.target,
             nullable: true,
-            through: value.options.through
+            through: value.options.through,
+            sourceColumn: value.options.sourceColumn,
+            targetColumn: value.options.targetColumn
           }
           registerRelation(Ctor, rel)
           relations.push(rel)
@@ -523,7 +533,7 @@ export function model(options: ModelOptions = {}): ClassDecorator {
           }
         })
       } else if (rel.kind === 'manyToMany') {
-        const {target, through} = rel
+        const {target, through, sourceColumn, targetColumn} = rel
         Object.defineProperty(Wrapped.prototype, rel.propertyKey, {
           configurable: true,
           enumerable: false,
@@ -539,7 +549,7 @@ export function model(options: ModelOptions = {}): ClassDecorator {
               this.constructor as ModelCtor<any>,
               target() as ModelCtor<any>,
               this[pkProperty],
-              through
+              {through, sourceColumn, targetColumn}
             )
           },
           set() {
