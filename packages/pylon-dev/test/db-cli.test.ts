@@ -61,3 +61,59 @@ describe('pylon db CLI (model-loading bridge, no DB)', () => {
     expect(res.created).toBeNull()
   })
 })
+
+// `baseline` adopts an existing database — it needs a live DB to introspect.
+const DB = process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'
+const runDbGated = process.env.DATABASE_URL || process.env.PYLON_ORM_IT
+
+describe.skipIf(!runDbGated)('pylon db baseline (live DB adoption)', () => {
+  let migrationsDir: string
+  let outDir: string
+  let outFile: string
+  const prevUrl = process.env.DATABASE_URL
+
+  beforeEach(async () => {
+    process.env.DATABASE_URL = DB
+    migrationsDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pylon-baseline-cli-'))
+    outDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pylon-baseline-out-'))
+    outFile = path.join(outDir, 'models.generated.ts')
+    // A known table to adopt (push the fixture's `account` model into the DB).
+    await runDbCommand({command: 'push', models: 'models.ts', cwd: fixtureCwd})
+  })
+  afterEach(async () => {
+    await fs.rm(migrationsDir, {recursive: true, force: true})
+    await fs.rm(outDir, {recursive: true, force: true})
+    if (prevUrl === undefined) delete process.env.DATABASE_URL
+    else process.env.DATABASE_URL = prevUrl
+  })
+
+  it('introspects, writes model stubs + an initial migration, and marks it applied', async () => {
+    const res = await runDbCommand({
+      command: 'baseline',
+      models: 'models.ts',
+      dir: migrationsDir,
+      out: outFile,
+      cwd: fixtureCwd
+    })
+    expect(res.baseline).toBeDefined()
+    expect(res.baseline!.tables).toBeGreaterThanOrEqual(1)
+    expect(res.baseline!.migration).toMatch(/_baseline$/)
+
+    // Model stubs were written and include the adopted table.
+    const stubs = await fs.readFile(outFile, 'utf8')
+    expect(stubs).toMatch(/export class Account extends Model/)
+    expect(stubs).toMatch(/id = id\(\)/)
+
+    // The migration file exists; and because it was marked applied, `status`
+    // reports zero unapplied for it (the DB ledger has the row).
+    const files = await fs.readdir(migrationsDir)
+    expect(files.some(f => f.endsWith('_baseline.ts'))).toBe(true)
+    const status = await runDbCommand({
+      command: 'status',
+      models: 'models.ts',
+      dir: migrationsDir,
+      cwd: fixtureCwd
+    })
+    expect(status.status!.unapplied).toHaveLength(0)
+  })
+})

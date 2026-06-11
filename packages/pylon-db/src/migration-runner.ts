@@ -221,6 +221,38 @@ export class MigrationRunner {
     return {name: migrationName, changes, unsupported, renameCandidates: renameCandidates(changes)}
   }
 
+  /**
+   * Write an initial migration capturing an existing database's schema (as
+   * produced by `introspectPhysical`). Unlike `generate`, this consults neither
+   * models nor history — it emits `createTable`/FK/index ops for the *entire*
+   * provided schema, so an established database can be adopted into the ledger.
+   * Since those tables already exist, the caller marks the migration applied
+   * (`resolve --applied`) rather than running it. Refuses to run when migrations
+   * already exist (baseline is a once-only bootstrap).
+   */
+  async baseline(
+    schema: PhysicalSchema,
+    name = 'baseline'
+  ): Promise<GeneratedMigration | null> {
+    const existing = await this.list()
+    if (existing.length > 0) {
+      throw new Error(
+        `Cannot baseline: ${existing.length} migration(s) already exist in "${this.dir}". ` +
+          `Baseline is a one-time bootstrap for an un-migrated database.`
+      )
+    }
+    const changes = diffSchema({}, schema)
+    if (changes.length === 0) return null
+    const {unsupported} = renderChanges(changes)
+    const migrationName = `${this.now()}_${name}`
+    await fs.mkdir(this.dir, {recursive: true})
+    await fs.writeFile(
+      this.filePath(migrationName),
+      fileTemplate(changes, unsupported, [])
+    )
+    return {name: migrationName, changes, unsupported, renameCandidates: []}
+  }
+
   /** Uncaptured changes (baseline vs current) + which migrations are unapplied. */
   async status(
     load: MigrationLoader,

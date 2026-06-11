@@ -335,6 +335,38 @@ db.command('seed')
     }
   })
 
+db.command('baseline')
+  .description(
+    'Adopt an existing database: introspect it, generate model stubs + an initial migration, and mark it applied (requires DATABASE_URL)'
+  )
+  .argument('[name]', 'Name for the initial migration', 'baseline')
+  .option('-m, --models <path>', 'Entry that imports @getcronit/pylon-db', './src/index.ts')
+  .option('-d, --dir <path>', 'Migrations directory', './migrations')
+  .option('-o, --out <path>', 'Where to write generated model stubs', './src/models.generated.ts')
+  .action(async (name, options) => {
+    try {
+      const {baseline} = await runDbCommand({
+        command: 'baseline',
+        name,
+        models: options.models,
+        dir: options.dir,
+        out: options.out
+      })
+      if (!baseline) {
+        consola.info('Nothing to baseline')
+        return
+      }
+      consola.success(
+        `Baselined ${baseline.tables} table(s): models → ${baseline.modelsFile}` +
+          (baseline.migration ? `, migration ${baseline.migration} (marked applied)` : '')
+      )
+      consola.info('Review the generated models before committing.')
+    } catch (error) {
+      consola.error(error)
+      process.exit(1)
+    }
+  })
+
 db.command('merge')
   .description('Reconverge divergent migration heads (after a branch merge) into a merge migration')
   .argument('[name]', 'Name for the merge migration', 'merge')

@@ -69,6 +69,7 @@ export interface DbCommandOptions {
     | 'squash'
     | 'merge'
     | 'seed'
+    | 'baseline'
   /** Migration name (for `diff`; the target for `resolve`). */
   name?: string
   /** `diff`: which app to generate a migration for (required in apps mode). */
@@ -77,6 +78,8 @@ export interface DbCommandOptions {
   down?: boolean
   /** `seed`: path to the seed file (default `./src/seed.ts`). */
   seed?: string
+  /** `baseline`: where to write generated model stubs (default `./src/models.generated.ts`). */
+  out?: string
   /** `diff`: confirmed renames (drop+add → renameColumn, data-preserving). */
   renames?: Array<{table: string; from: string; to: string}>
   /** Entry that imports the models (default `./src/index.ts`). */
@@ -123,6 +126,8 @@ export interface DbCommandResult {
   apps?: Array<{app: string; applied: string[]}>
   /** apps mode: per-app status (`status`). */
   appsStatus?: Array<{app: string; pendingChanges: number; unapplied: string[]}>
+  /** `baseline`: the bootstrap result — migration written + stubs file + table count. */
+  baseline?: {migration: string | null; modelsFile: string; tables: number}
 }
 
 export async function runDbCommand(
@@ -309,6 +314,42 @@ export async function runDbCommand(
       }
       const applied = await runner.apply(loadMigrationFile, conn)
       return {command: 'deploy', applied}
+    }
+    case 'baseline': {
+      // Adopt an existing, un-migrated database: deep-introspect it, emit model
+      // stubs, write an initial migration capturing the whole schema, and mark
+      // that migration applied (the tables already exist, so it must not run).
+      const connectionString = process.env.DATABASE_URL
+      if (!connectionString) {
+        throw new Error('pylon db baseline requires DATABASE_URL to be set.')
+      }
+      if (typeof orm.introspectPhysical !== 'function') {
+        throw new Error(
+          'This project\'s @getcronit/pylon-db is too old for `baseline` (no introspectPhysical).'
+        )
+      }
+      const conn = orm.connect({connectionString})
+      const schema = await orm.introspectPhysical(conn)
+      const tables = Object.keys(schema).length
+      if (tables === 0) {
+        throw new Error('pylon db baseline: the database has no tables to adopt.')
+      }
+
+      // 1. Model stubs (a reviewable starting point).
+      const outRel = options.out ?? './src/models.generated.ts'
+      const outAbs = path.resolve(cwd, outRel)
+      await fs.mkdir(path.dirname(outAbs), {recursive: true})
+      await fs.writeFile(outAbs, orm.generateModelSource(schema))
+
+      // 2. Initial migration + mark it applied so `migrate`/`deploy` skip it.
+      const created = await runner.baseline(schema, options.name ?? 'baseline')
+      if (created) {
+        await runner.markApplied(created.name, loadMigrationFile, conn)
+      }
+      return {
+        command: 'baseline',
+        baseline: {migration: created?.name ?? null, modelsFile: outRel, tables}
+      }
     }
   }
 }

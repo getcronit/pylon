@@ -71,8 +71,10 @@ export {
   type StandardSchemaV1,
   type FieldSchema
 } from './standard-schema.js'
+export {generateModelSource} from './codegen.js'
 export {
   introspect,
+  introspectPhysical,
   expectedColumns,
   computeDrift,
   hasDrift,

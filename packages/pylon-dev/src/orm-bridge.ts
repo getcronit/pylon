@@ -19,7 +19,7 @@ import path from 'node:path'
 import {prepareModelSource} from './builder/prepare-model-source.js'
 import {pathToFileURL} from 'node:url'
 import esbuild from 'esbuild'
-import type {PylonIR} from '@getcronit/pylon-ir'
+import type {PhysicalSchema, PylonIR} from '@getcronit/pylon-ir'
 
 /** The slice of `@getcronit/pylon-db` the dev tooling drives. Typed locally so
  *  pylon-dev needn't take a runtime dependency on the ORM. */
@@ -70,8 +70,17 @@ export interface ProjectOrm {
       load: (filePath: string) => Promise<unknown>,
       name?: string
     ): Promise<{name: string; heads: string[]} | null>
+    /** Write an initial migration capturing an introspected schema (`baseline`). */
+    baseline(
+      schema: PhysicalSchema,
+      name?: string
+    ): Promise<{name: string; changes: unknown[]} | null>
   }
   connect(opts: {connectionString: string}): unknown
+  /** Deep-introspect a live DB into a full PhysicalSchema (for `baseline`). */
+  introspectPhysical(db?: unknown): Promise<PhysicalSchema>
+  /** Generate editable `@model()` class stubs from an introspected schema. */
+  generateModelSource(schema: PhysicalSchema): string
   /** Presence-level drift between the live DB and the current models. */
   schemaDrift(db?: unknown): Promise<{
     missingTables: string[]
