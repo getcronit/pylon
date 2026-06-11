@@ -36,10 +36,35 @@ export class Tag extends Model {
   posts = manyToMany(() => Post)
 }
 
+// Repro for #43: a resolver returning a NULLABLE reference to a decorated ORM
+// model — both directly (Query.maybeUser) and nested in a payload object
+// (Mutation.updateUser → {user: User | null}). These must derive as nullable
+// (`User`, no `!`), like any other `T | null`.
+interface UpdateUserPayload {
+  user: User | null
+  ok: boolean
+}
+
+// Replicates the EXACT `mutation()` wrapper mechanism from @getcronit/pylon: a
+// homomorphic mapped type that makes every payload field nullable, intersected
+// with userErrors. This is the shape that (per #43) wrongly emitted `User!`.
+type UserError = {message: string; field: string[] | null}
+type MutationPayload<T> = {[K in keyof T]: T[K] | null} & {
+  userErrors: UserError[]
+}
+
 export const graphql = {
   Query: {
     user: (): Promise<User> => null as unknown as Promise<User>,
-    users: (): Promise<User[]> => null as unknown as Promise<User[]>
+    users: (): Promise<User[]> => null as unknown as Promise<User[]>,
+    maybeUser: (): Promise<User | null> => null as unknown as Promise<User | null>
   },
-  Mutation: {}
+  Mutation: {
+    updateUser: (): Promise<UpdateUserPayload> =>
+      null as unknown as Promise<UpdateUserPayload>,
+    // The resolver's own return has a NON-null `user`; the wrapper maps it to
+    // `User | null`. The derived schema must reflect the wrapper (nullable).
+    saveUser: (): Promise<MutationPayload<{user: User}>> =>
+      null as unknown as Promise<MutationPayload<{user: User}>>
+  }
 }

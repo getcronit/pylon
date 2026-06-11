@@ -17,11 +17,12 @@
  * Anything else rethrows (unexpected → masked / Sentry). The wrapped return type
  * carries `userErrors`, so the type-introspection build adds it to the payload.
  *
- * NOTE: the payload entity must be NULLABLE in the schema (null on error). The
- * build currently emits object/entity references as non-null even for `T | null`
- * (a parser gap — see task: "nullable object references"). Until that lands, a
- * failure path that omits the entity will violate the non-null field. The runtime
- * here is correct; the schema-surfacing depends on that parser fix.
+ * The wrapper's mapped return type makes every payload field nullable
+ * (`{[K in keyof Awaited<R>]: Awaited<R>[K] | null}`), so the entity is correctly
+ * derived as NULLABLE in the schema (null on the error path). This is verified
+ * end-to-end against the real SchemaBuilder — including object/entity references
+ * through the ORM `mergeIR` contribution — in pylon-db's `schema-derivation`
+ * suite (the `[#43]` cases).
  */
 import {ServiceError} from './define-pylon'
 

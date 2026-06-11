@@ -52,6 +52,30 @@ describe('ORM ↔ GraphQL schema derivation (real SchemaBuilder)', () => {
     expect(typeDefs).toMatch(/tags:\s*\[Tag[!]?\]/)
   })
 
+  it('[#43] derives a nullable ref resolver (T | null) as a NULLABLE field', () => {
+    // `maybeUser(): Promise<User | null>` must be `maybeUser: User` (no `!`).
+    expect(typeDefs).toMatch(/maybeUser:\s*User(?!!)/)
+  })
+
+  it('[#43] derives a nullable ref INSIDE a payload object as nullable', () => {
+    // UpdateUserPayload.user is `User | null` → `user: User` (no `!`).
+    const block = typeDefs.match(/type UpdateUserPayload\b[^}]*}/)?.[0] ?? ''
+    expect(block).toMatch(/user:\s*User(?!!)/)
+  })
+
+  it('[#43] mapped-type wrapper ({[K]: T[K] | null}) makes the ref nullable', () => {
+    // This is the mutation()-wrapper shape. The payload type's `user` field must
+    // be nullable (`User`, no `!`).
+    const block =
+      typeDefs.match(/type SaveUser[A-Za-z]*\b[^}]*}/)?.[0] ??
+      typeDefs.match(/type [A-Za-z]*Payload\b[^}]*}/g)?.join('\n') ??
+      ''
+    // Find whichever generated type carries the `user` + `userErrors` fields.
+    const payloadBlocks = typeDefs.match(/type \w+\s*{[^}]*userErrors[^}]*}/g) ?? []
+    const target = payloadBlocks.find(b => /user:/.test(b)) ?? block
+    expect(target).toMatch(/user:\s*User(?!!)/)
+  })
+
   it('excludes $-prefixed hidden columns from the schema', () => {
     expect(typeDefs).not.toMatch(/passwordHash/i)
   })
