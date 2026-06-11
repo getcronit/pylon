@@ -77,4 +77,35 @@ describe.skipIf(!runDb)('cursor pagination (Postgres)', () => {
     expect(page.totalCount).toBe(1)
     expect(page.pageInfo.hasNextPage).toBe(false)
   })
+
+  it('exposes relay edges (cursor + node) aligned with nodes', async () => {
+    const p = await Widget.objects.paginate({first: 2})
+    expect(p.edges).toHaveLength(2)
+    expect(p.edges.map(e => e.node.name)).toEqual(['w1', 'w2'])
+    expect(p.edges[0].cursor).toBe(p.pageInfo.startCursor)
+    expect(p.edges[1].cursor).toBe(p.pageInfo.endCursor)
+  })
+
+  it('backward-paginates with last/before (relay)', async () => {
+    // last:2 → the final two in natural (PK) order
+    const tail = await Widget.objects.paginate({last: 2})
+    expect(tail.nodes.map(w => w.name)).toEqual(['w4', 'w5'])
+    expect(tail.pageInfo.hasPreviousPage).toBe(true)
+    expect(tail.pageInfo.hasNextPage).toBe(false)
+
+    // before the tail's first cursor → the two preceding it
+    const prev = await Widget.objects.paginate({
+      last: 2,
+      before: tail.pageInfo.startCursor!
+    })
+    expect(prev.nodes.map(w => w.name)).toEqual(['w2', 'w3'])
+    expect(prev.pageInfo.hasNextPage).toBe(true) // there's a page after (before was set)
+  })
+
+  it('supports the skip (offset) fallback in forward mode', async () => {
+    const page = await Widget.objects.paginate({first: 2, skip: 1})
+    expect(page.nodes.map(w => w.name)).toEqual(['w2', 'w3'])
+    expect(page.pageInfo.hasPreviousPage).toBe(true) // skip > 0
+    expect(page.pageInfo.hasNextPage).toBe(true)
+  })
 })

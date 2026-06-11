@@ -44,6 +44,7 @@ export {
   createManager,
   type ModelCtor,
   type Connection,
+  type Edge,
   type PageInfo,
   type PaginateArgs
 } from './manager.js'

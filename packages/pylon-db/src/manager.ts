@@ -51,7 +51,15 @@ export interface PageInfo {
   endCursor: string | null
 }
 
+/** A Relay edge: a node paired with its cursor. */
+export interface Edge<T> {
+  cursor: string
+  node: T
+}
+
 export interface Connection<T> {
+  /** Relay edges (node + cursor). Mirrors `nodes` for clients that want either. */
+  edges: Edge<T>[]
   nodes: T[]
   pageInfo: PageInfo
   /** Total rows matching the filter (ignores the cursor window). */
@@ -59,10 +67,16 @@ export interface Connection<T> {
 }
 
 export interface PaginateArgs {
-  /** Page size (default 20). */
+  /** Forward page size (default 20). */
   first?: number
-  /** Opaque cursor to start after (forward pagination). */
+  /** Forward cursor: start after this one. */
   after?: string
+  /** Backward page size — the last N before `before`. */
+  last?: number
+  /** Backward cursor: end before this one. */
+  before?: string
+  /** Offset fallback (forward only), applied before the limit. */
+  skip?: number
   /** Field to order + key on; `-` prefix for descending. Defaults to the PK. */
   orderBy?: string
 }
@@ -220,12 +234,12 @@ export class QuerySet<T extends object> {
 
   /**
    * Relay-style cursor pagination (keyset on a stable, unique `orderBy` — the PK
-   * by default). Returns `{nodes, pageInfo, totalCount}`. Respects the current
-   * filters + tenant scope. Forward pagination (`first`/`after`); `hasNextPage`
-   * is detected by over-fetching one row.
+   * by default). Returns `{edges, nodes, pageInfo, totalCount}`, respecting the
+   * current filters + tenant scope. Supports forward (`first`/`after`, plus an
+   * `skip` offset) and backward (`last`/`before`) paging; an extra row is
+   * over-fetched to detect the next/previous page.
    */
   async paginate(args: PaginateArgs = {}): Promise<Connection<T>> {
-    const first = args.first ?? 20
     const raw = args.orderBy ?? this.def.primaryKey?.propertyKey
     if (!raw) {
       throw new Error(`${this.def.tableName}: .paginate() needs an orderBy or a primary key.`)
@@ -233,30 +247,50 @@ export class QuerySet<T extends object> {
     const desc = raw.startsWith('-')
     const col = columnFor(this.def, desc ? raw.slice(1) : raw).columnName
 
+    // Backward paging walks the reverse of the natural order, then flips back.
+    const backward = args.last !== undefined || args.before !== undefined
+    const size = (backward ? args.last : args.first) ?? 20
+    const naturalAsc = !desc
+    const orderDir = backward
+      ? naturalAsc
+        ? 'desc'
+        : 'asc'
+      : naturalAsc
+        ? 'asc'
+        : 'desc'
+
     const db = getDatabase()
     let q = db.kysely.selectFrom(this.def.tableName).selectAll()
     for (const cond of this.allConditions()) {
       q = cond.value === null ? q.where(cond.column, 'is', null) : q.where(cond.column, '=', cond.value as any)
     }
-    if (args.after !== undefined) {
+    if (!backward && args.after !== undefined) {
       q = q.where(col, desc ? '<' : '>', decodeCursor(args.after) as any)
     }
-    const rows = await q
-      .orderBy(col as any, desc ? 'desc' : 'asc')
-      .limit(first + 1)
-      .execute()
+    if (backward && args.before !== undefined) {
+      q = q.where(col, desc ? '>' : '<', decodeCursor(args.before) as any)
+    }
+    q = q.orderBy(col as any, orderDir)
+    if (!backward && args.skip) q = q.offset(args.skip)
 
-    const hasNextPage = rows.length > first
-    const page = hasNextPage ? rows.slice(0, first) : rows
+    const fetched = await q.limit(size + 1).execute()
+    const hasExtra = fetched.length > size
+    let page = hasExtra ? fetched.slice(0, size) : fetched
+    if (backward) page = page.reverse() // restore natural order
+
     const cursorOf = (r: any) => encodeCursor(r[col])
+    const edges = page.map(r => ({cursor: cursorOf(r), node: hydrate(this.ctor, r)}))
     return {
-      nodes: page.map(r => hydrate(this.ctor, r)),
+      edges,
+      nodes: edges.map(e => e.node),
       totalCount: await this.count(), // filters + tenant, no cursor window
       pageInfo: {
-        hasNextPage,
-        hasPreviousPage: args.after !== undefined,
-        startCursor: page.length ? cursorOf(page[0]) : null,
-        endCursor: page.length ? cursorOf(page[page.length - 1]) : null
+        hasNextPage: backward ? args.before !== undefined : hasExtra,
+        hasPreviousPage: backward
+          ? hasExtra
+          : args.after !== undefined || (args.skip ?? 0) > 0,
+        startCursor: edges.length ? edges[0].cursor : null,
+        endCursor: edges.length ? edges[edges.length - 1].cursor : null
       }
     }
   }
