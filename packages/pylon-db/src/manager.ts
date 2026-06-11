@@ -827,6 +827,18 @@ function rowFromInstance(
 }
 
 /**
+ * Copy a returned DB row's columns back onto the instance. Keeps the in-memory
+ * object DB-consistent after a write — pulls back identity PKs, DB defaults,
+ * generated/triggered columns, AND heals any field a caller set to `undefined`
+ * (which is omitted from the write, so the DB value is authoritative).
+ */
+function copyRowOnto(def: ModelDefinition, instance: any, row: any): void {
+  for (const col of def.columns) {
+    if (col.columnName in row) instance[col.propertyKey] = row[col.columnName]
+  }
+}
+
+/**
  * Create-time prep shared by `saveInstance` (insert path) and `createMany`:
  * stamp the ambient tenant on the tenant column when unset, then resolve
  * client-side default generators (cuid/uuid ids). Runs before validation so a
@@ -884,11 +896,23 @@ export async function saveInstance(instance: object): Promise<object> {
   try {
     if (!created) {
       const data = rowFromInstance(def, instance, {includePrimaryKey: false})
-      await db.kysely
-        .updateTable(def.tableName)
-        .set(data)
-        .where(pk!.columnName, '=', (instance as any)[pk!.propertyKey])
-        .execute()
+      const pkVal = (instance as any)[pk!.propertyKey]
+      // RETURNING refreshes the instance from the row — so a field set to
+      // `undefined` (omitted from the SET) is healed back to its DB value rather
+      // than left stale. An empty SET (nothing to write) re-reads instead.
+      const row = Object.keys(data).length
+        ? await db.kysely
+            .updateTable(def.tableName)
+            .set(data)
+            .where(pk!.columnName, '=', pkVal)
+            .returningAll()
+            .executeTakeFirst()
+        : await db.kysely
+            .selectFrom(def.tableName)
+            .selectAll()
+            .where(pk!.columnName, '=', pkVal)
+            .executeTakeFirst()
+      if (row) copyRowOnto(def, instance, row)
     } else {
       const data = rowFromInstance(def, instance, {includePrimaryKey: true})
       const insert = db.kysely.insertInto(def.tableName)
@@ -899,12 +923,7 @@ export async function saveInstance(instance: object): Promise<object> {
       )
         .returningAll()
         .executeTakeFirstOrThrow()
-      // Pull back generated values (identity PKs, SQL defaults).
-      for (const col of def.columns) {
-        if (col.columnName in (inserted as any)) {
-          ;(instance as any)[col.propertyKey] = (inserted as any)[col.columnName]
-        }
-      }
+      copyRowOnto(def, instance, inserted) // pull back identity PKs, DB defaults
       persisted.add(instance)
     }
   } catch (err) {

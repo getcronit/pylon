@@ -105,4 +105,37 @@ describe.skipIf(!runDb)('explicit undefined vs default — Prisma semantics (Pos
     expect(b.status).toBe('archived') // explicit
     expect(typeof a.code).toBe('string')
   })
+
+  // ── Direct mutation + $save (the Active-Record update path) ────────────────
+
+  it('$save heals a field set to undefined — instance stays DB-consistent', async () => {
+    const w = await Widget.objects.create({status: 'active', label: 'keep'})
+    ;(w as any).label = undefined // "leave alone" — must NOT corrupt the instance
+    ;(w as any).status = undefined
+    await w.$save()
+    expect(w.label).toBe('keep') // refreshed from the row, not left undefined
+    expect(w.status).toBe('active')
+    const fresh = await Widget.objects.get({id: w.id})
+    expect(fresh.label).toBe('keep') // DB untouched
+  })
+
+  it('$save persists real changes while leaving undefined fields untouched', async () => {
+    const w = await Widget.objects.create({status: 'active', label: 'a'})
+    ;(w as any).status = 'archived' // real change
+    ;(w as any).label = undefined // leave alone
+    await w.$save()
+    expect(w.status).toBe('archived')
+    expect(w.label).toBe('a') // unchanged + healed on the instance
+    const fresh = await Widget.objects.get({id: w.id})
+    expect(fresh.status).toBe('archived')
+    expect(fresh.label).toBe('a')
+  })
+
+  it('$save with explicit null clears a nullable field', async () => {
+    const w = await Widget.objects.create({label: 'x'})
+    ;(w as any).label = null // null IS a value → clears it
+    await w.$save()
+    expect(w.label).toBeNull()
+    expect((await Widget.objects.get({id: w.id})).label).toBeNull()
+  })
 })
