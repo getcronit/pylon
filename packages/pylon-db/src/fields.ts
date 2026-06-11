@@ -401,11 +401,18 @@ export interface ModelOptions {
    * triggers) plus a GIN index — search infrastructure, never a GraphQL field.
    * Query it with `Model.objects.search(text)`.
    *
+   * Pass an array for multiple independent search sets (each its own column +
+   * GIN index); target one with `.search(text, {column: 'titleFts'})`.
+   *
    * ```ts
    * @model({search: {columns: ['title', 'body'], language: 'german'}})
+   * @model({search: [
+   *   {name: 'titleFts', columns: ['title']},
+   *   {name: 'bodyFts',  columns: ['body']}
+   * ]})
    * ```
    */
-  search?: SearchOptions
+  search?: SearchOptions | SearchOptions[]
 }
 
 /** Full-text search config for `@model({search})`. */
@@ -414,7 +421,7 @@ export interface SearchOptions {
   columns: string[]
   /** Postgres text-search config (e.g. `english`, `german`). Default `english`. */
   language?: string
-  /** Generated column name (default `fts`). */
+  /** Generated column name (default `fts`; required when there are several). */
   name?: string
 }
 

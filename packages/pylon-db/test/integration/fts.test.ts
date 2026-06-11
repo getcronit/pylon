@@ -81,4 +81,70 @@ describe.skipIf(!runDb)('full-text search (Postgres)', () => {
     expect(page.totalCount).toBe(1)
     expect(page.nodes[0].title).toBe('The quick brown fox')
   })
+
+  it('syncSchema (db push) creates the GIN index, not just the column', async () => {
+    const idx = await db.kysely
+      .selectFrom('pg_indexes' as any)
+      .select(['indexdef'] as any)
+      .where('tablename' as any, '=', 'fts_doc')
+      .execute()
+    expect(idx.some((r: any) => /USING gin/.test(r.indexdef))).toBe(true)
+  })
+})
+
+@model({
+  table: 'fts_multi',
+  search: [
+    {name: 'titleFts', columns: ['title']},
+    {name: 'bodyFts', columns: ['body']}
+  ]
+})
+class FtsMulti extends Model {
+  static objects = manager(FtsMulti)
+  id = id()
+  title = text()
+  body = text()
+}
+
+describe.skipIf(!runDb)('multiple search sets (Postgres)', () => {
+  let db: Database
+  beforeAll(async () => {
+    db = connect({connectionString})
+    await db.kysely.schema.dropTable('fts_multi').ifExists().cascade().execute()
+    await syncSchema()
+    await FtsMulti.objects.create({title: 'alpha keyword', body: 'beta content'})
+  })
+  afterAll(async () => {
+    if (db) await db.kysely.schema.dropTable('fts_multi').ifExists().cascade().execute()
+    if (db) await db.destroy()
+    setDefaultDatabase(undefined)
+  })
+
+  it('synthesizes one tsvector column + GIN per search set', async () => {
+    const cols = await db.kysely.introspection.getTables()
+    const t = cols.find(x => x.name === 'fts_multi')!
+    const names = t.columns.map(c => c.name)
+    expect(names).toContain('titleFts')
+    expect(names).toContain('bodyFts')
+    const idx = await db.kysely
+      .selectFrom('pg_indexes' as any)
+      .select(['indexdef'] as any)
+      .where('tablename' as any, '=', 'fts_multi')
+      .execute()
+    expect(idx.filter((r: any) => /USING gin/.test(r.indexdef))).toHaveLength(2)
+  })
+
+  it('.search() targets a specific set by column', async () => {
+    // "keyword" is only in title → titleFts matches, bodyFts does not
+    expect(
+      (await FtsMulti.objects.search('keyword', {column: 'titleFts'}).all()).length
+    ).toBe(1)
+    expect(
+      (await FtsMulti.objects.search('keyword', {column: 'bodyFts'}).all()).length
+    ).toBe(0)
+    // "content" is only in body
+    expect(
+      (await FtsMulti.objects.search('content', {column: 'bodyFts'}).all()).length
+    ).toBe(1)
+  })
 })

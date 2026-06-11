@@ -203,8 +203,10 @@ export function finalizeModel(
     indexes?: ModelIndex[]
     /** Property name of the tenant FK (auto-scope column); skipped if absent on this model. */
     tenant?: string
-    /** Full-text search: synthesize a hidden generated tsvector column + GIN. */
-    search?: {columns: string[]; language?: string; name?: string}
+    /** Full-text search: synthesize hidden generated tsvector column(s) + GIN. */
+    search?:
+      | {columns: string[]; language?: string; name?: string}
+      | Array<{columns: string[]; language?: string; name?: string}>
   }
 ): ModelDefinition {
   const merged = new Map<string, ColumnDefinition>()
@@ -226,12 +228,23 @@ export function finalizeModel(
     }
   }
 
-  // Full-text search: synthesize a hidden, STORED-generated tsvector column from
-  // the source properties' columns (resolved now that the chain is merged).
-  if (options.search) {
-    const language = options.search.language ?? 'english'
-    const name = options.search.name ?? 'fts'
-    const expr = `to_tsvector('${language}', ${options.search.columns
+  // Full-text search: synthesize a hidden, STORED-generated tsvector column per
+  // search set (resolved now that the chain is merged). Multiple sets need
+  // distinct names.
+  const searchSets = options.search
+    ? Array.isArray(options.search)
+      ? options.search
+      : [options.search]
+    : []
+  for (const set of searchSets) {
+    const language = set.language ?? 'english'
+    const name = set.name ?? 'fts'
+    if (merged.has(name)) {
+      throw new Error(
+        `@model search on "${options.tableName}": duplicate column "${name}" — give each search set a unique \`name\`.`
+      )
+    }
+    const expr = `to_tsvector('${language}', ${set.columns
       .map(prop => {
         const colName = merged.get(prop)?.columnName
         if (!colName) {

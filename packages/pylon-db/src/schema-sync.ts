@@ -1,6 +1,7 @@
 import {joinColumn, joinTableName} from '@getcronit/pylon-ir'
 import {sql, type Expression} from 'kysely'
 import {Database, getDatabase} from './database.js'
+import {entityFromDefinition} from './ir.js'
 import {
   allModels,
   ColumnDefinition,
@@ -210,6 +211,21 @@ export async function syncSchema(
   // m2m join tables reference both sides, so create them after all base tables.
   for (const plan of joinTablePlans(models)) {
     await createJoinTable(db, plan)
+  }
+  // Secondary indexes (composite/unique from `indexes`, single from `{index}`,
+  // and the auto GIN for tsvector). Reuse the IR's resolved index list so push
+  // stays faithful to migrations.
+  for (const def of models) {
+    for (const ix of entityFromDefinition(def).indexes ?? []) {
+      let b = db.kysely.schema
+        .createIndex(ix.name)
+        .on(ix.table)
+        .ifNotExists()
+        .columns(ix.columns)
+      if (ix.unique) b = b.unique()
+      if (ix.method && ix.method !== 'btree') b = b.using(ix.method)
+      await b.execute()
+    }
   }
 }
 
