@@ -8,6 +8,7 @@ import {
   hydrate,
   ModelCtor,
   QuerySet,
+  selectableColumns,
   type WhereInput
 } from './manager.js'
 import {getModelDefinitionOrThrow} from './registry.js'
@@ -94,7 +95,7 @@ async function flush(db: Database, token: string): Promise<void> {
   try {
     const rows = await db.kysely
       .selectFrom(batch.tableName)
-      .selectAll()
+      .select(selectableColumns(getModelDefinitionOrThrow(batch.target)))
       .where(batch.pkColumn as any, 'in', keys as any)
       .execute()
 
@@ -172,7 +173,7 @@ async function flushHasMany(db: Database, token: string): Promise<void> {
   try {
     const rows = await db.kysely
       .selectFrom(batch.childTable)
-      .selectAll()
+      .select(selectableColumns(getModelDefinitionOrThrow(batch.child)))
       .where(batch.fkColumn as any, 'in', keys as any)
       .execute()
 
@@ -388,7 +389,7 @@ export class ManyToManyManager<T extends object> {
         `${s.targetTable}.${s.targetPkColumn}` as any
       )
       .where(`${s.joinTable}.${s.localColumn}` as any, '=', this.ownerPk as any)
-      .selectAll(s.targetTable)
+      .select(selectableColumns(getModelDefinitionOrThrow(this.targetCtor), s.targetTable) as any)
       .execute()
     return rows.map(r => hydrate(this.targetCtor, r))
   }

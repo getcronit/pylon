@@ -66,6 +66,13 @@ describe.skipIf(!runDb)('full-text search (Postgres)', () => {
     expect(String((row as any).fts)).toContain('fox')
   })
 
+  it('does NOT fetch/hydrate the generated tsvector (it is never read as a value)', async () => {
+    const doc = await FtsDoc.objects.get({title: 'Unrelated'})
+    expect((doc as any).fts).toBeUndefined() // not selected
+    expect(Object.keys(doc)).not.toContain('fts') // not on the instance
+    expect(Object.keys(JSON.parse(JSON.stringify(doc)))).not.toContain('fts')
+  })
+
   it('.search() matches on the generated vector', async () => {
     const hits = await FtsDoc.objects.search('fox').all()
     expect(hits.map(d => d.title)).toEqual(['The quick brown fox'])

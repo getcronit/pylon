@@ -598,7 +598,7 @@ export class QuerySet<T extends object> {
 
   private build() {
     const db = getDatabase()
-    let q: any = db.kysely.selectFrom(this.def.tableName).selectAll()
+    let q: any = db.kysely.selectFrom(this.def.tableName).select(selectableColumns(this.def))
     q = this.applyWhere(q)
     if (this.state.rank) {
       const {ref, language, query} = this.state.rank
@@ -684,7 +684,7 @@ export class QuerySet<T extends object> {
         : 'desc'
 
     const db = getDatabase()
-    let q: any = db.kysely.selectFrom(this.def.tableName).selectAll()
+    let q: any = db.kysely.selectFrom(this.def.tableName).select(selectableColumns(this.def))
     q = this.applyWhere(q)
     if (!backward && args.after !== undefined) {
       q = q.where(col, desc ? '<' : '>', decodeCursor(args.after) as any)
@@ -843,6 +843,21 @@ function copyRowOnto(def: ModelDefinition, instance: any, row: any): void {
 }
 
 /**
+ * Column names to SELECT for a model — every column EXCEPT internal DB-managed
+ * generated ones (the hidden `tsvector` from `@model({search})`). Those are
+ * large, hidden from the API, write-only by the DB, and never read as an
+ * instance value — `.search()` references them in the WHERE clause directly — so
+ * fetching them just wastes wire + CPU on every read. Optionally qualified by a
+ * table/alias for joined queries. Replaces `selectAll()` on the read paths.
+ */
+export function selectableColumns(def: ModelDefinition, table?: string): string[] {
+  const names = def.columns
+    .filter(c => !(c.generatedAs && c.hidden))
+    .map(c => c.columnName)
+  return table ? names.map(n => `${table}.${n}`) : names
+}
+
+/**
  * Create-time prep shared by `saveInstance` (insert path) and `createMany`:
  * stamp the ambient tenant on the tenant column when unset, then resolve
  * client-side default generators (cuid/uuid ids). Runs before validation so a
@@ -913,7 +928,7 @@ export async function saveInstance(instance: object): Promise<object> {
             .executeTakeFirst()
         : await db.kysely
             .selectFrom(def.tableName)
-            .selectAll()
+            .select(selectableColumns(def))
             .where(pk!.columnName, '=', pkVal)
             .executeTakeFirst()
       if (row) copyRowOnto(def, instance, row)
