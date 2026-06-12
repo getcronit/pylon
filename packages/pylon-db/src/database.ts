@@ -53,8 +53,16 @@ export class Database {
   /**
    * Run `fn` inside a transaction, bound as the ambient connection — every ORM
    * write within (and any signal/outbox enqueue) commits or rolls back together.
+   *
+   * REENTRANT: if `this` is already a transaction, JOIN it (`run`) instead of
+   * opening another (Postgres has no real nested transactions, and kysely throws
+   * on `.transaction()` of a transaction). So a `transaction()` — or a
+   * self-transactional `saveInstance` — nested inside an outer `transaction()`
+   * participates in the one ambient transaction: inner failure rolls back the
+   * whole thing.
    */
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.transactional) return this.run(fn) // already in a txn → join it
     return this.kysely.transaction().execute(trx => databaseForKysely(trx).run(fn))
   }
 

@@ -315,12 +315,16 @@ export class RelatedManager<T extends object> {
    * the affected array); `{signals: false}` uses a raw bulk delete for speed.
    */
   async set(values: Partial<T>[], options: BulkOptions = {}): Promise<T[]> {
-    if (options.signals === false) {
-      await this.base.delete()
-    } else {
-      await deleteManyInstances(await this.base.all(), options)
-    }
-    return this.createMany(values, options)
+    // Atomic delete-then-recreate (reentrant — joins an ambient transaction): a
+    // failure mid-replace can't leave the old children deleted but not replaced.
+    return getDatabase().transaction(async () => {
+      if (options.signals === false) {
+        await this.base.delete()
+      } else {
+        await deleteManyInstances(await this.base.all(), options)
+      }
+      return this.createMany(values, options)
+    })
   }
 
   /** Thenable: `await user.posts` resolves to the full list (batched). */

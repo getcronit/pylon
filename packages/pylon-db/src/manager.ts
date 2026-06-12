@@ -975,7 +975,6 @@ export async function saveInstance(instance: object): Promise<object> {
   const issues = validateInstance(def, instance)
   if (issues.length > 0) throw new ValidationError(issues)
 
-  const db = getDatabase()
   const pk = def.primaryKey
   const created = !(persisted.has(instance) && pk)
   const model = instance.constructor as Function
@@ -988,9 +987,15 @@ export async function saveInstance(instance: object): Promise<object> {
     }
   }
 
-  await signals.preSave.emit({instances: [instance], created, model})
+  // Atomic: preSave → write → postSave commit or roll back together, so a failing
+  // hook (e.g. a postSave audit/outbox write) undoes the row. `transaction()` is
+  // reentrant — a save nested inside an outer `transaction()` joins it rather than
+  // opening a second one.
+  await getDatabase().transaction(async () => {
+   const db = getDatabase()
+   await signals.preSave.emit({instances: [instance], created, model})
 
-  try {
+   try {
     if (!created) {
       // Row-level write authorization: AND the `update` policy into the WHERE. A
       // persisted instance always existed, so 0 affected rows ⇒ the policy
@@ -1032,15 +1037,16 @@ export async function saveInstance(instance: object): Promise<object> {
       copyRowOnto(def, instance, inserted) // pull back identity PKs, DB defaults
       persisted.add(instance)
     }
-  } catch (err) {
-    // A unique violation (23505) → a precise `'unique'` field error, so a
-    // duplicate surfaces as a userError instead of a masked "Unexpected error".
-    const ve = uniqueViolation(def, err)
-    if (ve) throw ve
-    throw err
-  }
+   } catch (err) {
+     // A unique violation (23505) → a precise `'unique'` field error, so a
+     // duplicate surfaces as a userError instead of a masked "Unexpected error".
+     const ve = uniqueViolation(def, err)
+     if (ve) throw ve
+     throw err
+   }
 
-  await signals.postSave.emit({instances: [instance], created, model})
+   await signals.postSave.emit({instances: [instance], created, model})
+  })
   return instance
 }
 
@@ -1050,7 +1056,6 @@ export async function deleteInstance(instance: object): Promise<void> {
   if (!pk) {
     throw new Error(`Cannot delete "${def.tableName}": no primary key defined.`)
   }
-  const db = getDatabase()
   const model = instance.constructor as Function
 
   // Row-level delete authorization (mirrors the update path): AND the `delete`
@@ -1058,20 +1063,24 @@ export async function deleteInstance(instance: object): Promise<void> {
   const outcome = isSystem() ? 'allow' : policyOutcome(def, 'delete')
   if (outcome === 'deny') throw new ForbiddenError(`Not permitted to delete "${def.tableName}".`)
 
-  await signals.preDelete.emit({instances: [instance], model})
-  let q: any = db.kysely
-    .deleteFrom(def.tableName)
-    .where(pk.columnName, '=', (instance as any)[pk.propertyKey])
-  if (outcome !== 'allow') {
-    const scope: Scope = {def, ref: def.tableName, qualify: false}
-    q = q.where((eb: any) => compileWhere(eb, scope, outcome, {n: 0}))
-  }
-  const res = await q.executeTakeFirst()
-  if (Number(res?.numDeletedRows ?? 0) === 0 && outcome !== 'allow') {
-    throw new ForbiddenError(`Not permitted to delete "${def.tableName}".`)
-  }
-  persisted.delete(instance)
-  await signals.postDelete.emit({instances: [instance], model})
+  // Atomic: preDelete → DELETE → postDelete (reentrant — joins an ambient txn).
+  await getDatabase().transaction(async () => {
+    const db = getDatabase()
+    await signals.preDelete.emit({instances: [instance], model})
+    let q: any = db.kysely
+      .deleteFrom(def.tableName)
+      .where(pk.columnName, '=', (instance as any)[pk.propertyKey])
+    if (outcome !== 'allow') {
+      const scope: Scope = {def, ref: def.tableName, qualify: false}
+      q = q.where((eb: any) => compileWhere(eb, scope, outcome, {n: 0}))
+    }
+    const res = await q.executeTakeFirst()
+    if (Number(res?.numDeletedRows ?? 0) === 0 && outcome !== 'allow') {
+      throw new ForbiddenError(`Not permitted to delete "${def.tableName}".`)
+    }
+    persisted.delete(instance)
+    await signals.postDelete.emit({instances: [instance], model})
+  })
 }
 
 /**
@@ -1098,6 +1107,10 @@ export async function createMany<T extends object>(
     return inst
   })
 
+  // NOTE: a bulk insert is a SINGLE atomic statement, so it isn't wrapped in its
+  // own transaction (that would add BEGIN/COMMIT round-trips to the throughput
+  // path). preSave/postSave fire once around it; if a hook needs the row write to
+  // roll back with it, call createMany inside an explicit `transaction()`.
   if (emit) await signals.preSave.emit({instances, created: true, model})
 
   const rows = instances.map(i =>
@@ -1151,6 +1164,7 @@ export async function deleteManyInstances<T extends object>(
   }
   const emit = options.signals !== false
   const model = (instances[0] as object).constructor as Function
+  // Single atomic DELETE statement — not self-wrapped (see createMany note).
   if (emit) await signals.preDelete.emit({instances, model})
   await getDatabase()
     .kysely.deleteFrom(def.tableName)
