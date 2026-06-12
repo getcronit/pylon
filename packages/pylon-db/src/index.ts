@@ -31,7 +31,7 @@ export {
   type ManyToManyOptions
 } from './fields.js'
 export {createId, uuidv4} from './id.js'
-export {RelatedManager, ManyToManyManager, type Relation} from './relations.js'
+export {RelatedManager, ManyToManyManager, type Relation, type Linkable} from './relations.js'
 export {
   Database,
   connect,

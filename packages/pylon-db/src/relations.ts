@@ -353,6 +353,12 @@ export interface ManyToManyBinding {
   targetColumn?: string
 }
 
+/** A target row to link/unlink: a full instance, a `{id}` object, or the bare
+ *  primary-key value (link ops only need the PK). */
+export type Linkable<T> =
+  | T
+  | (T extends {id: infer I} ? Exclude<I, null> : string | number)
+
 export class ManyToManyManager<T extends object> {
   private readonly through?: string
   private readonly sourceColumn?: string
@@ -396,8 +402,11 @@ export class ManyToManyManager<T extends object> {
     }
   }
 
-  private targetPkValue(instance: T, prop: string): unknown {
-    return (instance as any)[prop]
+  // Link ops only need the target's PRIMARY KEY (they write join rows, never the
+  // target table), so accept the bare key, a `{id}` object, or a full instance —
+  // a scalar is the key itself; an object yields its PK property.
+  private keyOf(item: Linkable<T>, prop: string): unknown {
+    return typeof item === 'object' && item !== null ? (item as any)[prop] : item
   }
 
   /** All related rows, via a join (re-scoped by the target's READ policy). */
@@ -431,13 +440,13 @@ export class ManyToManyManager<T extends object> {
     return Number((row as any)?.count ?? 0)
   }
 
-  /** Link one or more rows (idempotent — duplicate links are ignored). */
-  async add(...instances: T[]): Promise<void> {
-    if (!instances.length) return
+  /** Link one or more rows by instance OR primary key (idempotent). */
+  async add(...items: Array<Linkable<T>>): Promise<void> {
+    if (!items.length) return
     const s = this.spec()
-    const values = instances.map(i => ({
+    const values = items.map(i => ({
       [s.localColumn]: this.ownerPk,
-      [s.targetColumn]: this.targetPkValue(i, s.targetPkProperty)
+      [s.targetColumn]: this.keyOf(i, s.targetPkProperty)
     }))
     await getDatabase()
       .kysely.insertInto(s.joinTable)
@@ -446,9 +455,9 @@ export class ManyToManyManager<T extends object> {
       .execute()
   }
 
-  /** Unlink one or more rows (the target rows themselves are untouched). */
-  async remove(...instances: T[]): Promise<void> {
-    if (!instances.length) return
+  /** Unlink one or more rows by instance OR primary key (target rows untouched). */
+  async remove(...items: Array<Linkable<T>>): Promise<void> {
+    if (!items.length) return
     const s = this.spec()
     await getDatabase()
       .kysely.deleteFrom(s.joinTable)
@@ -456,7 +465,7 @@ export class ManyToManyManager<T extends object> {
       .where(
         s.targetColumn as any,
         'in',
-        instances.map(i => this.targetPkValue(i, s.targetPkProperty)) as any
+        items.map(i => this.keyOf(i, s.targetPkProperty)) as any
       )
       .execute()
   }
@@ -470,11 +479,11 @@ export class ManyToManyManager<T extends object> {
       .execute()
   }
 
-  /** Replace the full link set in a single transaction. */
-  async set(instances: T[]): Promise<void> {
+  /** Replace the full link set (by instance OR primary key) in one transaction. */
+  async set(items: Array<Linkable<T>>): Promise<void> {
     await getDatabase().transaction(async () => {
       await this.clear()
-      await this.add(...instances)
+      await this.add(...items)
     })
   }
 

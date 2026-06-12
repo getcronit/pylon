@@ -88,6 +88,25 @@ describe.skipIf(!runDb)('Many-to-many (Postgres)', () => {
     expect(awaited.map(t => t.label).sort()).toEqual(['orm', 'ts'])
   })
 
+  it('add/remove/set work with PRIMARY KEYS (and {id} objects), not just instances', async () => {
+    const post = await M2MPost.objects.create({title: 'ByKey'})
+    const a = await M2MTag.objects.create({label: 'a'})
+    const b = await M2MTag.objects.create({label: 'b'})
+    const c = await M2MTag.objects.create({label: 'c'})
+
+    await post.tags.add(a.id, b.id) // bare PK values — no instance/fetch needed
+    expect((await post.tags.all()).map(t => t.label).sort()).toEqual(['a', 'b'])
+
+    await post.tags.remove(a.id) // unlink by key
+    expect((await post.tags.all()).map(t => t.label)).toEqual(['b'])
+
+    await post.tags.set([c.id, {id: a.id} as any]) // replace by key + {id} object
+    expect((await post.tags.all()).map(t => t.label).sort()).toEqual(['a', 'c'])
+
+    await post.tags.add(b) // instances still work (mixed usage)
+    expect((await post.tags.all()).map(t => t.label).sort()).toEqual(['a', 'b', 'c'])
+  })
+
   it('add() is idempotent (no duplicate links)', async () => {
     const post = await M2MPost.objects.create({title: 'Dup'})
     const tag = await M2MTag.objects.create({label: 'dup'})
