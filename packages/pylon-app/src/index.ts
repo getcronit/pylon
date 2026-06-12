@@ -23,3 +23,11 @@ export {
   hasRole,
   hasPermission
 } from './principal.js'
+
+export {
+  defineApp,
+  type App,
+  type AppConfig,
+  type Resolvers,
+  type RouteRegistrar
+} from './app.js'
