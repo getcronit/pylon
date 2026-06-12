@@ -1,0 +1,53 @@
+{
+  "name": "@getcronit/pylon-app",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "rimraf ./dist && node build.js && pnpm run build:declarations",
+    "build:declarations": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "files": [
+    "dist"
+  ],
+  "author": "Nico Schett <nico.schett@cronit.io>",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/getcronit/pylon.git",
+    "directory": "packages/pylon-app"
+  },
+  "homepage": "https://pylon.cronit.io",
+  "dependencies": {
+    "@getcronit/pylon-db": "workspace:*"
+  },
+  "peerDependencies": {
+    "@getcronit/pylon": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "@getcronit/pylon": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@getcronit/pylon": "workspace:*",
+    "@getcronit/pylon-db": "workspace:*",
+    "@types/node": "^20.0.0",
+    "esbuild": "^0.23.1",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.7.3",
+    "vitest": "^2.0.0"
+  }
+}
