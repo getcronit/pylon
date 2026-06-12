@@ -12,6 +12,7 @@
  *     against the GLOBAL registry, so an FK into another group still emits.
  *   - `ledgerPrefix: group.name` — isolate each group's rows in the shared ledger.
  */
+import {joinTableName} from '@getcronit/pylon-ir'
 import type {Database} from './database.js'
 import {getDatabase} from './database.js'
 import {toIR} from './ir.js'
@@ -51,17 +52,46 @@ export function appGroups(): MigrationGroup[] {
     byApp.set(def.app, list)
   }
 
+  // Which app(s) OWN (synthesize) each join table — for the cross-app conflict
+  // guard. The inverse side doesn't synthesize, so it's not an owner.
+  const joinOwners = new Map<string, Set<string>>()
+
   const groups: MigrationGroup[] = []
   for (const [name, defs] of byApp) {
     const deps = new Set<string>(getAppMeta(name)?.dependsOn ?? [])
     for (const def of defs) {
       for (const rel of def.relations) {
-        if (rel.kind !== 'belongsTo') continue
-        const target = getModelDefinition(rel.target())
-        if (target?.app && target.app !== name) deps.add(target.app)
+        if (rel.kind === 'belongsTo') {
+          const target = getModelDefinition(rel.target())
+          if (target?.app && target.app !== name) deps.add(target.app)
+        } else if (rel.kind === 'manyToMany' && !rel.inverse) {
+          const target = getModelDefinition(rel.target())
+          if (!target) continue
+          // The owning side synthesizes the join table, which FKs into the
+          // target's table → if cross-app, this app depends on the target's app.
+          if (target.app && target.app !== name) deps.add(target.app)
+          const joinName = joinTableName(def.tableName, target.tableName, rel.through)
+          let owners = joinOwners.get(joinName)
+          if (!owners) joinOwners.set(joinName, (owners = new Set()))
+          owners.add(name)
+        }
       }
     }
     groups.push({name, models: defs.map(d => d.ctor), dependencies: [...deps]})
+  }
+
+  // Cross-app m2m guard: a join table synthesized by two DIFFERENT apps would be
+  // created twice → a deploy collision. (Same-app both-sides is fine — one app,
+  // deduped within its migration set.) Fail early with the fix.
+  for (const [joinName, owners] of joinOwners) {
+    if (owners.size > 1) {
+      const apps = [...owners].map(a => `"${a}"`).join(' and ')
+      throw new Error(
+        `Cross-app many-to-many conflict: the join table "${joinName}" is synthesized by ` +
+          `apps ${apps} — both would create it, colliding on deploy. Declare the relation on ` +
+          `ONE side and mark the other side \`manyToMany(() => …, {inverse: true})\`.`
+      )
+    }
   }
   return groups
 }

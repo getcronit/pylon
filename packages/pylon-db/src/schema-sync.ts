@@ -130,7 +130,8 @@ function joinTablePlans(models: ModelDefinition[]): JoinTablePlan[] {
     const ownerPk = def.primaryKey
     if (!ownerPk) continue
     for (const rel of def.relations) {
-      if (rel.kind !== 'manyToMany') continue
+      // Inverse side: accessor only — the canonical side synthesizes the table.
+      if (rel.kind !== 'manyToMany' || rel.inverse) continue
       const targetDef = byCtor.get(rel.target()) ?? getModelDefinition(rel.target())
       const targetPk = targetDef?.primaryKey
       if (!targetDef || !targetPk) continue

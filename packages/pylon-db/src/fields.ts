@@ -394,6 +394,15 @@ export interface ManyToManyOptions {
   sourceColumn?: string
   /** Join column referencing the TARGET model. Defaults to `<table>_<pk>`. */
   targetColumn?: string
+  /**
+   * Mark this as the INVERSE side: it gives a read/write accessor over the join
+   * table the OTHER side owns, but does NOT synthesize/create the table itself.
+   * Required when the two endpoints live in **different apps** (each app
+   * synthesizes its own migrations, so without this both would `createTable` the
+   * shared join → a deploy collision). Declare the canonical side normally and
+   * the other side `{inverse: true}`.
+   */
+  inverse?: boolean
 }
 
 /**
@@ -635,7 +644,8 @@ export function model(options: ModelOptions = {}): ClassDecorator {
             nullable: true,
             through: value.options.through,
             sourceColumn: value.options.sourceColumn,
-            targetColumn: value.options.targetColumn
+            targetColumn: value.options.targetColumn,
+            inverse: value.options.inverse
           }
           registerRelation(Ctor, rel)
           relations.push(rel)

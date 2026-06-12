@@ -108,6 +108,9 @@ export interface RelationDefinition {
   sourceColumn?: string
   /** manyToMany: join column referencing the TARGET (default: `<table>_<pk>`). */
   targetColumn?: string
+  /** manyToMany: the inverse side — accessor only, does NOT synthesize the join
+   *  table (the canonical side owns it). Required for cross-app m2m. */
+  inverse?: boolean
 }
 
 /** A model-level (possibly composite) secondary index. `columns` are PROPERTY keys. */

@@ -171,7 +171,9 @@ function joinTablesOf(
     if (!aPk) continue
     for (const f of e.fields) {
       const rel = f.relation
-      if (rel?.kind !== 'manyToMany') continue
+      // The inverse side is an accessor only — the canonical side owns (and
+      // synthesizes) the join table, so skip it here to avoid a double-create.
+      if (rel?.kind !== 'manyToMany' || rel.inverse) continue
       const target = resolveAgainst[rel.target]
       const bPk = target && pkColOf(target)
       if (!target || !bPk) continue

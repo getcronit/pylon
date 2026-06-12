@@ -136,7 +136,8 @@ function relationField(rel: RelationDefinition): Field {
         target,
         through: rel.through,
         sourceColumn: rel.sourceColumn,
-        targetColumn: rel.targetColumn
+        targetColumn: rel.targetColumn,
+        inverse: rel.inverse
       }
     }
   }

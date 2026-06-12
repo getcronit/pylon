@@ -167,6 +167,8 @@ export interface RelationSpec {
   sourceColumn?: string
   /** manyToMany: join column referencing the TARGET (default: `<table>_<pk>`). */
   targetColumn?: string
+  /** manyToMany: inverse side — accessor only, doesn't synthesize the join table. */
+  inverse?: boolean
   onDelete?: OnDelete
 }
 
