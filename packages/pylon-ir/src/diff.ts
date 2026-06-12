@@ -20,7 +20,7 @@
  */
 import {columnDDL, sqlTypeDDL, toDDL} from './ddl.js'
 import {postgres} from './dialect.js'
-import {joinColumn, joinTableName, tableSpecOf} from './ir.js'
+import {joinColumn, joinTableName, pgIdent, tableSpecOf} from './ir.js'
 import type {
   ColumnSpec,
   Entity,
@@ -88,7 +88,7 @@ function foreignKeysOf(
     const target = entities[rel.target]
     const refColumn = target?.fields.find(c => c.name === target.primaryKey)?.column?.name
     if (!column || !target || !refColumn) continue
-    const name = `${e.table}_${column}_fkey`
+    const name = pgIdent(`${e.table}_${column}_fkey`)
     out.set(name, {
       table: e.table,
       name,
@@ -195,7 +195,7 @@ function joinTablesOf(
         foreignKeys: [
           {
             table: joinT,
-            name: `${joinT}_${aCol}_fkey`,
+            name: pgIdent(`${joinT}_${aCol}_fkey`),
             column: aCol,
             refTable: e.table,
             refColumn: aPk.name,
@@ -203,7 +203,7 @@ function joinTablesOf(
           },
           {
             table: joinT,
-            name: `${joinT}_${bCol}_fkey`,
+            name: pgIdent(`${joinT}_${bCol}_fkey`),
             column: bCol,
             refTable: target.table,
             refColumn: bPk.name,
@@ -211,7 +211,12 @@ function joinTablesOf(
           }
         ],
         indexes: [
-          {name: `${joinT}_${aCol}_${bCol}_key`, table: joinT, columns: [aCol, bCol], unique: true}
+          {
+            name: pgIdent(`${joinT}_${aCol}_${bCol}_key`),
+            table: joinT,
+            columns: [aCol, bCol],
+            unique: true
+          }
         ]
       })
     }

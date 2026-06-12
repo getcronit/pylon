@@ -15,7 +15,7 @@ import type {
   ScalarName,
   TypeRef
 } from '@getcronit/pylon-ir'
-import {emptyIR} from '@getcronit/pylon-ir'
+import {emptyIR, pgIdent} from '@getcronit/pylon-ir'
 import type {
   ColumnDefinition,
   ModelDefinition,
@@ -161,7 +161,7 @@ export function entityFromDefinition(def: ModelDefinition): Entity {
   const singleColumn = def.columns
     .filter(col => col.index)
     .map(col => ({
-      name: `${def.tableName}_${col.columnName}_idx`,
+      name: pgIdent(`${def.tableName}_${col.columnName}_idx`),
       table: def.tableName,
       columns: [col.columnName],
       unique: false
@@ -170,7 +170,7 @@ export function entityFromDefinition(def: ModelDefinition): Entity {
   const composite = (def.indexes ?? []).map(ix => {
     const cols = ix.columns.map(columnFor)
     return {
-      name: ix.name ?? `${def.tableName}_${cols.join('_')}_idx`,
+      name: ix.name ?? pgIdent(`${def.tableName}_${cols.join('_')}_idx`),
       table: def.tableName,
       columns: cols,
       unique: ix.unique ?? false,

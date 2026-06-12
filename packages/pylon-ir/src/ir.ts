@@ -170,14 +170,38 @@ export interface RelationSpec {
   onDelete?: OnDelete
 }
 
+/** Postgres truncates identifiers to 63 chars (NAMEDATALEN-1). */
+const MAX_IDENT = 63
+
+/** djb2 hash → base36. Deterministic + dependency-free (no node:crypto). */
+function identHash(s: string): string {
+  let h = 5381
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 33) ^ s.charCodeAt(i)) >>> 0
+  return h.toString(36)
+}
+
+/**
+ * Clamp a generated identifier to Postgres's 63-char limit. Short names pass
+ * through unchanged; an over-long name is truncated and suffixed with a hash of
+ * the FULL name, so two distinct long names can't collide after truncation
+ * (Postgres would otherwise silently truncate both to the same 63 chars — e.g.
+ * the two FK constraints on a long-named m2m join table). Deterministic, so every
+ * code path that builds the same name agrees.
+ */
+export function pgIdent(name: string): string {
+  if (name.length <= MAX_IDENT) return name
+  const suffix = `_${identHash(name)}`
+  return name.slice(0, MAX_IDENT - suffix.length) + suffix
+}
+
 /** Join-table name for a many-to-many (deterministic so both sides agree). */
 export function joinTableName(aTable: string, bTable: string, through?: string): string {
-  return through ?? [aTable, bTable].sort().join('_')
+  return pgIdent(through ?? [aTable, bTable].sort().join('_'))
 }
 
 /** Join-table FK column referencing `table`'s primary key (e.g. post.id → post_id). */
 export function joinColumn(table: string, pkColumn: string): string {
-  return `${table}_${pkColumn}`
+  return pgIdent(`${table}_${pkColumn}`)
 }
 
 /** A single member of an entity or object type. */

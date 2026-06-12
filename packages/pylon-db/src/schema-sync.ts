@@ -1,4 +1,4 @@
-import {joinColumn, joinTableName} from '@getcronit/pylon-ir'
+import {joinColumn, joinTableName, pgIdent} from '@getcronit/pylon-ir'
 import {sql, type Expression} from 'kysely'
 import {Database, getDatabase} from './database.js'
 import {entityFromDefinition} from './ir.js'
@@ -156,16 +156,32 @@ function joinTablePlans(models: ModelDefinition[]): JoinTablePlan[] {
 }
 
 async function createJoinTable(db: Database, p: JoinTablePlan): Promise<void> {
+  // Name the FK constraints EXPLICITLY (not column-level `.references()`, which
+  // lets Postgres auto-name + silently truncate them to 63 chars — two long-named
+  // join FKs then collapse to the same name). `pgIdent` keeps each ≤63 and unique,
+  // and matches the names the migration/diff path generates (no spurious drift).
+  const [ownerRefTable, ownerRefCol] = p.ownerRef.split('.')
+  const [targetRefTable, targetRefCol] = p.targetRef.split('.')
   await db.kysely.schema
     .createTable(p.joinTable)
     .ifNotExists()
-    .addColumn(p.ownerColumn, p.ownerType as any, c =>
-      c.notNull().references(p.ownerRef).onDelete('cascade')
+    .addColumn(p.ownerColumn, p.ownerType as any, c => c.notNull())
+    .addColumn(p.targetColumn, p.targetType as any, c => c.notNull())
+    .addForeignKeyConstraint(
+      pgIdent(`${p.joinTable}_${p.ownerColumn}_fkey`),
+      [p.ownerColumn],
+      ownerRefTable,
+      [ownerRefCol],
+      cb => cb.onDelete('cascade')
     )
-    .addColumn(p.targetColumn, p.targetType as any, c =>
-      c.notNull().references(p.targetRef).onDelete('cascade')
+    .addForeignKeyConstraint(
+      pgIdent(`${p.joinTable}_${p.targetColumn}_fkey`),
+      [p.targetColumn],
+      targetRefTable,
+      [targetRefCol],
+      cb => cb.onDelete('cascade')
     )
-    .addUniqueConstraint(`${p.joinTable}_${p.ownerColumn}_${p.targetColumn}_key`, [
+    .addUniqueConstraint(pgIdent(`${p.joinTable}_${p.ownerColumn}_${p.targetColumn}_key`), [
       p.ownerColumn,
       p.targetColumn
     ])
