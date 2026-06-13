@@ -8,14 +8,18 @@
  * helpers take the rule as an argument (no permissions are hardcoded), and any
  * provider (Zitadel, custom JWT, API key) fills the Principal via `useIdentity`.
  *
- * RESOURCE-tier authz (rows/instances/fields → WhereInput) lives in pylon-app,
- * which re-exports this and extends `authorize` with resource forms.
+ * The zero-dependency contract (Principal, IdentityProvider, helpers,
+ * `ForbiddenError`) is also published at `@getcronit/pylon-auth/contract`, so the
+ * ORM can depend on it without pulling core in. RESOURCE-tier authz (rows/
+ * instances/fields → WhereInput) lives in pylon-app, which re-exports this and
+ * extends `authorize` with resource forms.
  */
 export {
   type Principal,
   type IdentityProvider,
   hasRole,
-  hasPermission
-} from './principal.js'
+  hasPermission,
+  ForbiddenError
+} from './contract.js'
 
-export {ForbiddenError, getPrincipal, authorize, requireRole, useIdentity} from './authz.js'
+export {getPrincipal, authorize, requireRole, useIdentity} from './authz.js'

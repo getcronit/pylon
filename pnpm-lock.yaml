@@ -492,6 +492,9 @@ importers:
 
   packages/pylon-db:
     dependencies:
+      '@getcronit/pylon-auth':
+        specifier: workspace:*
+        version: link:../pylon-auth
       '@getcronit/pylon-ir':
         specifier: workspace:*
         version: link:../pylon-ir

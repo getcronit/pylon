@@ -8,6 +8,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./contract": {
+      "import": "./dist/contract.js",
+      "types": "./dist/contract.d.ts"
     }
   },
   "scripts": {

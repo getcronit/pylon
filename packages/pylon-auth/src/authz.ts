@@ -7,19 +7,10 @@
 import type {Context, Plugin} from '@getcronit/pylon'
 import {getContext} from '@getcronit/pylon'
 import {GraphQLError} from 'graphql'
+import {ForbiddenError} from './errors.js'
 import {hasRole, type IdentityProvider, type Principal} from './principal.js'
 
 const PRINCIPAL_KEY = 'principal'
-
-/** Authorization denial → surfaced to clients as a `FORBIDDEN` GraphQL error. */
-export class ForbiddenError extends Error {
-  readonly code = 'FORBIDDEN'
-  readonly statusCode = 403
-  constructor(message = 'Not permitted.') {
-    super(message)
-    this.name = 'ForbiddenError'
-  }
-}
 
 /** The current request's Principal (set by `useIdentity`), or undefined. */
 export function getPrincipal(): Principal | undefined {
@@ -65,7 +56,10 @@ export function useIdentity(provider: IdentityProvider<Context>): Plugin {
               return new GraphQLError(err.originalError.message, {
                 nodes: err.nodes,
                 path: err.path,
-                extensions: {code: 'FORBIDDEN'}
+                extensions: {
+                  code: 'FORBIDDEN',
+                  ...(err.originalError.feature ? {feature: err.originalError.feature} : {})
+                }
               })
             }
             return err

@@ -29,8 +29,9 @@ import {toIR} from './ir.js'
 
 const LEDGER_TABLE = '_pylon_migrations'
 
-/** Migration-ledger / framework bookkeeping tables to never surface as models. */
-const IGNORED_TABLES = new Set([LEDGER_TABLE, '_prisma_migrations'])
+/** Migration-ledger / framework bookkeeping tables to never surface as models
+ *  (incl. the queues transactional-outbox table). */
+const IGNORED_TABLES = new Set([LEDGER_TABLE, '_pylon_outbox', '_prisma_migrations'])
 
 /** Columns present in the live DB (public schema), keyed by table name. */
 export async function introspect(db: Database = getDatabase()): Promise<Map<string, Set<string>>> {
@@ -42,7 +43,7 @@ export async function introspect(db: Database = getDatabase()): Promise<Map<stri
 
   const out = new Map<string, Set<string>>()
   for (const {table_name, column_name} of rows.rows) {
-    if (table_name === LEDGER_TABLE) continue
+    if (IGNORED_TABLES.has(table_name)) continue // framework tables (ledger, outbox)
     if (!out.has(table_name)) out.set(table_name, new Set())
     out.get(table_name)!.add(column_name)
   }

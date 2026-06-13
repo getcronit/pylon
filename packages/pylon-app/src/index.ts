@@ -17,9 +17,10 @@
  */
 export * from '@getcronit/pylon-db'
 
-// Capability-tier authz + the Principal contract come from pylon-auth. The
-// explicit re-export of `ForbiddenError` intentionally SHADOWS pylon-db's
-// star-exported one, so the authz API and the public `ForbiddenError` agree.
+// Capability-tier authz + the Principal contract come from pylon-auth. There is
+// ONE `ForbiddenError` (pylon-db re-exports pylon-auth's from /contract), so the
+// authz API, the ORM's row/feature denials, and the public error are the same
+// class — this explicit re-export and pylon-db's star-export resolve to it.
 export {
   type Principal,
   type IdentityProvider,

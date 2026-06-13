@@ -6,16 +6,13 @@
  */
 import {currentFeatures} from './app-context.js'
 
-/** Thrown when a required feature isn't enabled. Mapped to a FORBIDDEN GraphQL error. */
-export class ForbiddenError extends Error {
-  constructor(
-    message: string,
-    readonly feature?: string
-  ) {
-    super(message)
-    this.name = 'ForbiddenError'
-  }
-}
+// The canonical authz error lives in pylon-auth (row authz / feature gating IS
+// authz, so the ORM depends on the auth contract). Imported from the
+// zero-dependency `/contract` entry, so this stays free of the web framework.
+// Re-exported for back-compat: existing `import {ForbiddenError} from './features.js'`
+// callers keep working, now against the single shared class.
+export {ForbiddenError} from '@getcronit/pylon-auth/contract'
+import {ForbiddenError} from '@getcronit/pylon-auth/contract'
 
 /** A typed feature registry: `defineFeatures(['products','invoicing'] as const)`. */
 export function defineFeatures<const T extends readonly string[]>(
