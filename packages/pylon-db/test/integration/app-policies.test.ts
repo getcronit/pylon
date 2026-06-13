@@ -9,7 +9,6 @@ import {
   connect,
   Database,
   db,
-  definePolicy,
   ForbiddenError,
   models,
   runAsSystem,
@@ -41,7 +40,7 @@ class Secret extends acc.Model {
   id = acc.ID()
   value = acc.Text()
 }
-definePolicy(Secret, {
+db.definePolicy(Secret, {
   read: ({principal}) => ((principal as Principal | undefined)?.role === 'ADMIN' ? {} : false)
 })
 

@@ -68,14 +68,10 @@ export {
 } from './app-context.js'
 export {defineFeatures, requireFeature, gateResolvers, ForbiddenError} from './features.js'
 export {runAsSystem} from './app-context.js'
-export {
-  definePolicy,
-  type ModelPolicy,
-  type PolicyContext,
-  type FilterRule,
-  type CreateRule,
-  type AppPolicy
-} from './policies.js'
+// Per-model row policies are the LOW-LEVEL seam (`db.definePolicy`), what the
+// high-level `abilities` surface in @getcronit/pylon-app compiles into. App-wide
+// defaults (`models.app({policy})`) and the policy context type stay public.
+export {type PolicyContext, type AppPolicy} from './policies.js'
 export {
   signals,
   type SaveSignalPayload,
@@ -295,7 +291,10 @@ export const db = {
   QuerySet: managerApi.QuerySet,
   manager,
   syncSchema: schemaSync.syncSchema,
-  dropTables: schemaSync.dropTables
+  dropTables: schemaSync.dropTables,
+  /** Low-level per-model row policy seam. Prefer `abilities` (pylon-app); this is
+   *  the escape hatch it compiles into, for raw-ORM use. */
+  definePolicy: policyApi.definePolicy
 } as const
 
 /** Migration authoring + workflow. */

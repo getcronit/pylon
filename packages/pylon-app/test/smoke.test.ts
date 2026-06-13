@@ -1,11 +1,15 @@
 import {describe, expect, it} from 'vitest'
 // One import for backend batteries: the app/authz surface AND the re-exported ORM.
-import {hasPermission, hasRole, model, definePolicy, type Principal} from '../src/index'
+import {db, defineAbilities, hasPermission, hasRole, model, type Principal} from '../src/index'
+import * as api from '../src/index'
 
 describe('pylon-app surface', () => {
-  it('re-exports the ORM (model, definePolicy) alongside the app surface', () => {
+  it('re-exports the ORM (model) + abilities is the row-authz surface', () => {
     expect(typeof model).toBe('function')
-    expect(typeof definePolicy).toBe('function')
+    expect(typeof defineAbilities).toBe('function') // the single row-authz surface
+    // The standalone `definePolicy` is collapsed — only the low-level db.definePolicy seam remains.
+    expect(typeof db.definePolicy).toBe('function')
+    expect('definePolicy' in api).toBe(false)
   })
 
   it('Principal helpers are null-safe RBAC/PBAC checks', () => {

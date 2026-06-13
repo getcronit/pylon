@@ -9,7 +9,7 @@ import {
   boolean,
   connect,
   Database,
-  definePolicy,
+  db,
   foreignKey,
   ForbiddenError,
   hasMany,
@@ -49,7 +49,7 @@ class Note extends Model {
   declare folder: Relation<Folder>
 }
 
-definePolicy(Note, {
+db.definePolicy(Note, {
   read: ({principal}) => {
     const p = principal as Principal | undefined
     return p?.role === 'ADMIN' ? {} : {OR: [{ownerId: p?.userId ?? -1}, {shared: true}]}

@@ -16,7 +16,7 @@
  */
 import {
   currentPrincipal,
-  definePolicy,
+  db,
   getModelDefinition,
   type ModelCtor,
   type WhereInput
@@ -38,12 +38,21 @@ interface Rule {
   inverted: boolean
 }
 
+/** Returned by `can`/`cannot` — chain `.stamp()` to set server-owned columns on create. */
+export interface AbilityRuleResult {
+  /**
+   * Stamp a to-be-created instance (the `onCreate` replacement). The fn closes over
+   * the principal from the builder, so `doc => { doc.ownerId = p.id }` just works.
+   */
+  stamp(fn: (instance: any) => void): AbilityRuleResult
+}
+
 /** Builder callback signature for `can`/`cannot`. */
 export type AbilityRule = (
   action: string | string[],
   subject: Subject | Subject[],
   conditions?: WhereInput<any>
-) => void
+) => AbilityRuleResult
 
 /** Declares the rules for a principal. Run per request with the current actor. */
 export type AbilitiesFn = (
@@ -61,26 +70,40 @@ function subjectName(s: SubjectArg): string {
   return (s as object).constructor?.name ?? ''
 }
 
-/** Run the ability fn for a principal, collecting rules (+ the model classes seen). */
+/** Run the ability fn for a principal, collecting rules, model classes, and stamps. */
 function buildRules(principal: Principal | undefined): {
   rules: Rule[]
   classes: Map<string, ModelCtor<any>>
+  stamps: Map<string, ((instance: any) => void)[]>
 } {
   const rules: Rule[] = []
   const classes = new Map<string, ModelCtor<any>>()
+  const stamps = new Map<string, ((instance: any) => void)[]>()
   const record =
     (inverted: boolean): AbilityRule =>
     (action, subject, conditions) => {
-      const actions = Array.isArray(action) ? action : [action]
       const subjects = Array.isArray(subject) ? subject : [subject]
+      const actions = Array.isArray(action) ? action : [action]
+      const names: string[] = []
       for (const s of subjects) {
         const name = subjectName(s)
+        names.push(name)
         if (typeof s === 'function') classes.set(name, s)
         for (const a of actions) rules.push({action: a, subject: name, conditions, inverted})
       }
+      const result: AbilityRuleResult = {
+        stamp(fn) {
+          for (const name of names) {
+            const list = stamps.get(name) ?? stamps.set(name, []).get(name)!
+            list.push(fn)
+          }
+          return result
+        }
+      }
+      return result
     }
   abilitiesFn?.(principal, record(false), record(true))
-  return {rules, classes}
+  return {rules, classes, stamps}
 }
 
 /** The actor to authorize against: the request Principal, else the ORM-bound one. */
@@ -164,11 +187,18 @@ export function defineAbilities(fn: AbilitiesFn, options: {subjects?: ModelCtor<
     // Only ORM models get a row policy; non-model subjects (strings, domain
     // concepts) still work for can()/filter() but have no table to scope.
     if (!getModelDefinition(ctor)) continue
-    definePolicy(ctor, {
+    db.definePolicy(ctor, {
       read: ({principal}) => filterFor(principal as Principal | undefined, 'read', ctor),
       update: ({principal}) => filterFor(principal as Principal | undefined, 'update', ctor),
       delete: ({principal}) => filterFor(principal as Principal | undefined, 'delete', ctor),
-      create: ({principal}) => canFor(principal as Principal | undefined, 'create', ctor)
+      create: ({principal}) => canFor(principal as Principal | undefined, 'create', ctor),
+      // onCreate runs the create-rule stamps for this subject (the `.stamp()` form),
+      // so server-owned columns are set at the data layer — never trusted from input.
+      onCreate: ({principal}, instance) => {
+        for (const fn of buildRules(principal as Principal | undefined).stamps.get(ctor.name) ?? []) {
+          fn(instance)
+        }
+      }
     })
   }
 }

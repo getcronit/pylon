@@ -30,7 +30,11 @@ defineAbilities((p, can) => {
   if (hasRole(p, 'admin')) can('manage', 'all') // org admin
   can('read', Task, {OR: [{ownerId: uid}, {shared: true}]})
   can('update', Task, {ownerId: uid})
-  if (p) can('create', Task)
+  // create gate + STAMP server-owned columns (orgId/ownerId) — never trusted from input
+  if (p) can('create', Task).stamp(t => {
+    t.orgId = String(p.tenant)
+    t.ownerId = String(p.id)
+  })
 })
 
 export const projectsApp = projects
@@ -40,15 +44,9 @@ export const projectsApp = projects
       tasks: (): Promise<Task[]> => Task.objects.orderBy('title').all()
     },
     Mutation: {
-      createTask: (title: string, shared?: boolean): Promise<Task> => {
-        const p = getPrincipal()!
-        return Task.objects.create({
-          title,
-          shared: shared ?? false,
-          orgId: String(p.tenant),
-          ownerId: String(p.id)
-        })
-      },
+      // orgId/ownerId are stamped by the ability's .stamp() (onCreate) — not here
+      createTask: (title: string, shared?: boolean): Promise<Task> =>
+        Task.objects.create({title, shared: shared ?? false}),
       // get() is read-scoped; authorize('update') is the instance gate
       renameTask: async (id: number, title: string): Promise<Task> => {
         const t = await Task.objects.get({id})
