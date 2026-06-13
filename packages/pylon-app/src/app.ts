@@ -13,7 +13,7 @@
  * GraphQL shape (the build generates SDL by type-introspecting it).
  */
 import {models, type AppPolicy} from '@getcronit/pylon-db'
-import type {Principal} from './principal.js'
+import type {Principal} from '@getcronit/pylon-auth'
 
 type ResolverMap = Record<string, (...args: any[]) => any>
 

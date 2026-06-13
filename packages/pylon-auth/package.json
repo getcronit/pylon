@@ -1,5 +1,5 @@
 {
-  "name": "@getcronit/pylon-app",
+  "name": "@getcronit/pylon-auth",
   "version": "0.0.0",
   "type": "module",
   "main": "dist/index.js",
@@ -24,30 +24,21 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/getcronit/pylon.git",
-    "directory": "packages/pylon-app"
+    "directory": "packages/pylon-auth"
   },
   "homepage": "https://pylon.cronit.io",
-  "dependencies": {
-    "@getcronit/pylon-auth": "workspace:*",
-    "@getcronit/pylon-db": "workspace:*"
-  },
   "peerDependencies": {
-    "@getcronit/pylon": "workspace:*"
-  },
-  "peerDependenciesMeta": {
-    "@getcronit/pylon": {
-      "optional": true
-    }
+    "@getcronit/pylon": "workspace:*",
+    "graphql": "^16.0.0"
   },
   "engines": {
     "node": ">=18.0.0"
   },
   "devDependencies": {
     "@getcronit/pylon": "workspace:*",
-    "@getcronit/pylon-auth": "workspace:*",
-    "@getcronit/pylon-db": "workspace:*",
     "@types/node": "^20.0.0",
     "esbuild": "^0.23.1",
+    "graphql": "^16.0.0",
     "rimraf": "^6.0.1",
     "typescript": "^5.7.3",
     "vitest": "^2.0.0"

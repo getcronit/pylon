@@ -440,6 +440,9 @@ importers:
 
   packages/pylon-app:
     dependencies:
+      '@getcronit/pylon-auth':
+        specifier: workspace:*
+        version: link:../pylon-auth
       '@getcronit/pylon-db':
         specifier: workspace:*
         version: link:../pylon-db
@@ -453,6 +456,30 @@ importers:
       esbuild:
         specifier: ^0.23.1
         version: 0.23.1
+      rimraf:
+        specifier: ^6.0.1
+        version: 6.1.2
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.0.0
+        version: 2.1.9(@types/node@20.19.33)(jsdom@28.1.0)(lightningcss@1.30.2)
+
+  packages/pylon-auth:
+    devDependencies:
+      '@getcronit/pylon':
+        specifier: workspace:*
+        version: link:../pylon
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.33
+      esbuild:
+        specifier: ^0.23.1
+        version: 0.23.1
+      graphql:
+        specifier: ^16.9.0
+        version: 16.12.0
       rimraf:
         specifier: ^6.0.1
         version: 6.1.2

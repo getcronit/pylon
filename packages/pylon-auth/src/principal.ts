@@ -1,8 +1,8 @@
 /**
  * The canonical actor for a request. Produced by an IDENTITY PROVIDER (any auth
- * mechanism) and carried in the Context; everything downstream — ORM policies,
- * abilities, gates — authorizes against it. A plain, serializable data shape, so
- * helpers are free functions (the principal can cross the ALS and be logged).
+ * mechanism) and bound on the request; everything downstream — capability gates
+ * here, resource authz in pylon-app, ORM policies — authorizes against it. A
+ * plain, serializable data shape, so helpers are free functions.
  */
 export interface Principal {
   /** Stable unique id of the actor (user id, service-account id). */
@@ -21,7 +21,7 @@ export interface Principal {
  * Turns a request into the current Principal (or `undefined` for public access).
  * The ONE seam for any auth mechanism — OIDC/Zitadel, custom JWT, API key,
  * session cookie, mTLS. `Ctx` is the host request context (Hono `Context`).
- * Swapping providers never touches a policy, model, or resolver.
+ * Swapping providers never touches a gate, policy, model, or resolver.
  */
 export type IdentityProvider<Ctx = unknown> = (
   context: Ctx

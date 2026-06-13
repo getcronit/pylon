@@ -17,12 +17,20 @@
  */
 export * from '@getcronit/pylon-db'
 
+// Capability-tier authz + the Principal contract come from pylon-auth. The
+// explicit re-export of `ForbiddenError` intentionally SHADOWS pylon-db's
+// star-exported one, so the authz API and the public `ForbiddenError` agree.
 export {
   type Principal,
   type IdentityProvider,
   hasRole,
-  hasPermission
-} from './principal.js'
+  hasPermission,
+  getPrincipal,
+  authorize,
+  requireRole,
+  useIdentity,
+  ForbiddenError
+} from '@getcronit/pylon-auth'
 
 export {
   defineApp,
