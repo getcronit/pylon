@@ -155,6 +155,12 @@ importers:
       '@getcronit/pylon':
         specifier: workspace:*
         version: link:../packages/pylon
+      '@getcronit/pylon-app':
+        specifier: workspace:*
+        version: link:../packages/pylon-app
+      '@getcronit/pylon-auth':
+        specifier: workspace:*
+        version: link:../packages/pylon-auth
       '@getcronit/pylon-db':
         specifier: workspace:*
         version: link:../packages/pylon-db
