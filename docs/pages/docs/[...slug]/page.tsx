@@ -1,4 +1,4 @@
-import {Link, useData, type PageProps} from '@getcronit/pylon-pages/pages'
+import {Link, useData, type PageProps} from '@getcronit/pylon-pages'
 import {Sidebar, type NavSection} from '@/components/docs/sidebar'
 import {Toc, type TocHeading} from '@/components/docs/toc'
 import {Pager} from '@/components/docs/pager'

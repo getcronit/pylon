@@ -15,7 +15,7 @@ describe('Nested useData queries', () => {
   it('should track contactId from useData and use it as an argument in a sub-component', () => {
     const filePath = '/args.tsx'
     const code = `
-      import { useData } from '@getcronit/pylon-pages/pages';
+      import { useData } from '@getcronit/pylon-pages';
 
       function AddressList({ contactId }) {
         const data = useData();

@@ -8,6 +8,6 @@ declare module '@getcronit/pylon' {
 
 import {Query} from './.pylon/client'
 
-declare module '@getcronit/pylon-pages/pages' {
+declare module '@getcronit/pylon-pages' {
   interface Data extends ReturnType<typeof Query> {}
 }

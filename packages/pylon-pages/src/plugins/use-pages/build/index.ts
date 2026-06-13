@@ -98,7 +98,7 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
             if (value.cssBundle) {
               manifest['app.css'] = value.cssBundle
             }
-          } else if (value.entryPoint?.endsWith('pylon/dist/pages/index.css')) {
+          } else if (value.entryPoint?.endsWith('pylon-pages/dist/pages/index.css')) {
             manifest['index.css'] = key
           } else if (value.entryPoint?.endsWith('pages/sitemap.ts')) {
             manifest['sitemap.js'] = key

@@ -15,7 +15,7 @@ describe('extractQueries: Internal Key Leaks', () => {
   it('should leak __element into selectors when data is passed through a helper function', () => {
     const filePath = '/app.tsx'
     const code = `
-      import { useData } from '@getcronit/pylon-pages/pages';
+      import { useData } from '@getcronit/pylon-pages';
 
       // This function returns a path containing __element
       function formatItems(items) {
@@ -63,7 +63,7 @@ describe('extractQueries: Internal Key Leaks', () => {
   it('should not leak __element when using array index access in a component', () => {
     const filePath = '/index.tsx'
     const code = `
-      import { useData } from '@getcronit/pylon-pages/pages';
+      import { useData } from '@getcronit/pylon-pages';
 
       export function List() {
         const data = useData();
@@ -89,7 +89,7 @@ describe('extractQueries: Internal Key Leaks', () => {
   it('should not leak __prop_ or __element when spreading function returns', () => {
     const filePath = '/spread.tsx'
     const code = `
-      import { useData } from '@getcronit/pylon-pages/pages';
+      import { useData } from '@getcronit/pylon-pages';
       
       const getMeta = (obj) => ({ ...obj.meta });
 
@@ -119,7 +119,7 @@ describe('extractQueries: Internal Key Leaks', () => {
   it('should not leak __element when using array.reduce in hook returns', () => {
     const filePath = '/reduce.tsx'
     const code = `
-      import { useData } from '@getcronit/pylon-pages/pages';
+      import { useData } from '@getcronit/pylon-pages';
       
       function buildNames(items) {
         return items.reduce((acc, item) => {

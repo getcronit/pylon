@@ -15,7 +15,7 @@ describe('extractQueries: Multi-Column Analysis', () => {
   it('should analyze all cell functions in a column definition array, not just the first', () => {
     const filePath = '/components/DataGrid.tsx'
     const code = `
-      import { useData } from '@getcronit/pylon-pages/pages';
+      import { useData } from '@getcronit/pylon-pages';
       import React, { useMemo } from 'react';
 
       export function ContactGrid() {

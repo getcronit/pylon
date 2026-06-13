@@ -1,4 +1,4 @@
-import {Link} from '@getcronit/pylon-pages/pages'
+import {Link} from '@getcronit/pylon-pages'
 import {Logo} from './logo'
 
 const LINKS: {title: string; items: {href: string; label: string; external?: boolean}[]}[] = [

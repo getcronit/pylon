@@ -1,4 +1,4 @@
-import {Link, type PageProps} from '@getcronit/pylon-pages/pages'
+import {Link, type PageProps} from '@getcronit/pylon-pages'
 import {
   ArrowRight,
   Boxes,

@@ -7,8 +7,8 @@
  * `setup` serves the SSR app and its `build` hook runs the page pipeline.
  *
  * Page components import the runtime (`useData`, `Link`, `Image`) from
- * `@getcronit/pylon-pages/pages` (the browser build), and the stylesheet from
- * `@getcronit/pylon-pages/pages/index.css`.
+ * `@getcronit/pylon-pages` (the browser build), and the stylesheet from
+ * `@getcronit/pylon-pages/index.css`.
  */
 export {
   usePages,

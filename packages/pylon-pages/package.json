@@ -2,18 +2,18 @@
   "name": "@getcronit/pylon-pages",
   "version": "0.0.0",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "dist/pages/index.js",
+  "types": "dist/pages/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
-    },
-    "./pages": {
       "import": "./dist/pages/index.js",
       "types": "./dist/pages/index.d.ts"
     },
-    "./pages/index.css": {
+    "./plugin": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./index.css": {
       "import": "./dist/pages/index.css"
     }
   },

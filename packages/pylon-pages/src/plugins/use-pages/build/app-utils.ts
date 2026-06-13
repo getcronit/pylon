@@ -314,7 +314,7 @@ function generateRouteFileContent(
   return `${context.imports.join('\n')}
 
 import {useMemo, Suspense} from 'react'
-import {__PYLON_ROUTER_INTERNALS_DO_NOT_USE, __PYLON_INTERNALS_DO_NOT_USE, GlobalErrorPage, StatusPage} from '@getcronit/pylon-pages/pages'
+import {__PYLON_ROUTER_INTERNALS_DO_NOT_USE, __PYLON_INTERNALS_DO_NOT_USE, GlobalErrorPage, StatusPage} from '@getcronit/pylon-pages'
 const Outlet = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.Outlet
 
 const ErrorElement: React.FC<{standalone: boolean}> = ({standalone}) => {

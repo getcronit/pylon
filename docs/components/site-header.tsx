@@ -1,4 +1,4 @@
-import {Link} from '@getcronit/pylon-pages/pages'
+import {Link} from '@getcronit/pylon-pages'
 import {Github} from 'lucide-react'
 import {Logo} from './logo'
 

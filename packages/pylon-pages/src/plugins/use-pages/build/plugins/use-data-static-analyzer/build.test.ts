@@ -14,7 +14,7 @@ describe('Esbuild useDataStaticAnalyzer', () => {
   })
   it('should securely inject selectors into empty useData calls', async () => {
     const inputCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export function Component() {
         const data = useData();
         console.log(data.post.title);
@@ -28,12 +28,12 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages']
+      external: ['@getcronit/pylon-pages']
     })
     const outputCode = result.outputFiles[0].text
     expect(outputCode).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_tests/testA.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       function Component() {
         const data = useData({
           prepare: ({ query }) => {
@@ -50,7 +50,7 @@ describe('Esbuild useDataStaticAnalyzer', () => {
   })
   it('should securely inject selectors into useData calls with existing config arguments', async () => {
     const inputCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export function Component() {
         const data = useData({ foo: "bar" });
         console.log(data.author.name);
@@ -64,12 +64,12 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages']
+      external: ['@getcronit/pylon-pages']
     })
     const outputCode = result.outputFiles[0].text
     expect(outputCode).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_tests/testB.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       function Component() {
         const data = useData({
           prepare: ({ query }) => {
@@ -87,7 +87,7 @@ describe('Esbuild useDataStaticAnalyzer', () => {
   })
   it('should translate deep array mappings with arguments dynamically at build-time', async () => {
     const inputCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export function Component() {
         const data = useData();
         return data.friends({ limit: 10, offset: 20 }).map(friend => {
@@ -103,12 +103,12 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages']
+      external: ['@getcronit/pylon-pages']
     })
     const outputCode = result.outputFiles[0].text
     expect(outputCode).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_tests/testC.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       function Component() {
         const data = useData({
           prepare: ({ query }) => {
@@ -129,7 +129,7 @@ describe('Esbuild useDataStaticAnalyzer', () => {
   })
   it('should handle extremely complex multi-root and deeply nested array mappings', async () => {
     const inputCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export function Component() {
         const data = useData();
         console.log(data.me.id);
@@ -153,7 +153,7 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages']
+      external: ['@getcronit/pylon-pages']
     })
     const outputCode = result.outputFiles[0].text
     // The exact AST generated map backwards:
@@ -165,7 +165,7 @@ describe('Esbuild useDataStaticAnalyzer', () => {
   })
   it('should preserve locally scoped variables in injected selectors natively', async () => {
     const inputCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export function Component() {
         const myFetchLimit = 50;
         const data = useData();
@@ -182,12 +182,12 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages']
+      external: ['@getcronit/pylon-pages']
     })
     const outputCode = result.outputFiles[0].text
     expect(outputCode).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_tests/testE.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       function Component() {
         const myFetchLimit = 50;
         const data = useData({
@@ -210,7 +210,7 @@ describe('Esbuild useDataStaticAnalyzer', () => {
   it('should flawlessly preserve React State variables for dynamic requests', async () => {
     const inputCode = `
       import { useState } from "react";
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export function Component() {
         const [pageOffset, setPageOffset] = useState(0);
         const data = useData();
@@ -227,13 +227,13 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react']
+      external: ['@getcronit/pylon-pages', 'react']
     })
     const outputCode = result.outputFiles[0].text
     expect(outputCode).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_tests/testF.tsx
       import { useState } from "react";
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       function Component() {
         const [pageOffset, setPageOffset] = useState(0);
         const data = useData({
@@ -255,7 +255,7 @@ describe('Esbuild useDataStaticAnalyzer', () => {
   })
   it('should handle dynamic function calls with primitives in JSX (dyno case)', async () => {
     const inputCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export function Component({ input }) {
         const data = useData();
         return <p>{data.dyno({input})}</p>;
@@ -269,7 +269,7 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages']
+      external: ['@getcronit/pylon-pages']
     })
     const outputCode = result.outputFiles[0].text
     expect(outputCode).toMatchInlineSnapshot(`
@@ -1530,7 +1530,7 @@ describe('Esbuild useDataStaticAnalyzer', () => {
 
       // src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_tests/test_dyno.tsx
       var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       function Component({ input }) {
         const data = useData({
           prepare: ({ query }) => {
@@ -1584,7 +1584,7 @@ describe('Esbuild useDataStaticAnalyzer', () => {
     fs.writeFileSync(path.join(tempDir, 'UserCard.tsx'), cardCode)
     // 2. Create the main page that imports and uses the component
     const pageCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { UserCard } from "./UserCard";
       export function Page() {
         const data = useData();
@@ -1600,12 +1600,12 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react']
+      external: ['@getcronit/pylon-pages', 'react']
     })
     const outputCode = result.outputFiles[0].text
     expect(outputCode).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_tests/Page.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
 
       // src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_tests/UserCard.tsx
       import { jsx, jsxs } from "react/jsx-runtime";
@@ -1657,7 +1657,7 @@ describe('Esbuild useDataStaticAnalyzer', () => {
     fs.writeFileSync(path.join(tempDir, 'Child.tsx'), childCode)
     // Level 1: Parent.tsx
     const parentCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { Child } from "./Child";
       export default function Parent() {
         const data = useData()
@@ -1672,12 +1672,12 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react']
+      external: ['@getcronit/pylon-pages', 'react']
     })
     const outputCode = result.outputFiles[0].text
     expect(outputCode).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_tests/Parent.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
 
       // src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_tests/GrandChild.tsx
       import { jsx } from "react/jsx-runtime";
@@ -1715,7 +1715,7 @@ describe('Esbuild useDataStaticAnalyzer', () => {
   it('should handle mixed prop usage and standalone useData in the same component', async () => {
     // Child component that uses both props and its own query
     const childCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export function SharedComponent({ user }) {
         const settings = useData();
         return (
@@ -1729,7 +1729,7 @@ describe('Esbuild useDataStaticAnalyzer', () => {
     fs.writeFileSync(path.join(tempDir, 'SharedComponent.tsx'), childCode)
     // Parent page
     const pageCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { SharedComponent } from "./SharedComponent";
       export function Page() {
         const data = useData();
@@ -1744,7 +1744,7 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react']
+      external: ['@getcronit/pylon-pages', 'react']
     })
     const outputCode = result.outputFiles[0].text
     // Verify Page's query (should contain currentUser.email)
@@ -1752,10 +1752,10 @@ describe('Esbuild useDataStaticAnalyzer', () => {
 
     expect(outputCode).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_tests/AppPage.tsx
-      import { useData as useData2 } from "@getcronit/pylon-pages/pages";
+      import { useData as useData2 } from "@getcronit/pylon-pages";
 
       // src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_tests/SharedComponent.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { jsx, jsxs } from "react/jsx-runtime";
       function SharedComponent({ user }) {
         const settings = useData({
@@ -1962,7 +1962,7 @@ describe('Realistic NextJS App with useData', () => {
   it('should handle a Dashboard page with stats, notifications, and layout', async () => {
     writeSharedComponents()
     const dashboardCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { Layout } from "../components/Layout";
       import { StatCard } from "../components/StatCard";
       import { Notification } from "../components/Notification";
@@ -1990,12 +1990,12 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react']
+      external: ['@getcronit/pylon-pages', 'react']
     })
     const out = result.outputFiles[0].text
     expect(out).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/Dashboard.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
 
       // src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/components/Sidebar.tsx
       import { jsx, jsxs } from "react/jsx-runtime";
@@ -2100,7 +2100,7 @@ describe('Realistic NextJS App with useData', () => {
   it('should handle a Blog listing page with PostCards and nested tag arrays', async () => {
     writeSharedComponents()
     const blogCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { PostCard } from "../components/PostCard";
       export default function BlogPage() {
         const data = useData();
@@ -2123,12 +2123,12 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react']
+      external: ['@getcronit/pylon-pages', 'react']
     })
     const out = result.outputFiles[0].text
     expect(out).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/Blog.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
 
       // src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/components/Badge.tsx
       import { jsx } from "react/jsx-runtime";
@@ -2202,7 +2202,7 @@ describe('Realistic NextJS App with useData', () => {
       `
     )
     const profileCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { ProfileHeader } from "../components/ProfileHeader";
       import { PostCard } from "../components/PostCard";
       import { CommentThread } from "../components/CommentThread";
@@ -2231,12 +2231,12 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react']
+      external: ['@getcronit/pylon-pages', 'react']
     })
     const out = result.outputFiles[0].text
     expect(out).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/Profile.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
 
       // src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/components/Avatar.tsx
       import { jsx } from "react/jsx-runtime";
@@ -2345,7 +2345,7 @@ describe('Realistic NextJS App with useData', () => {
       `
     )
     const settingsCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { UserCard } from "../components/UserCard";
       import { ThemePreview } from "../components/ThemePreview";
       export default function SettingsPage() {
@@ -2372,12 +2372,12 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react']
+      external: ['@getcronit/pylon-pages', 'react']
     })
     const out = result.outputFiles[0].text
     expect(out).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/Settings.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
 
       // src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/components/Avatar.tsx
       import { jsx } from "react/jsx-runtime";
@@ -2458,7 +2458,7 @@ describe('Realistic NextJS App with useData', () => {
     fs.writeFileSync(
       path.join(appDir, 'components', 'ActivityFeed.tsx'),
       `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export function ActivityFeed() {
         const feed = useData();
         return (
@@ -2476,7 +2476,7 @@ describe('Realistic NextJS App with useData', () => {
       `
     )
     const appPageCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { Layout } from "../components/Layout";
       import { ActivityFeed } from "../components/ActivityFeed";
       import { UserCard } from "../components/UserCard";
@@ -2498,12 +2498,12 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react']
+      external: ['@getcronit/pylon-pages', 'react']
     })
     const out = result.outputFiles[0].text
     expect(out).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/AppPage.tsx
-      import { useData as useData2 } from "@getcronit/pylon-pages/pages";
+      import { useData as useData2 } from "@getcronit/pylon-pages";
 
       // src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/components/Sidebar.tsx
       import { jsx, jsxs } from "react/jsx-runtime";
@@ -2525,7 +2525,7 @@ describe('Realistic NextJS App with useData', () => {
       }
 
       // src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/components/ActivityFeed.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { jsx as jsx3, jsxs as jsxs3 } from "react/jsx-runtime";
       function ActivityFeed() {
         const feed = useData({
@@ -2594,7 +2594,7 @@ describe('Realistic NextJS App with useData', () => {
   it('should preserve React state variables and handle conditional field access', async () => {
     const pageCode = `
       import { useState } from "react";
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export default function SearchPage() {
         const [query, setQuery] = useState("");
         const [page, setPage] = useState(0);
@@ -2622,13 +2622,13 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react']
+      external: ['@getcronit/pylon-pages', 'react']
     })
     const out = result.outputFiles[0].text
     expect(out).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/Search.tsx
       import { useState } from "react";
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { jsx, jsxs } from "react/jsx-runtime";
       function SearchPage() {
         const [query, setQuery] = useState("");
@@ -2712,7 +2712,7 @@ describe('Realistic NextJS App with useData', () => {
     )
     // Level 1: pages/StorePage.tsx
     const storeCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { ProductSection } from "../components/ProductSection";
       export default function StorePage() {
         const data = useData();
@@ -2735,12 +2735,12 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react']
+      external: ['@getcronit/pylon-pages', 'react']
     })
     const out = result.outputFiles[0].text
     expect(out).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/StorePage.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
 
       // src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/components/PriceTag.tsx
       import { jsx, jsxs } from "react/jsx-runtime";
@@ -2814,7 +2814,7 @@ describe('Realistic NextJS App with useData', () => {
   it('should inject selectors alongside existing useData config', async () => {
     writeSharedComponents()
     const pageCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export default function ConfiguredPage() {
         const data = useData({ pollInterval: 5000, retry: 3 });
         return (
@@ -2839,12 +2839,12 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react']
+      external: ['@getcronit/pylon-pages', 'react']
     })
     const out = result.outputFiles[0].text
     expect(out).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/ConfiguredPage.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { jsx, jsxs } from "react/jsx-runtime";
       function ConfiguredPage() {
         const data = useData({
@@ -2881,7 +2881,7 @@ describe('Realistic NextJS App with useData', () => {
   it('should correctly isolate selectors when building multiple pages', async () => {
     // Page A: only accesses user data
     const pageACode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export function PageA() {
         const data = useData();
         return <div>{data.user.firstName} {data.user.lastName}</div>;
@@ -2891,7 +2891,7 @@ describe('Realistic NextJS App with useData', () => {
     fs.writeFileSync(pageAPath, pageACode)
     // Page B: only accesses product data
     const pageBCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export function PageB() {
         const data = useData();
         return <div>{data.product.sku} - {data.product.price}</div>;
@@ -2907,7 +2907,7 @@ describe('Realistic NextJS App with useData', () => {
         write: false,
         bundle: true,
         format: 'esm',
-        external: ['@getcronit/pylon-pages/pages', 'react']
+        external: ['@getcronit/pylon-pages', 'react']
       }),
       esbuild.build({
         entryPoints: [pageBPath],
@@ -2915,14 +2915,14 @@ describe('Realistic NextJS App with useData', () => {
         write: false,
         bundle: true,
         format: 'esm',
-        external: ['@getcronit/pylon-pages/pages', 'react']
+        external: ['@getcronit/pylon-pages', 'react']
       })
     ])
     const outA = resultA.outputFiles[0].text
     const outB = resultB.outputFiles[0].text
     expect(outA).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/PageA.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { jsxs } from "react/jsx-runtime";
       function PageA() {
         const data = useData({
@@ -2945,7 +2945,7 @@ describe('Realistic NextJS App with useData', () => {
     `)
     expect(outB).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/PageB.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { jsxs } from "react/jsx-runtime";
       function PageB() {
         const data = useData({
@@ -2972,7 +2972,7 @@ describe('Realistic NextJS App with useData', () => {
   // --------------------------------------------------------------------------
   it('should handle double-nested array mappings with arguments at each nesting level', async () => {
     const pageCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export default function OrgPage() {
         const data = useData();
         return (
@@ -3005,12 +3005,12 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react']
+      external: ['@getcronit/pylon-pages', 'react']
     })
     const out = result.outputFiles[0].text
     expect(out).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/OrgPage.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { jsx, jsxs } from "react/jsx-runtime";
       function OrgPage() {
         const data = useData({
@@ -3060,7 +3060,7 @@ describe('Realistic NextJS App with useData', () => {
   it('should handle a custom hook wrapping useData', async () => {
     // 1. Create a page that has a local custom hook that calls useData
     const pageCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { UserCard } from "../components/UserCard";
       export function useUser() {
         const data = useData();
@@ -3084,12 +3084,12 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react']
+      external: ['@getcronit/pylon-pages', 'react']
     })
     const out = result.outputFiles[0].text
     expect(out).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/ProfileWithLocalHook.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
 
       // src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/components/Avatar.tsx
       import { jsx } from "react/jsx-runtime";
@@ -3140,7 +3140,7 @@ describe('Realistic NextJS App with useData', () => {
   it('should handle multiple data paths passed to the same component', async () => {
     writeSharedComponents()
     const pageCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { UserCard } from "../components/UserCard";
       export default function MultiUserPage() {
         const data = useData();
@@ -3160,14 +3160,14 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react']
+      external: ['@getcronit/pylon-pages', 'react']
     })
     const out = result.outputFiles[0].text
     // Both sender and receiver paths should be collected
     expect(out).toMatchInlineSnapshot(
       `
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/MultiUser.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
 
       // src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/components/Avatar.tsx
       import { jsx } from "react/jsx-runtime";
@@ -3218,7 +3218,7 @@ describe('Realistic NextJS App with useData', () => {
   it('should handle conditional and ternary JSX rendering', async () => {
     writeSharedComponents()
     const pageCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { UserCard } from "../components/UserCard";
       import { PostCard } from "../components/PostCard";
       export default function ConditionalPage({ showUser }) {
@@ -3245,14 +3245,14 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react']
+      external: ['@getcronit/pylon-pages', 'react']
     })
     const out = result.outputFiles[0].text
 
     expect(out).toMatchInlineSnapshot(
       `
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/Conditional.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
 
       // src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/components/Avatar.tsx
       import { jsx } from "react/jsx-runtime";
@@ -3348,7 +3348,7 @@ describe('Realistic NextJS App with useData', () => {
     )
     // 3. Create page importing from barrel
     const pageCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { ComponentA, ComponentB } from "../components";
       export default function BarrelPage() {
         const data = useData();
@@ -3368,14 +3368,14 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react']
+      external: ['@getcronit/pylon-pages', 'react']
     })
     const out = result.outputFiles[0].text
     // Verify partA.fieldA and partB.fieldB are collected
     expect(out).toMatchInlineSnapshot(
       `
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/Barrel.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
 
       // src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/components/A.tsx
       import { jsx } from "react/jsx-runtime";
@@ -3415,7 +3415,7 @@ describe('Realistic NextJS App with useData', () => {
   // --------------------------------------------------------------------------
   it('should work correctly with esbuild minification enabled', async () => {
     const pageCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export default function MinifiedPage() {
         const data = useData();
         return <div>{data.user.name}</div>;
@@ -3430,18 +3430,18 @@ describe('Realistic NextJS App with useData', () => {
       bundle: true,
       minify: true, // Enable minification
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react']
+      external: ['@getcronit/pylon-pages', 'react']
     })
     const out = result.outputFiles[0].text
 
     expect(out).toMatchInlineSnapshot(`
-      "import{useData as r}from"@getcronit/pylon-pages/pages";import{jsx as n}from"react/jsx-runtime";function i(){let e=r({prepare:({query:a})=>{a?.user?.name}});return n("div",{children:e.user.name})}export{i as default};
+      "import{useData as r}from"@getcronit/pylon-pages";import{jsx as n}from"react/jsx-runtime";function i(){let e=r({prepare:({query:a})=>{a?.user?.name}});return n("div",{children:e.user.name})}export{i as default};
       "
     `)
   })
   it('should handle GraphQL interfaces and unions via $on syntax', async () => {
     const pageCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export function Profile() {
         const { me } = useData();
         return (
@@ -3468,14 +3468,14 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react']
+      external: ['@getcronit/pylon-pages', 'react']
     })
     const out = result.outputFiles[0].text
     // Verify injected selectors include $on paths
     expect(out).toMatchInlineSnapshot(
       `
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/ProfileWithInterfaces.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { Fragment, jsx, jsxs } from "react/jsx-runtime";
       function Profile() {
         const { me } = useData({
@@ -3527,7 +3527,7 @@ describe('Realistic NextJS App with useData', () => {
       `
     )
     const pageCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { CatComponent, DogComponent } from "../components/PetComponents";
       export default function Profile() {
         const { me } = useData();
@@ -3551,14 +3551,14 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react']
+      external: ['@getcronit/pylon-pages', 'react']
     })
     const out = result.outputFiles[0].text
     // Verify injected selectors follow into sub-components through $on
     expect(out).toMatchInlineSnapshot(
       `
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/ProfilePolymorphic.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
 
       // src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/components/PetComponents.tsx
       import { jsx } from "react/jsx-runtime";
@@ -3600,7 +3600,7 @@ describe('Realistic NextJS App with useData', () => {
   it('should handle a custom hook in a separate file with cross-file aggregation (non-bundled)', async () => {
     const hooksPath = path.join(appDir, 'hooks', 'userHook.ts')
     const hooksCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export function useUser() {
         return useData().user;
       }
@@ -3630,7 +3630,7 @@ describe('Realistic NextJS App with useData', () => {
     expect(hookOutputFile).toBeDefined()
     const hookOut = hookOutputFile!.text
     expect(hookOut).toMatchInlineSnapshot(`
-      "import { useData } from "@getcronit/pylon-pages/pages";
+      "import { useData } from "@getcronit/pylon-pages";
       function useUser() {
         return useData({
           prepare: ({ query }) => {
@@ -3663,7 +3663,7 @@ describe('Realistic NextJS App with useData', () => {
   it('should handle a deep chain of custom hooks across multiple files (non-bundled)', async () => {
     const apiPath = path.join(appDir, 'hooks', 'api.ts')
     const apiCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export function useBase() {
         return useData();
       }
@@ -3701,7 +3701,7 @@ describe('Realistic NextJS App with useData', () => {
     )
     expect(apiOutputFile).toBeDefined()
     expect(apiOutputFile!.text).toMatchInlineSnapshot(`
-      "import { useData } from "@getcronit/pylon-pages/pages";
+      "import { useData } from "@getcronit/pylon-pages";
       function useBase() {
         return useData({
           prepare: ({ query }) => {
@@ -3725,7 +3725,7 @@ describe('Realistic NextJS App with useData', () => {
   // --------------------------------------------------------------------------
   it('should NOT treat common JS methods or constructors as GraphQL selectors', async () => {
     const inputCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export function Profile() {
         const { me } = useData();
         return (
@@ -3745,13 +3745,13 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react', 'react/jsx-runtime']
+      external: ['@getcronit/pylon-pages', 'react', 'react/jsx-runtime']
     })
     const outputCode = result.outputFiles[0].text
     // Check that name and updatedAt and type are tracked in the prepare block
     expect(outputCode).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/JSInternals.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { Fragment, jsxs } from "react/jsx-runtime";
       function Profile() {
         const { me } = useData({
@@ -3789,7 +3789,7 @@ describe('Realistic NextJS App with useData', () => {
   // --------------------------------------------------------------------------
   it('should handle query data passed to a helper function that returns a derived value', async () => {
     const inputCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       function formatUser(user) {
         return user.firstName + " " + user.lastName + " (" + user.email + ")";
       }
@@ -3811,13 +3811,13 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react', 'react/jsx-runtime']
+      external: ['@getcronit/pylon-pages', 'react', 'react/jsx-runtime']
     })
     const outputCode = result.outputFiles[0].text
     // Check that fields are tracked
     expect(outputCode).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/HelperFunction.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { jsx, jsxs } from "react/jsx-runtime";
       function formatUser(user) {
         return user.firstName + " " + user.lastName + " (" + user.email + ")";
@@ -3851,7 +3851,7 @@ describe('Realistic NextJS App with useData', () => {
   // --------------------------------------------------------------------------
   it('should handle aliased useData imports', async () => {
     const inputCode = `
-      import { useData as uq } from "@getcronit/pylon-pages/pages";
+      import { useData as uq } from "@getcronit/pylon-pages";
       export default function App() {
         const { user } = uq();
         return <div>{user.id}</div>;
@@ -3865,12 +3865,12 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react', 'react/jsx-runtime']
+      external: ['@getcronit/pylon-pages', 'react', 'react/jsx-runtime']
     })
     const outputCode = result.outputFiles[0].text
     expect(outputCode).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/AliasedImport.tsx
-      import { useData as uq } from "@getcronit/pylon-pages/pages";
+      import { useData as uq } from "@getcronit/pylon-pages";
       import { jsx } from "react/jsx-runtime";
       function App() {
         const { user } = uq({
@@ -3892,7 +3892,7 @@ describe('Realistic NextJS App with useData', () => {
   it('should handle circular hook dependencies safely', async () => {
     const hooksPath = path.join(appDir, 'hooks', 'circular.ts')
     const hooksCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { useB } from "./circularB";
       export function useA() {
         const data = useData();
@@ -3926,12 +3926,12 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react', 'react/jsx-runtime']
+      external: ['@getcronit/pylon-pages', 'react', 'react/jsx-runtime']
     })
     const outputCode = result.outputFiles[0].text
     expect(outputCode).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/hooks/circular.ts
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
 
       // src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/hooks/circularB.ts
       function useB() {
@@ -3966,7 +3966,7 @@ describe('Realistic NextJS App with useData', () => {
   // --------------------------------------------------------------------------
   it('should handle destructuring with aliasing', async () => {
     const inputCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export default function App() {
         const { currentUser: person } = useData();
         return <div>{person.firstName}</div>;
@@ -3980,12 +3980,12 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react', 'react/jsx-runtime']
+      external: ['@getcronit/pylon-pages', 'react', 'react/jsx-runtime']
     })
     const outputCode = result.outputFiles[0].text
     expect(outputCode).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/AliasDestructure.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { jsx } from "react/jsx-runtime";
       function App() {
         const { currentUser: person } = useData({
@@ -4007,7 +4007,7 @@ describe('Realistic NextJS App with useData', () => {
   it('should handle object spread operator in hook returns', async () => {
     const hooksPath = path.join(appDir, 'hooks', 'spread.ts')
     const hooksCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export function useEnhancedUser() {
         const { user } = useData();
         return { ...user, source: "pylon" };
@@ -4029,12 +4029,12 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react', 'react/jsx-runtime']
+      external: ['@getcronit/pylon-pages', 'react', 'react/jsx-runtime']
     })
     const outputCode = result.outputFiles[0].text
     expect(outputCode).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/hooks/spread.ts
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       function useEnhancedUser() {
         const { user } = useData({
           prepare: ({ query }) => {
@@ -4067,7 +4067,7 @@ describe('Realistic NextJS App with useData', () => {
   it('should handle shadowing + re-mapping in object returns', async () => {
     const hooksPath = path.join(appDir, 'hooks', 'complex.ts')
     const hooksCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export function useEnhancedUser() {
         const { user } = useData();
         return { ...user, name: undefined, source: user.name };
@@ -4089,12 +4089,12 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react', 'react/jsx-runtime']
+      external: ['@getcronit/pylon-pages', 'react', 'react/jsx-runtime']
     })
     const outputCode = result.outputFiles[0].text
     expect(outputCode).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/hooks/complex.ts
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       function useEnhancedUser() {
         const { user } = useData({
           prepare: ({ query }) => {
@@ -4124,7 +4124,7 @@ describe('Realistic NextJS App with useData', () => {
   // --------------------------------------------------------------------------
   it('should handle object rest operator in destructuring', async () => {
     const pageCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export default function Page() {
         const { user, ...rest } = useData();
         return <div>{rest.meta.version}</div>;
@@ -4138,12 +4138,12 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react', 'react/jsx-runtime']
+      external: ['@getcronit/pylon-pages', 'react', 'react/jsx-runtime']
     })
     const outputCode = result.outputFiles[0].text
     expect(outputCode).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/RestObject.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { jsx } from "react/jsx-runtime";
       function Page() {
         const { user, ...rest } = useData({
@@ -4165,7 +4165,7 @@ describe('Realistic NextJS App with useData', () => {
   // --------------------------------------------------------------------------
   it('should handle array rest operator in destructuring', async () => {
     const pageCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export default function Page() {
         const { posts } = useData();
         const [first, ...others] = posts;
@@ -4185,12 +4185,12 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react', 'react/jsx-runtime']
+      external: ['@getcronit/pylon-pages', 'react', 'react/jsx-runtime']
     })
     const outputCode = result.outputFiles[0].text
     expect(outputCode).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/RestArray.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { jsx, jsxs } from "react/jsx-runtime";
       function Page() {
         const { posts } = useData({
@@ -4218,7 +4218,7 @@ describe('Realistic NextJS App with useData', () => {
   // --------------------------------------------------------------------------
   it('should handle default values in destructuring', async () => {
     const pageCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export default function Page() {
         const { user = { displayName: "Guest" } } = useData();
         return <div>Hello {user.displayName}</div>;
@@ -4232,12 +4232,12 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react', 'react/jsx-runtime']
+      external: ['@getcronit/pylon-pages', 'react', 'react/jsx-runtime']
     })
     const outputCode = result.outputFiles[0].text
     expect(outputCode).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/DefaultValue.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { jsxs } from "react/jsx-runtime";
       function Page() {
         const { user = { displayName: "Guest" } } = useData({
@@ -4261,7 +4261,7 @@ describe('Realistic NextJS App with useData', () => {
   // --------------------------------------------------------------------------
   it('should handle nested scope cross-referencing', async () => {
     const pageCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export default function Page() {
         const { posts } = useData();
         return (
@@ -4286,12 +4286,12 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react', 'react/jsx-runtime']
+      external: ['@getcronit/pylon-pages', 'react', 'react/jsx-runtime']
     })
     const outputCode = result.outputFiles[0].text
     expect(outputCode).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/NestedScope.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { jsx, jsxs } from "react/jsx-runtime";
       function Page() {
         const { posts } = useData({
@@ -4327,7 +4327,7 @@ describe('Realistic NextJS App with useData', () => {
   it('should handle computed property names in hook returns', async () => {
     const hooksPath = path.join(appDir, 'hooks', 'computed.ts')
     const hooksCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export function useDynamicUser() {
         const { user } = useData();
         return { ["profile"]: user };
@@ -4349,12 +4349,12 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react', 'react/jsx-runtime']
+      external: ['@getcronit/pylon-pages', 'react', 'react/jsx-runtime']
     })
     const outputCode = result.outputFiles[0].text
     expect(outputCode).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/hooks/computed.ts
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       function useDynamicUser() {
         const { user } = useData({
           prepare: ({ query }) => {
@@ -4382,7 +4382,7 @@ describe('Realistic NextJS App with useData', () => {
   it('should handle object methods in hook returns', async () => {
     const hooksPath = path.join(appDir, 'hooks', 'methods.ts')
     const hooksCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export function useUserActions() {
         const { user } = useData();
         return {
@@ -4406,12 +4406,12 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react', 'react/jsx-runtime']
+      external: ['@getcronit/pylon-pages', 'react', 'react/jsx-runtime']
     })
     const outputCode = result.outputFiles[0].text
     expect(outputCode).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/hooks/methods.ts
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       function useUserActions() {
         const { user } = useData({
           prepare: ({ query }) => {
@@ -4479,7 +4479,7 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react', 'react/jsx-runtime']
+      external: ['@getcronit/pylon-pages', 'react', 'react/jsx-runtime']
     })
     const outputCode = result.outputFiles[0].text
     expect(outputCode).toMatchInlineSnapshot(`
@@ -4519,7 +4519,7 @@ describe('Realistic NextJS App with useData', () => {
   // --------------------------------------------------------------------------
   it('should handle useData with an empty options object', async () => {
     const pageCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       export default function Page() {
         const data = useData({});
         return <div>{data.user.name}</div>;
@@ -4533,12 +4533,12 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react', 'react/jsx-runtime']
+      external: ['@getcronit/pylon-pages', 'react', 'react/jsx-runtime']
     })
     const outputCode = result.outputFiles[0].text
     expect(outputCode).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/EmptyOptions.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { jsx } from "react/jsx-runtime";
       function Page() {
         const data = useData({
@@ -4574,7 +4574,7 @@ describe('Realistic NextJS App with useData', () => {
     )
     // 2. Create the main page
     const pageCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { Task } from "../components/Task";
       enum TaskStatus {
         TODO = "TODO",
@@ -4604,12 +4604,12 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react', 'react/jsx-runtime']
+      external: ['@getcronit/pylon-pages', 'react', 'react/jsx-runtime']
     })
     const outputCode = result.outputFiles[0].text
     expect(outputCode).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/TasksPage.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
 
       // src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/components/Task.tsx
       import { jsx, jsxs } from "react/jsx-runtime";
@@ -4667,7 +4667,7 @@ describe('Realistic NextJS App with useData', () => {
     )
     // 2. Create the main page
     const pageCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { Tasks } from "../components/Tasks";
       export default function AllTasksPage() {
         const data = useData();
@@ -4684,12 +4684,12 @@ describe('Realistic NextJS App with useData', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages/pages', 'react', 'react/jsx-runtime']
+      external: ['@getcronit/pylon-pages', 'react', 'react/jsx-runtime']
     })
     const outputCode = result.outputFiles[0].text
     expect(outputCode).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/AllTasksPage.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
 
       // src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/components/Tasks.tsx
       import { jsx } from "react/jsx-runtime";
@@ -4735,7 +4735,7 @@ describe('Realistic NextJS App with useData', () => {
     )
     // 3. Create page with alias import
     const pageCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { UserBadge } from "@/components/UserBadge";
       export default function AliasPage() {
         const data = useData();
@@ -4764,12 +4764,12 @@ describe('Realistic NextJS App with useData', () => {
       bundle: true,
       format: 'esm',
       tsconfig: tsconfigPath, // Pass the tsconfig path to esbuild
-      external: ['@getcronit/pylon-pages/pages', 'react', 'react/jsx-runtime']
+      external: ['@getcronit/pylon-pages', 'react', 'react/jsx-runtime']
     })
     const out = result.outputFiles[0].text
     expect(out).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_tests/alias-app/pages/AliasPage.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
 
       // src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_tests/alias-app/components/UserBadge.tsx
       import { jsx } from "react/jsx-runtime";
@@ -4830,7 +4830,7 @@ describe('Realistic NextJS App with useData', () => {
     )
     // 4. Create the main page that imports and uses the hook via alias
     const pageCode = `
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
       import { useTicketInfo } from "@/hooks";
       export default function TicketsPage() {
         const data = useData();
@@ -4849,12 +4849,12 @@ describe('Realistic NextJS App with useData', () => {
       bundle: true,
       format: 'esm',
       tsconfig: tsconfigPath,
-      external: ['@getcronit/pylon-pages/pages', 'react']
+      external: ['@getcronit/pylon-pages', 'react']
     })
     const outputCode = result.outputFiles[0].text
     expect(outputCode).toMatchInlineSnapshot(`
       "// src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/pages/TicketsPage.tsx
-      import { useData } from "@getcronit/pylon-pages/pages";
+      import { useData } from "@getcronit/pylon-pages";
 
       // src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/hooks/useTicketInfo.ts
       function useTicketInfo({ pageInfo }) {

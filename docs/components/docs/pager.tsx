@@ -1,4 +1,4 @@
-import {Link} from '@getcronit/pylon-pages/pages'
+import {Link} from '@getcronit/pylon-pages'
 import {ArrowLeft, ArrowRight} from 'lucide-react'
 
 export interface PagerLink {
