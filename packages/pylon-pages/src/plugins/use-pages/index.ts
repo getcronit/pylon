@@ -1,4 +1,4 @@
-import type {Plugin} from '@/index'
+import type {Plugin} from '@getcronit/pylon'
 export type {Data, LayoutProps, MetadataRoute, PageProps} from './types'
 
 export function usePages(): Plugin {

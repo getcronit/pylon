@@ -1,4 +1,4 @@
-import type {Variables} from '@/index'
+import type {Variables} from '@getcronit/pylon'
 import type React from 'react'
 
 export interface Data {

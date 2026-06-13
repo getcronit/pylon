@@ -17,7 +17,7 @@ export const injectAppHydrationPlugin = (version: string): Plugin => ({
         contents += `
           import {hydrateRoot} from 'react-dom/client'
           import * as client from './${pathToClient}'
-          import { __PYLON_ROUTER_INTERNALS_DO_NOT_USE, __PYLON_INTERNALS_DO_NOT_USE, DevOverlay, onCaughtErrorProd, onRecoverableErrorProd, onUncaughtErrorProd } from '@getcronit/pylon/pages';
+          import { __PYLON_ROUTER_INTERNALS_DO_NOT_USE, __PYLON_INTERNALS_DO_NOT_USE, DevOverlay, onCaughtErrorProd, onRecoverableErrorProd, onUncaughtErrorProd } from '@getcronit/pylon-pages/pages';
           import React, {startTransition} from 'react'
           import * as Sentry from '@sentry/react'
 

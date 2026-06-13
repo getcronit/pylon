@@ -17,7 +17,7 @@ export {mutation, type UserError} from './mutation.js'
 export {getEnv} from './get-env.js'
 // Core is auth-free. Authentication + the Principal live in @getcronit/pylon-auth
 // (OIDC/Zitadel via @getcronit/pylon-auth/zitadel); authz reads the Principal there.
-export {usePages} from './plugins/use-pages/index.js'
+// The frontend pages battery (usePages + the runtime) lives in @getcronit/pylon-pages.
 export {getResolveInfo} from './resolve-info.js'
 export {pylonApp as app}
 

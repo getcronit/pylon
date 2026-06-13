@@ -1,4 +1,4 @@
-import {Plugin} from '@/index'
+import {Plugin} from '@getcronit/pylon'
 import chokidar, {FSWatcher} from 'chokidar'
 import esbuild from 'esbuild'
 import fs from 'fs/promises'
@@ -70,7 +70,7 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
   const pylonCssPath = path.join(
     process.cwd(),
     'node_modules',
-    '@getcronit/pylon/dist/pages/index.css'
+    '@getcronit/pylon-pages/dist/pages/index.css'
   )
 
   const buildAppFilePlugin: esbuild.Plugin = {
@@ -140,7 +140,7 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
 
   const nodePaths = [
     path.join(process.cwd(), 'node_modules'),
-    path.join(process.cwd(), 'node_modules', '@getcronit/pylon/node_modules')
+    path.join(process.cwd(), 'node_modules', '@getcronit/pylon-pages/node_modules')
   ]
 
   let pagesWatcher: FSWatcher | null = null
@@ -231,6 +231,7 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
       timePlugin('server'),
       esmExternalsPlugin([
         '@getcronit/pylon',
+        '@getcronit/pylon-pages',
         'react',
         'react-dom',
         'gqty',
@@ -252,7 +253,14 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
     outdir: DIST_PAGES_DIR,
     bundle: true,
     splitting: false,
-    external: ['@getcronit/pylon', 'react', 'react-dom', 'gqty', '@gqty/react'],
+    external: [
+      '@getcronit/pylon',
+      '@getcronit/pylon-pages',
+      'react',
+      'react-dom',
+      'gqty',
+      '@gqty/react'
+    ],
     minify: true,
     loader: {
       // Map file extensions to the file loader

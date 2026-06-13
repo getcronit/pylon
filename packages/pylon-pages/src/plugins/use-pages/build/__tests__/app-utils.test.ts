@@ -99,8 +99,7 @@ describe('app-utils', () => {
           {
             path: undefined,
             index: true,
-            lazy: `async () => {const i = await import("./../pages/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "Page", undefined)}}`,
-            loader: 'loader("Page")',
+            lazy: `async () => {const i = await import("./../pages/page").catch(() => {window.location.reload()}); return {Component: withRouteData(i.default, "Page", undefined)}}`,
             HydrateFallback: 'HydrateFallback',
             errorElement: '<ErrorElement standalone={false} />'
           }
@@ -121,8 +120,7 @@ describe('app-utils', () => {
           {
             path: undefined,
             index: true,
-            lazy: `async () => {const i = await import("./../pages/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "Page", undefined)}}`,
-            loader: 'loader("Page")',
+            lazy: `async () => {const i = await import("./../pages/page").catch(() => {window.location.reload()}); return {Component: withRouteData(i.default, "Page", undefined)}}`,
             HydrateFallback: 'HydrateFallback',
             errorElement: '<ErrorElement standalone={false} />'
           },
@@ -132,8 +130,7 @@ describe('app-utils', () => {
           }
         ],
         Component:
-          'withLoaderData((props) => <RootLayout children={<Outlet />} {...props} />, "RootLayout", undefined)',
-        loader: 'loader("RootLayout")',
+          'withRouteData((props) => <RootLayout children={<Outlet />} {...props} />, "RootLayout", undefined)',
         shouldRevalidate: `({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
     // Revalidate if a form was submitted (standard behavior)
     if (formData) return true;
@@ -171,8 +168,7 @@ describe('app-utils', () => {
           {
             path: undefined,
             index: true,
-            lazy: `async () => {const i = await import("./../pages/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "Page", undefined)}}`,
-            loader: 'loader("Page")',
+            lazy: `async () => {const i = await import("./../pages/page").catch(() => {window.location.reload()}); return {Component: withRouteData(i.default, "Page", undefined)}}`,
             HydrateFallback: 'HydrateFallback',
             errorElement: '<ErrorElement standalone={false} />'
           },
@@ -182,8 +178,7 @@ describe('app-utils', () => {
               {
                 path: undefined,
                 index: true,
-                lazy: `async () => {const i = await import("./../pages/warehouse/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "WarehousePage", undefined)}}`,
-                loader: 'loader("WarehousePage")',
+                lazy: `async () => {const i = await import("./../pages/warehouse/page").catch(() => {window.location.reload()}); return {Component: withRouteData(i.default, "WarehousePage", undefined)}}`,
                 HydrateFallback: 'HydrateFallback',
                 errorElement: '<ErrorElement standalone={false} />'
               },
@@ -193,8 +188,7 @@ describe('app-utils', () => {
                   {
                     path: undefined,
                     index: true,
-                    lazy: `async () => {const i = await import("./../pages/warehouse/stock/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "WarehouseStockPage", undefined)}}`,
-                    loader: 'loader("WarehouseStockPage")',
+                    lazy: `async () => {const i = await import("./../pages/warehouse/stock/page").catch(() => {window.location.reload()}); return {Component: withRouteData(i.default, "WarehouseStockPage", undefined)}}`,
                     HydrateFallback: 'HydrateFallback',
                     errorElement: '<ErrorElement standalone={false} />'
                   }
@@ -206,8 +200,7 @@ describe('app-utils', () => {
                   {
                     path: undefined,
                     index: true,
-                    lazy: `async () => {const i = await import("./../pages/warehouse/inventory/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "WarehouseInventoryPage", undefined)}}`,
-                    loader: 'loader("WarehouseInventoryPage")',
+                    lazy: `async () => {const i = await import("./../pages/warehouse/inventory/page").catch(() => {window.location.reload()}); return {Component: withRouteData(i.default, "WarehouseInventoryPage", undefined)}}`,
                     HydrateFallback: 'HydrateFallback',
                     errorElement: '<ErrorElement standalone={false} />'
                   }
@@ -220,8 +213,7 @@ describe('app-utils', () => {
             element: '<NotFoundPage standalone={false} />'
           }
         ],
-        Component: `withLoaderData((props) => <RootLayout children={<Outlet />} {...props} />, "RootLayout", undefined)`,
-        loader: `loader("RootLayout")`,
+        Component: `withRouteData((props) => <RootLayout children={<Outlet />} {...props} />, "RootLayout", undefined)`,
         shouldRevalidate: `({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
     // Revalidate if a form was submitted (standard behavior)
     if (formData) return true;
@@ -258,8 +250,7 @@ describe('app-utils', () => {
           {
             path: 'posts',
             Component:
-              'withLoaderData((props) => <PostsLayout children={<Outlet />} {...props} />, "PostsLayout", undefined)',
-            loader: 'loader("PostsLayout")',
+              'withRouteData((props) => <PostsLayout children={<Outlet />} {...props} />, "PostsLayout", undefined)',
             shouldRevalidate: `({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
     // Revalidate if a form was submitted (standard behavior)
     if (formData) return true;
@@ -283,8 +274,7 @@ describe('app-utils', () => {
                 children: [
                   {
                     index: true,
-                    lazy: 'async () => {const i = await import("./../pages/posts/[id]/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "PostsIdPage", undefined)}}',
-                    loader: 'loader("PostsIdPage")',
+                    lazy: 'async () => {const i = await import("./../pages/posts/[id]/page").catch(() => {window.location.reload()}); return {Component: withRouteData(i.default, "PostsIdPage", undefined)}}',
                     HydrateFallback: 'HydrateFallback',
                     errorElement: '<ErrorElement standalone={false} />'
                   }
@@ -302,8 +292,7 @@ describe('app-utils', () => {
           }
         ],
         Component:
-          'withLoaderData((props) => <RootLayout children={<Outlet />} {...props} />, "RootLayout", undefined)',
-        loader: 'loader("RootLayout")',
+          'withRouteData((props) => <RootLayout children={<Outlet />} {...props} />, "RootLayout", undefined)',
         shouldRevalidate: `({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
     // Revalidate if a form was submitted (standard behavior)
     if (formData) return true;
@@ -337,9 +326,8 @@ describe('app-utils', () => {
       // Since it's a single catch-all child without layout, it should merge into the root
       expect(route).toMatchObject({
         path: '*',
-        lazy: `async () => {const i = await import("./../pages/[...slug]/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "CatchAllSlugPage", "slug")}}`,
+        lazy: `async () => {const i = await import("./../pages/[...slug]/page").catch(() => {window.location.reload()}); return {Component: withRouteData(i.default, "CatchAllSlugPage", "slug")}}`,
         HydrateFallback: 'HydrateFallback',
-        loader: 'loader("CatchAllSlugPage")',
         errorElement: '<ErrorElement standalone={false} />'
       })
     })
@@ -367,8 +355,7 @@ describe('app-utils', () => {
                 errorElement: '<ErrorElement standalone={false} />',
                 HydrateFallback: 'HydrateFallback',
                 // We check the specific generated lazy code for correct param handling, and ensure Component/element is not set (it's lazy)
-                lazy: `async () => {const i = await import("./../pages/posts/[id]/[...slug]/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "PostsIdCatchAllSlugPage", "slug")}}`,
-                loader: 'loader("PostsIdCatchAllSlugPage")'
+                lazy: `async () => {const i = await import("./../pages/posts/[id]/[...slug]/page").catch(() => {window.location.reload()}); return {Component: withRouteData(i.default, "PostsIdCatchAllSlugPage", "slug")}}`,
               },
               {
                 path: '*',
@@ -376,8 +363,7 @@ describe('app-utils', () => {
               }
             ],
             Component:
-              'withLoaderData((props) => <PostsLayout children={<Outlet />} {...props} />, "PostsLayout", undefined)',
-            loader: 'loader("PostsLayout")',
+              'withRouteData((props) => <PostsLayout children={<Outlet />} {...props} />, "PostsLayout", undefined)',
             shouldRevalidate: `({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
     // Revalidate if a form was submitted (standard behavior)
     if (formData) return true;
@@ -402,8 +388,7 @@ describe('app-utils', () => {
           }
         ],
         Component:
-          'withLoaderData((props) => <RootLayout children={<Outlet />} {...props} />, "RootLayout", undefined)',
-        loader: 'loader("RootLayout")',
+          'withRouteData((props) => <RootLayout children={<Outlet />} {...props} />, "RootLayout", undefined)',
         shouldRevalidate: `({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
     // Revalidate if a form was submitted (standard behavior)
     if (formData) return true;
@@ -436,8 +421,7 @@ describe('app-utils', () => {
       expect(route).toMatchObject({
         path: '/',
         Component:
-          'withLoaderData((props) => <RootLayout children={<Outlet />} {...props} />, "RootLayout", undefined)',
-        loader: 'loader("RootLayout")',
+          'withRouteData((props) => <RootLayout children={<Outlet />} {...props} />, "RootLayout", undefined)',
         shouldRevalidate: `({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
     // Revalidate if a form was submitted (standard behavior)
     if (formData) return true;
@@ -462,8 +446,7 @@ describe('app-utils', () => {
             children: [
               {
                 index: true,
-                lazy: `async () => {const i = await import("./../pages/contact/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "ContactPage", undefined)}}`,
-                loader: 'loader("ContactPage")',
+                lazy: `async () => {const i = await import("./../pages/contact/page").catch(() => {window.location.reload()}); return {Component: withRouteData(i.default, "ContactPage", undefined)}}`,
                 HydrateFallback: 'HydrateFallback',
                 errorElement: '<ErrorElement standalone={false} />'
               }
@@ -493,8 +476,7 @@ describe('app-utils', () => {
             children: [
               {
                 index: true,
-                lazy: `async () => {const i = await import("./../pages/contact/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "ContactPage", undefined)}}`,
-                loader: 'loader("ContactPage")',
+                lazy: `async () => {const i = await import("./../pages/contact/page").catch(() => {window.location.reload()}); return {Component: withRouteData(i.default, "ContactPage", undefined)}}`,
                 HydrateFallback: 'HydrateFallback',
                 errorElement: '<ErrorElement standalone={false} />'
               }
@@ -527,8 +509,7 @@ describe('app-utils', () => {
           {
             path: undefined,
             index: true,
-            lazy: `async () => {const i = await import("./../pages/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "Page", undefined)}}`,
-            loader: 'loader("Page")',
+            lazy: `async () => {const i = await import("./../pages/page").catch(() => {window.location.reload()}); return {Component: withRouteData(i.default, "Page", undefined)}}`,
             HydrateFallback: 'HydrateFallback',
             errorElement: '<ErrorElement standalone={false} />'
           },
@@ -541,8 +522,7 @@ describe('app-utils', () => {
                   {
                     path: undefined,
                     index: true,
-                    lazy: `async () => {const i = await import("./../pages/auth/login/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "AuthLoginPage", undefined)}}`,
-                    loader: 'loader("AuthLoginPage")',
+                    lazy: `async () => {const i = await import("./../pages/auth/login/page").catch(() => {window.location.reload()}); return {Component: withRouteData(i.default, "AuthLoginPage", undefined)}}`,
                     HydrateFallback: 'HydrateFallback',
                     errorElement: '<ErrorElement standalone={false} />'
                   }
@@ -554,8 +534,7 @@ describe('app-utils', () => {
                   {
                     path: undefined,
                     index: true,
-                    lazy: `async () => {const i = await import("./../pages/auth/register/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "AuthRegisterPage", undefined)}}`,
-                    loader: 'loader("AuthRegisterPage")',
+                    lazy: `async () => {const i = await import("./../pages/auth/register/page").catch(() => {window.location.reload()}); return {Component: withRouteData(i.default, "AuthRegisterPage", undefined)}}`,
                     HydrateFallback: 'HydrateFallback',
                     errorElement: '<ErrorElement standalone={false} />'
                   }
@@ -567,8 +546,7 @@ describe('app-utils', () => {
               }
             ],
             Component:
-              'withLoaderData((props) => <AuthLayout children={<Outlet />} {...props} />, "AuthLayout", undefined)',
-            loader: 'loader("AuthLayout")',
+              'withRouteData((props) => <AuthLayout children={<Outlet />} {...props} />, "AuthLayout", undefined)',
             shouldRevalidate: `({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
     // Revalidate if a form was submitted (standard behavior)
     if (formData) return true;
@@ -593,8 +571,7 @@ describe('app-utils', () => {
               {
                 path: undefined,
                 index: true,
-                lazy: `async () => {const i = await import("./../pages/dashboard/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "DashboardPage", undefined)}}`,
-                loader: 'loader("DashboardPage")',
+                lazy: `async () => {const i = await import("./../pages/dashboard/page").catch(() => {window.location.reload()}); return {Component: withRouteData(i.default, "DashboardPage", undefined)}}`,
                 HydrateFallback: 'HydrateFallback',
                 errorElement: '<ErrorElement standalone={false} />'
               },
@@ -604,8 +581,7 @@ describe('app-utils', () => {
                   {
                     path: undefined,
                     index: true,
-                    lazy: `async () => {const i = await import("./../pages/dashboard/settings/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "DashboardSettingsPage", undefined)}}`,
-                    loader: 'loader("DashboardSettingsPage")',
+                    lazy: `async () => {const i = await import("./../pages/dashboard/settings/page").catch(() => {window.location.reload()}); return {Component: withRouteData(i.default, "DashboardSettingsPage", undefined)}}`,
                     HydrateFallback: 'HydrateFallback',
                     errorElement: '<ErrorElement standalone={false} />'
                   }
@@ -617,8 +593,7 @@ describe('app-utils', () => {
                   {
                     path: undefined,
                     index: true,
-                    lazy: `async () => {const i = await import("./../pages/dashboard/[teamId]/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "DashboardTeamIdPage", undefined)}}`,
-                    loader: 'loader("DashboardTeamIdPage")',
+                    lazy: `async () => {const i = await import("./../pages/dashboard/[teamId]/page").catch(() => {window.location.reload()}); return {Component: withRouteData(i.default, "DashboardTeamIdPage", undefined)}}`,
                     HydrateFallback: 'HydrateFallback',
                     errorElement: '<ErrorElement standalone={false} />'
                   },
@@ -628,8 +603,7 @@ describe('app-utils', () => {
                       {
                         path: undefined,
                         index: true,
-                        lazy: `async () => {const i = await import("./../pages/dashboard/[teamId]/[projectId]/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "DashboardTeamIdProjectIdPage", undefined)}}`,
-                        loader: 'loader("DashboardTeamIdProjectIdPage")',
+                        lazy: `async () => {const i = await import("./../pages/dashboard/[teamId]/[projectId]/page").catch(() => {window.location.reload()}); return {Component: withRouteData(i.default, "DashboardTeamIdProjectIdPage", undefined)}}`,
                         HydrateFallback: 'HydrateFallback',
                         errorElement: '<ErrorElement standalone={false} />'
                       }
@@ -641,8 +615,7 @@ describe('app-utils', () => {
                   }
                 ],
                 Component:
-                  'withLoaderData((props) => <DashboardTeamIdLayout children={<Outlet />} {...props} />, "DashboardTeamIdLayout", undefined)',
-                loader: 'loader("DashboardTeamIdLayout")',
+                  'withRouteData((props) => <DashboardTeamIdLayout children={<Outlet />} {...props} />, "DashboardTeamIdLayout", undefined)',
                 shouldRevalidate: `({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
     // Revalidate if a form was submitted (standard behavior)
     if (formData) return true;
@@ -667,8 +640,7 @@ describe('app-utils', () => {
               }
             ],
             Component:
-              'withLoaderData((props) => <DashboardLayout children={<Outlet />} {...props} />, "DashboardLayout", undefined)',
-            loader: 'loader("DashboardLayout")',
+              'withRouteData((props) => <DashboardLayout children={<Outlet />} {...props} />, "DashboardLayout", undefined)',
             shouldRevalidate: `({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
     // Revalidate if a form was submitted (standard behavior)
     if (formData) return true;
@@ -689,8 +661,7 @@ describe('app-utils', () => {
           },
           {
             path: 'files/*',
-            lazy: `async () => {const i = await import("./../pages/files/[...id]/page").catch(() => {window.location.reload()}); return {Component: withLoaderData(i.default, "FilesCatchAllIdPage", "id")}}`,
-            loader: 'loader("FilesCatchAllIdPage")',
+            lazy: `async () => {const i = await import("./../pages/files/[...id]/page").catch(() => {window.location.reload()}); return {Component: withRouteData(i.default, "FilesCatchAllIdPage", "id")}}`,
             HydrateFallback: 'HydrateFallback',
             errorElement: '<ErrorElement standalone={false} />'
           },
@@ -700,8 +671,7 @@ describe('app-utils', () => {
           }
         ],
         Component:
-          'withLoaderData((props) => <RootLayout children={<Outlet />} {...props} />, "RootLayout", undefined)',
-        loader: 'loader("RootLayout")',
+          'withRouteData((props) => <RootLayout children={<Outlet />} {...props} />, "RootLayout", undefined)',
         shouldRevalidate: `({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
     // Revalidate if a form was submitted (standard behavior)
     if (formData) return true;

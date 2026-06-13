@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import reactServer from 'react-dom/server'
 
-import {app, type Plugin} from '@/index'
+import {app, type Plugin} from '@getcronit/pylon'
 import {trimTrailingSlash} from 'hono/trailing-slash'
 import {
   createStaticHandler,
@@ -543,7 +543,7 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
   })
 }
 
-import {__PYLON_INTERNALS_DO_NOT_USE} from '@getcronit/pylon/pages'
+import {__PYLON_INTERNALS_DO_NOT_USE} from '@getcronit/pylon-pages/pages'
 import {createHash} from 'crypto'
 import type {FormatEnum} from 'sharp'
 import glob from 'tiny-glob/sync.js'

@@ -18,7 +18,7 @@ export function useDataStaticAnalyzer(
 ): Plugin {
   const {
     filter = /\.(ts|tsx)$/,
-    pylonPackage = '@getcronit/pylon/pages',
+    pylonPackage = '@getcronit/pylon-pages/pages',
     hookName = 'useData',
     debug = false
   } = options

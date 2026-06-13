@@ -1,4 +1,4 @@
-import {Context} from '@/context'
+import {Context} from '@getcronit/pylon'
 import {createReadStream} from 'fs'
 import {stat} from 'fs/promises'
 import mime from 'mime'

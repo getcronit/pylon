@@ -113,7 +113,8 @@ const makeConfigFile = (_runtime: Runtime, features: Feature[]) => {
     )
   }
   if (features.includes('pages')) {
-    valueImports.push('usePages')
+    // The pages battery (plugin + runtime) moved to @getcronit/pylon-pages.
+    extraImportLines.push("import {usePages} from '@getcronit/pylon-pages'")
     plugins.push('usePages()')
   }
 
@@ -142,7 +143,7 @@ declare module '@getcronit/pylon' {
   if (features.includes('pages')) {
     data += `import {Query} from './.pylon/client'
 
-declare module '@getcronit/pylon/pages' {
+declare module '@getcronit/pylon-pages/pages' {
   interface Data extends ReturnType<typeof Query> {}
 }`
   }
