@@ -40,3 +40,6 @@ export {
   type Resolvers,
   type RouteRegistrar
 } from './app.js'
+
+export {compose, type Composed} from './compose.js'
+export {useApp, type UseAppOptions} from './use-app.js'
