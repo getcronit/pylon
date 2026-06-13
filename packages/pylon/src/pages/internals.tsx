@@ -1,6 +1,20 @@
 import {createContext, useContext, useEffect, useMemo} from 'react'
 import {PageProps} from '.'
 
+/**
+ * Serialize a value for safe embedding inside an inline `<script>` tag.
+ *
+ * `JSON.stringify` alone is unsafe here: the HTML parser terminates the script
+ * block at the first literal `</script>` (or `<!--`) in the text, regardless of
+ * JSON string quoting. We escape `<` as `<` (which parses back to `<`) plus
+ * the U+2028/U+2029 line separators that are valid JSON but invalid in JS source.
+ */
+const serializeForScript = (value: unknown): string =>
+  JSON.stringify(value)
+    .replace(/</g, '\\u003c')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')
+
 const dataClientContext = createContext<{
   client: any
   pagesContext?: any
@@ -52,7 +66,7 @@ const DataClientProvider: React.FC<{
       {isServer && payload && (
         <script
           dangerouslySetInnerHTML={{
-            __html: `window.__pylonStaticData = ${JSON.stringify(payload)}`
+            __html: `window.__pylonStaticData = ${serializeForScript(payload)}`
           }}
         />
       )}

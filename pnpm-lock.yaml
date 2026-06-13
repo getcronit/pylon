@@ -385,9 +385,6 @@ importers:
       mitt:
         specifier: ^3.0.1
         version: 3.0.1
-      openid-client:
-        specifier: ^6.1.7
-        version: 6.8.2
       postcss:
         specifier: ^8.5.1
         version: 8.5.6
@@ -473,6 +470,10 @@ importers:
         version: 2.1.9(@types/node@20.19.33)(jsdom@28.1.0)(lightningcss@1.30.2)
 
   packages/pylon-auth:
+    dependencies:
+      openid-client:
+        specifier: ^6.1.7
+        version: 6.8.2
     devDependencies:
       '@getcronit/pylon':
         specifier: workspace:*
@@ -486,6 +487,9 @@ importers:
       graphql:
         specifier: ^16.9.0
         version: 16.12.0
+      hono:
+        specifier: ^4.0.0
+        version: 4.11.9
       rimraf:
         specifier: ^6.0.1
         version: 6.1.2

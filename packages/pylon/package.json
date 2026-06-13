@@ -61,7 +61,6 @@
     "lucide-react": "^0.474.0",
     "mime": "^4.0.6",
     "mitt": "^3.0.1",
-    "openid-client": "^6.1.7",
     "postcss-load-config": "^6.0.1",
     "react-router": "^7.1.5",
     "sharp": "^0.33.5",

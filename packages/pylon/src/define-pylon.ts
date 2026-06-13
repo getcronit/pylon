@@ -347,16 +347,9 @@ export const resolversToGraphQLResolvers = (
 
         ctx?.set('graphqlResolveInfo', info)
 
-        const auth = ctx?.get('auth')
-
-        if (auth?.user) {
-          scope.setUser({
-            id: auth.user.sub,
-            username: auth.user.preferred_username,
-            email: auth.user.email,
-            details: auth.user
-          })
-        }
+        // Core is auth-free: it no longer reads `c.get('auth')` to attribute the
+        // Sentry user. An auth/identity layer (e.g. pylon-auth's `useIdentity`)
+        // owns that attribution from the Principal, decoupled from core.
 
         // get query or mutation field
 

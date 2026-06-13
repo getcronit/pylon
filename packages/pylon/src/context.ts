@@ -1,19 +1,19 @@
 import {Context as HonoContext} from 'hono'
 import type {Toucan} from 'toucan-js'
-import type {AuthState} from './plugins/use-auth'
 import {AsyncLocalStorage} from 'async_hooks'
 import {env} from 'hono/adapter'
 import type {GraphQLResolveInfo} from 'graphql'
 
+// Core is AUTH-FREE: it has no `auth`/`AuthState` and never reads `c.get('auth')`.
+// Authentication produces a `Principal` in @getcronit/pylon-auth (the identity
+// provider binds it via `useIdentity`); authz reads the Principal there. Apps that
+// add an auth plugin can still declare their own context vars via module
+// augmentation of `Variables`.
 export interface Bindings {
   NODE_ENV: string
-  AUTH_PROJECT_ID?: string
-  AUTH_KEY?: string
-  AUTH_ISSUER?: string
 }
 
 export interface Variables {
-  auth: AuthState
   sentry: Toucan
   graphqlResolveInfo?: GraphQLResolveInfo
 }

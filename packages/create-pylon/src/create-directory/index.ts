@@ -97,22 +97,32 @@ const makeIndexFile = (runtime: Runtime, _features: Feature[]) => {
 const makeConfigFile = (_runtime: Runtime, features: Feature[]) => {
   const valueImports: string[] = []
   const plugins: string[] = []
+  const extraImportLines: string[] = []
 
   if (features.includes('auth')) {
-    valueImports.push('useAuth')
-    plugins.push("useAuth({issuer: 'https://test-0o6zvq.zitadel.cloud'})")
+    // Auth = an identity provider that yields a Principal. Zitadel/OIDC lives in
+    // @getcronit/pylon-auth; `useIdentity` binds the Principal, `zitadelLogin`
+    // adds the browser OAuth routes. Authz then uses requireRole/authorize.
+    extraImportLines.push("import {useIdentity} from '@getcronit/pylon-auth'")
+    extraImportLines.push(
+      "import {zitadelAuth, zitadelLogin} from '@getcronit/pylon-auth/zitadel'"
+    )
+    plugins.push(
+      "useIdentity(zitadelAuth({issuer: 'https://test-0o6zvq.zitadel.cloud'}))",
+      "zitadelLogin({issuer: 'https://test-0o6zvq.zitadel.cloud'})"
+    )
   }
   if (features.includes('pages')) {
     valueImports.push('usePages')
     plugins.push('usePages()')
   }
 
-  const importLine = valueImports.length
+  const pylonImportLine = valueImports.length
     ? `import {${valueImports.join(', ')}, type PylonConfig} from '@getcronit/pylon'`
     : `import type {PylonConfig} from '@getcronit/pylon'`
 
   return (
-    `${importLine}\n\n` +
+    `${[...extraImportLines, pylonImportLine].join('\n')}\n\n` +
     `export default {\n  plugins: [${plugins.join(', ')}]\n} satisfies PylonConfig\n`
   )
 }
