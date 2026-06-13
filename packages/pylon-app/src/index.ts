@@ -21,17 +21,31 @@ export * from '@getcronit/pylon-db'
 // ONE `ForbiddenError` (pylon-db re-exports pylon-auth's from /contract), so the
 // authz API, the ORM's row/feature denials, and the public error are the same
 // class — this explicit re-export and pylon-db's star-export resolve to it.
+// Capability-tier authz from pylon-auth — EXCEPT `authorize`, which pylon-app
+// re-defines as an overload spanning both tiers (capability predicate OR resource
+// form), delegating the predicate form back to pylon-auth.
 export {
   type Principal,
   type IdentityProvider,
   hasRole,
   hasPermission,
   getPrincipal,
-  authorize,
   requireRole,
   useIdentity,
   ForbiddenError
 } from '@getcronit/pylon-auth'
+
+// Resource-tier authz (extends `authorize` with the resource form).
+export {
+  defineAbilities,
+  authorize,
+  can,
+  cannot,
+  filter,
+  type AbilitiesFn,
+  type AbilityRule
+} from './abilities.js'
+export {matchWhere, AbilityMatchError} from './matcher.js'
 
 export {
   defineApp,

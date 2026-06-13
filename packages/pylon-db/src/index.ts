@@ -63,6 +63,7 @@ export {
   getAppContext,
   currentTenant,
   currentFeatures,
+  currentPrincipal,
   type AppContext
 } from './app-context.js'
 export {defineFeatures, requireFeature, gateResolvers, ForbiddenError} from './features.js'
