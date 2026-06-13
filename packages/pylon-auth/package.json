@@ -12,6 +12,10 @@
     "./contract": {
       "import": "./dist/contract.js",
       "types": "./dist/contract.d.ts"
+    },
+    "./zitadel": {
+      "import": "./dist/zitadel.js",
+      "types": "./dist/zitadel.d.ts"
     }
   },
   "scripts": {
