@@ -7,18 +7,35 @@ import fs from 'fs/promises'
 import path from 'path'
 import {updateFileIfChanged} from '../update-file-if-changed'
 import {buildConfigFile} from './build-config'
-import {
-  InjectCodePluginOptions,
-  injectCodePlugin
-} from './plugins/inject-code-plugin'
-import {NotifyPluginOptions, notifyPlugin} from './plugins/notify-plugin'
+import {InjectCodePluginOptions, injectCodePlugin} from './plugins/inject-code-plugin'
+import {notifyPlugin} from './plugins/notify-plugin'
+
+export interface ServerBuildResult {
+  totalFiles: number
+  totalSize: number
+  schemaChanged: boolean
+  duration: number
+}
 
 export interface BundlerBuildOptions {
   getBuildDefs: InjectCodePluginOptions['getBuildDefs']
-  onBuild?: NotifyPluginOptions['onBuild']
-  skipInitialBuild?: boolean
 }
 
+/**
+ * Owns the esbuild contexts (the server bundle + each build-plugin's contexts,
+ * e.g. usePages' client/server). It does NOT decide WHEN to build or restart —
+ * the caller (build/dev command) drives an explicit, ordered sequence:
+ *
+ *   buildServer()  → .pylon/index.js + schema.graphql
+ *   <caller generates the gqty client from the schema>
+ *   buildPages()   → page bundles + manifests (now `./client` exists)
+ *   <caller (re)starts the server — all artifacts present>
+ *
+ * This ordering is the whole point: page bundles import the generated client, and
+ * the server reads the page manifest at boot, so client-gen must precede the page
+ * build and the server (re)start must follow it. Conflating them (the old single
+ * `onBuild`) is why dev served stale/empty manifests.
+ */
 export class Bundler {
   sfiFilePath: string
   outputDir: string
@@ -28,17 +45,15 @@ export class Bundler {
     this.outputDir = outputDir
   }
 
-  private async initBuildPlugins(args: {onBuild: () => void}) {
+  private async initBuildPlugins() {
     const configPath = path.join(process.cwd(), this.outputDir, 'config.js')
 
-    // Config now lives in a standalone `pylon.config.ts` (loaded by direct
-    // bundle), not an inline `config` export in the entry.
+    // Config now lives in a standalone `pylon.config.ts` (loaded by direct bundle).
     await buildConfigFile(process.cwd(), configPath)
 
     // `config.js` is ALWAYS emitted by buildConfigFile (an empty `{}` when there's
     // no pylon.config). So a throw here means pylon.config EXISTS but failed to
-    // evaluate — fail the build LOUDLY rather than silently continuing with zero
-    // plugins (which would boot the app with no db/auth/app/pages).
+    // evaluate — fail LOUDLY rather than booting with zero plugins.
     let config: PylonConfig | undefined
     try {
       config = (await import(configPath)).config
@@ -50,17 +65,11 @@ export class Bundler {
     }
 
     const buildContexts: ReturnType<NonNullable<Plugin['build']>>[] = []
-
-    const plugins = config?.plugins || []
-
-    for (const plugin of plugins) {
-      if (plugin.build) {
-        const ctx = plugin.build({onBuild: args.onBuild})
-
-        buildContexts.push(ctx)
-      }
+    for (const plugin of config?.plugins || []) {
+      // Build plugins are driven manually via buildPages(); they no longer trigger
+      // restarts themselves (the command sequences that), so onBuild is a no-op.
+      if (plugin.build) buildContexts.push(plugin.build({onBuild: () => {}}))
     }
-
     return buildContexts
   }
 
@@ -68,16 +77,17 @@ export class Bundler {
     const inputPath = path.join(process.cwd(), this.sfiFilePath)
     const dir = path.join(process.cwd(), this.outputDir)
 
-    // Create directory if it doesn't exist
     await fs.mkdir(dir, {recursive: true})
+
+    // The latest server-build result (schema-changed etc.), captured from the
+    // notify plugin's onEnd and returned by buildServer().
+    let lastServerBuild: ServerBuildResult | undefined
 
     const writeOnEndPlugin: esbuild.Plugin = {
       name: 'write-on-end',
       setup(build) {
         build.onEnd(async result => {
-          // Don't write artifacts for a failed build — `outputFiles` is undefined
-          // on error (the non-null assertion would throw), and a half-build must
-          // never be emitted.
+          // Never emit artifacts for a failed build (outputFiles is undefined).
           if (result.errors.length > 0 || !result.outputFiles) return
           await Promise.all(
             result.outputFiles.map(async file => {
@@ -100,93 +110,40 @@ export class Bundler {
       format: 'esm',
       sourcemap: 'inline',
       packages: 'external',
-
       plugins: [
-        notifyPlugin({
-          dir,
-          onBuild: async output => {
-            await options.onBuild?.(output)
-          }
-        }),
-        injectCodePlugin({
-          getBuildDefs: options.getBuildDefs,
-          outputDir: this.outputDir
-        }),
-        esbuildPluginTsc({
-          tsconfigPath: path.join(process.cwd(), 'tsconfig.json')
-        }),
+        notifyPlugin({dir, onBuild: output => void (lastServerBuild = output)}),
+        injectCodePlugin({getBuildDefs: options.getBuildDefs, outputDir: this.outputDir}),
+        esbuildPluginTsc({tsconfigPath: path.join(process.cwd(), 'tsconfig.json')}),
         writeOnEndPlugin
       ]
     })
 
-    // Anything that throws AFTER the esbuild context is created (a failed initial
-    // build, a config that won't load) must DISPOSE the context — otherwise the
-    // esbuild service keeps the process alive and the CLI hangs instead of failing
-    // fast.
+    // Create the build-plugin contexts. If config/plugin init throws, dispose the
+    // esbuild service so the CLI fails fast instead of hanging on a live service.
     let pluginCtxs: ReturnType<NonNullable<Plugin['build']>>[]
     try {
-      if (!options.skipInitialBuild) {
-        await ctx.rebuild()
-      }
-
-      pluginCtxs = await this.initBuildPlugins({
-        onBuild: () => {
-          options.onBuild?.({
-            totalFiles: 0,
-            totalSize: 0,
-            schemaChanged: false,
-            duration: 0
-          })
-        }
-      })
-
-      if (!options.skipInitialBuild) {
-        for (const pluginCtx of pluginCtxs) {
-          const c = await pluginCtx
-
-          await c.rebuild()
-        }
-      }
+      pluginCtxs = await this.initBuildPlugins()
     } catch (e) {
       await ctx.dispose().catch(() => {})
       throw e
     }
 
     return {
-      watch: async () => {
-        for (const ctx of pluginCtxs) {
-          const c = await ctx
-
-          await c.watch()
-        }
-
-        return await ctx.watch()
-      },
-      rebuild: async () => {
-        for (const ctx of pluginCtxs) {
-          const c = await ctx
-
-          await c.rebuild()
-        }
-
+      /** Build the server bundle (→ schema.graphql). Returns schema-changed info. */
+      buildServer: async (): Promise<ServerBuildResult | undefined> => {
         await ctx.rebuild()
+        return lastServerBuild
       },
-      dispose: async () => {
-        for (const ctx of pluginCtxs) {
-          const c = await ctx
-
-          await c.dispose()
-        }
-
+      /** Build the page contexts (→ manifests). Run AFTER the client is generated. */
+      buildPages: async (): Promise<void> => {
+        for (const p of pluginCtxs) await (await p).rebuild()
+      },
+      dispose: async (): Promise<void> => {
+        for (const p of pluginCtxs) await (await p).dispose().catch(() => {})
         await ctx.dispose()
       },
-      cancel: async () => {
-        for (const ctx of pluginCtxs) {
-          const c = await ctx
-
-          await c.cancel()
-        }
-
+      cancel: async (): Promise<void> => {
+        for (const p of pluginCtxs) await (await p).cancel().catch(() => {})
         await ctx.cancel()
       }
     }

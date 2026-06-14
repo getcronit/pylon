@@ -27,6 +27,9 @@ const base = `http://localhost:${PORT}`
 
 let dev: ChildProcess | undefined
 let originalPage = ''
+const devLog: string[] = []
+
+const recentLog = (n = 40) => devLog.slice(-n).join('')
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
@@ -53,32 +56,18 @@ async function waitFor(
   throw new Error(`timed out (${timeoutMs}ms) waiting for ${label}`)
 }
 
-// SKIPPED — this harness already did its job: running it surfaced that pages dev
-// SERVING is broken (a path the prior e2es never exercised — they're build-only or
-// non-pages). Findings:
-//   ✓ validated LIVE: phase-3 per-setup error isolation ("plugin #0 failed during
-//     setup: …") + the dev crash-report ("server exited (code 1)…").
-//   ✓ FIXED: a cwd-relative CSS-resolution bug (the page build hard-coded
-//     `cwd/node_modules/@getcronit/pylon-pages/...`, which breaks in pnpm/monorepo
-//     layouts) → now `require.resolve('@getcronit/pylon-pages/index.css')`.
-//   ✗ OPEN (the real blocker): a dev ORDERING bug — the gqty client (`./client`,
-//     `./schema.generated`) must be generated BEFORE the page esbuild contexts
-//     build, but in dev they race (page contexts build before buildClient runs).
-//     This is exactly the Supervisor SEQUENCING from ENGINE_DESIGN (build → gen →
-//     restart, deterministically). Also: a realistic pages fixture needs the full
-//     frontend toolchain (postcss/tailwind config + deps).
-// Un-skip once the dev sequencing lands — this is its verification target.
-describe.skip('pylon dev — pages watch loop', () => {
+// Verifies the dev Supervisor sequencing (build server → gqty client → pages →
+// restart): a pages app serves in dev, and a page edit reflects through the watch
+// loop. This is the path no other e2e covers (they're one-shot build / non-pages).
+describe('pylon dev — pages watch loop', () => {
   beforeAll(async () => {
     if (!existsSync(cliBin)) throw new Error(`pylon CLI not built at ${cliBin}.`)
     originalPage = await fs.readFile(pageFile, 'utf8')
     await fs.rm(path.join(appDir, '.pylon'), {recursive: true, force: true})
 
-    // detached → its own process group, so we can kill dev AND its spawned server.
     dev = spawn('node', [cliBin, 'dev', '-c', 'node .pylon/index.js'], {
       cwd: appDir,
-      detached: true,
-      stdio: 'ignore',
+      stdio: ['ignore', 'pipe', 'pipe'],
       env: {
         ...process.env,
         PORT: String(PORT),
@@ -86,6 +75,8 @@ describe.skip('pylon dev — pages watch loop', () => {
         DO_NOT_TRACK: '1'
       }
     })
+    dev.stdout?.on('data', d => devLog.push(d.toString()))
+    dev.stderr?.on('data', d => devLog.push(d.toString()))
 
     // First build + client gen + server boot can take a while.
     await waitFor(
@@ -98,7 +89,13 @@ describe.skip('pylon dev — pages watch loop', () => {
   afterAll(async () => {
     if (dev?.pid) {
       try {
-        process.kill(-dev.pid, 'SIGKILL') // kill the whole group (dev + server child)
+        dev.kill('SIGINT') // dev's SIGINT handler tears down its server child
+      } catch {
+        /* already gone */
+      }
+      await sleep(1500)
+      try {
+        dev.kill('SIGKILL')
       } catch {
         /* already gone */
       }
@@ -112,14 +109,30 @@ describe.skip('pylon dev — pages watch loop', () => {
   })
 
   it('reflects a page edit through the watch loop (rebuild → restart → serve)', async () => {
-    await fs.writeFile(pageFile, originalPage.replace('MARKER_V1', 'MARKER_V2'))
-    await waitFor(
-      async () => ((await pageHtml())?.includes('MARKER_V2')) ?? false,
-      90_000,
-      'edited page served (MARKER_V2)'
-    )
+    const logFrom = devLog.length
+    await fs.writeFile(pageFile, originalPage.replaceAll('MARKER_V1', 'MARKER_V2'))
+    try {
+      await waitFor(
+        async () => ((await pageHtml())?.includes('MARKER_V2')) ?? false,
+        90_000,
+        'edited page served (MARKER_V2)'
+      )
+    } catch (e) {
+      const onDisk = await fs.readFile(pageFile, 'utf8').catch(() => '<unreadable>')
+      const lastHtml = await pageHtml()
+      console.error(
+        [
+          '\n=== edit-reflect FAILED — diagnostics ===',
+          `page.tsx on disk:\n${onDisk}`,
+          `last served HTML marker: ${lastHtml?.match(/MARKER_V[12]/)?.[0] ?? '<none>'}`,
+          `dev log since edit:\n${devLog.slice(logFrom).join('')}`,
+          `dev log tail:\n${recentLog()}`
+        ].join('\n')
+      )
+      throw e
+    }
     const html = await pageHtml()
     expect(html?.includes('MARKER_V2')).toBe(true)
     expect(html?.includes('MARKER_V1')).toBe(false)
-  })
+  }, 120_000)
 })

@@ -17,6 +17,8 @@
     "@gqty/react": "^3.1.0",
     "@hono/node-server": "^1.12.2",
     "@sentry/react": "^10.5.0",
+    "@tailwindcss/postcss": "^4.0.6",
+    "tailwindcss": "^4.0.4",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.4",
     "gqty": "3.4.0-canary-20250207102900.644ad9fdeafa6318516627577b1d4d754d5c5a98",

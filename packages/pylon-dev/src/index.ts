@@ -3,6 +3,7 @@ import {program} from 'commander'
 import {spawn, type ChildProcess} from 'child_process'
 import {promises as fs} from 'node:fs'
 import path from 'node:path'
+import chokidar from 'chokidar'
 import consola from 'consola'
 import dotenv from 'dotenv'
 import esbuild from 'esbuild'
@@ -28,43 +29,40 @@ program
   .command('build')
   .description('Build the Pylon Schema')
   .action(async () => {
-    const ctx = await build({
-      sfiFilePath: './src/index.ts',
-      outputFilePath: './.pylon',
-      onBuild: async ({totalFiles, totalSize, duration, schemaChanged}) => {
-        try {
-          analytics.capture({
-            distinctId,
-            event: 'build completed',
-            properties: {
-              duration,
-              totalFiles,
-              totalSize,
-              schemaChanged,
-              dependencies,
-              isDevelopment: false,
-              $session_id: sessionId
-            }
-          })
-
-          await buildClient({schemaChanged})
-        } catch (e) {
-          consola.error('Error during build callback', e)
-        }
-      }
-    })
+    const ctx = await build({sfiFilePath: './src/index.ts', outputFilePath: './.pylon'})
 
     const cleanupAndExit = async () => {
-      await ctx.dispose()
+      await ctx.dispose().catch(() => {})
       process.exit(0)
     }
-
     process.on('SIGINT', cleanupAndExit)
     process.on('SIGTERM', cleanupAndExit)
     process.on('SIGHUP', cleanupAndExit)
 
-    await ctx.rebuild()
-    await ctx.dispose()
+    try {
+      // Ordered: server bundle (→ schema) → gqty client (← schema) → page bundles
+      // (→ manifests, importing the client). The sequence is the fix for the dev
+      // ordering bug; one-shot build runs the same order.
+      const out = await ctx.buildServer()
+      await buildClient({schemaChanged: out?.schemaChanged ?? true})
+      await ctx.buildPages()
+
+      analytics.capture({
+        distinctId,
+        event: 'build completed',
+        properties: {
+          duration: out?.duration ?? 0,
+          totalFiles: out?.totalFiles ?? 0,
+          totalSize: out?.totalSize ?? 0,
+          schemaChanged: out?.schemaChanged ?? true,
+          dependencies,
+          isDevelopment: false,
+          $session_id: sessionId
+        }
+      })
+    } finally {
+      await ctx.dispose().catch(() => {})
+    }
   })
 
 program
@@ -466,11 +464,8 @@ program
   .action(async options => {
     let serverProcess: ChildProcess | null = null
     // `killing` distinguishes our intentional kill from a real crash (read by the
-    // child's `exit` handler). `restartChain` serializes rebuild→restart so
-    // overlapping `onBuild`s (multiple esbuild contexts / rapid saves) can't
-    // double-spawn or race on the port.
+    // child's `exit` handler).
     let killing = false
-    let restartChain: Promise<void> = Promise.resolve()
 
     // Kill the server AND await its actual exit — so the next spawn can't race the
     // old process for the port (EADDRINUSE / orphan). Falls back after a timeout if
@@ -497,106 +492,124 @@ program
         setTimeout(finish, 4000).unref?.()
       })
 
-    let ctx: {
-      watch: () => Promise<void>
-      rebuild: () => Promise<void>
-      dispose: () => Promise<void>
-      cancel: () => Promise<void>
-    } | null = null
+    const restartServer = async () => {
+      await killServer()
+      serverProcess = startDevServer(options.command, (code, signal) => {
+        if (killing) {
+          killing = false // our intentional restart — not a crash
+          return
+        }
+        if (code && code !== 0) {
+          consola.error(
+            `[Pylon] Dev server exited (code ${code}). Fix the error and save to restart.`
+          )
+        } else if (signal) {
+          consola.warn(`[Pylon] Dev server terminated (${signal}).`)
+        }
+      })
+    }
 
-    await new Promise<void>(async (resolve, reject) => {
-      try {
-        ctx = await build({
-          sfiFilePath: './src/index.ts',
-          outputFilePath: `./.pylon`,
-          onBuild: async ({schemaChanged, totalFiles, totalSize, duration}) => {
-            // Single-flight: chain restarts so concurrent onBuilds can't interleave
-            // (kill → await exit → spawn runs to completion before the next starts).
-            restartChain = restartChain
-              .then(async () => {
-                await buildClient({schemaChanged})
+    // build() throws loudly on a config/init failure → exits non-zero (fail-loud).
+    const ctx = await build({sfiFilePath: './src/index.ts', outputFilePath: './.pylon'})
 
-                await killServer()
-
-                serverProcess = startDevServer(options.command, (code, signal) => {
-                  if (killing) {
-                    killing = false // our intentional restart — not a crash
-                    return
-                  }
-                  if (code && code !== 0) {
-                    consola.error(
-                      `[Pylon] Dev server exited (code ${code}). Fix the error and save to restart.`
-                    )
-                  } else if (signal) {
-                    consola.warn(`[Pylon] Dev server terminated (${signal}).`)
-                  }
-                })
-
-                analytics.capture({
-                  distinctId,
-                  event: 'build completed',
-                  properties: {
-                    duration,
-                    totalFiles,
-                    totalSize,
-                    schemaChanged,
-                    dependencies,
-                    pylonConfig: await readPylonConfig(),
-                    isDevelopment: true,
-                    $session_id: sessionId
-                  }
-                })
-              })
-              .catch(e => {
-                consola.error('Error during dev build callback', e)
-              })
-            return restartChain
-          },
-          skipInitialBuild: true
+    // The ordered, single-flight sequence (the Supervisor). On every change:
+    //   server bundle (→ schema) → gqty client (← schema) → page bundles
+    //   (→ manifests, importing the client) → restart the server.
+    // A newer change supersedes an in-flight run (gen guard); the chain serializes
+    // so restarts never overlap. A failed build logs and leaves the last-good
+    // server running (no restart, no crash-loop).
+    let gen = 0
+    let chain: Promise<void> = Promise.resolve()
+    const sync = () => {
+      const g = ++gen
+      chain = chain
+        .then(async () => {
+          if (g !== gen) return
+          const out = await ctx.buildServer()
+          if (g !== gen) return
+          // Regenerate the gqty client only when the schema changed (else the
+          // existing .pylon/client is reused — page bundles import it).
+          if (out?.schemaChanged ?? true) await buildClient({schemaChanged: true})
+          if (g !== gen) return
+          await ctx.buildPages()
+          if (g !== gen) return
+          await restartServer()
+          analytics.capture({
+            distinctId,
+            event: 'build completed',
+            properties: {
+              duration: out?.duration ?? 0,
+              totalFiles: out?.totalFiles ?? 0,
+              totalSize: out?.totalSize ?? 0,
+              schemaChanged: out?.schemaChanged ?? true,
+              dependencies,
+              pylonConfig: await readPylonConfig(),
+              isDevelopment: true,
+              $session_id: sessionId
+            }
+          })
         })
+        .catch(e => consola.error('[Pylon] Build failed:', e))
+      return chain
+    }
 
-        await ctx.watch()
+    await sync() // initial build + serve
 
-        consola.box(`Pylon is up and running!
-        
+    // One watcher over the inputs → re-run the sequence (coalesced/single-flight).
+    // ABSOLUTE paths (no `cwd` option): under cwd-relative matching, chokidar v4's
+    // fsevents backend drops in-place file writes (truncate+write on the same inode,
+    // as `fs.writeFile` and many editors do) while still catching atomic renames —
+    // so hot reload silently misses real saves. `awaitWriteFinish` coalesces the
+    // burst of events a single save emits into one stable trigger.
+    const cwd = process.cwd()
+    const watcher = chokidar.watch(
+      [
+        path.join(cwd, 'src'),
+        path.join(cwd, 'pages'),
+        path.join(cwd, 'public'),
+        path.join(cwd, 'pylon.config.ts'),
+        path.join(cwd, 'pylon.config.js')
+      ],
+      {
+        ignoreInitial: true,
+        awaitWriteFinish: {stabilityThreshold: 200, pollInterval: 50}
+      }
+    )
+    watcher.on('all', () => void sync())
+
+    consola.box(`Pylon is up and running!
+
 Press \`Ctrl + C\` to stop the server.
-                
+
 Encounter any issues? Report them here:
 https://github.com/getcronit/pylon/issues
-                
+
 We value your feedback—help us make Pylon even better!`)
 
-        const cleanupAndExit = async () => {
-          if (ctx) {
-            await ctx.dispose()
-          }
-          await killServer()
-          process.exit(0)
-        }
+    const cleanupAndExit = async () => {
+      await watcher.close().catch(() => {})
+      await ctx.dispose().catch(() => {})
+      await killServer()
+      process.exit(0)
+    }
+    process.on('SIGINT', cleanupAndExit)
+    process.on('SIGTERM', cleanupAndExit)
+    process.on('SIGHUP', cleanupAndExit)
+    process.on('exit', () => killServer())
 
-        process.on('SIGINT', cleanupAndExit)
-        process.on('SIGTERM', cleanupAndExit)
-        process.on('SIGHUP', cleanupAndExit)
-        process.on('exit', () => killServer())
-
-        analytics.capture({
-          distinctId,
-          event: 'dev server started',
-          properties: {
-            command: options.command,
-            dependencies,
-            pylonConfig: await readPylonConfig(),
-            $session_id: sessionId
-          }
-        })
-      } catch (error) {
-        if (ctx) {
-          await ctx.dispose()
-        }
-        await killServer()
-        reject(error)
+    analytics.capture({
+      distinctId,
+      event: 'dev server started',
+      properties: {
+        command: options.command,
+        dependencies,
+        pylonConfig: await readPylonConfig(),
+        $session_id: sessionId
       }
     })
+
+    // Keep the process alive in watch mode (active handles: watcher + child).
+    await new Promise<void>(() => {})
   })
 
 program

@@ -63,7 +63,7 @@ export const injectCodePlugin = ({
         return {
           loader: 'ts',
           contents:
-            `import {executeConfig} from "@getcronit/pylon"
+            `import {executeConfig, app as __pylonApp} from "@getcronit/pylon"
 
             // config.js is always emitted (empty {} when there's no pylon.config),
             // so a failure here means the config EXISTS but threw at load — abort
@@ -77,6 +77,23 @@ export const injectCodePlugin = ({
               throw e
             }
             await executeConfig(__internalPylonConfig.config)
+
+            // Readiness gate. User code below calls serve() — which captures
+            // app.fetch and starts LISTENING — before the graphql handler and
+            // 'last'-strategy plugins (e.g. usePages page routes) have registered.
+            // A request landing in that window makes Hono build its route matcher
+            // early, and the still-pending route registrations then throw
+            // "matcher is already built", crashing the (re)started server. Wrapping
+            // fetch to await a boot latch defers matcher construction until every
+            // route is registered; once booted the wrapper is a no-op.
+            let __pylonReady = false
+            let __pylonBootResolve
+            const __pylonBootReady = new Promise(r => { __pylonBootResolve = r })
+            const __pylonOrigFetch = __pylonApp.fetch.bind(__pylonApp)
+            __pylonApp.fetch = (...args) =>
+              __pylonReady
+                ? __pylonOrigFetch(...args)
+                : __pylonBootReady.then(() => __pylonOrigFetch(...args))
 
 
 ` +
@@ -93,6 +110,10 @@ export const injectCodePlugin = ({
   await executeConfig(__internalPylonConfig.config, {
     pluginsStrategy: "last"
   })
+
+  // All routes registered — open the gate so requests reach Hono.
+  __pylonReady = true
+  __pylonBootResolve()
   `
         }
       }

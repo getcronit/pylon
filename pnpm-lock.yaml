@@ -185,6 +185,9 @@ importers:
       '@sentry/react':
         specifier: ^10.5.0
         version: 10.38.0(react@19.1.2)
+      '@tailwindcss/postcss':
+        specifier: ^4.0.6
+        version: 4.1.18
       '@types/react':
         specifier: ^19.0.8
         version: 19.2.14
@@ -203,6 +206,9 @@ importers:
       react-dom:
         specifier: ^19.0.0
         version: 19.1.2(react@19.1.2)
+      tailwindcss:
+        specifier: ^4.0.4
+        version: 4.1.18
       vitest:
         specifier: ^2.0.0
         version: 2.1.9(@types/node@24.10.13)(jsdom@28.1.0)(lightningcss@1.30.2)
@@ -497,6 +503,9 @@ importers:
       '@gqty/cli':
         specifier: ^4.2.5
         version: 4.3.0(@types/node@20.19.33)(typescript@5.9.3)
+      chokidar:
+        specifier: ^4.0.3
+        version: 4.0.3
       commander:
         specifier: ^12.1.0
         version: 12.1.0
