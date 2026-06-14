@@ -39,6 +39,7 @@ export function requireRole(...roles: string[]): void {
  */
 export function useIdentity(provider: IdentityProvider<Context>): Plugin {
   return {
+    name: 'identity', // ordering anchor: useDatabase declares `dependsOn: ['identity']`
     async middleware(c, next) {
       c.set(PRINCIPAL_KEY as never, (await provider(c)) as never)
       await next()

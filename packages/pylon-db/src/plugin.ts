@@ -93,6 +93,10 @@ export function useDatabase(options: UseDatabaseOptions = {}): Plugin {
   let db: Database | undefined
 
   return {
+    name: 'database',
+    // Bind the ORM Context AFTER identity (so the principal is on the request).
+    // Ignored if no `identity` plugin is present (raw ORM, no auth).
+    dependsOn: ['identity'],
     setup() {
       db = connect({connectionString: options.connectionString ?? process.env.DATABASE_URL})
     },

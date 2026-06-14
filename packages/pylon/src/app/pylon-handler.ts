@@ -14,6 +14,7 @@ import path from 'path'
 import {app, pluginsMiddleware} from '.'
 import {Plugin, PylonConfig} from '..'
 import {Context} from '../context'
+import {topoSortPlugins} from './plugin-order'
 import {resolversToGraphQLResolvers} from '../define-pylon'
 import {useSentry} from '../plugins/use-sentry'
 import {useUnhandledRoute} from '../plugins/use-unhandled-route'
@@ -35,8 +36,18 @@ const resolveLazyObject = <T>(obj: MaybeLazyObject<T>): T => {
 }
 
 const loadPluginsMiddleware = async (plugins: Plugin[]) => {
-  for (const plugin of plugins) {
-    await plugin.setup?.(app)
+  // Order by declared `dependsOn` (stable — a no-op when none declared), then load.
+  for (const [i, plugin] of topoSortPlugins(plugins).entries()) {
+    // Isolate + attribute setup failures: a bad plugin fails with WHICH plugin,
+    // not an opaque stack from deep inside the loader.
+    try {
+      await plugin.setup?.(app)
+    } catch (e) {
+      throw new Error(
+        `Pylon plugin "${plugin.name ?? `#${i}`}" failed during setup: ` +
+          `${e instanceof Error ? (e.stack ?? e.message) : String(e)}`
+      )
+    }
 
     if (plugin.middleware) {
       pluginsMiddleware.push(plugin.middleware)

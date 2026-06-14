@@ -115,6 +115,8 @@ export function useApp(composed: Composed<any>, options: UseAppOptions = {}): Pl
 
   // 3. Mount each app's routes, gate-wrapped with its authorize/feature.
   plugins.push({
+    name: 'app-routes',
+    dependsOn: ['database'], // routes read the bound ORM Context (tenant/principal/features)
     setup(app: any) {
       for (const a of composed.apps) {
         if (!a.__routes.length) continue

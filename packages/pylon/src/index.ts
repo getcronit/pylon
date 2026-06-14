@@ -32,7 +32,14 @@ export type Plugin<
   TServerContext extends Record<string, any> = {},
   TUserContext = {}
 > = YogaPlugin<PluginContext, TServerContext, TUserContext> & {
+  /** Identity — used for dependency ordering and error attribution. */
+  name?: string
+  /** `strategy` is the COARSE phase (relative to the GraphQL handler mount):
+   *  'first' = before it, 'last' = after it (e.g. `usePages` catch-all routes). */
   strategy?: 'first' | 'last'
+  /** Other plugin `name`s this one must load AFTER (within the same phase). A dep
+   *  not present in the phase is assumed satisfied by the other phase. Cycles throw. */
+  dependsOn?: string[]
   middleware?: MiddlewareHandler<Env>
   setup?: (app: typeof pylonApp) => Promise<void> | void
   build?: <T extends BuildOptions>(args: {
