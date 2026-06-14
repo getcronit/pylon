@@ -25,7 +25,7 @@ import {GraphQLError} from 'graphql'
 import {runWithAppContext} from './app-context.js'
 import {connect, type Database, databaseForKysely} from './database.js'
 import {NotFoundError} from './errors.js'
-import {ForbiddenError} from './features.js'
+import {ForbiddenError, FeatureDisabledError, type FeatureState} from './features.js'
 import {ValidationError, type ValidationIssue} from './validation.js'
 
 /** Maps a ValidationError's issues to a GraphQL error's message + extensions. */
@@ -63,10 +63,14 @@ export interface UseDatabaseOptions {
    */
   tenant?: (context: any) => string | number | undefined
   /**
-   * Features enabled for the current tenant: `c => c.get('session')?.features`.
-   * Bound into the ambient app context for feature gating. Null-safe.
+   * The feature provider: resolves the current tenant's feature state once per
+   * request (`c => c.get('session')?.features`). Return a `FeatureState` (flag →
+   * value/bool) or a bare `string[]` of enabled flags. May be async (DB/LaunchDarkly).
+   * Bound into the ambient app context for `requireFeature`/`featureValue`. Null-safe.
    */
-  features?: (context: any) => readonly string[] | undefined
+  features?: (
+    context: any
+  ) => FeatureState | readonly string[] | undefined | Promise<FeatureState | readonly string[] | undefined>
   /**
    * The authenticated principal for the request: `c => c.get('session')`. Bound
    * into the ambient app context so row-level policies (`definePolicy`) can
@@ -102,7 +106,8 @@ export function useDatabase(options: UseDatabaseOptions = {}): Plugin {
       // `c` (no `getContext()` ALS-timing dependency).
       const appCtx = {
         tenant: options.tenant?.(c),
-        features: options.features?.(c),
+        // the feature provider may be async (DB/LaunchDarkly) — resolved once here
+        features: await options.features?.(c),
         principal: options.principal?.(c)
       }
       const bound = () => runWithAppContext(appCtx, () => next())
@@ -136,13 +141,23 @@ export function useDatabase(options: UseDatabaseOptions = {}): Plugin {
                 extensions: extensions ?? {}
               })
             }
-            // ForbiddenError (feature gate) → FORBIDDEN (always mapped, not masked).
+            // ForbiddenError (authz denial) → FORBIDDEN (always mapped, not masked).
             if (original instanceof ForbiddenError) {
               changed = true
               return new GraphQLError(original.message, {
                 nodes: err.nodes,
                 path: err.path,
                 extensions: {code: 'FORBIDDEN', feature: original.feature}
+              })
+            }
+            // FeatureDisabledError → FEATURE_DISABLED ("upgrade your plan"), a
+            // DISTINCT signal from FORBIDDEN so the client/UI can branch.
+            if (original instanceof FeatureDisabledError) {
+              changed = true
+              return new GraphQLError(original.message, {
+                nodes: err.nodes,
+                path: err.path,
+                extensions: {code: 'FEATURE_DISABLED', feature: original.feature}
               })
             }
             // NotFoundError (a `.get()` miss) → NOT_FOUND (not masked).

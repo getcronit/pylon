@@ -16,7 +16,12 @@
  * onion chain wraps `next`, so identity → database → handler nests correctly.
  */
 import type {Context, Plugin} from '@getcronit/pylon'
-import {requireFeature, useDatabase, type UseDatabaseOptions} from '@getcronit/pylon-db'
+import {
+  requireFeature,
+  useDatabase,
+  type FeatureProvider,
+  type UseDatabaseOptions
+} from '@getcronit/pylon-db'
 import {
   getPrincipal,
   useIdentity,
@@ -31,6 +36,11 @@ const PRINCIPAL_KEY = 'principal'
 export interface UseAppOptions {
   /** Resolve the request Principal from any auth mechanism. Drives every gate. */
   identity?: IdentityProvider<Context>
+  /**
+   * Feature provider — resolves the tenant's feature state per request (the seam:
+   * static plan / DB / LaunchDarkly). Defaults to `principal.attributes.features`.
+   */
+  features?: FeatureProvider<Context>
   /** ORM/database options. `principal`/`tenant`/`features` default off the Principal. */
   database?: UseDatabaseOptions
 }
@@ -97,6 +107,7 @@ export function useApp(composed: Composed<any>, options: UseAppOptions = {}): Pl
       principal: options.database?.principal ?? readPrincipal,
       tenant: options.database?.tenant ?? (c => readPrincipal(c)?.tenant),
       features:
+        options.features ??
         options.database?.features ??
         (c => readPrincipal(c)?.attributes?.features as readonly string[] | undefined)
     })

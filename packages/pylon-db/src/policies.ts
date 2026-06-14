@@ -26,7 +26,7 @@
  * all. With `@model({secure: true})`, an action with NO rule denies (fail
  * closed); otherwise an action with no rule is unrestricted.
  */
-import {getAppContext} from './app-context.js'
+import {currentFeatures, getAppContext} from './app-context.js'
 import {getModelDefinitionOrThrow, type ModelDefinition} from './registry.js'
 // Type-only (erased) — avoids a runtime import cycle with manager.ts.
 import type {WhereInput} from './manager.js'
@@ -100,5 +100,6 @@ export function getAppPolicy(app: string | undefined): ModelPolicy<any> | undefi
 /** Snapshot the ambient context for a rule. */
 export function policyContext(): PolicyContext {
   const ctx = getAppContext()
-  return {principal: ctx.principal, tenant: ctx.tenant, features: ctx.features ?? []}
+  // `currentFeatures()` normalizes the feature state to the enabled-flag names.
+  return {principal: ctx.principal, tenant: ctx.tenant, features: currentFeatures()}
 }

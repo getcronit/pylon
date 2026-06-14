@@ -1,18 +1,48 @@
 /**
- * Feature flags — typed, per-tenant capability gating. Orthogonal to tenancy:
- * tenancy answers "whose data?", features answer "is this domain enabled for this
- * tenant?". The enabled set is read from the ambient app context (populated by
- * `useDatabase({features})` per request / the queue runtime per job).
+ * Feature gating — per-tenant entitlements. Orthogonal to BOTH tenancy ("whose
+ * data?") and authz ("who may?"): features answer "is this capability part of the
+ * tenant's plan?". A feature is a boolean switch OR carries a VALUE (a limit like
+ * `seats: 5`, or a variant like `checkout: 'v2'`).
+ *
+ * The state is RESOLVED ONCE per request/job by a `FeatureProvider` (the seam:
+ * back it with a static plan map, a DB table, or LaunchDarkly/OpenFeature) and
+ * bound on the ambient app context; the helpers here read it synchronously.
+ * Distinct from authz: a disabled feature is `FEATURE_DISABLED` ("upgrade your
+ * plan"), NOT `FORBIDDEN` ("not allowed") — so the UI can branch differently.
  */
-import {currentFeatures} from './app-context.js'
+import {
+  currentFeatureState,
+  type AppContext,
+  type FeatureState,
+  type FeatureValue
+} from './app-context.js'
 
-// The canonical authz error lives in pylon-auth (row authz / feature gating IS
-// authz, so the ORM depends on the auth contract). Imported from the
-// zero-dependency `/contract` entry, so this stays free of the web framework.
-// Re-exported for back-compat: existing `import {ForbiddenError} from './features.js'`
-// callers keep working, now against the single shared class.
+// The canonical authz error (re-exported for back-compat). Feature denial is its
+// OWN error below — not a ForbiddenError.
 export {ForbiddenError} from '@getcronit/pylon-auth/contract'
-import {ForbiddenError} from '@getcronit/pylon-auth/contract'
+
+/** Thrown when a required feature isn't in the tenant's plan. → `FEATURE_DISABLED`. */
+export class FeatureDisabledError extends Error {
+  readonly code = 'FEATURE_DISABLED'
+  readonly statusCode = 403
+  constructor(
+    message: string,
+    /** The feature that was required (surfaced in the GraphQL error extensions). */
+    readonly feature?: string
+  ) {
+    super(message)
+    this.name = 'FeatureDisabledError'
+  }
+}
+
+/**
+ * Resolves a tenant's feature state for a request/job. THE seam — swap the source
+ * (static plan, DB, LaunchDarkly) without touching enforcement. Runs once at bind
+ * time (may be async); the helpers then read the bound state synchronously.
+ */
+export type FeatureProvider<Ctx = unknown> = (
+  context: Ctx
+) => FeatureState | readonly string[] | undefined | Promise<FeatureState | readonly string[] | undefined>
 
 /** A typed feature registry: `defineFeatures(['products','invoicing'] as const)`. */
 export function defineFeatures<const T extends readonly string[]>(
@@ -21,11 +51,31 @@ export function defineFeatures<const T extends readonly string[]>(
   return Object.fromEntries(features.map(f => [f, f])) as {readonly [K in T[number]]: K}
 }
 
-/** Throw `ForbiddenError` unless `feature` is enabled for the current tenant. */
+/** Is `feature` enabled (truthy) for the current tenant? */
+export function isFeatureEnabled(feature: string): boolean {
+  return !!currentFeatureState()[feature]
+}
+
+/** The value of `feature` (limit/variant) for the current tenant, or `fallback`. */
+export function featureValue<T extends FeatureValue>(feature: string, fallback: T): T {
+  const v = currentFeatureState()[feature]
+  return (v === undefined ? fallback : v) as T
+}
+
+/** Throw `FeatureDisabledError` unless `feature` is enabled for the current tenant. */
 export function requireFeature(feature: string): void {
-  if (!currentFeatures().includes(feature)) {
-    throw new ForbiddenError(`Feature "${feature}" is not enabled for this tenant.`, feature)
+  if (!isFeatureEnabled(feature)) {
+    throw new FeatureDisabledError(`Feature "${feature}" is not enabled for this tenant.`, feature)
   }
+}
+
+/**
+ * A ready resolver exposing the current tenant's feature state to the FRONTEND —
+ * so the UI can hide/disable features instead of hitting server errors. Add it to
+ * your schema: `Query: { features: featuresResolver }`. Returns the flag→value map.
+ */
+export function featuresResolver(): FeatureState {
+  return currentFeatureState()
 }
 
 /**
@@ -47,3 +97,6 @@ export function gateResolvers<R extends Record<string, (...args: any[]) => any>>
   }
   return out as R
 }
+
+// Re-export the context-bound types for `FeatureProvider` consumers.
+export type {AppContext, FeatureState, FeatureValue}

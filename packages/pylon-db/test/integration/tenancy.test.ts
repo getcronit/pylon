@@ -7,7 +7,7 @@ import {
   connect,
   Database,
   defineFeatures,
-  ForbiddenError,
+  FeatureDisabledError,
   gateResolvers,
   getModelDefinitionOrThrow,
   manager,
@@ -44,9 +44,9 @@ describe('tenancy + features (registry, no DB)', () => {
     expect(FEATURES.shop).toBe('shop')
   })
 
-  it('requireFeature throws ForbiddenError when the feature is absent', () => {
+  it('requireFeature throws FeatureDisabledError when the feature is absent', () => {
     runWithAppContext({features: ['billing']}, () => {
-      expect(() => requireFeature(FEATURES.shop)).toThrow(ForbiddenError)
+      expect(() => requireFeature(FEATURES.shop)).toThrow(FeatureDisabledError)
     })
     runWithAppContext({features: ['shop']}, () => {
       expect(() => requireFeature(FEATURES.shop)).not.toThrow()
@@ -56,7 +56,7 @@ describe('tenancy + features (registry, no DB)', () => {
   it('gate wraps resolvers to check the feature (same shape, identity-typed)', async () => {
     const gated = shop.gate({list: () => 'ok'})
     await runWithAppContext({features: []}, async () => {
-      expect(() => gated.list()).toThrow(ForbiddenError)
+      expect(() => gated.list()).toThrow(FeatureDisabledError)
     })
     await runWithAppContext({features: ['shop']}, async () => {
       expect(gated.list()).toBe('ok')

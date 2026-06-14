@@ -63,10 +63,23 @@ export {
   getAppContext,
   currentTenant,
   currentFeatures,
+  currentFeatureState,
   currentPrincipal,
-  type AppContext
+  type AppContext,
+  type FeatureState,
+  type FeatureValue
 } from './app-context.js'
-export {defineFeatures, requireFeature, gateResolvers, ForbiddenError} from './features.js'
+export {
+  defineFeatures,
+  requireFeature,
+  isFeatureEnabled,
+  featureValue,
+  featuresResolver,
+  gateResolvers,
+  ForbiddenError,
+  FeatureDisabledError,
+  type FeatureProvider
+} from './features.js'
 export {runAsSystem} from './app-context.js'
 // Per-model row policies are the LOW-LEVEL seam (`db.definePolicy`), what the
 // high-level `abilities` surface in @getcronit/pylon-app compiles into. App-wide

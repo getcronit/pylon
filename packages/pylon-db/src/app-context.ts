@@ -7,11 +7,20 @@
  */
 import {AsyncLocalStorage} from 'node:async_hooks'
 
+/** A feature can be a boolean switch OR carry a value (a limit/quota or a variant). */
+export type FeatureValue = boolean | number | string
+/** The resolved feature state for a tenant: flag → on/off or a value. Absent = off. */
+export type FeatureState = Record<string, FeatureValue>
+
 export interface AppContext {
   /** Current tenant id (e.g. organizationId). Undefined = no tenant bound. */
   tenant?: string | number
-  /** Features enabled for the current tenant (for feature gating). */
-  features?: readonly string[]
+  /**
+   * Features for the current tenant: a `FeatureState` (flag → value/bool) or a bare
+   * `string[]` of enabled flags (sugar for `{flag: true}`). Bound per request by the
+   * feature provider; read via `requireFeature`/`isFeatureEnabled`/`featureValue`.
+   */
+  features?: FeatureState | readonly string[]
   /** The authenticated principal (session/user) — read by row-level policies. */
   principal?: unknown
   /** Trusted/system scope: bypasses tenant scoping AND row-level policies for
@@ -40,9 +49,22 @@ export function currentTenant(): string | number | undefined {
   return appContext.getStore()?.tenant
 }
 
-/** The features enabled for the current tenant (empty if none bound). */
+/** The resolved feature state (flag → value/bool), normalizing the `string[]` sugar. */
+export function currentFeatureState(): FeatureState {
+  const f = appContext.getStore()?.features
+  if (!f) return {}
+  if (Array.isArray(f)) {
+    const state: FeatureState = {}
+    for (const flag of f) state[flag] = true
+    return state
+  }
+  return f as FeatureState
+}
+
+/** The ENABLED feature flags for the current tenant (truthy values). Back-compat. */
 export function currentFeatures(): readonly string[] {
-  return appContext.getStore()?.features ?? []
+  const state = currentFeatureState()
+  return Object.keys(state).filter(k => !!state[k])
 }
 
 /** The authenticated principal for the active request/job, or undefined. */
