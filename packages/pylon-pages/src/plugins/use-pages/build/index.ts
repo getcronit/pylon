@@ -2,7 +2,12 @@ import {Plugin} from '@getcronit/pylon'
 import chokidar, {FSWatcher} from 'chokidar'
 import esbuild from 'esbuild'
 import fs from 'fs/promises'
+import {createRequire} from 'module'
 import path from 'path'
+
+// Resolve from the app's location via real Node resolution — robust to pnpm /
+// monorepo / hoisted layouts where the package isn't under `cwd/node_modules`.
+const nodeRequire = createRequire(path.join(process.cwd(), 'noop.js'))
 import {makeAppFiles} from './app-utils'
 import {esmExternalsPlugin} from './plugins/external-esm-plugin'
 import {imagePlugin} from './plugins/image-plugin'
@@ -67,11 +72,7 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
     }
   }
 
-  const pylonCssPath = path.join(
-    process.cwd(),
-    'node_modules',
-    '@getcronit/pylon-pages/dist/pages/index.css'
-  )
+  const pylonCssPath = nodeRequire.resolve('@getcronit/pylon-pages/index.css')
 
   const buildAppFilePlugin: esbuild.Plugin = {
     name: 'build-app-file',

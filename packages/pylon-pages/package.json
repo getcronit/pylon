@@ -13,9 +13,7 @@
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
-    "./index.css": {
-      "import": "./dist/pages/index.css"
-    }
+    "./index.css": "./dist/pages/index.css"
   },
   "scripts": {
     "build": "rimraf ./dist && node build.js && pnpm run build:declarations",
