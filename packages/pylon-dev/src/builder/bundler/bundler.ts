@@ -35,13 +35,18 @@ export class Bundler {
     // bundle), not an inline `config` export in the entry.
     await buildConfigFile(process.cwd(), configPath)
 
+    // `config.js` is ALWAYS emitted by buildConfigFile (an empty `{}` when there's
+    // no pylon.config). So a throw here means pylon.config EXISTS but failed to
+    // evaluate — fail the build LOUDLY rather than silently continuing with zero
+    // plugins (which would boot the app with no db/auth/app/pages).
     let config: PylonConfig | undefined
     try {
-      let configModule = await import(configPath)
-
-      config = configModule.config
+      config = (await import(configPath)).config
     } catch (e) {
-      console.error('Error loading config', e)
+      throw new Error(
+        'Failed to load pylon.config — aborting build (the app would otherwise run ' +
+          `with NO plugins). Cause: ${e instanceof Error ? e.stack ?? e.message : String(e)}`
+      )
     }
 
     const buildContexts: ReturnType<NonNullable<Plugin['build']>>[] = []
@@ -70,8 +75,12 @@ export class Bundler {
       name: 'write-on-end',
       setup(build) {
         build.onEnd(async result => {
+          // Don't write artifacts for a failed build — `outputFiles` is undefined
+          // on error (the non-null assertion would throw), and a half-build must
+          // never be emitted.
+          if (result.errors.length > 0 || !result.outputFiles) return
           await Promise.all(
-            result.outputFiles!.map(async file => {
+            result.outputFiles.map(async file => {
               await fs.mkdir(path.dirname(file.path), {recursive: true})
               await updateFileIfChanged(file.path, file.text)
             })
@@ -110,27 +119,37 @@ export class Bundler {
       ]
     })
 
-    if (!options.skipInitialBuild) {
-      await ctx.rebuild()
-    }
-
-    const pluginCtxs = await this.initBuildPlugins({
-      onBuild: () => {
-        options.onBuild?.({
-          totalFiles: 0,
-          totalSize: 0,
-          schemaChanged: false,
-          duration: 0
-        })
+    // Anything that throws AFTER the esbuild context is created (a failed initial
+    // build, a config that won't load) must DISPOSE the context — otherwise the
+    // esbuild service keeps the process alive and the CLI hangs instead of failing
+    // fast.
+    let pluginCtxs: ReturnType<NonNullable<Plugin['build']>>[]
+    try {
+      if (!options.skipInitialBuild) {
+        await ctx.rebuild()
       }
-    })
 
-    if (!options.skipInitialBuild) {
-      for (const pluginCtx of pluginCtxs) {
-        const c = await pluginCtx
+      pluginCtxs = await this.initBuildPlugins({
+        onBuild: () => {
+          options.onBuild?.({
+            totalFiles: 0,
+            totalSize: 0,
+            schemaChanged: false,
+            duration: 0
+          })
+        }
+      })
 
-        await c.rebuild()
+      if (!options.skipInitialBuild) {
+        for (const pluginCtx of pluginCtxs) {
+          const c = await pluginCtx
+
+          await c.rebuild()
+        }
       }
+    } catch (e) {
+      await ctx.dispose().catch(() => {})
+      throw e
     }
 
     return {

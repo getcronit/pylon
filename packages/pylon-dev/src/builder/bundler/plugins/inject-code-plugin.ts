@@ -64,15 +64,21 @@ export const injectCodePlugin = ({
           loader: 'ts',
           contents:
             `import {executeConfig} from "@getcronit/pylon"
-          
-            var __internalPylonConfig = {config: {}}
+
+            // config.js is always emitted (empty {} when there's no pylon.config),
+            // so a failure here means the config EXISTS but threw at load — abort
+            // boot LOUDLY instead of starting with NO plugins (no db/auth/app/pages),
+            // which would silently run the app unsecured.
+            var __internalPylonConfig
             try {
               __internalPylonConfig = await import('./config.js')
             } catch (e) {
+              console.error("[Pylon] Failed to load pylon.config — refusing to boot (the app would otherwise run with NO plugins).")
+              throw e
             }
             await executeConfig(__internalPylonConfig.config)
 
-            
+
 ` +
             contents +
             `

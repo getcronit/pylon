@@ -465,17 +465,37 @@ program
   )
   .action(async options => {
     let serverProcess: ChildProcess | null = null
+    // `killing` distinguishes our intentional kill from a real crash (read by the
+    // child's `exit` handler). `restartChain` serializes rebuild→restart so
+    // overlapping `onBuild`s (multiple esbuild contexts / rapid saves) can't
+    // double-spawn or race on the port.
+    let killing = false
+    let restartChain: Promise<void> = Promise.resolve()
 
-    const killServer = async () => {
-      if (serverProcess && serverProcess.pid) {
+    // Kill the server AND await its actual exit — so the next spawn can't race the
+    // old process for the port (EADDRINUSE / orphan). Falls back after a timeout if
+    // `exit` never arrives.
+    const killServer = () =>
+      new Promise<void>(resolve => {
+        const proc = serverProcess
+        if (!proc || !proc.pid) return resolve()
+        serverProcess = null
+        killing = true
+        let done = false
+        const finish = () => {
+          if (done) return
+          done = true
+          resolve()
+        }
+        proc.once('exit', finish)
         try {
-          treeKillSync(serverProcess.pid)
+          treeKillSync(proc.pid)
         } catch (e: any) {
           consola.error('Failed to kill server process', e)
+          finish()
         }
-        serverProcess = null
-      }
-    }
+        setTimeout(finish, 4000).unref?.()
+      })
 
     let ctx: {
       watch: () => Promise<void>
@@ -490,30 +510,47 @@ program
           sfiFilePath: './src/index.ts',
           outputFilePath: `./.pylon`,
           onBuild: async ({schemaChanged, totalFiles, totalSize, duration}) => {
-            try {
-              await buildClient({schemaChanged})
+            // Single-flight: chain restarts so concurrent onBuilds can't interleave
+            // (kill → await exit → spawn runs to completion before the next starts).
+            restartChain = restartChain
+              .then(async () => {
+                await buildClient({schemaChanged})
 
-              await killServer()
+                await killServer()
 
-              serverProcess = await startDevServer(options.command)
+                serverProcess = startDevServer(options.command, (code, signal) => {
+                  if (killing) {
+                    killing = false // our intentional restart — not a crash
+                    return
+                  }
+                  if (code && code !== 0) {
+                    consola.error(
+                      `[Pylon] Dev server exited (code ${code}). Fix the error and save to restart.`
+                    )
+                  } else if (signal) {
+                    consola.warn(`[Pylon] Dev server terminated (${signal}).`)
+                  }
+                })
 
-              analytics.capture({
-                distinctId,
-                event: 'build completed',
-                properties: {
-                  duration,
-                  totalFiles,
-                  totalSize,
-                  schemaChanged,
-                  dependencies,
-                  pylonConfig: await readPylonConfig(),
-                  isDevelopment: true,
-                  $session_id: sessionId
-                }
+                analytics.capture({
+                  distinctId,
+                  event: 'build completed',
+                  properties: {
+                    duration,
+                    totalFiles,
+                    totalSize,
+                    schemaChanged,
+                    dependencies,
+                    pylonConfig: await readPylonConfig(),
+                    isDevelopment: true,
+                    $session_id: sessionId
+                  }
+                })
               })
-            } catch (e) {
-              consola.error('Error during dev build callback', e)
-            }
+              .catch(e => {
+                consola.error('Error during dev build callback', e)
+              })
+            return restartChain
           },
           skipInitialBuild: true
         })
@@ -646,7 +683,10 @@ const startWorkerProcess = (command: string) => {
   return child
 }
 
-const startDevServer = async (command: string) => {
+const startDevServer = (
+  command: string,
+  onExit?: (code: number | null, signal: NodeJS.Signals | null) => void
+): ChildProcess => {
   const [script, ...args] = command.split(' ')
 
   const child = spawn(script, args, {
@@ -662,6 +702,8 @@ const startDevServer = async (command: string) => {
     consola.error(err)
   })
 
+  if (onExit) child.on('exit', onExit)
+
   return child
 }
 
@@ -669,6 +711,11 @@ try {
   await program.parseAsync(process.argv)
 } catch (error) {
   consola.error(error)
+
+  // A CLI command that threw (e.g. a failed build, a config that won't load) must
+  // exit non-zero so CI/scripts actually catch it. `exitCode` (not `exit()`) lets
+  // the `finally` flush analytics first.
+  process.exitCode = 1
 
   analytics.captureException(error, distinctId, {
     $session_id: sessionId,
