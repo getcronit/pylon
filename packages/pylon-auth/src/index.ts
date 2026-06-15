@@ -11,15 +11,24 @@
  * The zero-dependency contract (Principal, IdentityProvider, helpers,
  * `ForbiddenError`) is also published at `@getcronit/pylon-auth/contract`, so the
  * ORM can depend on it without pulling core in. RESOURCE-tier authz (rows/
- * instances/fields → WhereInput) lives in pylon-app, which re-exports this and
- * extends `authorize` with resource forms.
+ * instances/fields → WhereInput) lives in pylon-db.
  */
+import type {Context} from '@getcronit/pylon'
+import type {IdentityProvider as IdentityProviderBase} from './contract.js'
+
 export {
   type Principal,
-  type IdentityProvider,
   hasRole,
   hasPermission,
   ForbiddenError
 } from './contract.js'
+
+/**
+ * The identity seam, with `Ctx` defaulting to the Pylon request `Context` — so a
+ * provider written `const auth: IdentityProvider = c => …` gets a fully typed `c`
+ * (`c.req.header(...)`, `c.get(...)`). The zero-dep contract keeps the generic
+ * `IdentityProvider<Ctx = unknown>` (the ORM imports that without pulling core in).
+ */
+export type IdentityProvider<Ctx = Context> = IdentityProviderBase<Ctx>
 
 export {getPrincipal, authorize, requireRole, useIdentity} from './authz.js'
