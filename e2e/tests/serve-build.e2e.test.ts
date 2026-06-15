@@ -31,13 +31,16 @@ beforeAll(async () => {
   buildResult = spawnSync('node', [cliBin, 'build'], {
     cwd: appDir,
     encoding: 'utf8',
-    timeout: 60_000,
+    // Generous cap: a real hang (started server) still gets killed → status null →
+    // the assertion fails. The wide bound only tolerates a slow build when the full
+    // suite runs many heavy build-spawns in parallel (isolated this build is ~2s).
+    timeout: 120_000,
     env: {...process.env, PYLON_TELEMETRY_DISABLED: '1', DO_NOT_TRACK: '1'}
   })
   if (buildResult.status === 0) {
     schema = buildSchema(await fs.readFile(path.join(pylonDir, 'schema.graphql'), 'utf8'))
   }
-}, 120_000)
+}, 180_000)
 
 afterAll(async () => {
   await fs.rm(pylonDir, {recursive: true, force: true})

@@ -19,9 +19,9 @@ export {getEnv} from './get-env.js'
 // (OIDC/Zitadel via @getcronit/pylon-auth/zitadel); authz reads the Principal there.
 // The frontend pages battery (usePages + the runtime) lives in @getcronit/pylon-pages.
 export {getResolveInfo} from './resolve-info.js'
-export {pylonApp as app}
+export {pylonApp as app, Pylon}
 
-import {app as pylonApp} from './app/index.js'
+import {app as pylonApp, Pylon} from './app/index.js'
 
 import {BuildContext, BuildOptions} from 'esbuild'
 import type {Plugin as YogaPlugin} from 'graphql-yoga'
@@ -41,7 +41,7 @@ export type Plugin<
    *  not present in the phase is assumed satisfied by the other phase. Cycles throw. */
   dependsOn?: string[]
   middleware?: MiddlewareHandler<Env>
-  setup?: (app: typeof pylonApp) => Promise<void> | void
+  setup?: (app: Pylon) => Promise<void> | void
   build?: <T extends BuildOptions>(args: {
     onBuild: () => void
   }) => Promise<Omit<BuildContext<T>, 'serve'>>

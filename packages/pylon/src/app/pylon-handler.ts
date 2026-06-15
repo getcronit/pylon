@@ -11,7 +11,7 @@ import {useDisableIntrospection} from '@graphql-yoga/plugin-disable-introspectio
 import {readFileSync} from 'fs'
 import {MiddlewareHandler} from 'hono'
 import path from 'path'
-import {app, pluginsMiddleware} from '.'
+import {app, Pylon} from '.'
 import {Plugin, PylonConfig} from '..'
 import {Context} from '../context'
 import {topoSortPlugins} from './plugin-order'
@@ -35,13 +35,13 @@ const resolveLazyObject = <T>(obj: MaybeLazyObject<T>): T => {
   return typeof obj === 'function' ? (obj as () => T)() : obj
 }
 
-const loadPluginsMiddleware = async (plugins: Plugin[]) => {
+const loadPluginsMiddleware = async (plugins: Plugin[], target: Pylon) => {
   // Order by declared `dependsOn` (stable — a no-op when none declared), then load.
   for (const [i, plugin] of topoSortPlugins(plugins).entries()) {
     // Isolate + attribute setup failures: a bad plugin fails with WHICH plugin,
     // not an opaque stack from deep inside the loader.
     try {
-      await plugin.setup?.(app)
+      await plugin.setup?.(target)
     } catch (e) {
       throw new Error(
         `Pylon plugin "${plugin.name ?? `#${i}`}" failed during setup: ` +
@@ -50,16 +50,20 @@ const loadPluginsMiddleware = async (plugins: Plugin[]) => {
     }
 
     if (plugin.middleware) {
-      pluginsMiddleware.push(plugin.middleware)
+      target.pluginsMiddleware.push(plugin.middleware)
     }
   }
 }
 
+// `target` defaults to the singleton `app` so the existing generated entry —
+// `executeConfig(config)` — is unchanged. Passing a specific Pylon lets a separate
+// instance be configured independently (the basis of multi-instance composition).
 export const executeConfig = async (
   config: PylonConfig,
   args?: {
     pluginsStrategy?: 'first' | 'last'
-  }
+  },
+  target: Pylon = app
 ) => {
   const plugins = [useSentry(), useViewer(), ...(config?.plugins || [])]
 
@@ -80,16 +84,16 @@ export const executeConfig = async (
       }
 
       return p.strategy === pluginsStrategy
-    })
+    }),
+    target
   )
 
   config.plugins = plugins
 
-  // @ts-ignore
-  app.config = config
+  target.config = config
 }
 
-export const handler = (options: PylonHandlerOptions) => {
+export const handler = (options: PylonHandlerOptions, target: Pylon = app) => {
   let {
     typeDefs,
     resolvers,
@@ -101,8 +105,7 @@ export const handler = (options: PylonHandlerOptions) => {
 
   const graphql = resolveLazyObject(graphql$)
 
-  // @ts-ignore
-  const config = app.config as PylonConfig
+  const config = target.config as PylonConfig
 
   if (!typeDefs) {
     // Try to read the schema from the default location
