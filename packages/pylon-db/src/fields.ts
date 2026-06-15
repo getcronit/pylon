@@ -1,5 +1,12 @@
-import {createManager, ModelCtor} from './manager.js'
-import {loadBelongsTo, ManyToManyManager, RelatedManager} from './relations.js'
+import {type Connection, createManager, ModelCtor} from './manager.js'
+import {
+  asPaginated,
+  loadBelongsTo,
+  loadHasOne,
+  ManyToManyManager,
+  type Relation,
+  RelatedManager
+} from './relations.js'
 import {
   ColumnDefinition,
   finalizeModel,
@@ -80,9 +87,10 @@ class FieldBuilder {
 /** Internal descriptor produced by a relation builder. */
 class RelationBuilder {
   constructor(
-    readonly kind: 'belongsTo' | 'hasMany' | 'manyToMany',
+    readonly kind: 'belongsTo' | 'hasOne' | 'hasMany' | 'manyToMany',
     readonly target: () => Function,
     readonly options: ForeignKeyOptions &
+      HasOneOptions &
       HasManyOptions &
       ManyToManyOptions & {length?: number}
   ) {}
@@ -355,28 +363,124 @@ export function foreignKey<R extends object>(
   ) as unknown as IdOf<R> | null
 }
 
+/**
+ * A PAGINATED relation accessor: instead of a list, the GraphQL field takes Relay
+ * args and returns a `Connection`. Declared by `{paginate: true}`. At the type
+ * level it's a callable so the compiler emits `field(first, after, last, before):
+ * TConnection`; at runtime it's a prototype method that calls the manager's
+ * `.paginate()` scoped to the parent row.
+ */
+// A paginated relation accessor: CALLABLE (Relay args → `Connection`, which is what
+// the compiler reads off the call signature to emit `field(first, …): TConnection`)
+// AND exposing the manager's methods, so programmatic reads/writes
+// (`post.tags.add(...)`, `.all()`, `await post.tags`) stay typed. The runtime backs
+// this with a callable Proxy over the manager (`asPaginated`).
+//
+// Why a hand-listed interface (not `extends RelatedManager` / an intersection):
+//  - it must be a SINGLE interface with a call signature — an INTERSECTION
+//    suppresses the call signature, so the compiler emits the alias name instead
+//    of the Connection;
+//  - it must NOT be Array-shaped — `RelatedManager`/`ManyToManyManager` extend
+//    `Array`, and a relation field of that shape is matched by `WhereInput`'s
+//    to-many key set, whose `ToManyFilter<WhereInput<target>>` recurses through
+//    this type's `Connection<R>` return type and trips TS's circular-reference
+//    guard on any bidirectional relation graph (→ a broken `WhereInput`).
+// Methods are referenced by indexed access so their signatures never drift.
+export interface PaginatedHasMany<R extends object> {
+  (first?: number, after?: string, last?: number, before?: string, skip?: number): Promise<Connection<R>>
+  all: RelatedManager<R>['all']
+  filter: RelatedManager<R>['filter']
+  orderBy: RelatedManager<R>['orderBy']
+  limit: RelatedManager<R>['limit']
+  first: RelatedManager<R>['first']
+  get: RelatedManager<R>['get']
+  count: RelatedManager<R>['count']
+  create: RelatedManager<R>['create']
+  createMany: RelatedManager<R>['createMany']
+  set: RelatedManager<R>['set']
+  paginate: RelatedManager<R>['paginate']
+  then: RelatedManager<R>['then']
+}
+export interface PaginatedManyToMany<R extends object> {
+  (first?: number, after?: string, last?: number, before?: string, skip?: number): Promise<Connection<R>>
+  all: ManyToManyManager<R>['all']
+  count: ManyToManyManager<R>['count']
+  add: ManyToManyManager<R>['add']
+  remove: ManyToManyManager<R>['remove']
+  clear: ManyToManyManager<R>['clear']
+  set: ManyToManyManager<R>['set']
+  paginate: ManyToManyManager<R>['paginate']
+  then: ManyToManyManager<R>['then']
+}
+
 export interface HasManyOptions {
   /** The FK *property* on the target model that references this model. */
   foreignKey: string
+  /**
+   * Expose this relation as a Relay `Connection` (cursor-paginated) instead of a
+   * plain list — the GraphQL field gains `first/after/last/before` args and
+   * returns `TConnection`. Programmatic access becomes `parent.field(first, …)`
+   * (or `parent.field().` defaults). NOTE: a paginated relation is not
+   * N+1-batched (each parent's page is its own keyset query).
+   */
+  paginate?: boolean
 }
 
 /**
  * Reverse one-to-many. Assign to a property; it resolves to a `RelatedManager`
- * scoped to the parent's primary key.
+ * scoped to the parent's primary key — or, with `{paginate: true}`, to a
+ * cursor-paginated `Connection` accessor.
  *
  * ```ts
  * posts = hasMany(() => Post, {foreignKey: 'authorId'})
+ * pagedPosts = hasMany(() => Post, {foreignKey: 'authorId', paginate: true})
  * ```
  */
 export function hasMany<R extends object>(
   target: () => ModelCtor<R>,
+  options: HasManyOptions & {paginate: true}
+): PaginatedHasMany<R>
+export function hasMany<R extends object>(
+  target: () => ModelCtor<R>,
   options: HasManyOptions
-): RelatedManager<R> {
+): RelatedManager<R>
+export function hasMany<R extends object>(
+  target: () => ModelCtor<R>,
+  options: HasManyOptions
+): RelatedManager<R> | PaginatedHasMany<R> {
   return new RelationBuilder(
     'hasMany',
     target as () => Function,
     options as ForeignKeyOptions & HasManyOptions & ManyToManyOptions
   ) as unknown as RelatedManager<R>
+}
+
+export interface HasOneOptions {
+  /** The FK *property* on the target model that references this model. */
+  foreignKey: string
+}
+
+/**
+ * Reverse ONE-to-one. The inverse of a unique foreign key: the owning side holds
+ * `foreignKey(() => T, {unique: true})`, this side navigates back to the single
+ * related row (or `null`). Resolves to a `Relation<R>` (a `Promise<R | null>`),
+ * batched like `hasMany`.
+ *
+ * ```ts
+ * // Account (owning): userId = foreignKey(() => User, {unique: true})
+ * // User (inverse):
+ * account = hasOne(() => Account, {foreignKey: 'userId'})  // → account: Account
+ * ```
+ */
+export function hasOne<R extends object>(
+  target: () => ModelCtor<R>,
+  options: HasOneOptions
+): Relation<R> {
+  return new RelationBuilder(
+    'hasOne',
+    target as () => Function,
+    options as ForeignKeyOptions & HasOneOptions & HasManyOptions & ManyToManyOptions
+  ) as unknown as Relation<R>
 }
 
 export interface ManyToManyOptions {
@@ -403,12 +507,19 @@ export interface ManyToManyOptions {
    * the other side `{inverse: true}`.
    */
   inverse?: boolean
+  /**
+   * Expose this relation as a Relay `Connection` (cursor-paginated) instead of a
+   * plain list — see {@link HasManyOptions.paginate}. Paginates THROUGH the join
+   * table, keyset on the target's PK by default.
+   */
+  paginate?: boolean
 }
 
 /**
  * Many-to-many. Declare it on *both* sides; a join table is synthesized (two
  * FK columns + a composite UNIQUE index) and shared by both. Resolves to a
- * {@link ManyToManyManager} scoped to the parent row.
+ * {@link ManyToManyManager} scoped to the parent row — or, with
+ * `{paginate: true}`, to a cursor-paginated `Connection` accessor.
  *
  * ```ts
  * // on Post
@@ -419,8 +530,16 @@ export interface ManyToManyOptions {
  */
 export function manyToMany<R extends object>(
   target: () => ModelCtor<R>,
+  options: ManyToManyOptions & {paginate: true}
+): PaginatedManyToMany<R>
+export function manyToMany<R extends object>(
+  target: () => ModelCtor<R>,
+  options?: ManyToManyOptions
+): ManyToManyManager<R>
+export function manyToMany<R extends object>(
+  target: () => ModelCtor<R>,
   options: ManyToManyOptions = {}
-): ManyToManyManager<R> {
+): ManyToManyManager<R> | PaginatedManyToMany<R> {
   return new RelationBuilder(
     'manyToMany',
     target as () => Function,
@@ -645,7 +764,18 @@ export function model(options: ModelOptions = {}): ClassDecorator {
             through: value.options.through,
             sourceColumn: value.options.sourceColumn,
             targetColumn: value.options.targetColumn,
-            inverse: value.options.inverse
+            inverse: value.options.inverse,
+            paginate: value.options.paginate
+          }
+          registerRelation(Ctor, rel)
+          relations.push(rel)
+        } else if (value.kind === 'hasOne') {
+          const rel: RelationDefinition = {
+            kind: 'hasOne',
+            propertyKey: key,
+            target: value.target,
+            nullable: true,
+            targetForeignKey: value.options.foreignKey
           }
           registerRelation(Ctor, rel)
           relations.push(rel)
@@ -655,7 +785,8 @@ export function model(options: ModelOptions = {}): ClassDecorator {
             propertyKey: key,
             target: value.target,
             nullable: true,
-            targetForeignKey: value.options.foreignKey
+            targetForeignKey: value.options.foreignKey,
+            paginate: value.options.paginate
           }
           registerRelation(Ctor, rel)
           relations.push(rel)
@@ -721,31 +852,9 @@ export function model(options: ModelOptions = {}): ClassDecorator {
             return loadBelongsTo(target() as ModelCtor<any>, fk)
           }
         })
-      } else if (rel.kind === 'manyToMany') {
-        const {target, through, sourceColumn, targetColumn} = rel
-        Object.defineProperty(Wrapped.prototype, rel.propertyKey, {
-          configurable: true,
-          enumerable: false,
-          get(this: any) {
-            const def = getModelDefinitionOrThrow(this.constructor)
-            const pkProperty = def.primaryKey?.propertyKey
-            if (!pkProperty) {
-              throw new Error(
-                `Cannot resolve manyToMany "${rel.propertyKey}": "${def.tableName}" has no primary key.`
-              )
-            }
-            return new ManyToManyManager(
-              this.constructor as ModelCtor<any>,
-              target() as ModelCtor<any>,
-              this[pkProperty],
-              {through, sourceColumn, targetColumn}
-            )
-          },
-          set() {
-            /* no-op: relation is a computed accessor, not stored state */
-          }
-        })
-      } else {
+      } else if (rel.kind === 'hasOne') {
+        // Inverse 1:1 — resolve the single child whose FK points at this row's PK
+        // (batched like hasMany, takes the first). Returns Promise<T | null>.
         const {target, targetForeignKey} = rel
         Object.defineProperty(Wrapped.prototype, rel.propertyKey, {
           configurable: true,
@@ -755,14 +864,69 @@ export function model(options: ModelOptions = {}): ClassDecorator {
             const pkProperty = def.primaryKey?.propertyKey
             if (!pkProperty) {
               throw new Error(
-                `Cannot resolve hasMany "${rel.propertyKey}": "${def.tableName}" has no primary key.`
+                `Cannot resolve hasOne "${rel.propertyKey}": "${def.tableName}" has no primary key.`
               )
             }
-            return new RelatedManager(
-              target() as ModelCtor<any>,
-              targetForeignKey!,
-              this[pkProperty]
+            const targetCtor = target() as ModelCtor<any>
+            const targetDef = getModelDefinitionOrThrow(targetCtor)
+            const fkColumn =
+              targetDef.columns.find(c => c.propertyKey === targetForeignKey)?.columnName ??
+              targetForeignKey!
+            return loadHasOne(targetCtor, fkColumn, this[pkProperty])
+          },
+          set() {
+            /* no-op: relation is a computed accessor, not stored state */
+          }
+        })
+      } else if (rel.kind === 'manyToMany') {
+        const {target, through, sourceColumn, targetColumn, paginate} = rel
+        const makeManager = (self: any): ManyToManyManager<any> => {
+          const def = getModelDefinitionOrThrow(self.constructor)
+          const pkProperty = def.primaryKey?.propertyKey
+          if (!pkProperty) {
+            throw new Error(
+              `Cannot resolve manyToMany "${rel.propertyKey}": "${def.tableName}" has no primary key.`
             )
+          }
+          return new ManyToManyManager(
+            self.constructor as ModelCtor<any>,
+            target() as ModelCtor<any>,
+            self[pkProperty],
+            {through, sourceColumn, targetColumn}
+          )
+        }
+        // Paginated → a getter returning a callable manager (Relay args →
+        // Connection when called; `.add()/.all()/await` still reach the manager).
+        // Plain → a getter returning the (thenable, list-shaped) manager.
+        Object.defineProperty(Wrapped.prototype, rel.propertyKey, {
+          configurable: true,
+          enumerable: false,
+          get(this: any) {
+            const mgr = makeManager(this)
+            return paginate ? asPaginated(mgr) : mgr
+          },
+          set() {
+            /* no-op: relation is a computed accessor, not stored state */
+          }
+        })
+      } else {
+        const {target, targetForeignKey, paginate} = rel
+        const makeManager = (self: any): RelatedManager<any> => {
+          const def = getModelDefinitionOrThrow(self.constructor)
+          const pkProperty = def.primaryKey?.propertyKey
+          if (!pkProperty) {
+            throw new Error(
+              `Cannot resolve hasMany "${rel.propertyKey}": "${def.tableName}" has no primary key.`
+            )
+          }
+          return new RelatedManager(target() as ModelCtor<any>, targetForeignKey!, self[pkProperty])
+        }
+        Object.defineProperty(Wrapped.prototype, rel.propertyKey, {
+          configurable: true,
+          enumerable: false,
+          get(this: any) {
+            const mgr = makeManager(this)
+            return paginate ? asPaginated(mgr) : mgr
           },
           // Swallow the field-initializer write: `posts = hasMany(...)` runs in
           // the constructor and would otherwise throw ("has only a getter").

@@ -2,12 +2,17 @@ import {joinColumn, joinTableName} from '@getcronit/pylon-ir'
 import {Database, getDatabase} from './database.js'
 import {
   type BulkOptions,
+  columnFor,
+  type Connection,
   createManager,
   createMany,
   applyPolicyWhere,
+  decodeCursor,
   deleteManyInstances,
+  encodeCursor,
   hydrate,
   ModelCtor,
+  type PaginateArgs,
   QuerySet,
   selectableColumns,
   type WhereInput
@@ -17,6 +22,38 @@ import {getModelDefinitionOrThrow} from './registry.js'
 
 /** Return type of a `belongsTo` accessor. */
 export type Relation<T> = Promise<T | null>
+
+interface Paginatable<T extends object> {
+  paginate(args: PaginateArgs): Promise<Connection<T>>
+}
+
+/**
+ * Wrap a relation manager so the accessor is BOTH callable and a manager: calling
+ * it (`post.tags(first, after, last, before)`) returns a `Connection` page — which
+ * is what the GraphQL layer does for a paginated relation field — while property
+ * access (`post.tags.add(...)`, `.all()`, `await post.tags`) still reaches the
+ * underlying manager. A `Proxy` over the paginate call: invoking runs the target
+ * (paginate); every other member forwards to the manager (bound).
+ */
+export function asPaginated<T extends object, M extends Paginatable<T>>(mgr: M): M {
+  const call = (
+    first?: number,
+    after?: string,
+    last?: number,
+    before?: string,
+    skip?: number
+  ) => mgr.paginate({first, after, last, before, skip})
+  return new Proxy(call, {
+    get(target, prop, receiver) {
+      // Manager members win (add/all/paginate/then/…). Anything the manager does
+      // NOT define falls back to the function target — so `bind`/`call`/`apply`/
+      // `name`/`length` keep working (the GraphQL layer does `accessor.bind(row)`).
+      const v = (mgr as any)[prop]
+      if (v !== undefined) return typeof v === 'function' ? v.bind(mgr) : v
+      return Reflect.get(target, prop, receiver)
+    }
+  }) as unknown as M
+}
 
 interface Waiter<R> {
   resolve: (value: R | null) => void
@@ -176,6 +213,19 @@ function loadHasMany<T extends object>(
   })
 }
 
+/**
+ * Load a parent's single `hasOne` child (the inverse of a unique-FK belongsTo),
+ * batched per microtask via the same path as `hasMany` — returns the first row or
+ * null. A 1:1's FK + unique constraint guarantees at most one.
+ */
+export function loadHasOne<T extends object>(
+  child: ModelCtor<T>,
+  fkColumn: string,
+  parentValue: unknown
+): Promise<T | null> {
+  return loadHasMany(child, fkColumn, parentValue).then(rows => (rows[0] as T) ?? null)
+}
+
 async function flushHasMany(db: Database, ctxKey: object, token: string): Promise<void> {
   const perCtx = hasManyBatches.get(ctxKey)
   const batch = perCtx?.get(token)
@@ -289,6 +339,17 @@ export class RelatedManager<T extends object> {
 
   count(): Promise<number> {
     return this.base.count()
+  }
+
+  /**
+   * Relay cursor pagination over this parent's children — the scoped twin of
+   * `Manager.paginate`. Keyset over the child table (single table, the FK filter
+   * is already applied), so it reuses `QuerySet.paginate` directly. NOTE: unlike
+   * `.all()`, a paginated relation is NOT N+1-batched — each parent's page is its
+   * own keyset query (inherent to cursor pagination; fine for detail views).
+   */
+  paginate(args?: PaginateArgs): Promise<Connection<T>> {
+    return this.base.paginate(args)
   }
 
   /** Create a child row with the parent foreign key already set. */
@@ -438,6 +499,73 @@ export class ManyToManyManager<T extends object> {
       .where(s.localColumn as any, '=', this.ownerPk as any)
       .executeTakeFirst()
     return Number((row as any)?.count ?? 0)
+  }
+
+  /**
+   * Relay cursor pagination over the related rows, THROUGH the join table. Keyset
+   * on a stable target column (the target PK by default), re-scoped by the
+   * target's READ policy — the paginated twin of `.all()`. `QuerySet.paginate`
+   * can't be reused here (it's single-table); this mirrors its keyset logic over
+   * the join. Like the hasMany case, a paginated relation is NOT N+1-batched.
+   */
+  async paginate(args: PaginateArgs = {}): Promise<Connection<T>> {
+    const s = this.spec()
+    const targetDef = getModelDefinitionOrThrow(this.targetCtor)
+    const raw = args.orderBy ?? targetDef.primaryKey?.propertyKey
+    if (!raw) {
+      throw new Error(`${targetDef.tableName}: .paginate() needs an orderBy or a primary key.`)
+    }
+    const desc = raw.startsWith('-')
+    const orderCol = columnFor(targetDef, desc ? raw.slice(1) : raw).columnName
+    const qualified = `${s.targetTable}.${orderCol}`
+
+    // Backward paging walks the reverse order then flips back (mirrors QuerySet).
+    const backward = args.last !== undefined || args.before !== undefined
+    const size = (backward ? args.last : args.first) ?? 20
+    const naturalAsc = !desc
+    const orderDir = backward ? (naturalAsc ? 'desc' : 'asc') : naturalAsc ? 'asc' : 'desc'
+
+    let q: any = getDatabase()
+      .kysely.selectFrom(s.targetTable)
+      .innerJoin(
+        s.joinTable,
+        `${s.joinTable}.${s.targetColumn}` as any,
+        `${s.targetTable}.${s.targetPkColumn}` as any
+      )
+      .where(`${s.joinTable}.${s.localColumn}` as any, '=', this.ownerPk as any)
+      .select(selectableColumns(targetDef, s.targetTable) as any)
+    q = applyPolicyWhere(q, targetDef, 'read', s.targetTable)
+    if (!backward && args.after !== undefined) {
+      q = q.where(qualified as any, desc ? '<' : '>', decodeCursor(args.after) as any)
+    }
+    if (backward && args.before !== undefined) {
+      q = q.where(qualified as any, desc ? '>' : '<', decodeCursor(args.before) as any)
+    }
+    q = q.orderBy(qualified as any, orderDir)
+    if (!backward && args.skip) q = q.offset(args.skip)
+
+    const fetched = await q.limit(size + 1).execute()
+    const hasExtra = fetched.length > size
+    let page = hasExtra ? fetched.slice(0, size) : fetched
+    if (backward) page = page.reverse()
+
+    // Rows are aliased to short column names (see selectableColumns), so the
+    // cursor reads the unqualified order column.
+    const edges = page.map((r: any) => ({
+      cursor: encodeCursor(r[orderCol]),
+      node: hydrate(this.targetCtor, r)
+    }))
+    return {
+      edges,
+      nodes: edges.map(e => e.node),
+      totalCount: await this.count(),
+      pageInfo: {
+        hasNextPage: backward ? args.before !== undefined : hasExtra,
+        hasPreviousPage: backward ? hasExtra : args.after !== undefined || (args.skip ?? 0) > 0,
+        startCursor: edges.length ? edges[0].cursor : null,
+        endCursor: edges.length ? edges[edges.length - 1].cursor : null
+      }
+    }
   }
 
   /** Link one or more rows by instance OR primary key (idempotent). */
