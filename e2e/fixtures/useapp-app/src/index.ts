@@ -1,11 +1,5 @@
-// Host entry: the composed schema is the GraphQL export; routes + Context come
-// from useApp (pylon.config.ts). Mirrors a real pylon-app service.
-import {app} from '@getcronit/pylon'
-import {serve} from '@hono/node-server'
-import {composed} from './apps'
+// Host: the root composes the app Pylons (one merged schema + mounted routes).
+import {Pylon} from '@getcronit/pylon'
+import {projects} from './apps/projects'
 
-export const graphql = composed.graphql
-
-serve({fetch: app.fetch, port: Number(process.env.PORT ?? 3000)}, info => {
-  console.log(`ready:${info.port}`)
-})
+export default new Pylon().compose(projects)

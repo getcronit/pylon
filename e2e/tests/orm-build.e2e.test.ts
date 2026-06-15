@@ -74,7 +74,7 @@ function fieldType(typeName: string, fieldName: string): string {
 
 describe('pylon build (shipped CLI) on a real ORM project', () => {
   it('exits successfully', () => {
-    expect(buildResult.status, buildResult.stderr || buildResult.stdout).toBe(0)
+    expect(buildResult.status, String(buildResult.stderr ?? buildResult.stdout ?? "")).toBe(0)
   })
 
   it('writes the build artifacts', async () => {

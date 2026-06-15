@@ -20,6 +20,7 @@ export {getEnv} from './get-env.js'
 // The frontend pages battery (usePages + the runtime) lives in @getcronit/pylon-pages.
 export {getResolveInfo} from './resolve-info.js'
 export {pylonApp as app, Pylon}
+export type {Gate, Resolvers} from './app/index.js'
 
 import {app as pylonApp, Pylon} from './app/index.js'
 
@@ -41,7 +42,7 @@ export type Plugin<
    *  not present in the phase is assumed satisfied by the other phase. Cycles throw. */
   dependsOn?: string[]
   middleware?: MiddlewareHandler<Env>
-  setup?: (app: Pylon) => Promise<void> | void
+  setup?: (app: Pylon<any>) => Promise<void> | void
   build?: <T extends BuildOptions>(args: {
     onBuild: () => void
   }) => Promise<Omit<BuildContext<T>, 'serve'>>

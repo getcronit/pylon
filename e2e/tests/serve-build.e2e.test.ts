@@ -50,7 +50,7 @@ describe('pylon build on an app with top-level serve(app)', () => {
   it('completes without hanging on the started server', () => {
     // A hang would surface as status null (timeout); a started server would
     // also typically prevent a clean exit.
-    expect(buildResult.status, buildResult.stderr || buildResult.stdout).toBe(0)
+    expect(buildResult.status, String(buildResult.stderr ?? buildResult.stdout ?? "")).toBe(0)
   })
 
   it('still merges the ORM models into the schema', () => {

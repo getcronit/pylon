@@ -1,11 +1,8 @@
-import {app} from '@getcronit/pylon'
-import {serve} from '@hono/node-server'
+import {Pylon} from '@getcronit/pylon'
 
-export const graphql = {
-  Query: {ping: (): string => 'ok'},
-  Mutation: {}
-}
-
-serve({fetch: app.fetch, port: Number(process.env.PORT) || 3000}, info => {
-  console.log(`ready:${info.port}`)
+export default new Pylon({
+  graphql: {
+    Query: {ping: (): string => 'ok'},
+    Mutation: {}
+  }
 })

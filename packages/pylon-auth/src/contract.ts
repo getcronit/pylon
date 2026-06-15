@@ -11,6 +11,7 @@
 export {
   type Principal,
   type IdentityProvider,
+  PRINCIPAL_KEY,
   hasRole,
   hasPermission
 } from './principal.js'

@@ -27,6 +27,14 @@ export type IdentityProvider<Ctx = unknown> = (
   context: Ctx
 ) => Principal | undefined | Promise<Principal | undefined>
 
+/**
+ * The request-context key the bound Principal lives under. Shared so layers below
+ * the web runtime (the ORM's `useDatabase`) can read it off the context without
+ * importing the core-dependent auth entry — they default their principal/tenant
+ * binding off this key.
+ */
+export const PRINCIPAL_KEY = 'principal'
+
 /** Does the principal hold ANY of the given roles? Null-safe (public ⇒ false). */
 export function hasRole(p: Principal | undefined, ...roles: string[]): boolean {
   return !!p?.roles && roles.some(r => p.roles!.includes(r))

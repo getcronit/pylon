@@ -1,4 +1,5 @@
 // App for the migration-CLI e2e. Distinct table names (mig_*).
+import {Pylon} from '@getcronit/pylon'
 import {models} from '@getcronit/pylon-db'
 import type {Relation} from '@getcronit/pylon-db'
 
@@ -17,7 +18,9 @@ export class MigBook extends models.Model {
   declare author: Relation<MigAuthor>
 }
 
-export const graphql = {
-  Query: {},
-  Mutation: {}
-}
+export default new Pylon({
+  graphql: {
+    Query: {},
+    Mutation: {}
+  }
+})

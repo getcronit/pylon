@@ -107,7 +107,7 @@ describe.skipIf(!dockerAvailable)('multi-app e2e — two apps compose one schema
       timeout: 120_000,
       env: {...process.env, PYLON_TELEMETRY_DISABLED: '1', DO_NOT_TRACK: '1'}
     })
-    if (build.status !== 0) throw new Error(`build failed: ${build.stderr || build.stdout}`)
+    if (build.status !== 0) throw new Error(`build failed: ${String(build.stderr ?? build.stdout ?? "")}`)
 
     // Per-app migrations applied in dependency order (blog → shop).
     await resetSchema()

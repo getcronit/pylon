@@ -1,58 +1,63 @@
-// pylon-app fixture: two `defineApp` apps fused with `compose()`. The point of
-// this fixture is the BUILD — proving that `export const graphql =
-// compose(...).graphql` is type-introspected by the real `pylon build` (the
-// merged schema is the deep intersection of each app's resolver fragment), and
-// that compose's gate-wrapping (the `billing` app's `authorize`) preserves the
-// introspected field types (a gated field still appears with its real type).
-import {compose, defineApp, hasRole} from '@getcronit/pylon-app'
-import type {Relation} from '@getcronit/pylon-app'
+// NEW model: two apps as Pylon instances (each with name-tagged ORM models),
+// composed at the root into ONE schema. billing is gated (admin) — the gate is
+// type-transparent, so its fields still appear in the introspected SDL. Proves
+// the build type-introspects `default.graphql` across composed apps + merges
+// each app's ORM models. No defineApp / compose() (pylon-app) / .resolvers.
+import {Pylon} from '@getcronit/pylon'
+import {hasRole} from '@getcronit/pylon-auth'
+import {db, gate, models, type Relation} from '@getcronit/pylon-db'
 
 // ---- catalog app (ungated) ----
-const catalog = defineApp('catalog')
+const catalog_ = models.app('catalog')
 
-@catalog.model() // → catalog_category
-export class Category extends catalog.Model {
-  id = catalog.ID()
-  name = catalog.Text({unique: true})
-  products = catalog.HasMany(() => Product, {foreignKey: 'categoryId'})
+@catalog_.model() // → catalog_category
+export class Category extends catalog_.Model {
+  id = catalog_.ID()
+  name = catalog_.Text({unique: true})
+  products = catalog_.HasMany(() => Product, {foreignKey: 'categoryId'})
 }
 
-@catalog.model() // → catalog_product
-export class Product extends catalog.Model {
-  id = catalog.ID()
-  name = catalog.Text()
-  price = catalog.Int()
-  categoryId = catalog.ForeignKey(() => Category)
+@catalog_.model() // → catalog_product
+export class Product extends catalog_.Model {
+  static objects = db.manager(Product)
+  id = catalog_.ID()
+  name = catalog_.Text()
+  price = catalog_.Int()
+  categoryId = catalog_.ForeignKey(() => Category)
   declare category: Relation<Category>
 }
 
-const catalogApp = catalog.resolvers({
-  Query: {
-    product: (): Product => ({}) as Product,
-    products: (): Product[] => []
-  },
-  Mutation: {
-    addProduct: (name: string, price: number): Product => ({name, price}) as Product
+const catalog = new Pylon({
+  graphql: {
+    Query: {
+      product: (): Product => ({}) as Product,
+      products: (): Product[] => []
+    },
+    Mutation: {
+      addProduct: (name: string, price: number): Product => ({name, price}) as Product
+    }
   }
 })
 
 // ---- billing app (capability-gated: admin only) ----
-const billing = defineApp('billing', {authorize: p => hasRole(p, 'admin')})
+const billing_ = models.app('billing')
 
-@billing.model() // → billing_invoice
-export class Invoice extends billing.Model {
-  id = billing.ID()
-  total = billing.Int()
+@billing_.model() // → billing_invoice
+export class Invoice extends billing_.Model {
+  id = billing_.ID()
+  total = billing_.Int()
 }
 
-const billingApp = billing.resolvers({
-  Query: {
-    invoice: (): Invoice => ({}) as Invoice
+const billing = new Pylon({
+  graphql: {
+    Query: {
+      invoice: (): Invoice => ({}) as Invoice
+    },
+    Mutation: {
+      issueInvoice: (total: number): Invoice => ({total}) as Invoice
+    }
   },
-  Mutation: {
-    issueInvoice: (total: number): Invoice => ({total}) as Invoice
-  }
+  gate: gate({authorize: p => hasRole(p, 'admin')})
 })
 
-// The whole point: a composed, typed schema from two apps.
-export const graphql = compose(catalogApp, billingApp).graphql
+export default new Pylon().compose(catalog, billing)

@@ -2,6 +2,7 @@
 // by committed, hand-authored migration files (see ./migrations). The models
 // here match what those migrations build; `snapshot.json` is their captured
 // baseline, so `pylon db status` reports no uncaptured changes.
+import {Pylon} from '@getcronit/pylon'
 import {models, db} from '@getcronit/pylon-db'
 import type {Relation} from '@getcronit/pylon-db'
 
@@ -17,15 +18,14 @@ export class ShopCategory extends models.Model {
 export class ShopProduct extends models.Model {
   static objects = db.manager(ShopProduct)
   id = models.ID()
-  // Indexed in code so the model matches the 0004_index migration — with the
-  // baseline reconstructed from ops, `status` would otherwise (correctly) report
-  // the migration's index as uncaptured drift.
   title = models.Text({index: true})
   categoryId = models.ForeignKey(() => ShopCategory)
   declare category: Relation<ShopCategory>
 }
 
-export const graphql = {
-  Query: {},
-  Mutation: {}
-}
+export default new Pylon({
+  graphql: {
+    Query: {},
+    Mutation: {}
+  }
+})

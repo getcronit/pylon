@@ -61,7 +61,7 @@ const implementsIface = (type: string, iface: string) =>
 
 describe('pylon build (shipped CLI) — content-platform app (no ORM)', () => {
   it('builds successfully into a valid schema', () => {
-    expect(buildResult.status, buildResult.stderr || buildResult.stdout).toBe(0)
+    expect(buildResult.status, String(buildResult.stderr ?? buildResult.stdout ?? "")).toBe(0)
     expect(schema).toBeInstanceOf(GraphQLSchema)
   })
 

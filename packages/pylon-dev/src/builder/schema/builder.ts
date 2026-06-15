@@ -52,15 +52,19 @@ export class SchemaBuilder {
 
     const sfiFileSymbol = this.checker.getSymbolAtLocation(file)!
     const sfiFileExports = this.checker.getExportsOfModule(sfiFileSymbol!)
-    const sfiFileDefaultExport = sfiFileExports.find(
-      exportSymbol => exportSymbol.escapedName === 'graphql'
-    )
 
-    if (!sfiFileDefaultExport) {
-      throw new Error('Could not find graphql export')
+    // The entry MUST default-export the Pylon app (`export default new Pylon()...`).
+    // `build()` reads its `.graphql` property type. This is the single source of
+    // truth — the app carries both the typed surface (build) and the resolvers
+    // (run). (Breaking: the legacy named `export const graphql` is gone.)
+    const def = sfiFileExports.find(s => s.escapedName === 'default')
+    if (!def) {
+      throw new Error(
+        'Pylon entry must `export default` the app (e.g. `export default new Pylon(...)`).'
+      )
     }
 
-    this.sfi = sfiFileDefaultExport
+    this.sfi = def
   }
 
   private loadTsConfigOptions() {
@@ -106,10 +110,25 @@ export class SchemaBuilder {
   }
 
   public build(options: BuildOptions = {}) {
-    const sfiType = this.checker.getTypeOfSymbolAtLocation(
-      this.sfi,
-      this.sfiFile
-    )
+    let sfiType = this.checker.getTypeOfSymbolAtLocation(this.sfi, this.sfiFile)
+
+    // If `this.sfi` is a default-exported Pylon app (not a bare resolver object),
+    // it has no Query/Mutation/Subscription of its own — dig into its `.graphql`
+    // property, which carries the (instantiated) merged resolver type.
+    const hasRootOp =
+      sfiType.getProperty('Query') ||
+      sfiType.getProperty('Mutation') ||
+      sfiType.getProperty('Subscription')
+    if (!hasRootOp) {
+      // INSTANTIATED property type (substitutes the class generic `G`) — NOT
+      // `getTypeOfSymbolAtLocation`, which resolves the property's *declared* type
+      // (the bare `G`, i.e. its constraint with no concrete fields).
+      const gType = (this.checker as any).getTypeOfPropertyOfType?.(
+        sfiType,
+        'graphql'
+      )
+      if (gType) sfiType = gType
+    }
 
     // const plainResolversProperty = sfiType.getProperty('plainResolvers')
 

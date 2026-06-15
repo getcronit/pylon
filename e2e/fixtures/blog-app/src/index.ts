@@ -2,6 +2,7 @@
 // features through plain TypeScript — enums, interfaces (inheritance), unions,
 // self-referential types, lists (incl. nested), nullability, input objects,
 // positional + object args, Date scalar, and async resolvers.
+import {Pylon} from '@getcronit/pylon'
 
 // --- Enums (string-literal unions) ---
 type Role = 'ADMIN' | 'AUTHOR' | 'READER'
@@ -57,22 +58,24 @@ class Post {
 // --- Union ---
 type SearchResult = Post | User
 
-export const graphql = {
-  Query: {
-    me: (): User | null => null,
-    post: (id: string): Post | null => null,
-    posts: (filter: {status?: PostStatus; tag?: string; limit?: number}): Post[] => [],
-    search: (query: string): SearchResult[] => [],
-    feed: async (): Promise<Post[]> => []
-  },
-  Mutation: {
-    createPost: (input: {
-      title: string
-      body: string
-      tags: string[]
-      status?: PostStatus
-    }): Post => ({}) as Post,
-    addComment: (postId: string, input: {body: string}): Comment => ({}) as Comment,
-    publishPosts: (ids: string[]): Post[] => []
+export default new Pylon({
+  graphql: {
+    Query: {
+      me: (): User | null => null,
+      post: (id: string): Post | null => null,
+      posts: (filter: {status?: PostStatus; tag?: string; limit?: number}): Post[] => [],
+      search: (query: string): SearchResult[] => [],
+      feed: async (): Promise<Post[]> => []
+    },
+    Mutation: {
+      createPost: (input: {
+        title: string
+        body: string
+        tags: string[]
+        status?: PostStatus
+      }): Post => ({}) as Post,
+      addComment: (postId: string, input: {body: string}): Comment => ({}) as Comment,
+      publishPosts: (ids: string[]): Post[] => []
+    }
   }
-}
+})

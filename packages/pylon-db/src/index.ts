@@ -58,6 +58,20 @@ export {
 } from './manager.js'
 export {syncSchema, dropTables} from './schema-sync.js'
 export {useDatabase, type UseDatabaseOptions} from './plugin.js'
+export {gate, type GateOptions} from './gate.js'
+// Resource-tier authz (row/instance/field), enforced inside the ORM. Capability
+// authz (authorize-predicate/requireRole/hasRole) lives in pylon-auth.
+export {
+  defineAbilities,
+  authorize,
+  can,
+  cannot,
+  filter,
+  type AbilitiesFn,
+  type AbilityRule,
+  type AbilityRuleResult
+} from './abilities.js'
+export {matchWhere, AbilityMatchError} from './matcher.js'
 export {
   runWithAppContext,
   getAppContext,

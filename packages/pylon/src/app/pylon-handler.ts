@@ -35,7 +35,7 @@ const resolveLazyObject = <T>(obj: MaybeLazyObject<T>): T => {
   return typeof obj === 'function' ? (obj as () => T)() : obj
 }
 
-const loadPluginsMiddleware = async (plugins: Plugin[], target: Pylon) => {
+const loadPluginsMiddleware = async (plugins: Plugin[], target: Pylon<any>) => {
   // Order by declared `dependsOn` (stable — a no-op when none declared), then load.
   for (const [i, plugin] of topoSortPlugins(plugins).entries()) {
     // Isolate + attribute setup failures: a bad plugin fails with WHICH plugin,
@@ -63,7 +63,7 @@ export const executeConfig = async (
   args?: {
     pluginsStrategy?: 'first' | 'last'
   },
-  target: Pylon = app
+  target: Pylon<any> = app
 ) => {
   const plugins = [useSentry(), useViewer(), ...(config?.plugins || [])]
 
@@ -93,7 +93,7 @@ export const executeConfig = async (
   target.config = config
 }
 
-export const handler = (options: PylonHandlerOptions, target: Pylon = app) => {
+export const handler = (options: PylonHandlerOptions, target: Pylon<any> = app) => {
   let {
     typeDefs,
     resolvers,

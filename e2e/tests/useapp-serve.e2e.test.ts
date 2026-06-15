@@ -1,7 +1,8 @@
 /**
- * Live e2e for the pylon-app stack (Dockerized): a real running server built from
- * defineApp + compose + useApp + an identity provider + defineAbilities. Proves
- * the WHOLE thing end-to-end over HTTP — the path the lokalis migration rests on:
+ * Live e2e for the multi-app authz stack (Dockerized): a real running server built
+ * from `new Pylon({graphql})` apps + `compose()` + an identity provider +
+ * `defineAbilities`. Proves the WHOLE thing end-to-end over HTTP — the path the
+ * lokalis migration rests on:
  *   - identity provider → Principal bound for the request,
  *   - tenant auto-scoping (org isolation),
  *   - resource abilities scope ORM reads (own + shared) and authorize writes,
@@ -76,7 +77,7 @@ async function waitForReady(timeoutMs = 30_000) {
 
 const ids: Record<string, number> = {}
 
-describe.skipIf(!dockerAvailable)('pylon-app live — defineApp + useApp + two-tier authz', () => {
+describe.skipIf(!dockerAvailable)('multi-app live — Pylon apps + compose + two-tier authz', () => {
   beforeAll(async () => {
     if (!existsSync(cliBin)) {
       throw new Error(`pylon CLI not built at ${cliBin}. Run \`pnpm --filter pylon-e2e test\`.`)
@@ -88,7 +89,7 @@ describe.skipIf(!dockerAvailable)('pylon-app live — defineApp + useApp + two-t
       timeout: 120_000,
       env: {...process.env, PYLON_TELEMETRY_DISABLED: '1', DO_NOT_TRACK: '1'}
     })
-    if (build.status !== 0) throw new Error(`build failed: ${build.stderr || build.stdout}`)
+    if (build.status !== 0) throw new Error(`build failed: ${String(build.stderr ?? build.stdout ?? "")}`)
 
     await resetSchema()
     const push = spawnSync('node', [cliBin, 'db', 'push'], {

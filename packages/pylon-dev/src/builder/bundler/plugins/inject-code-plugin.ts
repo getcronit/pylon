@@ -60,10 +60,26 @@ export const injectCodePlugin = ({
           `export const resolvers = ${preparedResolvers}`
         )
 
+        // Breaking contract: the entry MUST `export default` the Pylon app. We
+        // rewrite that default export into a binding (`__pylonApp`) so the
+        // generated bootstrap can drive the instance: configure it, mount the
+        // GraphQL handler, then serve it.
+        if (!/export\s+default\s+/.test(contents)) {
+          throw new Error(
+            `Pylon entry "${relativePath}" must \`export default\` the app ` +
+              `(e.g. \`export default new Pylon(...)\`).`
+          )
+        }
+        const userModule = contents.replace(
+          /export\s+default\s+/,
+          'const __pylonApp = '
+        )
+
         return {
           loader: 'ts',
           contents:
-            `import {executeConfig, app as __pylonApp} from "@getcronit/pylon"
+            `import {executeConfig as __pylonExecuteConfig, handler as __pylonHandler} from "@getcronit/pylon"
+            import {serve as __pylonServe} from "@hono/node-server"
 
             // config.js is always emitted (empty {} when there's no pylon.config),
             // so a failure here means the config EXISTS but threw at load — abort
@@ -76,44 +92,31 @@ export const injectCodePlugin = ({
               console.error("[Pylon] Failed to load pylon.config — refusing to boot (the app would otherwise run with NO plugins).")
               throw e
             }
-            await executeConfig(__internalPylonConfig.config)
-
-            // Readiness gate. User code below calls serve() — which captures
-            // app.fetch and starts LISTENING — before the graphql handler and
-            // 'last'-strategy plugins (e.g. usePages page routes) have registered.
-            // A request landing in that window makes Hono build its route matcher
-            // early, and the still-pending route registrations then throw
-            // "matcher is already built", crashing the (re)started server. Wrapping
-            // fetch to await a boot latch defers matcher construction until every
-            // route is registered; once booted the wrapper is a no-op.
-            let __pylonReady = false
-            let __pylonBootResolve
-            const __pylonBootReady = new Promise(r => { __pylonBootResolve = r })
-            const __pylonOrigFetch = __pylonApp.fetch.bind(__pylonApp)
-            __pylonApp.fetch = (...args) =>
-              __pylonReady
-                ? __pylonOrigFetch(...args)
-                : __pylonBootReady.then(() => __pylonOrigFetch(...args))
-
 
 ` +
-            contents +
+            userModule +
             `
-  import {handler as __internalPylonHandler} from "@getcronit/pylon"
+  // Boot the user's default-exported Pylon: 'first' plugins -> GraphQL handler ->
+  // 'last' plugins, THEN serve. Serving LAST (after every route is registered)
+  // makes the "matcher already built" boot race structurally impossible — no
+  // readiness latch needed. (Node/Bun dev+run serving via @hono/node-server;
+  // target-aware serving is the serve-as-plugin follow-up.)
+  await __pylonExecuteConfig(__internalPylonConfig.config, undefined, __pylonApp)
 
-  app.use(__internalPylonHandler({
+  __pylonApp.use(__pylonHandler({
     typeDefs: ${JSON.stringify(typeDefs)},
-    graphql,
+    graphql: __pylonApp.graphql,
     resolvers: ${preparedResolvers},
-  }))
+  }, __pylonApp))
 
-  await executeConfig(__internalPylonConfig.config, {
+  await __pylonExecuteConfig(__internalPylonConfig.config, {
     pluginsStrategy: "last"
-  })
+  }, __pylonApp)
 
-  // All routes registered — open the gate so requests reach Hono.
-  __pylonReady = true
-  __pylonBootResolve()
+  __pylonServe(
+    {fetch: __pylonApp.fetch, port: Number(process.env.PORT) || 3000},
+    info => { console.log("ready:" + info.port) }
+  )
   `
         }
       }

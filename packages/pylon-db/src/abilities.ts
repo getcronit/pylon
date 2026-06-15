@@ -14,14 +14,12 @@
  * builder; ABAC via conditions over principal attributes). A matching `cannot`
  * denies. ReBAC (OpenFGA/SpiceDB) slots in later behind the same two projections.
  */
-import {
-  currentPrincipal,
-  db,
-  getModelDefinition,
-  type ModelCtor,
-  type WhereInput
-} from '@getcronit/pylon-db'
-import {ForbiddenError, getPrincipal, type Principal} from '@getcronit/pylon-auth'
+import {currentPrincipal} from './app-context.js'
+import {definePolicy} from './policies.js'
+import {getModelDefinition} from './registry.js'
+import type {ModelCtor, WhereInput} from './manager.js'
+import {ForbiddenError} from './features.js'
+import type {Principal} from '@getcronit/pylon-auth/contract'
 import {matchWhere} from './matcher.js'
 
 const MANAGE = 'manage'
@@ -108,7 +106,7 @@ function buildRules(principal: Principal | undefined): {
 
 /** The actor to authorize against: the request Principal, else the ORM-bound one. */
 function currentActor(): Principal | undefined {
-  return getPrincipal() ?? (currentPrincipal() as Principal | undefined)
+  return currentPrincipal() as Principal | undefined
 }
 
 /** Rules relevant to (action, subject): subject/action match incl. `all`/`manage`. */
@@ -187,7 +185,7 @@ export function defineAbilities(fn: AbilitiesFn, options: {subjects?: ModelCtor<
     // Only ORM models get a row policy; non-model subjects (strings, domain
     // concepts) still work for can()/filter() but have no table to scope.
     if (!getModelDefinition(ctor)) continue
-    db.definePolicy(ctor, {
+    definePolicy(ctor, {
       read: ({principal}) => filterFor(principal as Principal | undefined, 'read', ctor),
       update: ({principal}) => filterFor(principal as Principal | undefined, 'update', ctor),
       delete: ({principal}) => filterFor(principal as Principal | undefined, 'delete', ctor),

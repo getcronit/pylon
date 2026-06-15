@@ -8,9 +8,12 @@ import type {Context, Plugin} from '@getcronit/pylon'
 import {getContext} from '@getcronit/pylon'
 import {GraphQLError} from 'graphql'
 import {ForbiddenError} from './errors.js'
-import {hasRole, type IdentityProvider, type Principal} from './principal.js'
-
-const PRINCIPAL_KEY = 'principal'
+import {
+  hasRole,
+  type IdentityProvider,
+  PRINCIPAL_KEY,
+  type Principal
+} from './principal.js'
 
 /** The current request's Principal (set by `useIdentity`), or undefined. */
 export function getPrincipal(): Principal | undefined {

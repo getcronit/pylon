@@ -1,4 +1,5 @@
 // ORM-backed Pylon app using the capitalized `models.*` namespaced API.
+import {Pylon} from '@getcronit/pylon'
 import {models} from '@getcronit/pylon-db'
 import type {Relation} from '@getcronit/pylon-db'
 
@@ -20,10 +21,12 @@ export class Product extends models.Model {
   $secretCost = models.Int({nullable: true})
 }
 
-export const graphql = {
-  Query: {
-    product: (): Product => ({}) as Product,
-    products: (): Product[] => []
-  },
-  Mutation: {}
-}
+export default new Pylon({
+  graphql: {
+    Query: {
+      product: (): Product => ({}) as Product,
+      products: (): Product[] => []
+    },
+    Mutation: {}
+  }
+})

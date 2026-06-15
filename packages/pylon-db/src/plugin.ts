@@ -26,6 +26,7 @@ import {runWithAppContext} from './app-context.js'
 import {connect, type Database, databaseForKysely} from './database.js'
 import {NotFoundError} from './errors.js'
 import {ForbiddenError, FeatureDisabledError, type FeatureState} from './features.js'
+import {PRINCIPAL_KEY} from '@getcronit/pylon-auth/contract'
 import {ValidationError, type ValidationIssue} from './validation.js'
 
 /** Maps a ValidationError's issues to a GraphQL error's message + extensions. */
@@ -108,11 +109,17 @@ export function useDatabase(options: UseDatabaseOptions = {}): Plugin {
       // into a chain (each `next` runs the rest → the GraphQL handler), so this
       // wrapping reaches the resolvers. The context is derived from the request
       // `c` (no `getContext()` ALS-timing dependency).
+      // Default principal/tenant off the bound Principal (set by useIdentity at
+      // PRINCIPAL_KEY) — so bare `useDatabase()` wires identity→ORM with no
+      // boilerplate. Explicit options override (custom session shapes).
+      const boundPrincipal = c.get(PRINCIPAL_KEY as never) as
+        | {tenant?: string | number}
+        | undefined
       const appCtx = {
-        tenant: options.tenant?.(c),
+        tenant: options.tenant ? options.tenant(c) : boundPrincipal?.tenant,
         // the feature provider may be async (DB/LaunchDarkly) — resolved once here
         features: await options.features?.(c),
-        principal: options.principal?.(c)
+        principal: options.principal ? options.principal(c) : boundPrincipal
       }
       const bound = () => runWithAppContext(appCtx, () => next())
       if (options.transactionPerRequest) {

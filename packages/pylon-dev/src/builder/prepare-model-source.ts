@@ -36,9 +36,34 @@ export function prepareModelSource(source: string, fileName = 'entry.ts'): strin
     ts.ScriptKind.TS
   )
 
-  const kept = sf.statements.filter(
-    s => !ts.isExpressionStatement(s) && !ts.isExportAssignment(s)
-  )
+  // The entry default-exports the app (`export default new Pylon(...)`). That
+  // expression references the modules that REGISTER the models (e.g. an app whose
+  // import runs `@model()` decorators). Dropping it outright would orphan — and
+  // then prune — those imports, so no models would load. Instead, rewrite it to a
+  // `const` binding: the references survive (imports kept → their side effects
+  // run), and constructing the app is harmless (no serve() lives here anymore).
+  const kept = sf.statements
+    .map(s => {
+      if (ts.isExportAssignment(s) && !s.isExportEquals) {
+        return ts.factory.createVariableStatement(
+          undefined,
+          ts.factory.createVariableDeclarationList(
+            [
+              ts.factory.createVariableDeclaration(
+                '__pylonEntry',
+                undefined,
+                undefined,
+                s.expression
+              )
+            ],
+            ts.NodeFlags.Const
+          )
+        )
+      }
+      return s
+    })
+    // Drop bare expression statements (e.g. a legacy top-level `serve(app)`).
+    .filter(s => !ts.isExpressionStatement(s))
 
   // Identifiers referenced by the surviving non-import statements.
   const used = new Set<string>()

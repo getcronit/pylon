@@ -56,7 +56,7 @@ afterAll(async () => {
 
 describe('pylon build on compose().graphql', () => {
   it('builds successfully', () => {
-    expect(buildResult.status, buildResult.stderr || buildResult.stdout).toBe(0)
+    expect(buildResult.status, String(buildResult.stderr ?? buildResult.stdout ?? "")).toBe(0)
     expect(schema).toBeInstanceOf(GraphQLSchema)
   })
 

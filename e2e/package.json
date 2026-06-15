@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "pretest": "pnpm --filter @getcronit/pylon-ir build && pnpm --filter @getcronit/pylon build && pnpm --filter @getcronit/pylon-auth build && pnpm --filter @getcronit/pylon-db build && pnpm --filter @getcronit/pylon-app build && pnpm --filter @getcronit/pylon-pages build && pnpm --filter @getcronit/pylon-dev build",
+    "pretest": "pnpm --filter @getcronit/pylon-ir build && pnpm --filter @getcronit/pylon build && pnpm --filter @getcronit/pylon-auth build && pnpm --filter @getcronit/pylon-db build && pnpm --filter @getcronit/pylon-pages build && pnpm --filter @getcronit/pylon-dev build",
     "test": "vitest run"
   },
   "devDependencies": {
@@ -12,7 +12,6 @@
     "@getcronit/pylon-ir": "workspace:*",
     "@getcronit/pylon-auth": "workspace:*",
     "@getcronit/pylon-db": "workspace:*",
-    "@getcronit/pylon-app": "workspace:*",
     "@getcronit/pylon-pages": "workspace:*",
     "@gqty/react": "^3.1.0",
     "@hono/node-server": "^1.12.2",

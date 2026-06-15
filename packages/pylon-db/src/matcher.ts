@@ -10,7 +10,7 @@
  * they're rejected here (use `filter()` at the query layer, which compiles them
  * to correlated EXISTS). This is the documented B2 boundary.
  */
-import type {WhereInput} from '@getcronit/pylon-db'
+import type {WhereInput} from './manager.js'
 
 /** Thrown when an instance check hits a condition that can't be evaluated in memory. */
 export class AbilityMatchError extends Error {
