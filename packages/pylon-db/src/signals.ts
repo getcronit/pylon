@@ -36,7 +36,10 @@ export interface DeleteSignalPayload<T = unknown> {
   model: Function
 }
 
-type Receiver<P> = (payload: P) => void | Promise<void>
+// The return is awaited then DISCARDED, so allow any value — a concise async
+// handler (e.g. `({instances}) => Audit.objects.createMany(...)`) need not be
+// `Promise<void>`. `void` keeps sync no-return handlers ergonomic.
+type Receiver<P> = (payload: P) => void | Promise<unknown>
 type ModelCtor<T> = {new (): T}
 
 class Signal<P extends {model: Function; instances: unknown[]}> {

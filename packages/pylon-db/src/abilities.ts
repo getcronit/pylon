@@ -59,7 +59,10 @@ export type AbilitiesFn = (
   cannot: AbilityRule
 ) => void
 
-let abilitiesFn: AbilitiesFn | undefined
+// ACCUMULATE: each app registers its own rules; all run together. (Single-global
+// would let the last app's `defineAbilities` clobber the others in a multi-app
+// service.) Cross-app isolation holds because rules match by subject.
+const abilitiesFns: AbilitiesFn[] = []
 
 /** Resolve a subject arg to its canonical name (class → name, instance → ctor name). */
 function subjectName(s: SubjectArg): string {
@@ -100,7 +103,7 @@ function buildRules(principal: Principal | undefined): {
       }
       return result
     }
-  abilitiesFn?.(principal, record(false), record(true))
+  for (const fn of abilitiesFns) fn(principal, record(false), record(true))
   return {rules, classes, stamps}
 }
 
@@ -178,7 +181,7 @@ function filterFor(
  * CONDITIONS on the principal, not the `can` call); or pass `subjects` explicitly.
  */
 export function defineAbilities(fn: AbilitiesFn, options: {subjects?: ModelCtor<any>[]} = {}): void {
-  abilitiesFn = fn
+  abilitiesFns.push(fn)
   const governed = new Map<string, ModelCtor<any>>(buildRules(undefined).classes)
   for (const ctor of options.subjects ?? []) governed.set(ctor.name, ctor)
   for (const [, ctor] of governed) {
