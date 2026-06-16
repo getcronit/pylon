@@ -83,7 +83,7 @@ export interface ColumnDefinition {
   schema?: FieldSchema
 }
 
-export type RelationKind = 'belongsTo' | 'hasMany' | 'manyToMany'
+export type RelationKind = 'belongsTo' | 'hasOne' | 'hasMany' | 'manyToMany'
 
 export type OnDelete = 'cascade' | 'set null' | 'restrict' | 'no action'
 
@@ -111,6 +111,11 @@ export interface RelationDefinition {
   /** manyToMany: the inverse side — accessor only, does NOT synthesize the join
    *  table (the canonical side owns it). Required for cross-app m2m. */
   inverse?: boolean
+  /** hasMany/manyToMany: expose as a cursor-paginated Relay `Connection` (a
+   *  callable field with `first/after/last/before` args) instead of a plain list.
+   *  The ORM IR skips it — the type-checker reads the callable field type and
+   *  emits the `Connection` shape (+ args), so there's a single source for it. */
+  paginate?: boolean
 }
 
 /** A model-level (possibly composite) secondary index. `columns` are PROPERTY keys. */
@@ -139,6 +144,9 @@ export interface ModelDefinition {
   /** Deny-by-default: an action with no matching policy rule is rejected
    *  (`@model({secure: true})`). Without it, an action with no rule is allowed. */
   secure?: boolean
+  /** Column names that get a `gin_trgm_ops` index for substring (`contains`)
+   *  search (`@model({trigram})`). */
+  trigramColumns?: string[]
 }
 
 /** Columns are accumulated per-constructor before @model finalizes the model. */
@@ -218,6 +226,8 @@ export function finalizeModel(
     search?:
       | {columns: string[]; language?: string; name?: string}
       | Array<{columns: string[]; language?: string; name?: string}>
+    /** Trigram substring search: `gin_trgm_ops` GIN index on each named column. */
+    trigram?: {columns: string[]}
   }
 ): ModelDefinition {
   const merged = new Map<string, ColumnDefinition>()
@@ -281,6 +291,18 @@ export function finalizeModel(
     })
   }
 
+  // Trigram substring search: resolve the property names to column names now (so
+  // the IR can emit a `gin_trgm_ops` index per column). Validate each exists.
+  const trigramColumns = (options.trigram?.columns ?? []).map(prop => {
+    const colName = merged.get(prop)?.columnName
+    if (!colName) {
+      throw new Error(
+        `@model trigram: unknown property "${prop}" on "${options.tableName}".`
+      )
+    }
+    return colName
+  })
+
   const columns = Array.from(merged.values())
   const relations = Array.from(mergedRelations.values())
   const primaryKey = columns.find(c => c.primaryKey)
@@ -297,7 +319,8 @@ export function finalizeModel(
     // Resolve the tenant property → column; skip silently if this model has no
     // such column (lets non-tenant lookup tables live in a tenant-scoped app).
     tenantColumn: options.tenant ? merged.get(options.tenant)?.columnName : undefined,
-    secure: options.secure
+    secure: options.secure,
+    trigramColumns: trigramColumns.length ? trigramColumns : undefined
   }
 
   if (!options.abstract) {

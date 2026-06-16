@@ -30,6 +30,9 @@ beforeAll(async () => {
   await fs.rm(pylonDir, {recursive: true, force: true})
 
   const ctx = await build({sfiFilePath: './src/index.ts', outputFilePath: './.pylon'})
+  // `build()` returns the bundler controls; the caller drives the build. Run the
+  // server build to emit `.pylon/{index.js,schema.graphql,resolvers.js}`.
+  await ctx.buildServer()
   await ctx.dispose() // release the esbuild service
 
   schema = await fs.readFile(path.join(pylonDir, 'schema.graphql'), 'utf8')

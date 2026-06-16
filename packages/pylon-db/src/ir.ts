@@ -122,6 +122,20 @@ function relationField(rel: RelationDefinition): Field {
       }
     }
   }
+  if (rel.kind === 'hasOne') {
+    // Inverse 1:1 → a single nullable ref (the related row may not exist), like
+    // belongsTo but the FK lives on the target side.
+    return {
+      name: rel.propertyKey,
+      type: {kind: 'ref', name: target, nullable: true},
+      exposed: true,
+      relation: {
+        kind: 'hasOne',
+        target,
+        targetFkField: rel.targetForeignKey
+      }
+    }
+  }
   if (rel.kind === 'manyToMany') {
     return {
       name: rel.propertyKey,
@@ -188,7 +202,17 @@ export function entityFromDefinition(def: ModelDefinition): Entity {
       unique: false,
       method: 'gin' as const
     }))
-  const indexes = [...singleColumn, ...composite, ...ginIndexes]
+  // Trigram (`@model({trigram})`) columns get a `gin_trgm_ops` GIN index so a
+  // `contains` (`ILIKE '%x%'`) substring filter is index-backed, not a seq scan.
+  const trgmIndexes = (def.trigramColumns ?? []).map(colName => ({
+    name: `${def.tableName}_${colName}_trgm`,
+    table: def.tableName,
+    columns: [colName],
+    unique: false,
+    method: 'gin' as const,
+    ops: 'gin_trgm_ops'
+  }))
+  const indexes = [...singleColumn, ...composite, ...ginIndexes, ...trgmIndexes]
 
   return {
     name: def.ctor.name,
@@ -204,7 +228,11 @@ export function entityFromDefinition(def: ModelDefinition): Entity {
       ...def.columns.map(col =>
         columnField({...col, sqlType: resolveColumnSqlType(def, col)})
       ),
-      ...def.relations.map(relationField)
+      // Paginated relations are SKIPPED here: they surface as callable fields
+      // (Relay `Connection` + args), which the type-checker reads off the field
+      // type and emits — letting the ORM contribute a plain list too would
+      // double-declare the field with a conflicting type.
+      ...def.relations.filter(rel => !rel.paginate).map(relationField)
     ],
     ...(indexes.length ? {indexes} : {})
   }

@@ -238,6 +238,19 @@ export async function syncSchema(
   // stays faithful to migrations.
   for (const def of models) {
     for (const ix of entityFromDefinition(def).indexes ?? []) {
+      // Operator-class indexes (e.g. `gin_trgm_ops`) can't be expressed through
+      // kysely's `.columns()` — emit raw DDL, and ensure the backing extension.
+      if (ix.ops) {
+        if (ix.ops === 'gin_trgm_ops') {
+          await sql`CREATE EXTENSION IF NOT EXISTS pg_trgm`.execute(db.kysely)
+        }
+        const method = ix.method && ix.method !== 'btree' ? sql.raw(` USING ${ix.method}`) : sql.raw('')
+        const cols = sql.join(ix.columns.map(c => sql`${sql.ref(c)} ${sql.raw(ix.ops!)}`))
+        await sql`CREATE INDEX IF NOT EXISTS ${sql.ref(ix.name)} ON ${sql.ref(ix.table)}${method} (${cols})`.execute(
+          db.kysely
+        )
+        continue
+      }
       let b = db.kysely.schema
         .createIndex(ix.name)
         .on(ix.table)

@@ -19,7 +19,9 @@ function renderDescription(description: string | undefined, indent: string): str
 }
 
 function renderField(f: Field): string {
-  return `${renderDescription(f.description, '  ')}  ${f.name}: ${renderType(f.type)}`
+  return `${renderDescription(f.description, '  ')}  ${f.name}${renderArgs(
+    f.args ?? []
+  )}: ${renderType(f.type)}`
 }
 
 function renderArgs(args: Field[]): string {

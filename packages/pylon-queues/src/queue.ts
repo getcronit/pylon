@@ -52,23 +52,35 @@ export function setJobRunner(runner: JobRunner): void {
 export class QueueDefinition<T> {
   // BullMQ's generics are intricate; we keep the public API typed and treat the
   // BullMQ instances loosely at the boundary (runtime types are correct).
-  private readonly queue: BullQueue<T>
+  private _queue?: BullQueue<T>
   private worker?: Worker<T>
   private handler?: Processor<T>
 
   constructor(
     readonly name: string,
     private readonly options: QueueOptions<T> = {}
-  ) {
-    this.queue = new BullQueue(name, {
-      connection: getConnection() as any,
-      defaultJobOptions: {
-        attempts: options.attempts ?? 1,
-        backoff: options.backoff,
-        removeOnComplete: options.removeOnComplete ?? {count: 1000, age: 24 * 3600},
-        removeOnFail: options.removeOnFail ?? {count: 5000}
-      } as any
-    }) as BullQueue<T>
+  ) {}
+
+  /**
+   * The BullMQ queue, constructed LAZILY on first use. Merely *defining* a queue
+   * (which happens whenever the app is imported — incl. the build/orm-bridge and
+   * tests) must NOT open a Redis connection: an eager connection keeps those
+   * short-lived processes from exiting. Only `.add()` (enqueue) and the worker
+   * touch it.
+   */
+  private get queue(): BullQueue<T> {
+    if (!this._queue) {
+      this._queue = new BullQueue(this.name, {
+        connection: getConnection() as any,
+        defaultJobOptions: {
+          attempts: this.options.attempts ?? 1,
+          backoff: this.options.backoff,
+          removeOnComplete: this.options.removeOnComplete ?? {count: 1000, age: 24 * 3600},
+          removeOnFail: this.options.removeOnFail ?? {count: 5000}
+        } as any
+      }) as BullQueue<T>
+    }
+    return this._queue
   }
 
   private validate(data: unknown): T {
@@ -131,10 +143,10 @@ export class QueueDefinition<T> {
     })
   }
 
-  /** Close the worker (if started) and the queue. */
+  /** Close the worker (if started) and the queue (only if it was constructed). */
   async close(): Promise<void> {
     await this.worker?.close()
-    await this.queue.close()
+    await this._queue?.close()
   }
 
   /** @internal raw BullMQ queue (escape hatch / observability). */

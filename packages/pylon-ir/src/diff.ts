@@ -132,6 +132,8 @@ function indexesOf(e: Entity): Map<string, IndexSpec> {
 function indexEqual(a: IndexSpec, b: IndexSpec): boolean {
   return (
     !!a.unique === !!b.unique &&
+    (a.method ?? 'btree') === (b.method ?? 'btree') &&
+    (a.ops ?? '') === (b.ops ?? '') &&
     a.columns.length === b.columns.length &&
     a.columns.every((c, i) => c === b.columns[i])
   )
@@ -435,9 +437,15 @@ function dropForeignKeySQL(fk: ForeignKeyChange): string {
   return `ALTER TABLE "${fk.table}" DROP CONSTRAINT "${fk.name}"`
 }
 
-function addIndexSQL(ix: IndexSpec): string {
-  const cols = ix.columns.map(c => `"${c}"`).join(', ')
-  return `CREATE ${ix.unique ? 'UNIQUE ' : ''}INDEX "${ix.name}" ON "${ix.table}"${postgres.indexMethod(ix.method)} (${cols})`
+function addIndexSQL(ix: IndexSpec): string[] {
+  const out: string[] = []
+  // A `gin_trgm_ops` index needs the pg_trgm extension; ensure it (idempotent).
+  if (ix.ops === 'gin_trgm_ops') out.push('CREATE EXTENSION IF NOT EXISTS pg_trgm')
+  const cols = ix.columns.map(c => `"${c}"${ix.ops ? ` ${ix.ops}` : ''}`).join(', ')
+  out.push(
+    `CREATE ${ix.unique ? 'UNIQUE ' : ''}INDEX "${ix.name}" ON "${ix.table}"${postgres.indexMethod(ix.method)} (${cols})`
+  )
+  return out
 }
 
 function dropIndexSQL(ix: IndexSpec): string {
@@ -522,7 +530,7 @@ function up(change: SchemaChange, unsupported: string[]): string[] {
     case 'dropForeignKey':
       return [dropForeignKeySQL(change.fk)]
     case 'addIndex':
-      return [addIndexSQL(change.index)]
+      return addIndexSQL(change.index)
     case 'dropIndex':
       return [dropIndexSQL(change.index)]
     case 'renameColumn':
@@ -549,7 +557,7 @@ function down(change: SchemaChange, unsupported: string[]): string[] {
     case 'addIndex':
       return [dropIndexSQL(change.index)]
     case 'dropIndex':
-      return [addIndexSQL(change.index)]
+      return addIndexSQL(change.index)
     case 'renameColumn':
       return [`ALTER TABLE "${change.table}" RENAME COLUMN "${change.to}" TO "${change.from}"`]
   }

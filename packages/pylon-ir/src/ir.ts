@@ -115,8 +115,12 @@ export interface IndexSpec {
   /** Column names, in index order. */
   columns: string[]
   unique?: boolean
-  /** Index method — `gin` for full-text (`tsvector`); default btree. */
+  /** Index method — `gin` for full-text (`tsvector`) / trigram; default btree. */
   method?: 'gin' | 'btree'
+  /** Per-column operator class, e.g. `gin_trgm_ops` for a `pg_trgm` substring
+   *  index. Applied to every column of the index. When it's `gin_trgm_ops`, the
+   *  DDL also ensures the `pg_trgm` extension exists. */
+  ops?: string
 }
 
 /** A resolved foreign-key constraint — self-contained, no schema lookup needed. */
@@ -154,12 +158,12 @@ export type PhysicalSchema = Record<string, PhysicalTable>
 
 /** How a field relates to another entity (entities only). */
 export interface RelationSpec {
-  kind: 'belongsTo' | 'hasMany' | 'manyToMany'
+  kind: 'belongsTo' | 'hasOne' | 'hasMany' | 'manyToMany'
   /** Target entity name. */
   target: string
   /** belongsTo: the local FK scalar field (e.g. `authorId`). */
   fkField?: string
-  /** hasMany: the FK field on the target pointing back (e.g. `authorId`). */
+  /** hasMany/hasOne: the FK field on the target pointing back (e.g. `authorId`). */
   targetFkField?: string
   /** manyToMany: explicit join-table name (default: the two tables, sorted). */
   through?: string
@@ -215,6 +219,10 @@ export interface Field {
   exposed: boolean
   /** Whitelisted GraphQL description. Never internal implementation docs. */
   description?: string
+  /** GraphQL arguments, when the field is callable (a method / a paginated
+   *  relation: `posts(first, after, …): PostConnection`). Empty/absent for a
+   *  plain field. Same shape as `Operation.args`. */
+  args?: Field[]
   /** Present iff the field is persisted. */
   column?: ColumnSpec
   /** Present iff the field is a relation. */

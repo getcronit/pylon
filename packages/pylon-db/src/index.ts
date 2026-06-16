@@ -20,6 +20,7 @@ export {
   enumOf,
   array,
   foreignKey,
+  hasOne,
   hasMany,
   manyToMany,
   type ModelOptions,
@@ -27,6 +28,7 @@ export {
   type FieldOptions,
   type NumericOptions,
   type ForeignKeyOptions,
+  type HasOneOptions,
   type HasManyOptions,
   type ManyToManyOptions
 } from './fields.js'
@@ -252,6 +254,7 @@ const modelBuilders = {
   Enum: fields.enumOf,
   Array: fields.array,
   ForeignKey: fields.foreignKey,
+  HasOne: fields.hasOne,
   HasMany: fields.hasMany,
   ManyToMany: fields.manyToMany,
   RelatedManager: RelatedManagerClass,

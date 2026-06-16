@@ -1,8 +1,10 @@
 import type {PylonConfig} from '@getcronit/pylon'
 import {useDatabase} from '@getcronit/pylon-db'
+import {serveLast} from '../_serve-plugin'
 
 export default {
   plugins: [
+    serveLast(),
     useDatabase({
       // Test-only auth: derive the principal from request headers (the plugin
       // passes the Hono context). Real apps would read `c.get('session')` set by

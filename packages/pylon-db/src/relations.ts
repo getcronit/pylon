@@ -18,7 +18,8 @@ import {
   type WhereInput
 } from './manager.js'
 import {appContextKey} from './app-context.js'
-import {getModelDefinitionOrThrow} from './registry.js'
+import {getModelDefinitionOrThrow, type ModelDefinition} from './registry.js'
+import {parseSearchQuery} from './query-parser.js'
 
 /** Return type of a `belongsTo` accessor. */
 export type Relation<T> = Promise<T | null>
@@ -35,14 +36,31 @@ interface Paginatable<T extends object> {
  * underlying manager. A `Proxy` over the paginate call: invoking runs the target
  * (paginate); every other member forwards to the manager (bound).
  */
-export function asPaginated<T extends object, M extends Paginatable<T>>(mgr: M): M {
+export function asPaginated<T extends object, M extends Paginatable<T>>(
+  mgr: M,
+  def?: ModelDefinition
+): M {
   const call = (
     first?: number,
     after?: string,
     last?: number,
     before?: string,
-    skip?: number
-  ) => mgr.paginate({first, after, last, before, skip})
+    skip?: number,
+    query?: string
+  ) => {
+    const args = {first, after, last, before, skip}
+    // Shopify-style `query` string → WhereInput, applied before paging. Needs the
+    // target model def (for field/type coercion) and a `.filter()` on the manager
+    // (RelatedManager has one; managers without it don't expose `query`).
+    if (query && def) {
+      const where = parseSearchQuery(query, def) as unknown as WhereInput<T>
+      const m = mgr as unknown as {filter?: (w: WhereInput<T>) => Paginatable<T>}
+      if (Object.keys(where).length && typeof m.filter === 'function') {
+        return m.filter(where).paginate(args)
+      }
+    }
+    return mgr.paginate(args)
+  }
   return new Proxy(call, {
     get(target, prop, receiver) {
       // Manager members win (add/all/paginate/then/…). Anything the manager does

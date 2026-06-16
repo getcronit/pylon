@@ -2,7 +2,9 @@ import {sentry} from '@hono/sentry'
 import {Hono, MiddlewareHandler} from 'hono'
 import {except} from 'hono/combine'
 import {compress} from 'hono/compress'
+import {HTTPException} from 'hono/http-exception'
 import {logger} from 'hono/logger'
+import type {ContentfulStatusCode} from 'hono/utils/http-status'
 import {asyncContext, Env} from '../context'
 import type {PylonConfig} from '../index'
 
@@ -110,6 +112,12 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
    *
    * GraphQL doesn't federate — it merges; routes DO mount (Hono sub-app). This is
    * the single composition primitive: `new Pylon().compose(billing, catalog)`.
+   *
+   * A child mounts at its `basePath` (default `/`), so an app's routes can be
+   * namespaced under a prefix (`new Pylon({basePath: '/vault'})` → its routes live
+   * under `/vault`). The GraphQL fragment still merges to the single root `/graphql`
+   * regardless — `basePath` only prefixes the child's Hono routes. The prefix is
+   * also the seam for per-app route middleware (e.g. gating `/vault/*`).
    */
   compose<C extends readonly Pylon<any>[]>(
     ...children: C
@@ -117,7 +125,7 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
     for (const child of children) {
       this.children.push(child)
       mergeFragment(this.graphql, child.graphql)
-      this.route('/', child) // mount the child's routes onto the root
+      this.route(child.routePrefix ?? '/', child) // mount the child's routes (prefixed)
     }
     return this as unknown as Pylon<G & MergeGraphql<C>>
   }
@@ -136,12 +144,20 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
   /** This app's capability gate (if any) — wraps its resolvers. */
   readonly gate?: Gate
 
+  /**
+   * Where `compose` mounts THIS app's routes on its parent (default `/`). A
+   * composition concern — it prefixes the child's Hono routes only; the GraphQL
+   * fragment always merges to the parent's single root `/graphql`.
+   */
+  readonly routePrefix?: string
+
   constructor()
-  constructor(opts: {graphql: G; gate?: Gate})
-  constructor(opts?: {graphql?: G; gate?: Gate}) {
+  constructor(opts: {graphql: G; gate?: Gate; basePath?: string})
+  constructor(opts?: {graphql?: G; gate?: Gate; basePath?: string}) {
     super()
 
     this.gate = opts?.gate
+    this.routePrefix = opts?.basePath
 
     if (opts?.graphql) {
       // The gate wraps the app's resolvers (capability check before each op),
@@ -178,6 +194,21 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
         ) as Promise<void>
       }
       return dispatch(0)
+    })
+
+    // Map a thrown error's HTTP status for PLAIN routes. Auth-free by design: it
+    // only reads a numeric `statusCode` convention (pylon-db's ForbiddenError /
+    // FeatureDisabledError set 403, NotFoundError 404), so a route guard can just
+    // `await gate()` / `requireFeature()` and throw — and get a 403 instead of a
+    // bare 500. GraphQL errors never reach here (Yoga maps them in the handler);
+    // this is for the Hono routes apps mount (e.g. file serving, webhooks).
+    this.onError((err, c) => {
+      if (err instanceof HTTPException) return err.getResponse() // honor Hono's own
+      const status = (err as {statusCode?: unknown}).statusCode
+      if (typeof status === 'number') {
+        return c.json({error: err.message}, status as ContentfulStatusCode)
+      }
+      return c.json({error: 'Internal Server Error'}, 500)
     })
   }
 }

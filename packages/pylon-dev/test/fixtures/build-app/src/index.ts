@@ -1,6 +1,7 @@
 // A real ORM-backed Pylon entry, used by the e2e build test. Models extend
 // Model (whose members are all excluded) so this also exercises the empty-
 // interface path that broke a real build.
+import {Pylon} from '@getcronit/pylon'
 import {Model, model, id, text, int, boolean, hasMany, foreignKey} from '@getcronit/pylon-db'
 import type {Relation} from '@getcronit/pylon-db'
 
@@ -22,10 +23,12 @@ export class Product extends Model {
   $secretCost = int({nullable: true})
 }
 
-export const graphql = {
-  Query: {
-    product: (): Product => ({}) as Product,
-    products: (): Product[] => []
-  },
-  Mutation: {}
-}
+export default new Pylon({
+  graphql: {
+    Query: {
+      product: (): Product => ({}) as Product,
+      products: (): Product[] => []
+    },
+    Mutation: {}
+  }
+})

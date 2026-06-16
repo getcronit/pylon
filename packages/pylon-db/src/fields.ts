@@ -387,7 +387,7 @@ export function foreignKey<R extends object>(
 //    guard on any bidirectional relation graph (→ a broken `WhereInput`).
 // Methods are referenced by indexed access so their signatures never drift.
 export interface PaginatedHasMany<R extends object> {
-  (first?: number, after?: string, last?: number, before?: string, skip?: number): Promise<Connection<R>>
+  (first?: number, after?: string, last?: number, before?: string, skip?: number, query?: string): Promise<Connection<R>>
   all: RelatedManager<R>['all']
   filter: RelatedManager<R>['filter']
   orderBy: RelatedManager<R>['orderBy']
@@ -592,6 +592,23 @@ export interface ModelOptions {
    * ```
    */
   search?: SearchOptions | SearchOptions[]
+  /**
+   * Trigram (substring) search (Postgres `pg_trgm`). Creates a `gin_trgm_ops`
+   * GIN index on each named text column — and ensures the `pg_trgm` extension —
+   * so a `contains` filter (`ILIKE '%x%'`) on that column becomes index-backed
+   * instead of a sequential scan. Use this where FTS can't help: matching a
+   * fragment *inside* a token (SKUs, serials, handles, emails), since FTS only
+   * matches whole words / prefixes.
+   *
+   * Unlike `search`, this synthesizes NO column — it indexes the existing
+   * column directly, and needs no query-side change (`{contains}` already maps
+   * to `ILIKE`, which the planner accelerates with this index).
+   *
+   * ```ts
+   * @model({trigram: {columns: ['sku', 'handle']}})
+   * ```
+   */
+  trigram?: TrigramOptions
 }
 
 /** Full-text search config for `@model({search})`. */
@@ -602,6 +619,12 @@ export interface SearchOptions {
   language?: string
   /** Generated column name (default `fts`; required when there are several). */
   name?: string
+}
+
+/** Trigram substring-search config for `@model({trigram})`. */
+export interface TrigramOptions {
+  /** Property names (text columns) to give a `gin_trgm_ops` index. */
+  columns: string[]
 }
 
 // Mirror the runtime validator's type buckets (validation.ts) so a DB CHECK and
@@ -926,7 +949,8 @@ export function model(options: ModelOptions = {}): ClassDecorator {
           enumerable: false,
           get(this: any) {
             const mgr = makeManager(this)
-            return paginate ? asPaginated(mgr) : mgr
+            // Pass the target def so `asPaginated` can parse the `query` arg.
+            return paginate ? asPaginated(mgr, getModelDefinitionOrThrow(target() as ModelCtor<any>)) : mgr
           },
           // Swallow the field-initializer write: `posts = hasMany(...)` runs in
           // the constructor and would otherwise throw ("has only a getter").
@@ -945,7 +969,8 @@ export function model(options: ModelOptions = {}): ClassDecorator {
       indexes: options.indexes,
       tenant: options.tenant,
       secure: options.secure,
-      search: options.search
+      search: options.search,
+      trigram: options.trigram
     })
 
     // 5. Default manager (a custom `static objects = manager(...)` wins).

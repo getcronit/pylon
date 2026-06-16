@@ -1,13 +1,17 @@
 // Fixture: a resolver returns a plain class `User`. The merge test feeds an
 // authoritative ORM-style entity IR for `User` and asserts it overrides this.
+import {Pylon} from '@getcronit/pylon'
+
 class User {
   id!: number
   email!: string
   secret!: string
 }
 
-export const graphql = {
-  Query: {
-    user: (): User => ({}) as User
+export default new Pylon({
+  graphql: {
+    Query: {
+      user: (): User => ({}) as User
+    }
   }
-}
+})

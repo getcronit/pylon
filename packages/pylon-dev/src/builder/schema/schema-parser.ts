@@ -610,11 +610,23 @@ export class SchemaParser {
       return ref
     }
 
-    const fieldOf = (f: {name: string; type: any}): IRField => ({
+    const fieldOf = (f: {name: string; type: any; args?: any[]}): IRField => ({
       name: f.name,
       type: typeRefOf(f.type),
       exposed: true,
-      description: f.type.description || undefined
+      description: f.type.description || undefined,
+      // Callable fields (methods / paginated relations) carry GraphQL args, same
+      // shape as an operation's — projected so `field(first: Int, …): T` renders.
+      ...(f.args && f.args.length
+        ? {
+            args: f.args.map(a => ({
+              name: a.name,
+              type: typeRefOf(a.type),
+              exposed: true,
+              description: a.type.description || undefined
+            }))
+          }
+        : {})
     })
 
     for (const type of this.schema.types) {
@@ -1098,12 +1110,15 @@ export class SchemaParser {
 
             // set args to empty object if not set
             if (schemaType.args) {
+              // An optional param — `x?: T` OR `x = default` — is a NULLABLE arg.
+              // The `?` token matters under non-strict TS (where `x?: T` widens to
+              // `T`, not `T | undefined`, so type-based nullability is lost).
+              const optional =
+                valueDeclaration.initializer !== undefined ||
+                valueDeclaration.questionToken !== undefined
               schemaType.args[arg.escapedName as string] = {
                 type: argType,
-                isRequired:
-                  valueDeclaration.initializer === undefined
-                    ? undefined
-                    : false,
+                isRequired: optional ? false : undefined,
                 documentation: this.getSymbolDocumentation(arg)
               }
 

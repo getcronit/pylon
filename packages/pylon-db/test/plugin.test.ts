@@ -1,6 +1,27 @@
 import {GraphQLError} from 'graphql'
 import {afterEach, describe, expect, it} from 'vitest'
-import {getDatabase, NotFoundError, setDefaultDatabase, useDatabase, ValidationError} from '../src/index'
+import {PRINCIPAL_KEY} from '@getcronit/pylon-auth/contract'
+import {
+  currentPrincipal,
+  currentTenant,
+  getDatabase,
+  NotFoundError,
+  setDefaultDatabase,
+  useDatabase,
+  ValidationError
+} from '../src/index'
+
+// A minimal stand-in for the Hono/Pylon request context: a backing Map behind
+// `get`/`set`, matching the real `c.get(PRINCIPAL_KEY)` the migrated middleware
+// reads to derive the tenant/principal binding. `vars` seeds the initial values.
+function mockContext(vars: Record<symbol | string, unknown> = {}) {
+  const store = new Map<symbol | string, unknown>(Object.getOwnPropertySymbols(vars).map(s => [s, vars[s as never]]))
+  for (const k of Object.keys(vars)) store.set(k, vars[k])
+  return {
+    get: (key: symbol | string) => store.get(key),
+    set: (key: symbol | string, value: unknown) => store.set(key, value)
+  }
+}
 
 // Build the shape envelop hands onExecuteDone: a result with GraphQL errors and
 // a setResult spy. A resolver-thrown error is wrapped by graphql-js so the
@@ -51,10 +72,45 @@ describe('useDatabase() plugin', () => {
     const bound = getDatabase()
 
     let seen: unknown
-    await plugin.middleware({}, async () => {
+    await plugin.middleware(mockContext(), async () => {
       seen = getDatabase()
     })
     expect(seen).toBe(bound)
+  })
+
+  it('defaults the bound tenant/principal off the identity Principal (PRINCIPAL_KEY)', async () => {
+    const plugin = useDatabase({connectionString: 'postgres://u:p@localhost:5999/none'})
+    plugin.setup()
+
+    const principal = {id: 'u1', tenant: 'org-42'}
+    let seenTenant: unknown
+    let seenPrincipal: unknown
+    await plugin.middleware(mockContext({[PRINCIPAL_KEY]: principal}), async () => {
+      seenTenant = currentTenant()
+      seenPrincipal = currentPrincipal()
+    })
+    // useIdentity binds the Principal at PRINCIPAL_KEY; bare useDatabase() derives
+    // the ambient tenant + principal from it — no per-app wiring boilerplate.
+    expect(seenTenant).toBe('org-42')
+    expect(seenPrincipal).toBe(principal)
+  })
+
+  it('explicit tenant/principal options override the identity-derived defaults', async () => {
+    const plugin = useDatabase({
+      connectionString: 'postgres://u:p@localhost:5999/none',
+      tenant: () => 'org-explicit',
+      principal: () => ({id: 'custom'})
+    })
+    plugin.setup()
+
+    let seenTenant: unknown
+    let seenPrincipal: unknown
+    await plugin.middleware(mockContext({[PRINCIPAL_KEY]: {id: 'u1', tenant: 'org-42'}}), async () => {
+      seenTenant = currentTenant()
+      seenPrincipal = currentPrincipal()
+    })
+    expect(seenTenant).toBe('org-explicit')
+    expect(seenPrincipal).toEqual({id: 'custom'})
   })
 
   it('default mapper rewrites a thrown ValidationError as a BAD_USER_INPUT GraphQLError', () => {

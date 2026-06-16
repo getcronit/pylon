@@ -79,7 +79,6 @@ export const injectCodePlugin = ({
           loader: 'ts',
           contents:
             `import {executeConfig as __pylonExecuteConfig, handler as __pylonHandler} from "@getcronit/pylon"
-            import {serve as __pylonServe} from "@hono/node-server"
 
             // config.js is always emitted (empty {} when there's no pylon.config),
             // so a failure here means the config EXISTS but threw at load — abort
@@ -97,10 +96,18 @@ export const injectCodePlugin = ({
             userModule +
             `
   // Boot the user's default-exported Pylon: 'first' plugins -> GraphQL handler ->
-  // 'last' plugins, THEN serve. Serving LAST (after every route is registered)
-  // makes the "matcher already built" boot race structurally impossible — no
-  // readiness latch needed. (Node/Bun dev+run serving via @hono/node-server;
-  // target-aware serving is the serve-as-plugin follow-up.)
+  // 'last' plugins. SERVING IS NOT THE FRAMEWORK'S JOB — the consuming app owns it
+  // via a 'last'-strategy plugin in pylon.config that calls a server (e.g.
+  // @hono/node-server's serve). Because that plugin runs in this final 'last' pass
+  // — after the GraphQL handler and every other 'last' plugin (usePages catch-all)
+  // — it listens only once all routes are registered, so the "matcher already
+  // built" boot race can't happen (provided serve is ordered last among 'last').
+
+  // Expose the booted app so in-process callers (e.g. the usePages SSR GraphQL
+  // fetcher) hit THIS instance — the one with the handler + plugins mounted —
+  // not the framework's empty default 'app' singleton.
+  globalThis.__PYLON_APP__ = __pylonApp
+
   await __pylonExecuteConfig(__internalPylonConfig.config, undefined, __pylonApp)
 
   __pylonApp.use(__pylonHandler({
@@ -112,11 +119,6 @@ export const injectCodePlugin = ({
   await __pylonExecuteConfig(__internalPylonConfig.config, {
     pluginsStrategy: "last"
   }, __pylonApp)
-
-  __pylonServe(
-    {fetch: __pylonApp.fetch, port: Number(process.env.PORT) || 3000},
-    info => { console.log("ready:" + info.port) }
-  )
   `
         }
       }

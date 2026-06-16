@@ -94,7 +94,12 @@ const queryFetcher: QueryFetcher = async function (
     // 1. Try importing Pylon — if this works, we're on the server
     const moduleNameToPreventBundling = '@getcronit/pylon'
     const { app, getContext } = await import(moduleNameToPreventBundling)
-    fetchToUse = app.request
+    // Prefer the booted app instance the entry registered (the user's
+    // \`export default new Pylon(...)\`), which is what actually has the GraphQL
+    // handler + plugins mounted. Fall back to the framework's default \`app\`
+    // singleton for back-compat.
+    const serverApp = (globalThis as any).__PYLON_APP__ ?? app
+    fetchToUse = serverApp.request
 
     // 2. Get headers from the original server request and forward them
     const context = getContext()
