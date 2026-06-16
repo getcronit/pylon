@@ -54,6 +54,25 @@ export interface Migration {
   unsupported: string[]
 }
 
+/** Structural equality for column default *values* (which may be arrays/objects,
+ *  e.g. a `text[]` column's `[]` default — `[] === []` is reference-false, so a
+ *  bare `===` would diff every array column against itself forever). */
+function valueEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((v, i) => valueEqual(v, b[i]))
+  }
+  if (a && b && typeof a === 'object' && typeof b === 'object') {
+    const ak = Object.keys(a as object)
+    const bk = Object.keys(b as object)
+    return (
+      ak.length === bk.length &&
+      ak.every(k => valueEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]))
+    )
+  }
+  return false
+}
+
 function columnEqual(a: ColumnSpec, b: ColumnSpec): boolean {
   return (
     a.sqlType === b.sqlType &&
@@ -66,7 +85,7 @@ function columnEqual(a: ColumnSpec, b: ColumnSpec): boolean {
     a.scale === b.scale &&
     a.generatedAs === b.generatedAs &&
     a.defaultSql === b.defaultSql &&
-    a.default === b.default &&
+    valueEqual(a.default, b.default) &&
     a.check === b.check
   )
 }
@@ -461,6 +480,22 @@ function alterColumnSQL(
     const name = `${table}_${after.name}_check`
     if (before.check) out.push(`ALTER TABLE "${table}" DROP CONSTRAINT "${name}"`)
     if (after.check) out.push(`ALTER TABLE "${table}" ADD CONSTRAINT "${name}" CHECK (${after.check})`)
+  }
+  if (before.generatedAs !== after.generatedAs) {
+    if (before.generatedAs && after.generatedAs) {
+      // Re-point a STORED generated column's expression in place — PG17+
+      // (`SET EXPRESSION`). This recomputes every row and, crucially, preserves
+      // dependent objects like the column's GIN index (a DROP/ADD COLUMN would
+      // CASCADE them away). This is the path a `@model({search})` language /
+      // column-set change takes.
+      out.push(`${t} SET EXPRESSION AS (${after.generatedAs})`)
+    } else {
+      // Adding or removing generated-ness entirely changes the column's storage
+      // contract — author an explicit drop & re-add rather than guess.
+      unsupported.push(
+        `generated-column add/remove on ${table}.${after.name} — drop & re-add the column explicitly`
+      )
+    }
   }
   if (before.primaryKey !== after.primaryKey) {
     unsupported.push(
