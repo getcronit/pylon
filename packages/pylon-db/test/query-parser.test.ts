@@ -73,10 +73,30 @@ class Prod extends Model {
   variants = hasMany(() => Variant, {foreignKey: 'productId'})
 }
 
+// Phase-3 config: an alias (`brandName` → `brand.name`), a virtual derived field
+// (`cheap` → a price predicate), and a curated public allowlist.
+@model({
+  query: {
+    fields: {
+      brandName: {path: 'brand.name'},
+      cheap: {toWhere: (_op, v) => (v === 'true' ? {price: {lt: 10}} : {price: {gte: 10}})}
+    },
+    public: ['title', 'cheap']
+  }
+})
+class Catalog extends Model {
+  id = id()
+  title = text()
+  price = numeric({precision: 10, scale: 2})
+  brandId = foreignKey(() => Brand)
+  declare brand: Relation<Brand>
+}
+
 const productDef = getModelDefinitionOrThrow(Product)
 const tagDef = getModelDefinitionOrThrow(Tag)
 const docDef = getModelDefinitionOrThrow(Doc)
 const prodDef = getModelDefinitionOrThrow(Prod)
+const catalogDef = getModelDefinitionOrThrow(Catalog)
 const parse = (q: string) => parseSearchQuery(q, productDef)
 
 /** propertyKey of the synthesized tsvector column (avoids hardcoding its name). */
@@ -438,6 +458,44 @@ describe('parseSearchQuery', () => {
           maxBooleanNodes: 2
         })
       ).not.toThrow()
+    })
+  })
+
+  // Phase 3: @model({query:{fields, public}}) — aliases, virtual fields, and a
+  // curated public allowlist.
+  describe('virtual fields, aliases & public allowlist (phase 3)', () => {
+    const parseCat = (q: string, opts?: Parameters<typeof parseSearchQuery>[2]) =>
+      parseSearchQuery(q, catalogDef, opts)
+
+    it('an alias re-paths to a relation field', () => {
+      expect(parseCat('brandName:nike')).toEqual({brand: {name: 'nike'}})
+    })
+
+    it('a virtual field builds its own predicate from (op, value)', () => {
+      expect(parseCat('cheap:true')).toEqual({price: {lt: 10}})
+      expect(parseCat('cheap:false')).toEqual({price: {gte: 10}})
+    })
+
+    it('a virtual field composes with other terms', () => {
+      expect(parseCat('title:hat cheap:true')).toEqual({
+        AND: [{title: 'hat'}, {price: {lt: 10}}]
+      })
+    })
+
+    it('public allowlist: a whitelisted field (incl. virtual) is queryable', () => {
+      expect(parseCat('cheap:true', {scope: 'public'})).toEqual({price: {lt: 10}})
+      expect(parseCat('title:hat', {scope: 'public'})).toEqual({title: 'hat'})
+    })
+
+    it('public allowlist: a non-whitelisted column is rejected', () => {
+      // `price` exists as a column but is NOT in the public allowlist
+      expect(() => parseCat('price:5', {scope: 'public'})).toThrow(
+        /Unknown or non-queryable field "price"/
+      )
+    })
+
+    it('internally, non-whitelisted columns still work (lenient surface)', () => {
+      expect(parseCat('price:5')).toEqual({price: 5})
     })
   })
 })

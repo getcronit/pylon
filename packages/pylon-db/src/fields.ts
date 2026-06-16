@@ -1,4 +1,5 @@
 import {type Connection, createManager, ModelCtor} from './manager.js'
+import type {QueryConfig} from './query-schema.js'
 import {
   asPaginated,
   loadBelongsTo,
@@ -609,6 +610,27 @@ export interface ModelOptions {
    * ```
    */
   trigram?: TrigramOptions
+  /**
+   * Query/filter configuration for the Shopify-style `query` DSL (and the future
+   * typed `where` input). Adds **virtual/derived fields** (a named predicate over
+   * relations or computed buckets) and a **public allowlist** that curates which
+   * fields a public consumer may query.
+   *
+   * ```ts
+   * @model({
+   *   query: {
+   *     fields: {
+   *       vendor: {path: 'product.vendorId'},                       // alias / re-path
+   *       inStock: {toWhere: (_op, v) => ({                         // virtual
+   *         inventoryItems: {some: {available: {gt: 0}}}
+   *       })},
+   *     },
+   *     public: ['title', 'vendor', 'inStock'],                     // curated public surface
+   *   },
+   * })
+   * ```
+   */
+  query?: QueryConfig
 }
 
 /** Full-text search config for `@model({search})`. */
@@ -970,7 +992,8 @@ export function model(options: ModelOptions = {}): ClassDecorator {
       tenant: options.tenant,
       secure: options.secure,
       search: options.search,
-      trigram: options.trigram
+      trigram: options.trigram,
+      query: options.query
     })
 
     // 5. Default manager (a custom `static objects = manager(...)` wins).

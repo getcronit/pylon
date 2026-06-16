@@ -141,3 +141,48 @@ describe('buildQuerySchema — relations (phase 2)', () => {
     expect(buildQuerySchema(bookDef, 0).relations.size).toBe(0)
   })
 })
+
+@model({
+  query: {
+    fields: {
+      authorName: {path: 'author.name'},
+      recent: {toWhere: () => ({createdAt: {gt: new Date(0)}})}
+    },
+    public: ['title', 'recent']
+  }
+})
+class Post extends Model {
+  id = id()
+  title = text()
+  body = text()
+  createdAt = timestamp()
+  authorId = foreignKey(() => Author)
+  declare author: Relation<Author>
+}
+
+const postSchema = buildQuerySchema(getModelDefinitionOrThrow(Post))
+
+describe('buildQuerySchema — virtual/alias fields & public allowlist (phase 3)', () => {
+  it('adds an alias field with kind "alias" and its path', () => {
+    const f = postSchema.byName.get('authorName')!
+    expect(f.kind).toBe('alias')
+    expect(f.path).toBe('author.name')
+  })
+
+  it('adds a virtual field with kind "virtual" and a toWhere handler', () => {
+    const f = postSchema.byName.get('recent')!
+    expect(f.kind).toBe('virtual')
+    expect(typeof f.toWhere).toBe('function')
+  })
+
+  it('public allowlist makes ONLY listed fields public', () => {
+    expect(postSchema.byName.get('title')!.visibility).toBe('public') // listed
+    expect(postSchema.byName.get('recent')!.visibility).toBe('public') // listed
+    expect(postSchema.byName.get('body')!.visibility).toBe('internal') // not listed
+    expect(postSchema.byName.get('createdAt')!.visibility).toBe('internal') // not listed
+  })
+
+  it('publicFieldNames reflects the allowlist', () => {
+    expect(publicFieldNames(postSchema).sort()).toEqual(['recent', 'title'])
+  })
+})

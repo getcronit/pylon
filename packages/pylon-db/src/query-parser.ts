@@ -31,6 +31,7 @@ import {
   buildQuerySchema,
   publicFieldNames,
   type QueryableField,
+  type QueryOp,
   type QueryScope,
   type QuerySchema
 } from './query-schema.js'
@@ -224,6 +225,16 @@ const OP_PREFIX: Array<{token: string; key: string}> = [
   {token: '<', key: 'lt'}
 ]
 
+/** Normalize a raw field value into an (operator, value) pair for a virtual field's
+ *  handler — mirrors `leafPredicate`'s operator detection. */
+function parseOp(rawValue: string): {op: QueryOp; value: string} {
+  if (isBareStar(rawValue)) return {op: 'exists', value: ''}
+  const cmp = OP_PREFIX.find(o => rawValue.startsWith(o.token))
+  if (cmp) return {op: cmp.key as QueryOp, value: unescape(rawValue.slice(cmp.token.length))}
+  const {value, prefix} = literalWithWildcard(rawValue)
+  return {op: prefix ? 'startsWith' : 'eq', value}
+}
+
 // ── Parser (recursive descent) ───────────────────────────────────────────────
 class Parser {
   private pos = 0
@@ -336,43 +347,55 @@ class Parser {
   private fieldTerm(raw: string, colon: number): Where {
     const rawName = raw.slice(0, colon)
     const rawValue = raw.slice(colon + 1)
-    const resolved = this.resolvePath(rawName)
+    const resolved = this.resolve(this.schema, splitPath(rawName), p => p, rawName)
     if (!resolved) return {} // unknown field → no constraint (lenient; strict already threw)
-    return resolved.wrap(this.leafPredicate(resolved.field, rawValue))
+    const {field, wrap} = resolved
+    // A virtual/derived field owns its predicate; hand it the parsed (op, value).
+    if (field.kind === 'virtual') {
+      const {op, value} = parseOp(rawValue)
+      const pred = field.toWhere!(op, value)
+      return pred && Object.keys(pred).length ? wrap(pred) : {}
+    }
+    return wrap(this.leafPredicate(field, rawValue))
   }
 
-  /** Resolve a (possibly dotted) field path against the schema, walking relations
-   *  (`vendor.name`, `inventoryItems.sku`). Returns the leaf scalar field plus a
-   *  `wrap` that nests a leaf predicate back through the relation path (`{some:…}`
-   *  for a to-many hop). Honors visibility/scope: a `public` query for an unknown
-   *  or internal field/relation is a hard error; internally it's dropped (lenient).
-   *  Depth is bounded by the schema (relations beyond the budget aren't present). */
-  private resolvePath(rawName: string): {field: QueryableField; wrap: (p: Where) => Where} | undefined {
-    const segments = splitPath(rawName)
-    let schema = this.schema
-    const wrappers: Array<(p: Where) => Where> = []
-    for (let i = 0; i < segments.length - 1; i++) {
-      const rel = schema.relations.get(segments[i])
-      if (!rel || (this.scope === 'public' && rel.visibility !== 'public')) {
-        return this.rejectField(rawName)
+  /** Resolve a (possibly dotted) path against `schema`, walking relations
+   *  (`vendor.name`, `inventoryItems.sku`) and expanding aliases, into the leaf
+   *  field plus a `wrap` that nests a leaf predicate back through the traversed
+   *  relations (`{some:…}` per to-many hop). Honors visibility/scope: a `public`
+   *  query for an unknown or internal field/relation is a hard error; internally
+   *  it's dropped (lenient). Depth is bounded by the schema (relations beyond the
+   *  budget aren't present). */
+  private resolve(
+    schema: QuerySchema,
+    segments: string[],
+    wrap: (p: Where) => Where,
+    rawName: string
+  ): {field: QueryableField; wrap: (p: Where) => Where} | undefined {
+    const head = segments[0]
+    if (segments.length === 1) {
+      const field = schema.byName.get(head)
+      if (field && this.visible(field.visibility)) {
+        // An alias re-points to another path, resolved from THIS schema.
+        if (field.kind === 'alias') return this.resolve(schema, splitPath(field.path!), wrap, rawName)
+        return {field, wrap}
       }
-      const prop = rel.propertyKey
-      const toMany = rel.toMany
-      wrappers.push(p => ({[prop]: toMany ? {some: p} : p}))
-      schema = rel.target()
+      return this.miss(rawName)
     }
-    const field = schema.byName.get(segments[segments.length - 1])
-    if (!field || (this.scope === 'public' && field.visibility !== 'public')) {
-      return this.rejectField(rawName)
+    const rel = schema.relations.get(head)
+    if (rel && this.visible(rel.visibility)) {
+      const next = (p: Where) => wrap({[rel.propertyKey]: rel.toMany ? {some: p} : p})
+      return this.resolve(rel.target(), segments.slice(1), next, rawName)
     }
-    // Nest innermost-first: the leaf predicate is wrapped by the deepest relation,
-    // then outward — `a.b.c` → `{a: {b: {c: pred}}}` (with `some` per to-many hop).
-    const wrap = (p: Where) => wrappers.reduceRight((acc, w) => w(acc), p)
-    return {field, wrap}
+    return this.miss(rawName)
+  }
+
+  private visible(v: 'public' | 'internal'): boolean {
+    return this.scope !== 'public' || v === 'public'
   }
 
   /** Unknown/non-queryable field: throw in `public` scope, lenient-drop internally. */
-  private rejectField(name: string): undefined {
+  private miss(name: string): undefined {
     if (this.scope === 'public') {
       throw new QueryParseError(
         `Unknown or non-queryable field "${name}". Queryable fields: ${publicFieldNames(this.schema).join(', ')}.`

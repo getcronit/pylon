@@ -1,4 +1,5 @@
 import type {FieldSchema} from './standard-schema.js'
+import type {QueryConfig} from './query-schema.js'
 
 export type SqlType =
   | 'text'
@@ -147,6 +148,9 @@ export interface ModelDefinition {
   /** Column names that get a `gin_trgm_ops` index for substring (`contains`)
    *  search (`@model({trigram})`). */
   trigramColumns?: string[]
+  /** Per-model query/filter configuration — virtual fields + public allowlist
+   *  (`@model({query})`). Consumed by the Query Schema. */
+  query?: QueryConfig
 }
 
 /** Columns are accumulated per-constructor before @model finalizes the model. */
@@ -228,6 +232,8 @@ export function finalizeModel(
       | Array<{columns: string[]; language?: string; name?: string}>
     /** Trigram substring search: `gin_trgm_ops` GIN index on each named column. */
     trigram?: {columns: string[]}
+    /** Query/filter config — virtual fields + public allowlist (`@model({query})`). */
+    query?: QueryConfig
   }
 ): ModelDefinition {
   const merged = new Map<string, ColumnDefinition>()
@@ -320,7 +326,8 @@ export function finalizeModel(
     // such column (lets non-tenant lookup tables live in a tenant-scoped app).
     tenantColumn: options.tenant ? merged.get(options.tenant)?.columnName : undefined,
     secure: options.secure,
-    trigramColumns: trigramColumns.length ? trigramColumns : undefined
+    trigramColumns: trigramColumns.length ? trigramColumns : undefined,
+    query: options.query
   }
 
   if (!options.abstract) {

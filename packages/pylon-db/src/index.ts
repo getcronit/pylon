@@ -152,7 +152,10 @@ export {
   type QueryOp,
   type FieldVisibility,
   type QueryScope,
-  type SearchTarget
+  type SearchTarget,
+  type QueryConfig,
+  type QueryFieldConfig,
+  type QueryFieldToWhere
 } from './query-schema.js'
 export {
   snapshot,

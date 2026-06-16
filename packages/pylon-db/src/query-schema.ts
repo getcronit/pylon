@@ -29,11 +29,32 @@ export type FieldVisibility = 'public' | 'internal'
  *  (lenient — unknown fields are ignored, matching legacy behavior). */
 export type QueryScope = 'public' | 'internal'
 
-/** One queryable field on a model. Phase 1 only produces `kind: 'column'`. */
+/** Builds a `WhereInput` fragment for a virtual/derived field from the parsed
+ *  operator + raw value. Return `null` (or `{}`) for "no constraint". */
+export type QueryFieldToWhere = (op: QueryOp, value: string) => Record<string, unknown> | null
+
+/** A field declared via `@model({query:{fields}})` — either a re-path/alias or a
+ *  virtual predicate. Lets a model expose derived/relational filters under a name. */
+export type QueryFieldConfig =
+  | {path: string; visibility?: FieldVisibility}
+  | {toWhere: QueryFieldToWhere; textual?: boolean; ops?: QueryOp[]; visibility?: FieldVisibility}
+
+/** Per-model query configuration (`@model({query})`). */
+export interface QueryConfig {
+  /** Extra / overriding query fields keyed by public name. */
+  fields?: Record<string, QueryFieldConfig>
+  /** Public-surface allowlist. When set, ONLY these names are public (a curated
+   *  public API); everything else is internal. When unset, own columns are public
+   *  and relations/virtuals are internal. */
+  public?: string[]
+}
+
+/** One queryable field on a model. `column` is auto-derived; `alias` re-points to
+ *  another path; `virtual` carries a custom predicate builder. */
 export interface QueryableField {
   /** Public field name used in the query (defaults to the property key). */
   name: string
-  kind: 'column'
+  kind: 'column' | 'alias' | 'virtual'
   propertyKey: string
   columnName: string
   sqlType: string
@@ -43,6 +64,10 @@ export interface QueryableField {
   textual: boolean
   ops: QueryOp[]
   visibility: FieldVisibility
+  /** kind `alias`: the dotted path this name expands to (resolved from the model). */
+  path?: string
+  /** kind `virtual`: builds the predicate from (op, value). */
+  toWhere?: QueryFieldToWhere
 }
 
 /** A relation exposed for nested filtering via a dotted path (`vendor.name:nike`,
@@ -106,6 +131,13 @@ function build(def: ModelDefinition, depth: number): QuerySchema {
   const byName = new Map<string, QueryableField>()
   let fts: SearchTarget['fts']
 
+  // A `public` allowlist makes the public surface a curated subset: ONLY listed
+  // names are public. Without it, columns are public and relations/virtuals are
+  // internal (QUERY_API_DESIGN.md §4.3).
+  const allow = def.query?.public ? new Set(def.query.public) : undefined
+  const vis = (name: string, fallback: FieldVisibility): FieldVisibility =>
+    allow ? (allow.has(name) ? 'public' : 'internal') : fallback
+
   for (const col of def.columns) {
     // A synthesized tsvector is the FTS search target, never a queryable field.
     if (col.sqlType === 'tsvector') {
@@ -123,8 +155,7 @@ function build(def: ModelDefinition, depth: number): QuerySchema {
       enumValues: col.enumValues,
       textual: isTextualType(col.sqlType),
       ops: opsForColumn(col),
-      // Phase 1 default: own scalar columns are public (see QUERY_API_DESIGN.md §4.3).
-      visibility: 'public'
+      visibility: vis(col.propertyKey, 'public')
     }
     fields.push(field)
     byName.set(field.name, field)
@@ -147,12 +178,44 @@ function build(def: ModelDefinition, depth: number): QuerySchema {
         propertyKey: rel.propertyKey,
         kind: rel.kind,
         toMany: rel.kind === 'hasMany' || rel.kind === 'manyToMany',
-        // Relations are internal until explicitly opted into the public surface
-        // (Phase 3: @model({query:{public}})).
-        visibility: 'internal',
+        // Relations are internal unless opted into the public surface.
+        visibility: vis(rel.propertyKey, 'internal'),
         target: () => buildQuerySchema(targetDef, depth - 1)
       })
     }
+  }
+
+  // @model({query:{fields}}) — alias/re-path and virtual/derived fields. These
+  // override an auto column of the same name (e.g. re-path it through a relation).
+  for (const [name, cfg] of Object.entries(def.query?.fields ?? {})) {
+    const field: QueryableField =
+      'toWhere' in cfg
+        ? {
+            name,
+            kind: 'virtual',
+            propertyKey: name,
+            columnName: name,
+            sqlType: '',
+            textual: cfg.textual ?? false,
+            ops: cfg.ops ?? ['eq'],
+            visibility: vis(name, cfg.visibility ?? 'internal'),
+            toWhere: cfg.toWhere
+          }
+        : {
+            name,
+            kind: 'alias',
+            propertyKey: name,
+            columnName: name,
+            sqlType: '',
+            textual: false,
+            ops: [],
+            visibility: vis(name, cfg.visibility ?? 'internal'),
+            path: cfg.path
+          }
+    const idx = fields.findIndex(f => f.name === name)
+    if (idx >= 0) fields[idx] = field
+    else fields.push(field)
+    byName.set(name, field)
   }
 
   return {tableName: def.tableName, fields, byName, relations, search: {fts, textColumns}}
