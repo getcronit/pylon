@@ -62,7 +62,7 @@ type MutationPayload<T> = {[K in keyof T]: T[K] | null} & {
   userErrors: UserError[]
 }
 
-export const graphql = {
+export default {
   Query: {
     user: (): Promise<User> => null as unknown as Promise<User>,
     users: (): Promise<User[]> => null as unknown as Promise<User[]>,
