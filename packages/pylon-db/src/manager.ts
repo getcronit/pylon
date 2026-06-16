@@ -16,13 +16,17 @@ import {type FilterAction, getAppPolicy, getPolicy, policyContext} from './polic
 // Type-only (erased at runtime → no import cycle with relations.ts) — used to
 // exclude relation accessors from the set of filterable fields.
 import type {ManyToManyManager, RelatedManager} from './relations.js'
+// Paginated relation accessors ({paginate: true}) — callable Connection fields.
+// Type-only (erased) so no runtime cycle with fields.ts.
+import type {PaginatedHasMany, PaginatedManyToMany} from './fields.js'
+import {parseSearchQuery} from './query-parser.js'
 
 export type ModelCtor<T> = {new (): T}
 
 /** Tracks which instances came from / have been written to the database. */
 const persisted = new WeakSet<object>()
 
-function columnFor(
+export function columnFor(
   def: ModelDefinition,
   propertyKey: string
 ): ColumnDefinition {
@@ -118,9 +122,13 @@ type Filterable<T> = {
 type ToOneKeys<T> = {
   [K in keyof T]-?: T[K] extends Promise<any> ? K : never
 }[keyof T]
-/** To-many relation accessors (hasMany / manyToMany). */
+/** To-many relation accessors (hasMany / manyToMany — plain or `{paginate}`). */
 type ToManyKeys<T> = {
-  [K in keyof T]-?: T[K] extends RelatedManager<any> | ManyToManyManager<any>
+  [K in keyof T]-?: T[K] extends
+    | RelatedManager<any>
+    | ManyToManyManager<any>
+    | PaginatedHasMany<any>
+    | PaginatedManyToMany<any>
     ? K
     : never
 }[keyof T]
@@ -131,7 +139,11 @@ type TargetOf<X> = X extends Promise<infer R>
     ? R
     : X extends ManyToManyManager<infer R>
       ? R
-      : never
+      : X extends PaginatedHasMany<infer R>
+        ? R
+        : X extends PaginatedManyToMany<infer R>
+          ? R
+          : never
 
 /** To-many relation predicate — Prisma-style existential quantifiers. */
 interface ToManyFilter<R> {
@@ -223,6 +235,35 @@ function compileField(
   value: unknown
 ): Expression<SqlBool> {
   const ref = colRef(scope, col.columnName)
+  // Full-text search on a `tsvector` column → GIN-indexed match. `{search}` →
+  // websearch_to_tsquery (phrase-aware); `{search, prefix}` → to_tsquery with a
+  // `:*` prefix on each sanitized lexeme. Emitted by the search-query DSL's
+  // default (bare-term) search; far cheaper than substring `ILIKE '%x%'`.
+  if (
+    col.sqlType === 'tsvector' &&
+    value !== null &&
+    typeof value === 'object' &&
+    'search' in (value as object)
+  ) {
+    const {search, prefix} = value as {search: unknown; prefix?: boolean}
+    const term = String(search ?? '')
+    const lang = col.ftsLanguage ?? 'english'
+    if (!term.trim()) return TRUE()
+    if (prefix) {
+      // to_tsquery is strict — reduce to alnum lexemes, each prefix-matched.
+      const tsq = term
+        .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .map(w => `${w}:*`)
+        .join(' & ')
+      return tsq ? sql<SqlBool>`${sql.ref(ref)} @@ to_tsquery(${lang}, ${tsq})` : TRUE()
+    }
+    // Quote multi-word terms so websearch treats them as a phrase.
+    const web = /\s/.test(term) ? `"${term}"` : term
+    return sql<SqlBool>`${sql.ref(ref)} @@ websearch_to_tsquery(${lang}, ${web})`
+  }
   if (!isFieldFilter(col, value)) {
     return value === null ? eb(ref, 'is', null) : eb(ref, '=', value as any)
   }
@@ -351,6 +392,23 @@ function compileRelation(
       .whereRef(`${alias}.${pk!.columnName}`, '=', `${outer.ref}.${rel.fkColumn}`)
     q = scopeTenant(q, inner)
     if (keys.length) q = q.where((eb2: any) => compileWhere(eb2, inner, sub, counter))
+    return eb.exists(q)
+  }
+
+  if (rel.kind === 'hasOne') {
+    // Inverse 1:1 → correlated EXISTS over the target's back-FK = our PK, nesting
+    // the target's WhereInput directly (no some/every/none — it's to-one).
+    const backFk = relColumn(targetDef, rel.targetForeignKey!)
+    const opk = outer.def.primaryKey!.columnName
+    const sub = (value ?? {}) as Record<string, unknown>
+    const alias = `__r${counter.n++}`
+    const inner: Scope = {def: targetDef, ref: alias, qualify: true}
+    let q: any = eb
+      .selectFrom(`${targetDef.tableName} as ${alias}`)
+      .select(sql`1`.as('one'))
+      .whereRef(`${alias}.${backFk}`, '=', `${outer.ref}.${opk}`)
+    q = scopeTenant(q, inner)
+    if (Object.keys(sub).length) q = q.where((eb2: any) => compileWhere(eb2, inner, sub, counter))
     return eb.exists(q)
   }
 
@@ -504,13 +562,19 @@ export interface PaginateArgs {
   skip?: number
   /** Field to order + key on; `-` prefix for descending. Defaults to the PK. */
   orderBy?: string
+  /**
+   * Shopify/GitHub-style search-query DSL (`status:OPEN -isRead:true "phrase"`),
+   * parsed against this model's columns and AND-ed onto the current filter. A
+   * scalar in the GraphQL layer, so it needs no per-model filter-input type.
+   */
+  query?: string
 }
 
 /** Keyset cursor = base64url(JSON(orderBy value)). */
-function encodeCursor(value: unknown): string {
+export function encodeCursor(value: unknown): string {
   return Buffer.from(JSON.stringify(value)).toString('base64url')
 }
-function decodeCursor(cursor: string): unknown {
+export function decodeCursor(cursor: string): unknown {
   return JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'))
 }
 
@@ -598,6 +662,16 @@ export class QuerySet<T extends object> {
 
   filter(where: WhereInput<T>): QuerySet<T> {
     return this.clone({where: [...this.state.where, where]})
+  }
+
+  /**
+   * Narrow by a Shopify/GitHub-style search-query string (`status:OPEN -isRead:true
+   * "phrase"`), parsed against this model's columns into a `WhereInput`. The
+   * scalar-string twin of `.filter()` — handy for a GraphQL `query: String` arg
+   * with no per-model filter-input type. Empty/whitespace → no-op.
+   */
+  query(queryStr: string): QuerySet<T> {
+    return this.filter(parseSearchQuery(queryStr, this.def) as unknown as WhereInput<T>)
   }
 
   /** Order by a field; prefix with `-` for descending (e.g. `-createdAt`). */
@@ -716,6 +790,11 @@ export class QuerySet<T extends object> {
    * over-fetched to detect the next/previous page.
    */
   async paginate(args: PaginateArgs = {}): Promise<Connection<T>> {
+    // The `query` DSL is merged into the filter, then we re-enter without it
+    // (one level — the keyset logic below is unchanged).
+    if (args.query) {
+      return this.query(args.query).paginate({...args, query: undefined})
+    }
     const raw = args.orderBy ?? this.def.primaryKey?.propertyKey
     if (!raw) {
       throw new Error(`${this.def.tableName}: .paginate() needs an orderBy or a primary key.`)
@@ -794,6 +873,11 @@ export class Manager<T extends object> {
 
   filter(where: WhereInput<T>): QuerySet<T> {
     return this.qs().filter(where)
+  }
+
+  /** Narrow by a search-query DSL string (see {@link QuerySet.query}). */
+  query(queryStr: string): QuerySet<T> {
+    return this.qs().query(queryStr)
   }
 
   orderBy(field: keyof T | `-${string & keyof T}`): QuerySet<T> {

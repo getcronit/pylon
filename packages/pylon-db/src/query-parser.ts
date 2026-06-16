@@ -269,11 +269,19 @@ class Parser {
     return negated ? {NOT: [where]} : where
   }
 
-  // Default search: contains / startsWith over the model's text columns.
+  // Default search. Routes through the model's GIN-indexed `tsvector` (the
+  // `@model({search})` column) for performance — a `{search}` predicate the
+  // WhereInput compiler turns into `@@ websearch_to_tsquery` (or a prefix
+  // `to_tsquery(... :*)` for a trailing wildcard). Models WITHOUT a search column
+  // fall back to (un-indexed) substring `contains` over their text columns.
   private bareTerm(raw: string): Where {
     if (isBareStar(raw)) return {} // a lone `*` constrains nothing
     const {value, prefix} = literalWithWildcard(raw)
     if (!value) return {}
+    const fts = this.def.columns.find(c => c.sqlType === 'tsvector')
+    if (fts) {
+      return {[fts.propertyKey]: prefix ? {search: value, prefix: true} : {search: value}}
+    }
     const op = prefix ? 'startsWith' : 'contains'
     const cols = this.def.columns.filter(isTextual)
     if (cols.length === 0) return {}
