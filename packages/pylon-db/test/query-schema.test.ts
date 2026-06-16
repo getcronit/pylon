@@ -4,12 +4,15 @@ import {
   boolean,
   buildQuerySchema,
   enumOf,
+  foreignKey,
   getModelDefinitionOrThrow,
+  hasMany,
   id,
   int,
   model,
   numeric,
   publicFieldNames,
+  type Relation,
   text,
   timestamp
 } from '../src/index'
@@ -78,8 +81,63 @@ describe('buildQuerySchema', () => {
     expect(publicFieldNames(schema)).toContain('title')
   })
 
-  it('memoizes — same definition returns the same schema instance', () => {
+  it('memoizes — same (definition, depth) returns the same schema instance', () => {
     const def = getModelDefinitionOrThrow(Item)
     expect(buildQuerySchema(def)).toBe(buildQuerySchema(def))
+  })
+})
+
+@model()
+class Author extends Model {
+  id = id()
+  name = text()
+}
+@model()
+class Book extends Model {
+  id = id()
+  title = text()
+  authorId = foreignKey(() => Author)
+  declare author: Relation<Author>
+  reviews = hasMany(() => Review, {foreignKey: 'bookId'})
+}
+@model()
+class Review extends Model {
+  id = id()
+  body = text()
+  bookId = foreignKey(() => Book)
+  declare book: Relation<Book>
+}
+
+const bookDef = getModelDefinitionOrThrow(Book)
+
+describe('buildQuerySchema — relations (phase 2)', () => {
+  it('exposes a relation field per relation at depth ≥ 1', () => {
+    const schema = buildQuerySchema(bookDef)
+    expect([...schema.relations.keys()].sort()).toEqual(['author', 'reviews'])
+  })
+
+  it('flags to-many relations (hasMany) so the parser wraps them in {some}', () => {
+    const schema = buildQuerySchema(bookDef)
+    expect(schema.relations.get('author')!.toMany).toBe(false) // belongsTo
+    expect(schema.relations.get('reviews')!.toMany).toBe(true) // hasMany
+  })
+
+  it('relations default to internal visibility (public opt-in is phase 3)', () => {
+    const schema = buildQuerySchema(bookDef)
+    expect(schema.relations.get('author')!.visibility).toBe('internal')
+  })
+
+  it("a relation's target schema exposes the target's own fields", () => {
+    const author = buildQuerySchema(bookDef).relations.get('author')!.target()
+    expect(author.byName.has('name')).toBe(true)
+  })
+
+  it('bounds depth: the target schema (depth-1) has no relations of its own', () => {
+    const author = buildQuerySchema(bookDef).relations.get('author')!.target()
+    expect(author.relations.size).toBe(0)
+  })
+
+  it('depth 0 yields no relations at all', () => {
+    expect(buildQuerySchema(bookDef, 0).relations.size).toBe(0)
   })
 })

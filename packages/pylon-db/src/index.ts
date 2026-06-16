@@ -145,8 +145,10 @@ export {parseSearchQuery, QueryParseError} from './query-parser.js'
 export {
   buildQuerySchema,
   publicFieldNames,
+  MAX_RELATION_DEPTH,
   type QuerySchema,
   type QueryableField,
+  type RelationField,
   type QueryOp,
   type FieldVisibility,
   type QueryScope,

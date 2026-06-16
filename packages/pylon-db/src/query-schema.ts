@@ -9,7 +9,15 @@
 // derived fields land in later phases. A field carries a `visibility` so the same
 // schema can serve a lenient internal surface and a strict public one.
 
-import type {ColumnDefinition, ModelDefinition} from './registry.js'
+import {
+  getModelDefinition,
+  type ColumnDefinition,
+  type ModelDefinition,
+  type RelationKind
+} from './registry.js'
+
+/** Default number of relation hops a query may traverse. Shopify-ish: shallow. */
+export const MAX_RELATION_DEPTH = 1
 
 /** Comparison operators a field accepts (derived from its value type). */
 export type QueryOp = 'eq' | 'contains' | 'startsWith' | 'gt' | 'gte' | 'lt' | 'lte' | 'exists'
@@ -37,6 +45,20 @@ export interface QueryableField {
   visibility: FieldVisibility
 }
 
+/** A relation exposed for nested filtering via a dotted path (`vendor.name:nike`,
+ *  `inventoryItems.sku:abc*`). The target's own fields come from its query schema,
+ *  built one depth shallower (so traversal is bounded). */
+export interface RelationField {
+  name: string
+  propertyKey: string
+  kind: RelationKind
+  /** hasMany / manyToMany → the predicate is wrapped in `{some: …}`. */
+  toMany: boolean
+  visibility: FieldVisibility
+  /** The target model's query schema (lazy — bounds cycles, defers resolution). */
+  target: () => QuerySchema
+}
+
 /** The bare-term search target: a generated tsvector (FTS) or the substring fallback. */
 export interface SearchTarget {
   /** A `@model({search})` tsvector column → FTS (`@@`). */
@@ -50,6 +72,8 @@ export interface QuerySchema {
   fields: QueryableField[]
   /** Resolve a field by its public name OR its physical column name. */
   byName: Map<string, QueryableField>
+  /** Relation fields for nested paths, keyed by name. Empty at depth 0. */
+  relations: Map<string, RelationField>
   search: SearchTarget
 }
 
@@ -77,7 +101,7 @@ function opsForColumn(col: ColumnDefinition): QueryOp[] {
   return base // boolean, etc.
 }
 
-function build(def: ModelDefinition): QuerySchema {
+function build(def: ModelDefinition, depth: number): QuerySchema {
   const fields: QueryableField[] = []
   const byName = new Map<string, QueryableField>()
   let fts: SearchTarget['fts']
@@ -109,18 +133,49 @@ function build(def: ModelDefinition): QuerySchema {
   }
 
   const textColumns = fields.filter(f => f.textual).map(f => f.propertyKey)
-  return {tableName: def.tableName, fields, byName, search: {fts, textColumns}}
+
+  // Relations → nested-path fields, but only within the remaining depth budget.
+  // Each target schema is built one depth shallower (depth-1), which bounds both
+  // traversal and cycles (a self-referential relation stops at depth 0 = no rels).
+  const relations = new Map<string, RelationField>()
+  if (depth > 0) {
+    for (const rel of def.relations) {
+      const targetDef = getModelDefinition(rel.target())
+      if (!targetDef) continue // unresolved target → not traversable
+      relations.set(rel.propertyKey, {
+        name: rel.propertyKey,
+        propertyKey: rel.propertyKey,
+        kind: rel.kind,
+        toMany: rel.kind === 'hasMany' || rel.kind === 'manyToMany',
+        // Relations are internal until explicitly opted into the public surface
+        // (Phase 3: @model({query:{public}})).
+        visibility: 'internal',
+        target: () => buildQuerySchema(targetDef, depth - 1)
+      })
+    }
+  }
+
+  return {tableName: def.tableName, fields, byName, relations, search: {fts, textColumns}}
 }
 
-// Schemas are pure derivations of a (stable) model definition → memoize per def.
-const cache = new WeakMap<ModelDefinition, QuerySchema>()
+// Schemas are pure derivations of a (stable) model definition → memoize per
+// (definition, depth).
+const cache = new WeakMap<ModelDefinition, Map<number, QuerySchema>>()
 
-/** The query schema for a model — derived once, then cached. */
-export function buildQuerySchema(def: ModelDefinition): QuerySchema {
-  let schema = cache.get(def)
+/** The query schema for a model — derived once per depth, then cached. */
+export function buildQuerySchema(
+  def: ModelDefinition,
+  depth: number = MAX_RELATION_DEPTH
+): QuerySchema {
+  let byDepth = cache.get(def)
+  if (!byDepth) {
+    byDepth = new Map()
+    cache.set(def, byDepth)
+  }
+  let schema = byDepth.get(depth)
   if (!schema) {
-    schema = build(def)
-    cache.set(def, schema)
+    schema = build(def, depth)
+    byDepth.set(depth, schema)
   }
   return schema
 }

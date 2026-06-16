@@ -3,11 +3,14 @@ import {
   Model,
   boolean,
   enumOf,
+  foreignKey,
   getModelDefinitionOrThrow,
+  hasMany,
   id,
   int,
   model,
   numeric,
+  type Relation,
   text,
   timestamp
 } from '../src/index'
@@ -45,9 +48,35 @@ class Doc extends Model {
   body = text()
 }
 
+// Relation models for the phase-2 path tests: Prod —belongsTo→ Brand, and
+// Prod —hasMany→ Variant (a to-many hop → `{some: …}`).
+@model()
+class Brand extends Model {
+  id = id()
+  name = text()
+  country = text()
+}
+@model()
+class Variant extends Model {
+  id = id()
+  sku = text()
+  qty = int()
+  productId = foreignKey(() => Prod)
+  declare product: Relation<Prod>
+}
+@model()
+class Prod extends Model {
+  id = id()
+  title = text()
+  brandId = foreignKey(() => Brand)
+  declare brand: Relation<Brand>
+  variants = hasMany(() => Variant, {foreignKey: 'productId'})
+}
+
 const productDef = getModelDefinitionOrThrow(Product)
 const tagDef = getModelDefinitionOrThrow(Tag)
 const docDef = getModelDefinitionOrThrow(Doc)
+const prodDef = getModelDefinitionOrThrow(Prod)
 const parse = (q: string) => parseSearchQuery(q, productDef)
 
 /** propertyKey of the synthesized tsvector column (avoids hardcoding its name). */
@@ -342,6 +371,73 @@ describe('parseSearchQuery', () => {
       expect(parseSearchQuery('hello', productDef, {scope: 'public'})).toEqual(
         parseSearchQuery('hello', productDef)
       )
+    })
+  })
+
+  // Phase 2: dotted paths walk relations. The WhereInput compiler nests them —
+  // to-one as `{rel: pred}`, to-many as `{rel: {some: pred}}`.
+  describe('relation paths (phase 2)', () => {
+    const parseProd = (q: string, opts?: Parameters<typeof parseSearchQuery>[2]) =>
+      parseSearchQuery(q, prodDef, opts)
+
+    it('walks a to-one (belongsTo) relation', () => {
+      expect(parseProd('brand.name:nike')).toEqual({brand: {name: 'nike'}})
+    })
+
+    it('wraps a to-many (hasMany) relation in {some: …}', () => {
+      expect(parseProd('variants.sku:abc')).toEqual({
+        variants: {some: {sku: 'abc'}}
+      })
+    })
+
+    it('carries operators through the relation (prefix, comparator, EXISTS)', () => {
+      expect(parseProd('variants.sku:abc*')).toEqual({
+        variants: {some: {sku: {startsWith: 'abc', mode: 'insensitive'}}}
+      })
+      expect(parseProd('variants.qty:>5')).toEqual({variants: {some: {qty: {gt: 5}}}})
+      expect(parseProd('brand.country:*')).toEqual({brand: {country: {not: null}}})
+    })
+
+    it('composes a relation path with own-column terms (implicit AND)', () => {
+      expect(parseProd('title:hat brand.name:nike')).toEqual({
+        AND: [{title: 'hat'}, {brand: {name: 'nike'}}]
+      })
+    })
+
+    it('stops at the depth bound (default 1) — a deeper hop is unknown', () => {
+      // Variant (the depth-1 target) is built with no relations, so `product` is
+      // not traversable → the whole term drops (lenient).
+      expect(parseProd('variants.product.title:x')).toEqual({})
+    })
+
+    it('public scope rejects a relation path (relations are internal until opted in)', () => {
+      expect(() => parseProd('brand.name:nike', {scope: 'public'})).toThrow(
+        /Unknown or non-queryable field "brand.name"/
+      )
+    })
+
+    it('an unknown leaf field on a known relation is lenient (internal)', () => {
+      expect(parseProd('brand.nope:x')).toEqual({})
+    })
+  })
+
+  // Phase 2 cost guard: cap the boolean-node count on the public surface.
+  describe('cost guard (phase 2)', () => {
+    it('public scope rejects a query with too many terms', () => {
+      expect(() =>
+        parseSearchQuery('status:DRAFT status:PUBLISHED active:true', productDef, {
+          scope: 'public',
+          maxBooleanNodes: 2
+        })
+      ).toThrow(/too complex/)
+    })
+
+    it('internal scope is unbounded', () => {
+      expect(() =>
+        parseSearchQuery('status:DRAFT status:PUBLISHED active:true', productDef, {
+          maxBooleanNodes: 2
+        })
+      ).not.toThrow()
     })
   })
 })

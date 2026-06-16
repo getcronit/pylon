@@ -190,6 +190,33 @@ function literalWithWildcard(s: string): {value: string; prefix: boolean} {
   return {value: unescape(s), prefix: false}
 }
 
+/** Split a (possibly dotted) field name into path segments on UNESCAPED dots,
+ *  then unescape each — `vendor.name` → `['vendor', 'name']`, `a\.b` → `['a.b']`. */
+function splitPath(raw: string): string[] {
+  const parts: string[] = []
+  let cur = ''
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i]
+    if (c === '\\' && i + 1 < raw.length) {
+      cur += c + raw[i + 1]
+      i++
+      continue
+    }
+    if (c === '.') {
+      parts.push(cur)
+      cur = ''
+      continue
+    }
+    cur += c
+  }
+  parts.push(cur)
+  return parts.map(unescape)
+}
+
+/** Public-scope guard: cap the number of leaf predicates (boolean nodes) so a
+ *  hostile query can't blow up the WHERE tree. Generous; internal scope is unbound. */
+const DEFAULT_MAX_BOOLEAN_NODES = 100
+
 const OP_PREFIX: Array<{token: string; key: string}> = [
   {token: '>=', key: 'gte'},
   {token: '<=', key: 'lte'},
@@ -200,10 +227,12 @@ const OP_PREFIX: Array<{token: string; key: string}> = [
 // ── Parser (recursive descent) ───────────────────────────────────────────────
 class Parser {
   private pos = 0
+  private nodeCount = 0
   constructor(
     private readonly tokens: Token[],
     private readonly schema: QuerySchema,
-    private readonly scope: QueryScope
+    private readonly scope: QueryScope,
+    private readonly maxBooleanNodes: number
   ) {}
 
   parse(): Where {
@@ -271,6 +300,9 @@ class Parser {
 
   // `[-][field:]value` → a WhereInput fragment.
   private atom(raw: string): Where {
+    if (this.scope === 'public' && ++this.nodeCount > this.maxBooleanNodes) {
+      throw new QueryParseError(`Query too complex: more than ${this.maxBooleanNodes} terms.`)
+    }
     let negated = false
     if (raw.startsWith('-') && raw.length > 1) {
       negated = true
@@ -302,11 +334,55 @@ class Parser {
   }
 
   private fieldTerm(raw: string, colon: number): Where {
-    const name = unescape(raw.slice(0, colon))
+    const rawName = raw.slice(0, colon)
     const rawValue = raw.slice(colon + 1)
-    const field = this.resolveField(name)
-    if (!field) return {} // unknown field → no constraint (lenient; strict already threw)
+    const resolved = this.resolvePath(rawName)
+    if (!resolved) return {} // unknown field → no constraint (lenient; strict already threw)
+    return resolved.wrap(this.leafPredicate(resolved.field, rawValue))
+  }
 
+  /** Resolve a (possibly dotted) field path against the schema, walking relations
+   *  (`vendor.name`, `inventoryItems.sku`). Returns the leaf scalar field plus a
+   *  `wrap` that nests a leaf predicate back through the relation path (`{some:…}`
+   *  for a to-many hop). Honors visibility/scope: a `public` query for an unknown
+   *  or internal field/relation is a hard error; internally it's dropped (lenient).
+   *  Depth is bounded by the schema (relations beyond the budget aren't present). */
+  private resolvePath(rawName: string): {field: QueryableField; wrap: (p: Where) => Where} | undefined {
+    const segments = splitPath(rawName)
+    let schema = this.schema
+    const wrappers: Array<(p: Where) => Where> = []
+    for (let i = 0; i < segments.length - 1; i++) {
+      const rel = schema.relations.get(segments[i])
+      if (!rel || (this.scope === 'public' && rel.visibility !== 'public')) {
+        return this.rejectField(rawName)
+      }
+      const prop = rel.propertyKey
+      const toMany = rel.toMany
+      wrappers.push(p => ({[prop]: toMany ? {some: p} : p}))
+      schema = rel.target()
+    }
+    const field = schema.byName.get(segments[segments.length - 1])
+    if (!field || (this.scope === 'public' && field.visibility !== 'public')) {
+      return this.rejectField(rawName)
+    }
+    // Nest innermost-first: the leaf predicate is wrapped by the deepest relation,
+    // then outward — `a.b.c` → `{a: {b: {c: pred}}}` (with `some` per to-many hop).
+    const wrap = (p: Where) => wrappers.reduceRight((acc, w) => w(acc), p)
+    return {field, wrap}
+  }
+
+  /** Unknown/non-queryable field: throw in `public` scope, lenient-drop internally. */
+  private rejectField(name: string): undefined {
+    if (this.scope === 'public') {
+      throw new QueryParseError(
+        `Unknown or non-queryable field "${name}". Queryable fields: ${publicFieldNames(this.schema).join(', ')}.`
+      )
+    }
+    return undefined
+  }
+
+  /** Build the scalar leaf predicate `{field: …}` from a field + its raw value. */
+  private leafPredicate(field: QueryableField, rawValue: string): Where {
     // EXISTS — `field:*`
     if (isBareStar(rawValue)) return {[field.propertyKey]: {not: null}}
 
@@ -324,21 +400,6 @@ class Parser {
 
     // Plain equality
     return {[field.propertyKey]: this.coerce(field, value)}
-  }
-
-  /** Resolve a field name (public name OR column name) against the schema, honoring
-   *  visibility/scope. In the `public` scope an unknown or internal-only field is a
-   *  hard error; internally it is silently dropped (a frontend typo degrades to "no
-   *  constraint" rather than a 500). */
-  private resolveField(name: string): QueryableField | undefined {
-    const field = this.schema.byName.get(name)
-    if (field && (this.scope !== 'public' || field.visibility === 'public')) return field
-    if (this.scope === 'public') {
-      throw new QueryParseError(
-        `Unknown or non-queryable field "${name}". Queryable fields: ${publicFieldNames(this.schema).join(', ')}.`
-      )
-    }
-    return undefined
   }
 
   // Coerce a raw string to the field's runtime type. Enum membership is left to
@@ -373,9 +434,14 @@ function merge(kind: 'AND' | 'OR', parts: Where[]): Where {
 export function parseSearchQuery(
   input: string,
   def: ModelDefinition,
-  opts: {scope?: QueryScope} = {}
+  opts: {scope?: QueryScope; maxRelationDepth?: number; maxBooleanNodes?: number} = {}
 ): Where {
   if (!input || !input.trim()) return {}
-  const schema = buildQuerySchema(def)
-  return new Parser(tokenize(input.trim()), schema, opts.scope ?? 'internal').parse()
+  const schema = buildQuerySchema(def, opts.maxRelationDepth)
+  return new Parser(
+    tokenize(input.trim()),
+    schema,
+    opts.scope ?? 'internal',
+    opts.maxBooleanNodes ?? DEFAULT_MAX_BOOLEAN_NODES
+  ).parse()
 }
