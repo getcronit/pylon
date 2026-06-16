@@ -305,4 +305,43 @@ describe('parseSearchQuery', () => {
       expect(parse('status:DRAFT')).toEqual({status: 'DRAFT'})
     })
   })
+
+  // The public surface is strict: an unknown/non-queryable field is a hard error
+  // (a public consumer should learn their query is wrong, not get silent results).
+  // The internal surface (default) stays lenient — a frontend typo degrades to "no
+  // constraint" rather than a 500.
+  describe('scope: public (strict) vs internal (lenient)', () => {
+    it('public scope rejects an unknown field with a helpful error', () => {
+      expect(() => parseSearchQuery('nope:bar', productDef, {scope: 'public'})).toThrow(
+        /Unknown or non-queryable field "nope"/
+      )
+    })
+
+    it('the error lists the queryable fields', () => {
+      expect(() => parseSearchQuery('nope:bar', productDef, {scope: 'public'})).toThrow(/title/)
+    })
+
+    it('public scope accepts a known field', () => {
+      expect(parseSearchQuery('status:DRAFT', productDef, {scope: 'public'})).toEqual({
+        status: 'DRAFT'
+      })
+    })
+
+    it('public scope rejects a negated unknown field too', () => {
+      expect(() => parseSearchQuery('-nope:x', productDef, {scope: 'public'})).toThrow(
+        /Unknown or non-queryable field "nope"/
+      )
+    })
+
+    it('internal scope (explicit and default) stays lenient', () => {
+      expect(parseSearchQuery('nope:bar', productDef, {scope: 'internal'})).toEqual({})
+      expect(parseSearchQuery('nope:bar', productDef)).toEqual({})
+    })
+
+    it('bare-term search is unaffected by scope', () => {
+      expect(parseSearchQuery('hello', productDef, {scope: 'public'})).toEqual(
+        parseSearchQuery('hello', productDef)
+      )
+    })
+  })
 })

@@ -141,6 +141,17 @@ export {
   type SqlType
 } from './registry.js'
 export {toIR, entityFromDefinition} from './ir.js'
+export {parseSearchQuery, QueryParseError} from './query-parser.js'
+export {
+  buildQuerySchema,
+  publicFieldNames,
+  type QuerySchema,
+  type QueryableField,
+  type QueryOp,
+  type FieldVisibility,
+  type QueryScope,
+  type SearchTarget
+} from './query-schema.js'
 export {
   snapshot,
   serializeSnapshot,

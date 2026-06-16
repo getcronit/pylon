@@ -20,6 +20,7 @@ import type {ManyToManyManager, RelatedManager} from './relations.js'
 // Type-only (erased) so no runtime cycle with fields.ts.
 import type {PaginatedHasMany, PaginatedManyToMany} from './fields.js'
 import {parseSearchQuery} from './query-parser.js'
+import type {QueryScope} from './query-schema.js'
 
 export type ModelCtor<T> = {new (): T}
 
@@ -670,8 +671,8 @@ export class QuerySet<T extends object> {
    * scalar-string twin of `.filter()` — handy for a GraphQL `query: String` arg
    * with no per-model filter-input type. Empty/whitespace → no-op.
    */
-  query(queryStr: string): QuerySet<T> {
-    return this.filter(parseSearchQuery(queryStr, this.def) as unknown as WhereInput<T>)
+  query(queryStr: string, opts: {scope?: QueryScope} = {}): QuerySet<T> {
+    return this.filter(parseSearchQuery(queryStr, this.def, opts) as unknown as WhereInput<T>)
   }
 
   /** Order by a field; prefix with `-` for descending (e.g. `-createdAt`). */
@@ -876,8 +877,8 @@ export class Manager<T extends object> {
   }
 
   /** Narrow by a search-query DSL string (see {@link QuerySet.query}). */
-  query(queryStr: string): QuerySet<T> {
-    return this.qs().query(queryStr)
+  query(queryStr: string, opts?: {scope?: QueryScope}): QuerySet<T> {
+    return this.qs().query(queryStr, opts)
   }
 
   orderBy(field: keyof T | `-${string & keyof T}`): QuerySet<T> {

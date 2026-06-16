@@ -26,9 +26,25 @@
 // Unknown fields are skipped (lenient, like Shopify) so a frontend typo degrades
 // to "no constraint", never a 500. Pure — no DB access.
 
-import type {ColumnDefinition, ModelDefinition} from './registry.js'
+import type {ModelDefinition} from './registry.js'
+import {
+  buildQuerySchema,
+  publicFieldNames,
+  type QueryableField,
+  type QueryScope,
+  type QuerySchema
+} from './query-schema.js'
 
 type Where = Record<string, unknown>
+
+/** Thrown when a query parsed in the `public` scope references an unknown or
+ *  non-queryable (internal/hidden) field. Internally, unknown fields are lenient. */
+export class QueryParseError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'QueryParseError'
+  }
+}
 
 // ── Tokenizer ────────────────────────────────────────────────────────────────
 // Splits on UNESCAPED, UNQUOTED whitespace / parens. `AND`/`OR`/`NOT` (any case)
@@ -181,16 +197,13 @@ const OP_PREFIX: Array<{token: string; key: string}> = [
   {token: '<', key: 'lt'}
 ]
 
-function isTextual(col: ColumnDefinition): boolean {
-  return (col.sqlType === 'text' || col.sqlType === 'varchar') && !col.hidden
-}
-
 // ── Parser (recursive descent) ───────────────────────────────────────────────
 class Parser {
   private pos = 0
   constructor(
     private readonly tokens: Token[],
-    private readonly def: ModelDefinition
+    private readonly schema: QuerySchema,
+    private readonly scope: QueryScope
   ) {}
 
   parse(): Where {
@@ -278,47 +291,61 @@ class Parser {
     if (isBareStar(raw)) return {} // a lone `*` constrains nothing
     const {value, prefix} = literalWithWildcard(raw)
     if (!value) return {}
-    const fts = this.def.columns.find(c => c.sqlType === 'tsvector')
+    const {fts, textColumns} = this.schema.search
     if (fts) {
       return {[fts.propertyKey]: prefix ? {search: value, prefix: true} : {search: value}}
     }
+    if (textColumns.length === 0) return {}
     const op = prefix ? 'startsWith' : 'contains'
-    const cols = this.def.columns.filter(isTextual)
-    if (cols.length === 0) return {}
-    const ors = cols.map(c => ({[c.propertyKey]: {[op]: value, mode: 'insensitive'}}))
+    const ors = textColumns.map(pk => ({[pk]: {[op]: value, mode: 'insensitive'}}))
     return ors.length === 1 ? ors[0] : {OR: ors}
   }
 
   private fieldTerm(raw: string, colon: number): Where {
-    const field = unescape(raw.slice(0, colon))
+    const name = unescape(raw.slice(0, colon))
     const rawValue = raw.slice(colon + 1)
-    const col = this.def.columns.find(c => c.propertyKey === field || c.columnName === field)
-    if (!col) return {} // unknown field → no constraint (lenient)
+    const field = this.resolveField(name)
+    if (!field) return {} // unknown field → no constraint (lenient; strict already threw)
 
     // EXISTS — `field:*`
-    if (isBareStar(rawValue)) return {[col.propertyKey]: {not: null}}
+    if (isBareStar(rawValue)) return {[field.propertyKey]: {not: null}}
 
     // Comparators — `field:>=v`
     const op = OP_PREFIX.find(o => rawValue.startsWith(o.token))
     if (op) {
-      return {[col.propertyKey]: {[op.key]: this.coerce(col, unescape(rawValue.slice(op.token.length)))}}
+      return {[field.propertyKey]: {[op.key]: this.coerce(field, unescape(rawValue.slice(op.token.length)))}}
     }
 
     // Prefix wildcard — `field:val*` (text columns only)
     const {value, prefix} = literalWithWildcard(rawValue)
-    if (prefix && isTextual(col)) {
-      return {[col.propertyKey]: {startsWith: value, mode: 'insensitive'}}
+    if (prefix && field.textual) {
+      return {[field.propertyKey]: {startsWith: value, mode: 'insensitive'}}
     }
 
     // Plain equality
-    return {[col.propertyKey]: this.coerce(col, value)}
+    return {[field.propertyKey]: this.coerce(field, value)}
   }
 
-  // Coerce a raw string to the column's runtime type. Enum membership is left to
+  /** Resolve a field name (public name OR column name) against the schema, honoring
+   *  visibility/scope. In the `public` scope an unknown or internal-only field is a
+   *  hard error; internally it is silently dropped (a frontend typo degrades to "no
+   *  constraint" rather than a 500). */
+  private resolveField(name: string): QueryableField | undefined {
+    const field = this.schema.byName.get(name)
+    if (field && (this.scope !== 'public' || field.visibility === 'public')) return field
+    if (this.scope === 'public') {
+      throw new QueryParseError(
+        `Unknown or non-queryable field "${name}". Queryable fields: ${publicFieldNames(this.schema).join(', ')}.`
+      )
+    }
+    return undefined
+  }
+
+  // Coerce a raw string to the field's runtime type. Enum membership is left to
   // the DB (a bad value simply matches nothing).
-  private coerce(col: ColumnDefinition, raw: string): unknown {
-    if (col.enumValues && col.enumValues.length) return raw
-    const t = col.sqlType
+  private coerce(field: QueryableField, raw: string): unknown {
+    if (field.enumValues && field.enumValues.length) return raw
+    const t = field.sqlType
     if (t === 'boolean') return raw === 'true' || raw === '1'
     if (t === 'integer' || t === 'bigint' || t === 'numeric') {
       const num = Number(raw)
@@ -343,7 +370,12 @@ function merge(kind: 'AND' | 'OR', parts: Where[]): Where {
  * Parse a Shopify-style search-query string into a `WhereInput` for `def`. Returns
  * `{}` for an empty/whitespace query (no constraint).
  */
-export function parseSearchQuery(input: string, def: ModelDefinition): Where {
+export function parseSearchQuery(
+  input: string,
+  def: ModelDefinition,
+  opts: {scope?: QueryScope} = {}
+): Where {
   if (!input || !input.trim()) return {}
-  return new Parser(tokenize(input.trim()), def).parse()
+  const schema = buildQuerySchema(def)
+  return new Parser(tokenize(input.trim()), schema, opts.scope ?? 'internal').parse()
 }
