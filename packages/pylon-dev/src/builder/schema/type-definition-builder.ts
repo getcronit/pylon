@@ -282,9 +282,12 @@ export class TypeDefinitionBuilder {
       const libraryType = isLibraryType(type)
       const isTypeAlias = !!type.aliasSymbol
 
-      // If it's a type alias and NOT a library utility, we should definitely prefer the alias name
-      // and NOT prefix it with its own arguments (which would lead to things like UserUser)
-      const isUserAlias = isTypeAlias && !libraryType
+      // A non-generic user alias keeps its bare name (so `User` stays `User`, not
+      // `UserUser`). But a GENERIC user alias must be monomorphized per argument —
+      // otherwise `WhereInput<Product>` and `WhereInput<Order>` both collapse to
+      // `WhereInput` and collide. Prefixing by the argument names yields distinct
+      // `ProductWhereInput` / `OrderWhereInput` (mirrors how library generics are named).
+      const isUserAlias = isTypeAlias && !libraryType && typeArguments.length === 0
 
       if (
         typeArguments.length > 0 &&
@@ -307,12 +310,16 @@ export class TypeDefinitionBuilder {
         }
 
         const argNames = relevantArguments.map(arg => {
-          // Use our current dryRun status for prefixes
-          const def = this.getTypeDefinition(arg!, {
-            ...options,
-            dryRun: options.dryRun
-          })
-          return def.name
+          // Name the prefix from the argument's OBJECT type. For a user generic
+          // alias like `WhereInput<Product>` the surrounding property name
+          // (`redirectsWhere`) and the input suffix would otherwise pollute the
+          // prefix → `RedirectsWhereInput…`. Using the object name yields a clean
+          // `Product` → `ProductWhereInput`. Library utility types keep prior naming.
+          const argOptions =
+            libraryType && isTypeAlias
+              ? {...options, dryRun: options.dryRun}
+              : {...options, isInputType: false, propertyName: undefined, dryRun: true}
+          return this.getTypeDefinition(arg!, argOptions).name
         })
 
         // Prefix base name with concatenated argument names
