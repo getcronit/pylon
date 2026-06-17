@@ -187,6 +187,11 @@ export const handler = (options: PylonHandlerOptions, target: Pylon<any> = app) 
 
   const yoga = createYoga({
     graphqlEndpoint: '/graphql',
+    // Dev: surface the REAL error (message + stack) on the GraphQL response and the
+    // server log instead of Yoga's default "Unexpected error." masking — so a failing
+    // resolver is debuggable in the browser and the terminal. Prod keeps the default
+    // (masked, no internal leakage). The app can still override via `config`.
+    ...(process.env.NODE_ENV === 'development' ? {maskedErrors: false} : {}),
     ...config,
     landingPage: false,
     graphiql:
