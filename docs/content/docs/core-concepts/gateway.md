@@ -131,9 +131,14 @@ const gateway = createGateway<ExampleRegistry>().configure({
 
 A patch's return shape is **authoritative for the schema**: a field you add in a
 patch (like `fullName`) becomes a real field of that type, queryable by clients.
-Fields the caller selected are always preserved, even if a patch returns a
-partial object — so a patch can only *add to or override* the remote data, never
-accidentally drop a requested field.
+
+The patch result is merged *over* the fetched data (`{...fetched, ...patched}`),
+so top-level fields you simply **omit** are preserved — returning a partial object
+won't drop a requested field by accident. But the merge is **shallow**, and it
+*does* let you override: returning a field explicitly (including to `null`), or
+returning a partial **nested** object, replaces that value wholesale and can drop
+sub-fields. So a patch can change or remove data — just not silently by leaving a
+top-level field out.
 
 A patch runs **after** the remote row is fetched, so it sees real data — you can
 branch on the row's values. If a computed field needs a column the client didn't
@@ -212,11 +217,14 @@ const users = createGateway<UsersRegistry>().configure({
 export default new Pylon({
   graphql: {
     Query: {
-      profile: (id: string): Profile | null =>
+      // Annotate the return as the interface (wrapped in `Promise`, since delegate
+      // is async). The annotation is what collapses the delegate's inferred variant
+      // union into your declared interface — no cast needed.
+      profile: (id: string): Promise<Profile | null> =>
         users.delegate('Query.user', {
           args: {id},
           needs: {id: true, email: true, kind: true, specialty: true, insuranceId: true}
-        }) as unknown as Profile | null
+        })
     }
   }
 })
@@ -244,9 +252,19 @@ How the two halves line up:
   gateway resolves the matching fragment. The variant fields are already present
   because `needs` requested them.
 
-> **Gotcha.** The mapping *into* the interface is not type-checked: nothing
-> verifies that a branch stamping `__typename: 'DoctorProfile'` returns a shape
-> matching `DoctorProfile` (hence the `as unknown as Profile` cast). A typo'd
-> `__typename` or a missing variant field surfaces at runtime, not at build.
-> Stamp a `__typename` that exactly matches a declared member, and keep `needs` in
-> sync with the fields your variants project.
+The types line up by inference: `delegate` returns `Promise<DoctorProfile |
+PatientProfile>` (the discriminated union of your patch's branches), which is
+assignable to `Promise<Profile | null>` directly — no cast.
+
+> **Annotate the interface — don't rely on pure inference.** The return
+> annotation (`Promise<Profile | null>`) is what tells the compiler to expose the
+> field as your `Profile` interface. If you drop it and let the type be inferred,
+> the compiler emits the variant union as *anonymous* object types that collide
+> with your declared classes and produces an **invalid schema**. So: declare the
+> interface + members as classes, and annotate the resolver with the interface.
+
+> **Gotcha.** The mapping *into* a member is not type-checked: nothing verifies
+> that a branch stamping `__typename: 'DoctorProfile'` returns a shape matching
+> `DoctorProfile`. A typo'd `__typename` or a missing variant field surfaces at
+> runtime, not at build. Stamp a `__typename` that exactly matches a declared
+> member, and keep `needs` in sync with the fields your variants project.

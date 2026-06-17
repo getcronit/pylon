@@ -40,11 +40,11 @@ export default new Pylon({
     Query: {
       // Interface form — declared return type is the base interface (nullable,
       // so a missing remote row delegates through as null).
-      profile: (id: string): Profile | null =>
+      profile: (id: string): Promise<Profile | null> =>
         users.delegate('Query.user', {
           args: {id},
           needs: {id: true, email: true, kind: true, specialty: true, insuranceId: true}
-        }) as unknown as Profile | null
+        })
     }
   }
 })
