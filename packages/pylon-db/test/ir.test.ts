@@ -22,11 +22,20 @@ class Post extends Model {
   declare author: Relation<User>
 }
 
+@model()
+class Doc extends Model {
+  id = id()
+  // A hidden FK (internal back-reference): both the scalar id and the derived
+  // belongsTo relation must drop out of the API.
+  ownerId = foreignKey(() => User, {nullable: true, hidden: true})
+  declare owner: Relation<User>
+}
+
 describe('toIR — ORM registry → Pylon IR', () => {
   const full = toIR()
 
   it('produces one entity per concrete model', () => {
-    expect(Object.keys(full.entities).sort()).toEqual(['Post', 'User'])
+    expect(Object.keys(full.entities).sort()).toEqual(['Doc', 'Post', 'User'])
   })
 
   it('records the primary key as an ID and a bigint identity column', () => {
@@ -60,6 +69,15 @@ describe('toIR — ORM registry → Pylon IR', () => {
     expect(author.relation).toMatchObject({kind: 'belongsTo', target: 'User', fkField: 'authorId'})
     const fk = full.entities.Post.fields.find(f => f.name === 'authorId')!
     expect(fk.column).toMatchObject({name: 'author_id'})
+  })
+
+  it('a hidden FK drops BOTH its scalar id and its belongsTo relation from the API', () => {
+    const fields = full.entities.Doc.fields
+    const ownerId = fields.find(f => f.column?.name === 'owner_id')!
+    expect(ownerId.exposed).toBe(false) // FK column hidden
+    const owner = fields.find(f => f.name === 'owner')!
+    expect(owner.relation).toMatchObject({kind: 'belongsTo', target: 'User'})
+    expect(owner.exposed).toBe(false) // derived relation hidden too (breaks cycles)
   })
 
   it('records the $-hidden column as exposed:false with the $ stripped', () => {

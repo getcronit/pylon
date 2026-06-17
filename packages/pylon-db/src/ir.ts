@@ -104,7 +104,7 @@ function columnField(col: ColumnDefinition): Field {
   }
 }
 
-function relationField(rel: RelationDefinition): Field {
+function relationField(rel: RelationDefinition, def: ModelDefinition): Field {
   const target = rel.target().name
   if (rel.kind === 'hasMany') {
     return {
@@ -155,10 +155,17 @@ function relationField(rel: RelationDefinition): Field {
       }
     }
   }
+  // belongsTo: expose the relation only when its FK column is exposed. A `hidden`
+  // FK (e.g. an internal back-reference) thus drops BOTH its scalar id AND this
+  // relation from the API — which also breaks would-be schema cycles, e.g.
+  // Organization.avatar ⇄ VaultItem.avatarOfOrganization.
+  const fkHidden = rel.fkProperty
+    ? (def.columns.find(c => c.propertyKey === rel.fkProperty)?.hidden ?? false)
+    : false
   return {
     name: rel.propertyKey,
     type: {kind: 'ref', name: target, nullable: rel.nullable},
-    exposed: true,
+    exposed: !fkHidden,
     relation: {
       kind: 'belongsTo',
       target,
@@ -232,7 +239,9 @@ export function entityFromDefinition(def: ModelDefinition): Entity {
       // (Relay `Connection` + args), which the type-checker reads off the field
       // type and emits — letting the ORM contribute a plain list too would
       // double-declare the field with a conflicting type.
-      ...def.relations.filter(rel => !rel.paginate).map(relationField)
+      ...def.relations
+        .filter(rel => !rel.paginate)
+        .map(rel => relationField(rel, def))
     ],
     ...(indexes.length ? {indexes} : {})
   }
