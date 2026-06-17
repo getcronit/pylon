@@ -5,14 +5,14 @@ describe('generatePrepare', () => {
   it('should generate basic object access', () => {
     const output = generatePrepare({user: {name: true, age: true}})
     expect(output).toBe(
-      '({ query }) => { const v1 = query?.user; v1?.name; v1?.age; }'
+      '({ query: __pylonQuery }) => { const v1 = __pylonQuery?.user; v1?.name; v1?.age; }'
     )
   })
 
   it('should generate array mapping scopes', () => {
     const output = generatePrepare({posts: {__isList: true, title: true}})
     expect(output).toBe(
-      '({ query }) => { query?.posts?.map(i1 => { i1?.title; }); }'
+      '({ query: __pylonQuery }) => { __pylonQuery?.posts?.map(i1 => { i1?.title; }); }'
     )
   })
 
@@ -21,13 +21,13 @@ describe('generatePrepare', () => {
       friends: {__args: '{ limit: 10, offset: 20 }', name: true}
     })
     expect(output).toBe(
-      '({ query }) => { const v1 = query?.friends?.({ limit: 10, offset: 20 }); v1?.name; }'
+      '({ query: __pylonQuery }) => { const v1 = __pylonQuery?.friends?.({ limit: 10, offset: 20 }); v1?.name; }'
     )
   })
 
   it('should handle empty function arguments', () => {
     const output = generatePrepare({user: {__args: '', name: true}})
-    expect(output).toBe('({ query }) => { const v1 = query?.user?.(); v1?.name; }')
+    expect(output).toBe('({ query: __pylonQuery }) => { const v1 = __pylonQuery?.user?.(); v1?.name; }')
   })
 
   it('should handle array mapping scopes with arguments', () => {
@@ -35,7 +35,7 @@ describe('generatePrepare', () => {
       friends: {__args: '{ limit: 10 }', __isList: true, name: true}
     })
     expect(output).toBe(
-      '({ query }) => { query?.friends?.({ limit: 10 })?.map(i1 => { i1?.name; }); }'
+      '({ query: __pylonQuery }) => { __pylonQuery?.friends?.({ limit: 10 })?.map(i1 => { i1?.name; }); }'
     )
   })
 
@@ -51,12 +51,21 @@ describe('generatePrepare', () => {
       }
     })
     expect(output).toBe(
-      '({ query }) => { query?.feed?.map(i1 => { i1?.author?.name; i1?.comments?.map(i2 => { i2?.text; }); }); }'
+      '({ query: __pylonQuery }) => { __pylonQuery?.feed?.map(i1 => { i1?.author?.name; i1?.comments?.map(i2 => { i2?.text; }); }); }'
     )
   })
 
   it('should handle functions with arguments that return a primitive value', () => {
     const output = generatePrepare({user: {__args: '{id: 1}'}})
-    expect(output).toBe('({ query }) => { query?.user?.({id: 1}); }')
+    expect(output).toBe('({ query: __pylonQuery }) => { __pylonQuery?.user?.({id: 1}); }')
+  })
+
+  it('does not shadow a user `query` identifier passed as a field argument', () => {
+    // `data.posts({ query })` — the user's `query` arg must stay the closure var,
+    // not be bound to the gqty root (which the old `({ query }) =>` param did).
+    const output = generatePrepare({posts: {__args: '{ query }', title: true}})
+    expect(output).toBe(
+      '({ query: __pylonQuery }) => { const v1 = __pylonQuery?.posts?.({ query }); v1?.title; }'
+    )
   })
 })

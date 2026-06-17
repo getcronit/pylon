@@ -65,8 +65,18 @@ export function generatePrepare(selectors: SelectorNode): string {
     return lines
   }
 
-  const internals = compileNode(selectors, 'query')
-  if (internals.length === 0) return `({ query }) => {}`
+  // The prepare runs as a CLOSURE inside the component, so its body references the
+  // component's locals via the copied field-ARGUMENT expressions (`__args`). The
+  // injected root param must NOT shadow an identifier those args use: a component
+  // variable named `query` passed as an arg (e.g. `data.posts({ query })`) bound by
+  // a `({ query }) =>` param to the gqty root proxy instead of the user's value —
+  // which then gets select-all'd (schema-cycle depth blowups) and is non-cloneable
+  // (multipart `structuredClone` crash). Use a reserved-style root name no user
+  // identifier collides with (`__args` is the only place user identifiers reach the
+  // body — everything else is schema field names + generated `i*`/`v*`).
+  const ROOT = '__pylonQuery'
+  const internals = compileNode(selectors, ROOT)
+  if (internals.length === 0) return `() => {}`
 
-  return `({ query }) => { ${internals.join(' ')} }`
+  return `({ query: ${ROOT} }) => { ${internals.join(' ')} }`
 }

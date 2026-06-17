@@ -36,8 +36,8 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       import { useData } from "@getcronit/pylon-pages";
       function Component() {
         const data = useData({
-          prepare: ({ query }) => {
-            query?.post?.title;
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.post?.title;
           }
         });
         console.log(data.post.title);
@@ -72,8 +72,8 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       import { useData } from "@getcronit/pylon-pages";
       function Component() {
         const data = useData({
-          prepare: ({ query }) => {
-            query?.author?.name;
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.author?.name;
           },
           foo: "bar"
         });
@@ -111,8 +111,8 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       import { useData } from "@getcronit/pylon-pages";
       function Component() {
         const data = useData({
-          prepare: ({ query }) => {
-            query?.friends?.({ limit: 10, offset: 20 })?.map((i1) => {
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.friends?.({ limit: 10, offset: 20 })?.map((i1) => {
               i1?.profile?.username;
             });
           }
@@ -161,7 +161,7 @@ describe('Esbuild useDataStaticAnalyzer', () => {
     // query.me.settings.theme;
     // query.users({ active: true }).map((i1) => { i1.status; i1.posts.map((i2) => { i2.title; i2.comments({ sort: "desc" }).map((i3) => { i3.body; }); }); });
     const expected =
-      'useData({prepare:({query})=>{query?.me?.id;query?.me?.settings?.theme;query?.users?.({active:true})?.map((i1)=>{i1?.status;i1?.posts?.map((i2)=>{i2?.title;i2?.comments?.({sort:"desc"})?.map((i3)=>{i3?.body;});});});}})'
+      'useData({prepare:({query:__pylonQuery})=>{__pylonQuery?.me?.id;__pylonQuery?.me?.settings?.theme;__pylonQuery?.users?.({active:true})?.map((i1)=>{i1?.status;i1?.posts?.map((i2)=>{i2?.title;i2?.comments?.({sort:"desc"})?.map((i3)=>{i3?.body;});});});}})'
   })
   it('should preserve locally scoped variables in injected selectors natively', async () => {
     const inputCode = `
@@ -191,8 +191,8 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       function Component() {
         const myFetchLimit = 50;
         const data = useData({
-          prepare: ({ query }) => {
-            query?.friends?.({ limit: myFetchLimit })?.map((i1) => {
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.friends?.({ limit: myFetchLimit })?.map((i1) => {
               i1?.profile?.username;
             });
           }
@@ -237,8 +237,8 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       function Component() {
         const [pageOffset, setPageOffset] = useState(0);
         const data = useData({
-          prepare: ({ query }) => {
-            query?.feed?.({ offset: pageOffset, limit: 10 })?.map((i1) => {
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.feed?.({ offset: pageOffset, limit: 10 })?.map((i1) => {
               i1?.title;
             });
           }
@@ -1533,8 +1533,8 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       import { useData } from "@getcronit/pylon-pages";
       function Component({ input }) {
         const data = useData({
-          prepare: ({ query }) => {
-            query?.dyno?.({ input });
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.dyno?.({ input });
           }
         });
         return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: data.dyno({ input }) });
@@ -1620,8 +1620,8 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       import { jsx as jsx2 } from "react/jsx-runtime";
       function Page() {
         const data = useData({
-          prepare: ({ query }) => {
-            const v1 = query?.user;
+          prepare: ({ query: __pylonQuery }) => {
+            const v1 = __pylonQuery?.user;
             v1?.name;
             v1?.bio?.short;
           }
@@ -1698,8 +1698,8 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       import { jsx as jsx3 } from "react/jsx-runtime";
       function Parent() {
         const data = useData({
-          prepare: ({ query }) => {
-            const v1 = query?.user;
+          prepare: ({ query: __pylonQuery }) => {
+            const v1 = __pylonQuery?.user;
             v1?.name;
             v1?.meta?.detail;
           }
@@ -1759,8 +1759,8 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       import { jsx, jsxs } from "react/jsx-runtime";
       function SharedComponent({ user }) {
         const settings = useData({
-          prepare: ({ query }) => {
-            query?.timezone;
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.timezone;
           }
         });
         return /* @__PURE__ */ jsxs("div", { children: [
@@ -1773,8 +1773,8 @@ describe('Esbuild useDataStaticAnalyzer', () => {
       import { jsx as jsx2 } from "react/jsx-runtime";
       function Page() {
         const data = useData2({
-          prepare: ({ query }) => {
-            query?.currentUser?.email;
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.currentUser?.email;
           }
         });
         return /* @__PURE__ */ jsx2(SharedComponent, { user: data.currentUser });
@@ -2057,25 +2057,25 @@ describe('Realistic NextJS App with useData', () => {
       import { jsx as jsx7, jsxs as jsxs6 } from "react/jsx-runtime";
       function DashboardPage() {
         const data = useData({
-          prepare: ({ query }) => {
-            const v1 = query?.siteConfig;
+          prepare: ({ query: __pylonQuery }) => {
+            const v1 = __pylonQuery?.siteConfig;
             v1?.siteName;
             const v2 = v1?.logo;
             v2?.url;
             v2?.alt;
             v1?.footerText;
-            const v3 = query?.currentUser;
+            const v3 = __pylonQuery?.currentUser;
             v3?.avatarUrl;
             v3?.displayName;
             v3?.email;
-            query?.dashboardStats?.({ period: "weekly" })?.map((i1) => {
+            __pylonQuery?.dashboardStats?.({ period: "weekly" })?.map((i1) => {
               i1?.label;
               i1?.value;
               const v4 = i1?.trend;
               v4?.direction;
               v4?.percentage;
             });
-            query?.notifications?.({ unread: true })?.map((i1) => {
+            __pylonQuery?.notifications?.({ unread: true })?.map((i1) => {
               i1?.title;
               i1?.message;
               i1?.timestamp;
@@ -2151,11 +2151,11 @@ describe('Realistic NextJS App with useData', () => {
       import { jsx as jsx3, jsxs as jsxs2 } from "react/jsx-runtime";
       function BlogPage() {
         const data = useData({
-          prepare: ({ query }) => {
-            const v1 = query?.blogMeta;
+          prepare: ({ query: __pylonQuery }) => {
+            const v1 = __pylonQuery?.blogMeta;
             v1?.title;
             v1?.description;
-            query?.posts?.({ limit: 20, category: "tech" })?.map((i1) => {
+            __pylonQuery?.posts?.({ limit: 20, category: "tech" })?.map((i1) => {
               i1?.title;
               i1?.excerpt;
               i1?.author?.name;
@@ -2287,8 +2287,8 @@ describe('Realistic NextJS App with useData', () => {
       import { jsx as jsx6, jsxs as jsxs4 } from "react/jsx-runtime";
       function ProfilePage() {
         const data = useData({
-          prepare: ({ query }) => {
-            const v1 = query?.profile;
+          prepare: ({ query: __pylonQuery }) => {
+            const v1 = __pylonQuery?.profile;
             v1?.avatarUrl;
             v1?.displayName;
             v1?.bio;
@@ -2408,8 +2408,8 @@ describe('Realistic NextJS App with useData', () => {
       import { jsx as jsx4, jsxs as jsxs3 } from "react/jsx-runtime";
       function SettingsPage() {
         const userData = useData({
-          prepare: ({ query }) => {
-            const v1 = query?.account;
+          prepare: ({ query: __pylonQuery }) => {
+            const v1 = __pylonQuery?.account;
             v1?.avatarUrl;
             v1?.displayName;
             v1?.email;
@@ -2417,12 +2417,12 @@ describe('Realistic NextJS App with useData', () => {
           }
         });
         const appConfig = useData({
-          prepare: ({ query }) => {
-            const v1 = query?.theme;
+          prepare: ({ query: __pylonQuery }) => {
+            const v1 = __pylonQuery?.theme;
             v1?.primaryColor;
             v1?.fontFamily;
             v1?.borderRadius;
-            const v2 = query?.locale;
+            const v2 = __pylonQuery?.locale;
             v2?.language;
             v2?.timezone;
           }
@@ -2529,8 +2529,8 @@ describe('Realistic NextJS App with useData', () => {
       import { jsx as jsx3, jsxs as jsxs3 } from "react/jsx-runtime";
       function ActivityFeed() {
         const feed = useData({
-          prepare: ({ query }) => {
-            query?.recentActivity?.({ limit: 10 })?.map((i1) => {
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.recentActivity?.({ limit: 10 })?.map((i1) => {
               i1?.action;
               i1?.actor?.name;
               i1?.performedAt;
@@ -2564,14 +2564,14 @@ describe('Realistic NextJS App with useData', () => {
       import { jsx as jsx6, jsxs as jsxs5 } from "react/jsx-runtime";
       function AppPage() {
         const data = useData2({
-          prepare: ({ query }) => {
-            const v1 = query?.siteConfig;
+          prepare: ({ query: __pylonQuery }) => {
+            const v1 = __pylonQuery?.siteConfig;
             v1?.siteName;
             const v2 = v1?.logo;
             v2?.url;
             v2?.alt;
             v1?.footerText;
-            const v3 = query?.viewer;
+            const v3 = __pylonQuery?.viewer;
             v3?.avatarUrl;
             v3?.displayName;
             v3?.email;
@@ -2634,13 +2634,13 @@ describe('Realistic NextJS App with useData', () => {
         const [query, setQuery] = useState("");
         const [page, setPage] = useState(0);
         const data = useData({
-          prepare: ({ query: query2 }) => {
-            query2?.search?.({ term: query2, offset: page, limit: 25 })?.map((i1) => {
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.search?.({ term: query, offset: page, limit: 25 })?.map((i1) => {
               i1?.title;
               i1?.snippet;
               i1?.relevanceScore;
             });
-            query2?.searchMeta?.totalCount;
+            __pylonQuery?.searchMeta?.totalCount;
           }
         });
         const results = data.search({ term: query, offset: page, limit: 25 });
@@ -2776,8 +2776,8 @@ describe('Realistic NextJS App with useData', () => {
       import { jsx as jsx4, jsxs as jsxs4 } from "react/jsx-runtime";
       function StorePage() {
         const data = useData({
-          prepare: ({ query }) => {
-            const v1 = query?.store;
+          prepare: ({ query: __pylonQuery }) => {
+            const v1 = __pylonQuery?.store;
             v1?.name;
             v1?.featuredProducts?.({ limit: 8 })?.map((i1) => {
               i1?.name;
@@ -2848,8 +2848,8 @@ describe('Realistic NextJS App with useData', () => {
       import { jsx, jsxs } from "react/jsx-runtime";
       function ConfiguredPage() {
         const data = useData({
-          prepare: ({ query }) => {
-            const v1 = query?.dashboard;
+          prepare: ({ query: __pylonQuery }) => {
+            const v1 = __pylonQuery?.dashboard;
             v1?.title;
             v1?.lastUpdated;
             v1?.widgets?.map((i1) => {
@@ -2926,8 +2926,8 @@ describe('Realistic NextJS App with useData', () => {
       import { jsxs } from "react/jsx-runtime";
       function PageA() {
         const data = useData({
-          prepare: ({ query }) => {
-            const v1 = query?.user;
+          prepare: ({ query: __pylonQuery }) => {
+            const v1 = __pylonQuery?.user;
             v1?.firstName;
             v1?.lastName;
           }
@@ -2949,8 +2949,8 @@ describe('Realistic NextJS App with useData', () => {
       import { jsxs } from "react/jsx-runtime";
       function PageB() {
         const data = useData({
-          prepare: ({ query }) => {
-            const v1 = query?.product;
+          prepare: ({ query: __pylonQuery }) => {
+            const v1 = __pylonQuery?.product;
             v1?.sku;
             v1?.price;
           }
@@ -3014,8 +3014,8 @@ describe('Realistic NextJS App with useData', () => {
       import { jsx, jsxs } from "react/jsx-runtime";
       function OrgPage() {
         const data = useData({
-          prepare: ({ query }) => {
-            const v1 = query?.organization;
+          prepare: ({ query: __pylonQuery }) => {
+            const v1 = __pylonQuery?.organization;
             v1?.name;
             v1?.teams?.({ active: true })?.map((i1) => {
               i1?.name;
@@ -3111,8 +3111,8 @@ describe('Realistic NextJS App with useData', () => {
       import { jsx as jsx3, jsxs as jsxs2 } from "react/jsx-runtime";
       function useUser() {
         const data = useData({
-          prepare: ({ query }) => {
-            const v1 = query?.currentUser;
+          prepare: ({ query: __pylonQuery }) => {
+            const v1 = __pylonQuery?.currentUser;
             v1?.avatarUrl;
             v1?.displayName;
             v1?.email;
@@ -3189,12 +3189,12 @@ describe('Realistic NextJS App with useData', () => {
       import { jsx as jsx3, jsxs as jsxs2 } from "react/jsx-runtime";
       function MultiUserPage() {
         const data = useData({
-          prepare: ({ query }) => {
-            const v1 = query?.sender;
+          prepare: ({ query: __pylonQuery }) => {
+            const v1 = __pylonQuery?.sender;
             v1?.avatarUrl;
             v1?.displayName;
             v1?.email;
-            const v2 = query?.receiver;
+            const v2 = __pylonQuery?.receiver;
             v2?.avatarUrl;
             v2?.displayName;
             v2?.email;
@@ -3291,12 +3291,12 @@ describe('Realistic NextJS App with useData', () => {
       import { jsx as jsx5, jsxs as jsxs3 } from "react/jsx-runtime";
       function ConditionalPage({ showUser }) {
         const data = useData({
-          prepare: ({ query }) => {
-            const v1 = query?.profile;
+          prepare: ({ query: __pylonQuery }) => {
+            const v1 = __pylonQuery?.profile;
             v1?.avatarUrl;
             v1?.displayName;
             v1?.email;
-            const v2 = query?.featuredPost;
+            const v2 = __pylonQuery?.featuredPost;
             v2?.title;
             v2?.excerpt;
             v2?.author?.name;
@@ -3304,8 +3304,8 @@ describe('Realistic NextJS App with useData', () => {
               i1?.name;
               i1?.color;
             });
-            query?.hasNotifications;
-            query?.notifications?.map((i1) => {
+            __pylonQuery?.hasNotifications;
+            __pylonQuery?.notifications?.map((i1) => {
               i1?.title;
             });
           }
@@ -3393,9 +3393,9 @@ describe('Realistic NextJS App with useData', () => {
       import { jsx as jsx3, jsxs } from "react/jsx-runtime";
       function BarrelPage() {
         const data = useData({
-          prepare: ({ query }) => {
-            query?.partA?.fieldA;
-            query?.partB?.fieldB;
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.partA?.fieldA;
+            __pylonQuery?.partB?.fieldB;
           }
         });
         return /* @__PURE__ */ jsxs("div", { children: [
@@ -3479,8 +3479,8 @@ describe('Realistic NextJS App with useData', () => {
       import { Fragment, jsx, jsxs } from "react/jsx-runtime";
       function Profile() {
         const { me } = useData({
-          prepare: ({ query }) => {
-            const v1 = query?.me;
+          prepare: ({ query: __pylonQuery }) => {
+            const v1 = __pylonQuery?.me;
             v1?.name;
             v1?.pets?.map((i1) => {
               i1?.id;
@@ -3573,8 +3573,8 @@ describe('Realistic NextJS App with useData', () => {
       import { jsx as jsx2, jsxs } from "react/jsx-runtime";
       function Profile() {
         const { me } = useData({
-          prepare: ({ query }) => {
-            query?.me?.pets?.map((i1) => {
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.me?.pets?.map((i1) => {
               i1?.id;
               const v1 = i1?.$on;
               v1?.Cat?.meows;
@@ -3633,8 +3633,8 @@ describe('Realistic NextJS App with useData', () => {
       "import { useData } from "@getcronit/pylon-pages";
       function useUser() {
         return useData({
-          prepare: ({ query }) => {
-            const v1 = query?.user;
+          prepare: ({ query: __pylonQuery }) => {
+            const v1 = __pylonQuery?.user;
             v1?.name;
             v1?.email;
           }
@@ -3704,8 +3704,8 @@ describe('Realistic NextJS App with useData', () => {
       "import { useData } from "@getcronit/pylon-pages";
       function useBase() {
         return useData({
-          prepare: ({ query }) => {
-            query?.me?.displayName;
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.me?.displayName;
           }
         });
       }
@@ -3755,8 +3755,8 @@ describe('Realistic NextJS App with useData', () => {
       import { Fragment, jsxs } from "react/jsx-runtime";
       function Profile() {
         const { me } = useData({
-          prepare: ({ query }) => {
-            const v1 = query?.me;
+          prepare: ({ query: __pylonQuery }) => {
+            const v1 = __pylonQuery?.me;
             v1?.name;
             v1?.updatedAt;
             v1?.type;
@@ -3824,8 +3824,8 @@ describe('Realistic NextJS App with useData', () => {
       }
       function Profile() {
         const data = useData({
-          prepare: ({ query }) => {
-            const v1 = query?.currentUser;
+          prepare: ({ query: __pylonQuery }) => {
+            const v1 = __pylonQuery?.currentUser;
             v1?.firstName;
             v1?.lastName;
             v1?.email;
@@ -3874,8 +3874,8 @@ describe('Realistic NextJS App with useData', () => {
       import { jsx } from "react/jsx-runtime";
       function App() {
         const { user } = uq({
-          prepare: ({ query }) => {
-            query?.user?.id;
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.user?.id;
           }
         });
         return /* @__PURE__ */ jsx("div", { children: user.id });
@@ -3941,8 +3941,8 @@ describe('Realistic NextJS App with useData', () => {
       // src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/hooks/circular.ts
       function useA() {
         const data = useData({
-          prepare: ({ query }) => {
-            query?.user?.username;
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.user?.username;
           }
         });
         const b = useB();
@@ -3989,8 +3989,8 @@ describe('Realistic NextJS App with useData', () => {
       import { jsx } from "react/jsx-runtime";
       function App() {
         const { currentUser: person } = useData({
-          prepare: ({ query }) => {
-            query?.currentUser?.firstName;
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.currentUser?.firstName;
           }
         });
         return /* @__PURE__ */ jsx("div", { children: person.firstName });
@@ -4037,8 +4037,8 @@ describe('Realistic NextJS App with useData', () => {
       import { useData } from "@getcronit/pylon-pages";
       function useEnhancedUser() {
         const { user } = useData({
-          prepare: ({ query }) => {
-            query?.user?.displayName;
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.user?.displayName;
           }
         });
         return { ...user, source: "pylon" };
@@ -4097,8 +4097,8 @@ describe('Realistic NextJS App with useData', () => {
       import { useData } from "@getcronit/pylon-pages";
       function useEnhancedUser() {
         const { user } = useData({
-          prepare: ({ query }) => {
-            query?.user?.name;
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.user?.name;
           }
         });
         return { ...user, name: void 0, source: user.name };
@@ -4147,9 +4147,9 @@ describe('Realistic NextJS App with useData', () => {
       import { jsx } from "react/jsx-runtime";
       function Page() {
         const { user, ...rest } = useData({
-          prepare: ({ query }) => {
-            query?.user;
-            query?.meta?.version;
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.user;
+            __pylonQuery?.meta?.version;
           }
         });
         return /* @__PURE__ */ jsx("div", { children: rest.meta.version });
@@ -4194,8 +4194,8 @@ describe('Realistic NextJS App with useData', () => {
       import { jsx, jsxs } from "react/jsx-runtime";
       function Page() {
         const { posts } = useData({
-          prepare: ({ query }) => {
-            query?.posts?.map((i1) => {
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.posts?.map((i1) => {
               i1?.title;
               i1?.id;
             });
@@ -4241,8 +4241,8 @@ describe('Realistic NextJS App with useData', () => {
       import { jsxs } from "react/jsx-runtime";
       function Page() {
         const { user = { displayName: "Guest" } } = useData({
-          prepare: ({ query }) => {
-            query?.user?.displayName;
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.user?.displayName;
           }
         });
         return /* @__PURE__ */ jsxs("div", { children: [
@@ -4295,8 +4295,8 @@ describe('Realistic NextJS App with useData', () => {
       import { jsx, jsxs } from "react/jsx-runtime";
       function Page() {
         const { posts } = useData({
-          prepare: ({ query }) => {
-            query?.posts?.map((i1) => {
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.posts?.map((i1) => {
               i1?.id;
               i1?.title;
               i1?.comments?.map((i2) => {
@@ -4357,8 +4357,8 @@ describe('Realistic NextJS App with useData', () => {
       import { useData } from "@getcronit/pylon-pages";
       function useDynamicUser() {
         const { user } = useData({
-          prepare: ({ query }) => {
-            query?.user?.displayName;
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.user?.displayName;
           }
         });
         return { ["profile"]: user };
@@ -4414,8 +4414,8 @@ describe('Realistic NextJS App with useData', () => {
       import { useData } from "@getcronit/pylon-pages";
       function useUserActions() {
         const { user } = useData({
-          prepare: ({ query }) => {
-            const v1 = query?.user;
+          prepare: ({ query: __pylonQuery }) => {
+            const v1 = __pylonQuery?.user;
             v1?.firstName;
             v1?.lastName;
           }
@@ -4489,8 +4489,8 @@ describe('Realistic NextJS App with useData', () => {
       // src/plugins/use-pages/build/plugins/use-data-static-analyzer/temp_nextjs_app/hooks/reduce.ts
       function usePostsMap() {
         const { posts } = useData({
-          prepare: ({ query }) => {
-            query?.posts?.map((i1) => {
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.posts?.map((i1) => {
               i1?.id;
               i1?.title;
             });
@@ -4542,8 +4542,8 @@ describe('Realistic NextJS App with useData', () => {
       import { jsx } from "react/jsx-runtime";
       function Page() {
         const data = useData({
-          prepare: ({ query }) => {
-            query?.user?.name;
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.user?.name;
           }
         });
         return /* @__PURE__ */ jsx("div", { children: data.user.name });
@@ -4624,8 +4624,8 @@ describe('Realistic NextJS App with useData', () => {
       import { jsx as jsx2 } from "react/jsx-runtime";
       function TasksPage() {
         const data = useData({
-          prepare: ({ query }) => {
-            const v1 = query?.tasks?.({ filters: { status: "TODO" /* TODO */ }, first: 5 });
+          prepare: ({ query: __pylonQuery }) => {
+            const v1 = __pylonQuery?.tasks?.({ filters: { status: "TODO" /* TODO */ }, first: 5 });
             v1?.nodes?.map((i1) => {
               i1?.id;
               i1?.title;
@@ -4701,8 +4701,8 @@ describe('Realistic NextJS App with useData', () => {
       import { jsx as jsx2 } from "react/jsx-runtime";
       function AllTasksPage() {
         const data = useData({
-          prepare: ({ query }) => {
-            const v1 = query?.tasks?.({ first: 10 });
+          prepare: ({ query: __pylonQuery }) => {
+            const v1 = __pylonQuery?.tasks?.({ first: 10 });
             v1?.nodes?.map((i1) => {
               i1?.id;
               i1?.title;
@@ -4781,8 +4781,8 @@ describe('Realistic NextJS App with useData', () => {
       import { jsx as jsx2 } from "react/jsx-runtime";
       function AliasPage() {
         const data = useData({
-          prepare: ({ query }) => {
-            query?.me?.nickname;
+          prepare: ({ query: __pylonQuery }) => {
+            __pylonQuery?.me?.nickname;
           }
         });
         return /* @__PURE__ */ jsx2(UserBadge, { user: data.me });
@@ -4866,8 +4866,8 @@ describe('Realistic NextJS App with useData', () => {
       import { jsxs } from "react/jsx-runtime";
       function TicketsPage() {
         const data = useData({
-          prepare: ({ query }) => {
-            const v1 = query?.tickets?.({});
+          prepare: ({ query: __pylonQuery }) => {
+            const v1 = __pylonQuery?.tickets?.({});
             v1?.pageInfo?.totalCount;
           }
         });

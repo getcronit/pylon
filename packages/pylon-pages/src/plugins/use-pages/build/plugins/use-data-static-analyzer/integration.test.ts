@@ -46,9 +46,11 @@ describe('Configurable Plugin Integration', () => {
     const outputCode = result.outputFiles[0].text
 
     // Check that it injected the prepare function correctly
-    // It should identify useGQL (aliased as query) and inject the selector
+    // It should identify useGQL (aliased as query) and inject the selector.
+    // The hygienic root param (__pylonQuery) also avoids colliding with the
+    // `query`-aliased hook — no esbuild rename to `query2` needed.
     expect(outputCode.replace(/\s+/g, '')).toContain(
-      'query({prepare:({query:query2})=>{query2?.user?.name;}})'
+      'query({prepare:({query:__pylonQuery})=>{__pylonQuery?.user?.name;}})'
     )
   })
 
@@ -77,7 +79,7 @@ describe('Configurable Plugin Integration', () => {
 
     const outputCode = result.outputFiles[0].text
     expect(outputCode.replace(/\s+/g, '')).toContain(
-      'useData({prepare:({query})=>{query?.post?.title;}})'
+      'useData({prepare:({query:__pylonQuery})=>{__pylonQuery?.post?.title;}})'
     )
   })
 })
