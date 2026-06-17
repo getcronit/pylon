@@ -21,18 +21,33 @@ const dir = path.dirname(fileURLToPath(import.meta.url))
 const e2eRoot = path.resolve(dir, '..')
 const cliBin = path.resolve(e2eRoot, '../packages/pylon-dev/dist/index.js')
 const remoteDir = path.resolve(e2eRoot, 'fixtures/gateway-remote-app')
+const orgsDir = path.resolve(e2eRoot, 'fixtures/gateway-orgs-app')
 const frontDir = path.resolve(e2eRoot, 'fixtures/gateway-front-app')
-const generated = path.join(frontDir, 'src/generated/remote.ts')
+const usersReg = path.join(frontDir, 'src/generated/users.ts')
+const orgsReg = path.join(frontDir, 'src/generated/orgs.ts')
 
 const REMOTE_PORT = 4901
+const ORGS_PORT = 4904
 const FRONT_PORT = 4782
 const remoteUrl = `http://localhost:${REMOTE_PORT}/graphql`
+const orgsUrl = `http://localhost:${ORGS_PORT}/graphql`
 const frontUrl = `http://localhost:${FRONT_PORT}/graphql`
 
 const env = {...process.env, PYLON_TELEMETRY_DISABLED: '1', DO_NOT_TRACK: '1'}
 
 let remote: ChildProcess | undefined
+let orgs: ChildProcess | undefined
 let front: ChildProcess | undefined
+
+function pull(url: string, name: string) {
+  const r = spawnSync('node', [cliBin, 'pull', url, '-n', name, '-o', './src/generated'], {
+    cwd: frontDir,
+    encoding: 'utf8',
+    timeout: 60_000,
+    env
+  })
+  if (r.status !== 0) throw new Error(`pull ${name} failed: ${String(r.stderr ?? r.stdout ?? '')}`)
+}
 
 function build(cwd: string) {
   const r = spawnSync('node', [cliBin, 'build'], {cwd, encoding: 'utf8', timeout: 120_000, env})
@@ -74,44 +89,47 @@ async function waitForReady(url: string, timeoutMs = 30_000) {
   throw new Error(`server ${url} did not become ready`)
 }
 
-describe('gateway — two real Pylon services, pull + delegate over HTTP', () => {
+describe('gateway — three real Pylon services, pull + cross-service delegate over HTTP', () => {
   beforeAll(async () => {
     if (!existsSync(cliBin)) throw new Error(`pylon CLI not built at ${cliBin}.`)
 
-    // 1. Build + serve the remote user service.
+    // 1. Build + serve BOTH remotes (users + orgs) on different ports.
     await fs.rm(path.join(remoteDir, '.pylon'), {recursive: true, force: true})
+    await fs.rm(path.join(orgsDir, '.pylon'), {recursive: true, force: true})
     build(remoteDir)
+    build(orgsDir)
     remote = serve(remoteDir, REMOTE_PORT)
-    await waitForReady(remoteUrl)
+    orgs = serve(orgsDir, ORGS_PORT)
+    await Promise.all([waitForReady(remoteUrl), waitForReady(orgsUrl)])
 
-    // 2. `pylon pull` the live remote schema → the front's typed registry.
-    await fs.rm(generated, {force: true})
-    const pull = spawnSync(
-      'node',
-      [cliBin, 'pull', remoteUrl, '-n', 'remote', '-o', './src/generated'],
-      {cwd: frontDir, encoding: 'utf8', timeout: 60_000, env}
-    )
-    if (pull.status !== 0) throw new Error(`pull failed: ${String(pull.stderr ?? pull.stdout ?? '')}`)
-    if (!existsSync(generated)) throw new Error('pull did not generate the registry')
+    // 2. `pylon pull` BOTH live schemas → the front's two typed registries.
+    await fs.rm(usersReg, {force: true})
+    await fs.rm(orgsReg, {force: true})
+    pull(remoteUrl, 'users')
+    pull(orgsUrl, 'orgs')
+    if (!existsSync(usersReg) || !existsSync(orgsReg)) {
+      throw new Error('pull did not generate both registries')
+    }
 
-    // 3. Build + serve the front, pointed at the remote.
+    // 3. Build + serve the front, pointed at both remotes.
     await fs.rm(path.join(frontDir, '.pylon'), {recursive: true, force: true})
     build(frontDir)
-    front = serve(frontDir, FRONT_PORT, {REMOTE_URL: remoteUrl})
+    front = serve(frontDir, FRONT_PORT, {REMOTE_URL: remoteUrl, ORGS_URL: orgsUrl})
     await waitForReady(frontUrl)
   }, 240_000)
 
   afterAll(async () => {
     front?.kill('SIGKILL')
     remote?.kill('SIGKILL')
-    await fs.rm(path.join(frontDir, '.pylon'), {recursive: true, force: true}).catch(() => {})
-    await fs.rm(path.join(remoteDir, '.pylon'), {recursive: true, force: true}).catch(() => {})
+    orgs?.kill('SIGKILL')
+    for (const d of [frontDir, remoteDir, orgsDir]) {
+      await fs.rm(path.join(d, '.pylon'), {recursive: true, force: true}).catch(() => {})
+    }
   })
 
-  it('pull generated a registry the front builds against', () => {
-    // (Covered by beforeAll succeeding — the front only builds if the generated
-    //  `RemoteRegistry` typed the delegate calls. Asserted explicitly for clarity.)
-    expect(existsSync(generated)).toBe(true)
+  it('pull generated both registries the front builds against', () => {
+    expect(existsSync(usersReg)).toBe(true)
+    expect(existsSync(orgsReg)).toBe(true)
   })
 
   it('delegates with arg injection + applies the computed patch', async () => {
@@ -135,10 +153,12 @@ describe('gateway — two real Pylon services, pull + delegate over HTTP', () =>
     expect(r.data.fullUser).toEqual({fullName: 'Ada Lovelace'})
   })
 
-  it('a patch can add a field that delegates to another remote query (lazy nested delegate)', async () => {
-    // The `User` patch adds `org: () => api.delegate('Query.org', …)`. It must
-    // appear in the schema (via PatchSchema reading the function field) AND fire
-    // only when selected — proving a patch can compose a (lazy) delegate.
+  it('a patch can delegate to ANOTHER remote service (cross-service, lazy)', async () => {
+    // The `User` patch (on the users gateway) adds `org: () => orgs.delegate(...)`,
+    // where `orgs` is a SECOND gateway to a DIFFERENT service. It must surface in
+    // the schema (PatchSchema reads the function field) AND fire only when selected
+    // — proving a patch composes a lazy delegate across services. `org { name }`
+    // ("Acme") lives only in the orgs service.
     const r = await gql(frontUrl, '{ fullUser(id: "u1") { email org { name } } }')
     expect(r.errors).toBeUndefined()
     expect(r.data.fullUser).toEqual({email: 'ada@x.com', org: {name: 'Acme'}})
