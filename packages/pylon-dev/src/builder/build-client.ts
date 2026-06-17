@@ -142,35 +142,40 @@ const queryFetcher: QueryFetcher = async function (
 
 function buildGraphQLMultipartForm(query, variables) {
   const form = new FormData();
-  const operations = { query, variables: structuredClone(variables) };
   const map = {};
   const files = [];
+  const filePaths = [];
 
-  let fileIndex = 0;
-
-  // Helper to find all files in variables
-  function recurse(value, path = []) {
+  // First pass: locate files in the ORIGINAL variables WITHOUT cloning.
+  // structuredClone throws (DataCloneError) on non-cloneable values — e.g. a gqty
+  // proxy or a function that slipped into a variable — so cloning every query up
+  // front turned an app-level bad-variable into an opaque crash. Most queries carry
+  // no files, so we only clone when we actually have to null one out.
+  function find(value, path = []) {
     if (value instanceof File || value instanceof Blob) {
-      map[fileIndex] = [\`variables.\${path.join(".")}\`];
-      set(operations.variables, path, null);
-      files.push({ index: fileIndex, file: value });
-      fileIndex++;
+      filePaths.push(path.slice());
+      files.push(value);
     } else if (Array.isArray(value)) {
-      value.forEach((item, i) => recurse(item, [...path, i]));
-    } else if (value && typeof value === "object") {
-      Object.entries(value).forEach(([key, val]) =>
-        recurse(val, [...path, key])
-      );
+      value.forEach((item, i) => find(item, [...path, i]));
+    } else if (value && typeof value === "object" && !(value instanceof Date)) {
+      Object.entries(value).forEach(([key, val]) => find(val, [...path, key]));
     }
   }
+  find(variables);
 
-  recurse(variables);
+  // Only clone when there are files to strip out; a file-less query is sent as-is.
+  const outVars = files.length ? structuredClone(variables) : variables;
+  filePaths.forEach((path, i) => {
+    map[i] = [\`variables.\${path.join(".")}\`];
+    set(outVars, path, null);
+  });
 
+  const operations = { query, variables: outVars };
   form.append("operations", JSON.stringify(operations));
   form.append("map", JSON.stringify(map));
 
-  files.forEach(({ index, file }) => {
-    form.append(index, file);
+  files.forEach((file, i) => {
+    form.append(i, file);
   });
 
   return form;
