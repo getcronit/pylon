@@ -1,7 +1,34 @@
 import {Plugin} from 'esbuild'
 import fs from 'fs/promises'
 import path from 'path'
+import {buildSchema, validateSchema} from 'graphql'
 import {updateFileIfChanged} from '../../update-file-if-changed'
+
+/**
+ * Pylon must NEVER emit an invalid schema. Validate the generated SDL exactly the
+ * way the runtime will (build a schema, run graphql's schema validation) and throw
+ * if it's invalid — so the build fails LOUDLY instead of writing a broken
+ * schema.graphql that only crashes later at serve time (`assertValidSchema`).
+ */
+function assertSchemaIsValid(typeDefs: string) {
+  let errors: readonly {message: string}[]
+  try {
+    errors = validateSchema(buildSchema(typeDefs))
+  } catch (err) {
+    // buildSchema / SDL-level validation itself threw — surface it as the error.
+    errors = [err instanceof Error ? err : {message: String(err)}]
+  }
+
+  if (errors.length > 0) {
+    throw new Error(
+      'Pylon generated an invalid GraphQL schema:\n' +
+        errors.map(e => `  • ${e.message}`).join('\n') +
+        '\n\nThis usually means a resolver return type cannot form a valid schema ' +
+        'on its own (e.g. an interface member missing a field, often from relying ' +
+        'on an inferred type). Give the resolver an explicit return-type annotation.'
+    )
+  }
+}
 
 export interface InjectCodePluginOptions {
   getBuildDefs: () => {
@@ -33,6 +60,9 @@ export const injectCodePlugin = ({
         }
 
         const {typeDefs, resolvers} = getBuildDefs()
+
+        // Fail the build before writing a single byte if the schema is invalid.
+        assertSchemaIsValid(typeDefs)
 
         const preparedResolvers = prepareObjectInjection(resolvers)
 

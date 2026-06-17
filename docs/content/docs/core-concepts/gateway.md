@@ -264,9 +264,11 @@ assignable to `Promise<Profile | null>` directly — no cast.
 > **Annotate the interface — don't rely on pure inference.** The return
 > annotation (`Promise<Profile | null>`) is what tells the compiler to expose the
 > field as your `Profile` interface. If you drop it and let the type be inferred,
-> the compiler emits the variant union as *anonymous* object types that collide
-> with your declared classes and produces an **invalid schema**. So: declare the
-> interface + members as classes, and annotate the resolver with the interface.
+> the variant union is emitted as *anonymous* object types that collide with your
+> declared classes — an invalid schema. `pylon build` **rejects** that with a clear
+> error (Pylon validates the generated schema and never emits a broken one), so it
+> fails at build, not at serve time. Declare the interface + members as classes, and
+> annotate the resolver with the interface.
 
 > **Gotcha.** The mapping *into* a member is not type-checked: nothing verifies
 > that a branch stamping `__typename: 'DoctorProfile'` returns a shape matching
