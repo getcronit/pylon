@@ -919,8 +919,8 @@ export function model(options: ModelOptions = {}): ClassDecorator {
               }
               throw new Error(
                 `Relation "${rel.propertyKey}" references ${targetDef.tableName} ` +
-                  `"${String(fk)}", but no such row resolved (dangling foreign key ` +
-                  `or row-level policy).`
+                  `"${String(fk)}", but no such row resolved (dangling foreign key, ` +
+                  `row-level policy, or a different tenant).`
               )
             })
           }

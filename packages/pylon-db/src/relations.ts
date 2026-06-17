@@ -7,6 +7,7 @@ import {
   createManager,
   createMany,
   applyPolicyWhere,
+  applyTenantWhere,
   decodeCursor,
   deleteManyInstances,
   encodeCursor,
@@ -155,15 +156,19 @@ async function flush(db: Database, ctxKey: object, token: string): Promise<void>
   const targetDef = getModelDefinitionOrThrow(batch.target)
   const keys = [...batch.waiters.keys()]
   try {
-    // A relation read re-applies the target's READ policy — traversal can't
-    // surface a row you couldn't have queried directly.
-    const rows = await applyPolicyWhere(
-      db.kysely
-        .selectFrom(batch.tableName)
-        .select(selectableColumns(targetDef))
-        .where(batch.pkColumn as any, 'in', keys as any),
-      targetDef,
-      'read'
+    // A relation read re-applies the target's READ policy AND its TENANT scope —
+    // traversal can't surface a row you couldn't have queried directly (incl. one
+    // in another tenant).
+    const rows = await applyTenantWhere(
+      applyPolicyWhere(
+        db.kysely
+          .selectFrom(batch.tableName)
+          .select(selectableColumns(targetDef))
+          .where(batch.pkColumn as any, 'in', keys as any),
+        targetDef,
+        'read'
+      ),
+      targetDef
     ).execute()
 
     const byKey = new Map<unknown, any>()
@@ -253,14 +258,18 @@ async function flushHasMany(db: Database, ctxKey: object, token: string): Promis
   const childDef = getModelDefinitionOrThrow(batch.child)
   const keys = [...batch.waiters.keys()]
   try {
-    // Children are re-scoped by the child model's READ policy.
-    const rows = await applyPolicyWhere(
-      db.kysely
-        .selectFrom(batch.childTable)
-        .select(selectableColumns(childDef))
-        .where(batch.fkColumn as any, 'in', keys as any),
-      childDef,
-      'read'
+    // Children are re-scoped by the child model's READ policy AND its TENANT scope
+    // (a relation read is scoped exactly like a direct query — no cross-tenant leak).
+    const rows = await applyTenantWhere(
+      applyPolicyWhere(
+        db.kysely
+          .selectFrom(batch.childTable)
+          .select(selectableColumns(childDef))
+          .where(batch.fkColumn as any, 'in', keys as any),
+        childDef,
+        'read'
+      ),
+      childDef
     ).execute()
 
     // Group rows by their FK value → each parent gets its own list.

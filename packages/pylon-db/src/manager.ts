@@ -539,6 +539,35 @@ export function readPolicyDenies(def: ModelDefinition): boolean {
   return !isSystem() && policyOutcome(def, 'read') === 'deny'
 }
 
+/**
+ * AND a model's TENANT scope onto a relation-loader query, mirroring QuerySet
+ * `predicates()` so a relation read is scoped EXACTLY like a direct query: walking
+ * a relation can't surface rows in another tenant (or any rows when no tenant is
+ * bound). Without this, `belongsTo`/`hasMany` loaders applied only the read policy —
+ * which, for a tenant-agnostic policy like `!!principal`, let traversal off a
+ * cross-tenant instance leak another tenant's rows. `runAsSystem` bypasses; a
+ * tenant-root model (no tenant column, e.g. Organization) is a no-op. `ref`
+ * qualifies the column for the loader's single-table select.
+ */
+export function applyTenantWhere<Q>(
+  qb: Q,
+  def: ModelDefinition,
+  ref: string = def.tableName
+): Q {
+  if (isSystem()) return qb
+  const tcol = def.tenantColumn
+  if (!tcol) return qb
+  const tenant = currentTenant()
+  if (tenant === undefined || tenant === null) {
+    throw new Error(
+      `Model "${def.tableName}" is tenant-scoped but no tenant is bound. ` +
+        `Bind one via useDatabase({tenant}) / the queue runtime, or traverse ` +
+        `within runAsSystem().`
+    )
+  }
+  return (qb as any).where(`${ref}.${tcol}`, '=', tenant)
+}
+
 // ── Relay-style cursor pagination ───────────────────────────────────────────
 export interface PageInfo {
   hasNextPage: boolean
