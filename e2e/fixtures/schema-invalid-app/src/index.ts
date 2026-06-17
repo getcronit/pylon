@@ -1,8 +1,11 @@
-// Build-only fixture that deliberately produces an INVALID GraphQL schema, to prove
-// `pylon build` fails loudly instead of writing it. The polymorphic delegate is left
-// WITHOUT a return-type annotation, so the inferred variant union is emitted as
-// anonymous types that collide with the declared classes (interface member missing a
-// field). The build introspects types only — no remote call — so no server is needed.
+// Build-only fixture that produces an INVALID GraphQL schema, to prove `pylon build`
+// fails loudly instead of writing it. This is the AMBIGUOUS polymorphic case: the
+// delegate has no return-type annotation AND the patch's `__typename` is NOT `as
+// const`, so it widens to `string`. With no literal discriminant the inferred variant
+// members can't be named/distinguished, they collide with the declared classes, and
+// the schema fails validation. (Adding `as const` to each `__typename` — or annotating
+// the resolver — makes it valid; see gateway-poly-inferred-app.) The build introspects
+// types only — no remote call — so no server is needed.
 import {Pylon, createGateway} from '@getcronit/pylon'
 import type {RemoteRegistry as UsersRegistry} from './generated/remote'
 

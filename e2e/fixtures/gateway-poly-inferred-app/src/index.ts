@@ -1,11 +1,14 @@
-// TDD TARGET (currently fails — builder bug). Declared interface classes PLUS a
-// polymorphic delegate left WITHOUT a return-type annotation, so the field type is
-// the INFERRED variant union. This is valid TypeScript, so the builder must emit a
-// VALID GraphQL schema — never an invalid one. Today it doesn't: two interface-
-// synthesis paths collide (inheritance `IProfile` vs the union's `Profile`), the
-// union members get shape-merged into the class types, and the result fails schema
-// validation. The build is pure type introspection — no remote call — so no server
-// is needed to reproduce it.
+// Inferred polymorphic delegate — NO return-type annotation, so the field type is
+// the inferred variant union. The key is `as const` on each `__typename`: it keeps
+// the discriminant a string LITERAL, which the builder uses to name the members
+// (DoctorProfile / PatientProfile) and synthesize their shared interface. With the
+// literal discriminant this is unambiguous valid TypeScript and the builder emits a
+// valid polymorphic schema (no annotation needed). Build is pure type introspection
+// — no remote call — so no server is needed.
+//
+// (Without `as const` the discriminant widens to `string`, the members become
+//  indistinguishable by name, and the schema is invalid → the build fails loud. See
+//  the schema-invalid-app fixture + schema-invalid-fail-loud test for that case.)
 import {Pylon, createGateway} from '@getcronit/pylon'
 import type {RemoteRegistry as UsersRegistry} from './generated/remote'
 
@@ -25,8 +28,8 @@ const users = createGateway<UsersRegistry>().configure({
   patches: {
     User: u =>
       u.kind === 'doctor'
-        ? {__typename: 'DoctorProfile', id: u.id, email: u.email, specialty: u.specialty}
-        : {__typename: 'PatientProfile', id: u.id, email: u.email, insuranceId: u.insuranceId}
+        ? {__typename: 'DoctorProfile' as const, id: u.id, email: u.email, specialty: u.specialty}
+        : {__typename: 'PatientProfile' as const, id: u.id, email: u.email, insuranceId: u.insuranceId}
   }
 })
 

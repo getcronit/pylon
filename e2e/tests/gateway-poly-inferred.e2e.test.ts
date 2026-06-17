@@ -1,24 +1,21 @@
 /**
- * TDD TARGET — currently FAILING by design (marked `it.fails`). Encodes the invariant
- * the builder must satisfy: valid TypeScript MUST yield a valid GraphQL schema.
+ * Inferred polymorphic delegate → valid schema, NO return-type annotation. The
+ * fixture declares interface classes (Profile / DoctorProfile / PatientProfile) and
+ * returns an un-annotated polymorphic delegate whose patch stamps a LITERAL
+ * `__typename` (`as const`). That literal discriminant makes the inferred variant
+ * union unambiguous, so the builder emits a coherent polymorphic interface.
  *
- * The fixture declares interface classes (Profile / DoctorProfile / PatientProfile)
- * AND returns an UN-annotated polymorphic delegate, so the resolver's type is the
- * inferred variant union. That's valid TS — but today the builder emits an INVALID
- * schema: two interface-synthesis paths collide (inheritance `IProfile` vs the
- * union's `Profile`), the union members get shape-merged into the class types, and
- * the output fails schema validation.
+ * This pins the invariant: valid, unambiguous TypeScript yields a valid GraphQL
+ * schema. (The ambiguous variant — no `as const`, so `__typename` widens to `string`
+ * — has no discriminant to name members from; that case fails the build loudly and
+ * is covered by schema-invalid-app + schema-invalid-fail-loud.)
  *
- * These assert the FIX's target: the build succeeds and writes a VALID schema that
- * is a coherent polymorphic interface (DoctorProfile/PatientProfile implement a
- * common interface, with their variant fields, and `profile` returns it). The exact
- * interface NAME is intentionally NOT pinned — that's the open design call.
+ * These assert: the build succeeds and writes a VALID schema (passes graphql's
+ * validateSchema) that is a coherent polymorphic interface — DoctorProfile/
+ * PatientProfile implement a shared interface with their variant fields, and
+ * `profile` returns it. The interface NAME is intentionally NOT pinned.
  *
  * Build is pure type introspection (no remote), so no server is needed.
- *
- * When the builder is fixed: drop `.fails` (vitest will flag these as unexpectedly
- * passing), and re-point schema-invalid-fail-loud's guard at a stable invalid input,
- * since THIS input becomes valid.
  */
 import {spawnSync} from 'node:child_process'
 import {existsSync, readFileSync, rmSync} from 'node:fs'
@@ -41,7 +38,7 @@ function build() {
 describe('builder: inferred polymorphic delegate (classes + no annotation)', () => {
   afterAll(() => rmSync(path.join(appDir, '.pylon'), {recursive: true, force: true}))
 
-  it.fails('builds the inferred polymorphic form into a VALID schema [TARGET]', () => {
+  it('builds the inferred polymorphic form into a VALID schema', () => {
     if (!existsSync(cliBin)) throw new Error(`pylon CLI not built at ${cliBin}.`)
     rmSync(path.join(appDir, '.pylon'), {recursive: true, force: true})
 
@@ -55,7 +52,7 @@ describe('builder: inferred polymorphic delegate (classes + no annotation)', () 
     expect(validateSchema(schema)).toEqual([])
   })
 
-  it.fails('exposes a coherent polymorphic interface with both variant members [TARGET]', () => {
+  it('exposes a coherent polymorphic interface with both variant members', () => {
     rmSync(path.join(appDir, '.pylon'), {recursive: true, force: true})
     const r = build()
     expect(r.status).toBe(0)

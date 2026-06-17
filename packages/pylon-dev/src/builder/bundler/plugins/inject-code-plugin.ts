@@ -23,9 +23,11 @@ function assertSchemaIsValid(typeDefs: string) {
     throw new Error(
       'Pylon generated an invalid GraphQL schema:\n' +
         errors.map(e => `  • ${e.message}`).join('\n') +
-        '\n\nThis usually means a resolver return type cannot form a valid schema ' +
-        'on its own (e.g. an interface member missing a field, often from relying ' +
-        'on an inferred type). Give the resolver an explicit return-type annotation.'
+        '\n\nThis usually means a resolver return type cannot form a valid schema on ' +
+        'its own (e.g. an interface member missing a field, often from an ambiguous ' +
+        'inferred type). Fixes: give the resolver an explicit return-type annotation; ' +
+        "and for a polymorphic delegate, mark each patch branch's `__typename` `as " +
+        'const` so the variants are distinguishable.'
     )
   }
 }

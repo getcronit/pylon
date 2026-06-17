@@ -261,14 +261,19 @@ The types line up by inference: `delegate` returns `Promise<DoctorProfile |
 PatientProfile>` (the discriminated union of your patch's branches), which is
 assignable to `Promise<Profile | null>` directly — no cast.
 
-> **Annotate the interface — don't rely on pure inference.** The return
-> annotation (`Promise<Profile | null>`) is what tells the compiler to expose the
-> field as your `Profile` interface. If you drop it and let the type be inferred,
-> the variant union is emitted as *anonymous* object types that collide with your
-> declared classes — an invalid schema. `pylon build` **rejects** that with a clear
-> error (Pylon validates the generated schema and never emits a broken one), so it
-> fails at build, not at serve time. Declare the interface + members as classes, and
-> annotate the resolver with the interface.
+> **Give the variants a literal discriminant.** The builder names the members from
+> each patch branch's `__typename`, so it must be a string *literal*. You get that
+> either way:
+>
+> - **Annotate the resolver** with the interface (`Promise<Profile | null>`) — the
+>   schema then comes from your declared classes; or
+> - **Mark `__typename` `as const`** in each branch (`{__typename: 'DoctorProfile' as
+>   const, …}`) — the inferred union is enough, no annotation needed.
+>
+> If you do *neither*, `__typename` widens to `string`, the variants become
+> indistinguishable, and the schema is invalid — which `pylon build` **rejects** with
+> a clear error (Pylon validates the generated schema and never emits a broken one),
+> so it fails at build, not at serve time.
 
 > **Gotcha.** The mapping *into* a member is not type-checked: nothing verifies
 > that a branch stamping `__typename: 'DoctorProfile'` returns a shape matching
