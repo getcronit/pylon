@@ -460,4 +460,68 @@ describe('full-text search DDL (generated tsvector + GIN index)', () => {
     const schema = physicalSchemaOf({Doc: ftsEntity()})
     expect(diffSchema(schema, physicalSchemaOf({Doc: ftsEntity()}))).toEqual([])
   })
+
+  it('re-points a generated-column expression via SET EXPRESSION (not DROP/ADD, so the GIN index survives)', () => {
+    const {up} = renderChanges([
+      {
+        kind: 'alterColumn',
+        table: 'doc',
+        before: col({
+          name: 'fts',
+          sqlType: 'tsvector',
+          nullable: true,
+          generatedAs: "to_tsvector('english', coalesce(\"title\", ''))"
+        }),
+        after: col({
+          name: 'fts',
+          sqlType: 'tsvector',
+          nullable: true,
+          generatedAs: "to_tsvector('german', coalesce(\"title\", ''))"
+        })
+      }
+    ])
+    expect(up.join('\n')).toMatch(
+      /ALTER TABLE "doc" ALTER COLUMN "fts" SET EXPRESSION AS \(to_tsvector\('german'/
+    )
+    expect(up.join('\n')).not.toMatch(/DROP COLUMN/)
+  })
+})
+
+describe('operator-class indexes (pg_trgm substring search)', () => {
+  const trgmEntity = (ops: string | undefined = 'gin_trgm_ops'): Entity => ({
+    name: 'Item',
+    table: 'item',
+    abstract: false,
+    primaryKey: 'id',
+    implements: [],
+    fields: [idField, field('sku', col({name: 'sku', sqlType: 'text', nullable: true}))],
+    indexes: [{name: 'item_sku_trgm', table: 'item', columns: ['sku'], method: 'gin', ...(ops ? {ops} : {})}]
+  })
+
+  it('renders the per-column operator class and ensures the pg_trgm extension', () => {
+    const m = makeMigration({}, {Item: trgmEntity()})
+    const up = m.up.join('\n')
+    expect(up).toMatch(/CREATE EXTENSION IF NOT EXISTS pg_trgm/)
+    expect(up).toMatch(/CREATE INDEX "item_sku_trgm" ON "item" USING gin \("sku" gin_trgm_ops\)/)
+  })
+
+  it('ensures the extension BEFORE creating the index', () => {
+    const migration = makeMigration({}, {Item: trgmEntity()})
+    const ext = migration.up.findIndex(s => /CREATE EXTENSION IF NOT EXISTS pg_trgm/.test(s))
+    const idx = migration.up.findIndex(s => /CREATE INDEX "item_sku_trgm"/.test(s))
+    expect(ext).toBeGreaterThanOrEqual(0)
+    expect(ext).toBeLessThan(idx)
+  })
+
+  it('round-trips with no spurious diff (ops is compared)', () => {
+    const schema = physicalSchemaOf({Item: trgmEntity()})
+    expect(diffSchema(schema, physicalSchemaOf({Item: trgmEntity()}))).toEqual([])
+  })
+
+  it('detects an operator-class change (drops + re-adds the index)', () => {
+    const before = physicalSchemaOf({Item: trgmEntity('gin_trgm_ops')})
+    const after = physicalSchemaOf({Item: trgmEntity('')}) // '' → no opclass (plain gin)
+    const changes = diffSchema(before, after)
+    expect(changes.map(c => c.kind).sort()).toEqual(['addIndex', 'dropIndex'])
+  })
 })
