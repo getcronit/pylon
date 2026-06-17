@@ -527,6 +527,18 @@ export function applyPolicyWhere<Q>(
   )
 }
 
+/**
+ * Whether the current principal's READ policy FULLY denies `def` (vs. allowing or
+ * filtering by row). The relation loaders use this to turn a NON-NULL relation that
+ * resolved to null into a precise `ForbiddenError` instead of GraphQL's opaque
+ * "Cannot return null for non-nullable field". System reads (`runAsSystem`) never
+ * deny. A row-level outcome is not a flat deny — the row may simply not match — so
+ * it returns false (the caller reports a generic dangling-reference error instead).
+ */
+export function readPolicyDenies(def: ModelDefinition): boolean {
+  return !isSystem() && policyOutcome(def, 'read') === 'deny'
+}
+
 // ── Relay-style cursor pagination ───────────────────────────────────────────
 export interface PageInfo {
   hasNextPage: boolean

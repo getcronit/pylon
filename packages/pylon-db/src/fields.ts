@@ -1,4 +1,5 @@
-import {type Connection, createManager, ModelCtor} from './manager.js'
+import {type Connection, createManager, ModelCtor, readPolicyDenies} from './manager.js'
+import {ForbiddenError} from './features.js'
 import type {QueryConfig} from './query-schema.js'
 import {
   asPaginated,
@@ -894,7 +895,34 @@ export function model(options: ModelOptions = {}): ClassDecorator {
           get(this: any) {
             const fk = this[fkProperty!]
             if (fk === null || fk === undefined) return Promise.resolve(null)
-            return loadBelongsTo(target() as ModelCtor<any>, fk)
+            const targetCtor = target() as ModelCtor<any>
+            return loadBelongsTo(targetCtor, fk).then(row => {
+              if (row !== null) return row
+              // The FK is set but the target row didn't resolve. For a NULLABLE
+              // relation, null is a valid answer. For a NON-NULL relation this would
+              // otherwise surface as GraphQL's opaque "Cannot return null for
+              // non-nullable field <T>.<rel>" — so raise a precise error instead.
+              // The usual cause is the target's READ policy denying the traversal
+              // (a no-principal/cross-tenant read) → ForbiddenError; otherwise it's
+              // a dangling foreign key.
+              const srcDef = getModelDefinitionOrThrow(this.constructor)
+              const fkNullable =
+                srcDef.columns.find(c => c.propertyKey === fkProperty)?.nullable ??
+                false
+              if (fkNullable) return null
+              const targetDef = getModelDefinitionOrThrow(targetCtor)
+              if (readPolicyDenies(targetDef)) {
+                throw new ForbiddenError(
+                  `Not authorized to read "${targetDef.tableName}" through relation ` +
+                    `"${rel.propertyKey}".`
+                )
+              }
+              throw new Error(
+                `Relation "${rel.propertyKey}" references ${targetDef.tableName} ` +
+                  `"${String(fk)}", but no such row resolved (dangling foreign key ` +
+                  `or row-level policy).`
+              )
+            })
           }
         })
       } else if (rel.kind === 'hasOne') {
