@@ -17,6 +17,7 @@ import {
 } from './analytics'
 import {build} from './builder'
 import {buildClient} from './builder/build-client'
+import {startDevReloadServer} from './builder/dev-reload-server'
 import {runDbCommand} from './db'
 import {generatePylonTypes} from './pull'
 import {treeKillSync} from './tree-kill'
@@ -509,6 +510,16 @@ program
       })
     }
 
+    // Tier-0 live-reload: an SSE server on the stable CLI process. Start it BEFORE
+    // the first build so the pages bundle injects its URL (via PYLON_DEV_RELOAD_PORT).
+    // Port = app PORT + 1, stepping up to the next free port if taken.
+    const appPort = Number(process.env.PORT) || 3000
+    const reload = await startDevReloadServer(appPort + 1)
+    process.env.PYLON_DEV_RELOAD_PORT = String(reload.port)
+    consola.info(
+      `[Pylon] Live-reload server on http://localhost:${reload.port} (browser auto-reloads on rebuild)`
+    )
+
     // build() throws loudly on a config/init failure → exits non-zero (fail-loud).
     const ctx = await build({sfiFilePath: './src/index.ts', outputFilePath: './.pylon'})
 
@@ -534,6 +545,12 @@ program
           await ctx.buildPages()
           if (g !== gen) return
           await restartServer()
+          // Once the freshly-restarted server is actually listening, push a reload
+          // to every connected browser (guarded so a superseding build wins).
+          if (g === gen) {
+            await waitForAppReady(appPort)
+            if (g === gen) reload.notify()
+          }
           analytics.capture({
             distinctId,
             event: 'build completed',
@@ -555,26 +572,25 @@ program
 
     await sync() // initial build + serve
 
-    // One watcher over the inputs → re-run the sequence (coalesced/single-flight).
-    // ABSOLUTE paths (no `cwd` option): under cwd-relative matching, chokidar v4's
+    // Watch the WHOLE project (minus deps / build output / vcs) → re-run the
+    // sequence (coalesced/single-flight). Watching only src/pages/public missed a
+    // component imported by a page from anywhere else (e.g. `components/`, `lib/`):
+    // it's in the build's import graph but no save event fired, so it never rebuilt.
+    // Watching cwd catches any imported source wherever it lives.
+    //
+    // ABSOLUTE path (no `cwd` option): under cwd-relative matching, chokidar v4's
     // fsevents backend drops in-place file writes (truncate+write on the same inode,
     // as `fs.writeFile` and many editors do) while still catching atomic renames —
     // so hot reload silently misses real saves. `awaitWriteFinish` coalesces the
     // burst of events a single save emits into one stable trigger.
     const cwd = process.cwd()
-    const watcher = chokidar.watch(
-      [
-        path.join(cwd, 'src'),
-        path.join(cwd, 'pages'),
-        path.join(cwd, 'public'),
-        path.join(cwd, 'pylon.config.ts'),
-        path.join(cwd, 'pylon.config.js')
-      ],
-      {
-        ignoreInitial: true,
-        awaitWriteFinish: {stabilityThreshold: 200, pollInterval: 50}
-      }
-    )
+    const watcher = chokidar.watch(cwd, {
+      ignoreInitial: true,
+      // Skip dependencies, our own build output (writing there would loop), and vcs.
+      ignored: (p: string) =>
+        /(^|[/\\])(node_modules|\.pylon|\.git)([/\\]|$)/.test(p),
+      awaitWriteFinish: {stabilityThreshold: 200, pollInterval: 50}
+    })
     watcher.on('all', () => void sync())
 
     consola.box(`Pylon is up and running!
@@ -588,6 +604,7 @@ We value your feedback—help us make Pylon even better!`)
 
     const cleanupAndExit = async () => {
       await watcher.close().catch(() => {})
+      await reload.close().catch(() => {})
       await ctx.dispose().catch(() => {})
       await killServer()
       process.exit(0)
@@ -694,6 +711,21 @@ const startWorkerProcess = (command: string) => {
   })
   child.on('error', err => consola.error(err))
   return child
+}
+
+// Poll the app port until it answers (any HTTP response — even 404 — means it's
+// listening). Used to delay the live-reload push until the restarted server can
+// actually serve the reload, so the browser never reloads into a dead port.
+async function waitForAppReady(port: number, timeoutMs = 8000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    try {
+      await fetch(`http://127.0.0.1:${port}/`, {signal: AbortSignal.timeout(1000)})
+      return
+    } catch {
+      await new Promise(r => setTimeout(r, 120))
+    }
+  }
 }
 
 const startDevServer = (

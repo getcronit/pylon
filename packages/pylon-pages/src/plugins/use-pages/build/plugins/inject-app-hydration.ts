@@ -23,7 +23,23 @@ export const injectAppHydrationPlugin = (version: string): Plugin => ({
 
           // @ts-ignore
           window.__PYLON_VERSION__ = "${version}"
-
+${
+  process.env.PYLON_DEV_RELOAD_PORT
+    ? `
+          // Pylon dev live-reload (Tier 0): subscribe to the dev CLI's SSE server
+          // and hard-reload on a pushed event. Only injected in dev (the env var is
+          // set by \`pylon dev\`); absent in production builds.
+          try {
+            var __pylonReloadES = new EventSource(
+              location.protocol + "//" + location.hostname + ":${process.env.PYLON_DEV_RELOAD_PORT}/__pylon_reload"
+            )
+            __pylonReloadES.addEventListener("reload", function () {
+              location.reload()
+            })
+          } catch (e) {}
+`
+    : ''
+}
           async function hydrate() {
             // Determine if any of the initial routes are lazy
             const lazyMatches = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.matchRoutes(routes, window.location)?.filter(
