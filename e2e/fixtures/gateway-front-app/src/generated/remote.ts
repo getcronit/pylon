@@ -13,6 +13,7 @@ type JSON = object & {readonly brand?: unique symbol};
 export interface Query {
   readonly __typename?: 'Query';
   user(id: String): User | null;
+  org(id: String): Org | null;
 }
 
 export interface User {
@@ -21,7 +22,14 @@ export interface User {
   email: String;
   firstName: String;
   lastName: String;
+  orgId: String;
   seenAuth: String;
+}
+
+export interface Org {
+  readonly __typename: 'Org';
+  id: String;
+  name: String;
 }
 
 export interface RemoteRegistry {
@@ -30,8 +38,13 @@ export interface RemoteRegistry {
       args: { id: String };
       return: User | null;
     };
+    'Query.org': {
+      args: { id: String };
+      return: Org | null;
+    };
   };
   types: {
     'User': User;
+    'Org': Org;
   };
 }

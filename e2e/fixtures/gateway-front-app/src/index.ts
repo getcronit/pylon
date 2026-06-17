@@ -9,18 +9,25 @@ const users = createGateway<RemoteRegistry>().configure({
   // guarded — the gateway calls `headers` with no context during introspection
   headers: ctx => ({authorization: ctx?.req?.header('authorization') ?? ''}),
   patches: {
-    User: u => ({...u, fullName: `${u.firstName} ${u.lastName}`})
+    User: (u, api) => ({
+      ...u,
+      fullName: `${u.firstName} ${u.lastName}`,
+      // A patch-added field that DELEGATES (lazy, nested) to another remote query.
+      // It's a function value, so it appears in the schema (via PatchSchema) and the
+      // delegate fires only when `org` is selected — a patch CAN compose a delegate.
+      org: () => api.delegate('Query.org', {args: {id: u.orgId}, needs: {id: true, name: true}})
+    })
   }
 })
 
 export default new Pylon({
   graphql: {
     Query: {
-      // full needs + the computed patch + the echoed auth header
+      // full needs (incl. orgId, which the org-delegating patch needs) + the echoed auth header
       fullUser: (id: string) =>
         users.delegate('Query.user', {
           args: {id},
-          needs: {id: true, email: true, firstName: true, lastName: true, seenAuth: true}
+          needs: {id: true, email: true, firstName: true, lastName: true, orgId: true, seenAuth: true}
         })
     }
   }

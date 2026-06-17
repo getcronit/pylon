@@ -135,6 +135,15 @@ describe('gateway — two real Pylon services, pull + delegate over HTTP', () =>
     expect(r.data.fullUser).toEqual({fullName: 'Ada Lovelace'})
   })
 
+  it('a patch can add a field that delegates to another remote query (lazy nested delegate)', async () => {
+    // The `User` patch adds `org: () => api.delegate('Query.org', …)`. It must
+    // appear in the schema (via PatchSchema reading the function field) AND fire
+    // only when selected — proving a patch can compose a (lazy) delegate.
+    const r = await gql(frontUrl, '{ fullUser(id: "u1") { email org { name } } }')
+    expect(r.errors).toBeUndefined()
+    expect(r.data.fullUser).toEqual({email: 'ada@x.com', org: {name: 'Acme'}})
+  })
+
   it('returns a missing remote row as null', async () => {
     // The remote `user(id): User | null` is nullable (strictNullChecks is forced
     // for introspection), so `pull` emits `return: User | null` → the front field
