@@ -103,6 +103,16 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
    */
   pluginsMiddleware: MiddlewareHandler[] = []
 
+  /** Whether `installBasePipeline()` has already run on this instance (idempotency). */
+  private basePipelineInstalled = false
+
+  /**
+   * The base-pipeline middleware handlers, tracked so `compose()` can keep them
+   * from being copied into a parent when THIS instance is itself composed (the
+   * nested-`compose` case) — see `stripBasePipeline`.
+   */
+  private readonly basePipelineHandlers = new Set<MiddlewareHandler>()
+
   /**
    * Fuse child apps into this root: each child's `graphql` fragment merges into
    * this Pylon's `graphql` (type-accumulating, the deep intersection — so the
@@ -122,9 +132,18 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
   compose<C extends readonly Pylon<any>[]>(
     ...children: C
   ): Pylon<G & MergeGraphql<C>> {
+    // Composing makes THIS instance a served root → it owns the once-per-request
+    // base pipeline. Install it BEFORE mounting any child so it precedes the child
+    // routes in Hono's registration order (middleware must be registered before the
+    // routes it wraps).
+    this.installBasePipeline()
     for (const child of children) {
       this.children.push(child)
       mergeFragment(this.graphql, child.graphql)
+      // Drop the child's OWN base pipeline (if it was itself a composed sub-root) so
+      // it isn't copied into this root and run twice — Hono's `route()` copies from
+      // `child.routes`. A leaf child never installed one, so this is a no-op for it.
+      child.stripBasePipeline()
       this.route(child.routePrefix ?? '/', child) // mount the child's routes (prefixed)
     }
     return this as unknown as Pylon<G & MergeGraphql<C>>
@@ -168,10 +187,47 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
       mergeFragment(this.graphql, fragment)
     }
 
-    this.use('*', compress())
-    this.use('*', sentry())
+    // NB: the base request pipeline (compress / sentry / async-context / logger /
+    // plugin chain / error mapping) is intentionally NOT installed in the
+    // constructor. It's a per-served-ROOT concern, installed once by
+    // `installBasePipeline()` (from `compose()` and from the serve path). See that
+    // method for why constructor args can't decide root-vs-child.
+  }
 
-    this.use('*', async (c, next) => {
+  /**
+   * Install the served root's once-per-request middleware: compress, sentry, the
+   * async-context bind, the request logger, the plugin chain (binds the per-request
+   * DB/tenant/principal), and HTTP error mapping for plain routes.
+   *
+   * This is a ROOT concern: it must run ONCE per request, not once per app. Hono's
+   * `route()` mounts a child by copying its `routes` into the parent, so if every
+   * `new Pylon()` installed the pipeline in its constructor, an N-app root would run
+   * N× compress/sentry/logger on every request (the duplicated `<-- GET /login`
+   * log lines). **Role, not constructor args, decides** — a single-app root is
+   * `new Pylon({graphql})` (has args, still served, still needs the pipeline); a
+   * child passed into `compose()` never needs it (it inherits the root's pipeline,
+   * and `executeConfig`/`handler` target the root). So the pipeline is installed on
+   * whoever is composed-onto or served, never on a mere fragment.
+   *
+   * Idempotent. `compose()` calls it before mounting children (so it precedes their
+   * routes in Hono's order); the serve path (`executeConfig`) calls it too, covering
+   * a root that is served without composing.
+   */
+  installBasePipeline() {
+    if (this.basePipelineInstalled) return
+    this.basePipelineInstalled = true
+
+    // Register through `base()` so each handler is tracked and can be stripped if
+    // this instance is later composed into another root (nested `compose`).
+    const base = (mw: MiddlewareHandler) => {
+      this.basePipelineHandlers.add(mw)
+      this.use('*', mw)
+    }
+
+    base(compress())
+    base(sentry())
+
+    base(async (c, next) => {
       return new Promise((resolve, reject) => {
         asyncContext.run(c, async () => {
           try {
@@ -183,9 +239,9 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
       })
     })
 
-    this.use('*', except(['/__pylon/*'], logger()))
+    base(except(['/__pylon/*'], logger()))
 
-    this.use((c, next) => {
+    base((c, next) => {
       const dispatch = (i: number): Promise<void> => {
         const middleware = this.pluginsMiddleware[i]
         if (!middleware) return Promise.resolve(next())
@@ -202,6 +258,8 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
     // `await gate()` / `requireFeature()` and throw — and get a 403 instead of a
     // bare 500. GraphQL errors never reach here (Yoga maps them in the handler);
     // this is for the Hono routes apps mount (e.g. file serving, webhooks).
+    // (`onError` is app-level, not a route, so Hono's `route()` never copies it —
+    // only the `use()` middleware above can duplicate, hence only those are tracked.)
     this.onError((err, c) => {
       if (err instanceof HTTPException) return err.getResponse() // honor Hono's own
       const status = (err as {statusCode?: unknown}).statusCode
@@ -210,6 +268,21 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
       }
       return c.json({error: 'Internal Server Error'}, 500)
     })
+  }
+
+  /**
+   * Remove this instance's base-pipeline middleware from the `routes` Hono copies
+   * on `compose()`. Used when a composed sub-root (`root.compose(sub)` where
+   * `sub = new Pylon().compose(leaf)`) would otherwise duplicate its pipeline into
+   * its parent. A leaf child never installed one, so this is a no-op for it.
+   */
+  private stripBasePipeline() {
+    if (!this.basePipelineInstalled) return
+    this.routes = this.routes.filter(
+      r => !this.basePipelineHandlers.has(r.handler as MiddlewareHandler)
+    )
+    this.basePipelineInstalled = false
+    this.basePipelineHandlers.clear()
   }
 }
 
