@@ -66,6 +66,36 @@ describe('Pylon Builder - Basic Features', () => {
     expect(result).toMatchSnapshot()
   })
 
+  it('resolveType honors an explicit __typename over the structural heuristic', () => {
+    // Models a "complete" object carrying EVERY member's fields (e.g. a delegated
+    // remote type exposed as a front interface) — structural discrimination is
+    // ambiguous there, so an explicit __typename must win.
+    const code = `
+      type DoctorProfile = { id: string; specialty: string }
+      type PatientProfile = { id: string; insuranceId: string }
+      type UserProfile = DoctorProfile | PatientProfile
+
+      export const graphql = {
+        Query: {
+          profile: (): UserProfile => ({} as UserProfile)
+        }
+      }
+    `
+    const result = buildTestSchema(code)
+    const src = String(result.resolvers.UserProfile.__resolveType)
+    expect(src).toContain('node.__typename')
+
+    const resolveType = new Function('return (' + src + ')')() as (n: any) => string | null
+    const complete = {id: '1', specialty: 'x', insuranceId: 'y'} // both members' fields present
+
+    // Structural fallback: first matching member wins (the ambiguity we're fixing).
+    expect(resolveType(complete)).toBe('DoctorProfile')
+    // Explicit, valid __typename is authoritative.
+    expect(resolveType({...complete, __typename: 'PatientProfile'})).toBe('PatientProfile')
+    // An invalid/foreign __typename (e.g. the remote's own type name) is ignored → fallback.
+    expect(resolveType({...complete, __typename: 'User'})).toBe('DoctorProfile')
+  })
+
   it('should handle async/promises', () => {
     const code = `
       export const graphql = {

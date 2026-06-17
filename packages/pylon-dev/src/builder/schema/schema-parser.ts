@@ -558,7 +558,14 @@ export class SchemaParser {
       })
       .filter(c => c.length > 0)
 
-    const str = `function resolveType(node) { if (!node || typeof node !== 'object') return null; ${checks.join(' ')} return null; }`
+    // An explicit `__typename` (set by a resolver, or stamped by a gateway patch)
+    // is AUTHORITATIVE — it's the standard GraphQL escape hatch and the only way
+    // to disambiguate members with overlapping shapes (e.g. a delegated "complete"
+    // remote type exposed as a front interface, where every member's fields are
+    // present). Guarded to a valid member name so an unrelated `__typename` (e.g.
+    // the remote's own type name) falls through to the structural checks below.
+    const validNames = entityTypes.map(t => `'${t.name}'`).join(', ')
+    const str = `function resolveType(node) { if (!node || typeof node !== 'object') return null; if (node.__typename && [${validNames}].indexOf(node.__typename) !== -1) return node.__typename; ${checks.join(' ')} return null; }`
 
     return new Function('return ' + str)()
   }
