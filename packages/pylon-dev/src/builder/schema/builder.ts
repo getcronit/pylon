@@ -106,7 +106,14 @@ export class SchemaBuilder {
       path.dirname(configPath)
     )
 
-    return parsedConfig.options
+    // FORCE strictNullChecks for introspection regardless of the user's tsconfig.
+    // Nullability is schema-significant: a resolver returning `T | null` MUST emit a
+    // nullable field. Without strictNullChecks, TypeScript collapses `T | null` into
+    // `T`, so a non-strict project would silently get NON-null fields (and `pull`
+    // would propagate the wrong nullability downstream). The build only READS types
+    // for schema derivation — it never reports typecheck errors to the user — so
+    // forcing this is safe and only makes the derived schema accurate.
+    return {...parsedConfig.options, strictNullChecks: true}
   }
 
   public build(options: BuildOptions = {}) {
