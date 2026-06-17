@@ -40,6 +40,25 @@ describe.skipIf(!runRedis)('queues (Redis)', () => {
     await q.close()
   })
 
+  it('dispatch enqueues and awaits the processor result (waitUntilFinished)', async () => {
+    const q = defineQueue<{n: number}, number>(`sum-${Date.now()}`)
+    q.process(({data}) => data.n + 1) // typed result R = number
+    q.startWorker()
+    const result = await q.dispatch({n: 41})
+    expect(result).toBe(42)
+    await q.close()
+  })
+
+  it('dispatch rejects when the job fails', async () => {
+    const q = defineQueue<{x: number}>(`boom-${Date.now()}`, {attempts: 1})
+    q.process(() => {
+      throw new Error('kaboom')
+    })
+    q.startWorker()
+    await expect(q.dispatch({x: 1})).rejects.toThrow(/kaboom/)
+    await q.close()
+  })
+
   it('retries a failing job up to `attempts`', async () => {
     const q = defineQueue<{x: number}>(`retry-${Date.now()}`, {
       attempts: 3,

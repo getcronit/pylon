@@ -9,7 +9,7 @@
  *   await emailSend.add({ticketId})              // enqueue
  *   emailSend.process(async ({data, ctx}) => …)  // worker (in `pylon worker`)
  */
-import {Queue as BullQueue, Worker, type Job, type JobsOptions} from 'bullmq'
+import {Queue as BullQueue, QueueEvents, Worker, type Job, type JobsOptions} from 'bullmq'
 import {getConnection} from './connection.js'
 import {getOutboxDriver} from './outbox.js'
 
@@ -37,29 +37,45 @@ export interface JobContext<T> {
   log(message: string): Promise<void>
 }
 
-export type Processor<T> = (ctx: JobContext<T>) => Promise<void> | void
+export type Processor<T, R = void> = (ctx: JobContext<T>) => R | Promise<R>
 
-const registry = new Map<string, QueueDefinition<any>>()
+const registry = new Map<string, QueueDefinition<any, any>>()
 
 // A wrapper run around every job (set by useQueues to bind the ORM connection /
-// tenant). Default: run the handler directly.
-type JobRunner = (job: Job, fn: () => Promise<void>) => Promise<void>
+// tenant). Default: run the handler directly. Result-preserving (its return value
+// becomes the job's `returnvalue`, surfaced by `dispatch`/`waitUntilFinished`).
+type JobRunner = (job: Job, fn: () => Promise<unknown>) => Promise<unknown>
 let jobRunner: JobRunner = (_job, fn) => fn()
 export function setJobRunner(runner: JobRunner): void {
   jobRunner = runner
 }
 
-export class QueueDefinition<T> {
+export class QueueDefinition<T, R = void> {
   // BullMQ's generics are intricate; we keep the public API typed and treat the
   // BullMQ instances loosely at the boundary (runtime types are correct).
   private _queue?: BullQueue<T>
-  private worker?: Worker<T>
-  private handler?: Processor<T>
+  private _events?: QueueEvents
+  private worker?: Worker<T, R>
+  private handler?: Processor<T, R>
 
   constructor(
     readonly name: string,
     private readonly options: QueueOptions<T> = {}
   ) {}
+
+  /**
+   * The QueueEvents stream for this queue (lazy — needs its OWN blocking Redis
+   * connection, so it's duplicated off the shared one). Only `dispatch`'s
+   * `waitUntilFinished` uses it; defining/enqueuing never opens it.
+   */
+  private get queueEvents(): QueueEvents {
+    if (!this._events) {
+      this._events = new QueueEvents(this.name, {
+        connection: getConnection().duplicate() as any
+      })
+    }
+    return this._events
+  }
 
   /**
    * The BullMQ queue, constructed LAZILY on first use. Merely *defining* a queue
@@ -109,26 +125,43 @@ export class QueueDefinition<T> {
   }
 
   /**
+   * SYNCHRONOUS dispatch: enqueue a job and await its result (the processor's
+   * return value `R`), rejecting if the job fails. Unlike `add` (fire-and-forget,
+   * outbox-routed when in a txn), this enqueues straight to Redis and blocks on
+   * completion via QueueEvents — so it needs a RUNNING worker (in-process dev, or
+   * a separate `pylon worker`). NOT transactional: you're awaiting the result, so
+   * the outbox's enqueue-iff-commit guarantee doesn't apply — call it outside a
+   * transaction, or accept that the job runs regardless of the txn's outcome.
+   */
+  async dispatch(data: T, options?: JobsOptions): Promise<R> {
+    const validated = this.validate(data)
+    const job = await this.queue.add(this.name as any, validated as any, options)
+    return (await job.waitUntilFinished(this.queueEvents)) as R
+  }
+
+  /**
    * REGISTER a processor (does not start consuming). Safe to call on import in
    * any process — only `startWorker()`/`startWorkers()` (the worker process)
-   * actually consumes. Returns `this` for chaining.
+   * actually consumes. The processor's return value is the job result surfaced by
+   * `dispatch`. Returns `this` for chaining.
    */
-  process(handler: Processor<T>): this {
+  process(handler: Processor<T, R>): this {
     this.handler = handler
     return this
   }
 
   /** Start consuming (worker process only). No-op without a registered handler. */
-  startWorker(): Worker<T> | undefined {
+  startWorker(): Worker<T, R> | undefined {
     if (!this.handler || this.worker) return this.worker
     const handler = this.handler
-    this.worker = new Worker<T>(
+    this.worker = new Worker<T, R>(
       this.name,
       async job => {
         const data = this.validate(job.data)
-        await jobRunner(job, () =>
+        // The runner's return value flows back to BullMQ as the job's result.
+        return (await jobRunner(job, () =>
           Promise.resolve(handler({data, job, log: async m => void (await job.log(m))}))
-        )
+        )) as R
       },
       {connection: getConnection() as any, concurrency: this.options.concurrency ?? 1}
     )
@@ -143,9 +176,10 @@ export class QueueDefinition<T> {
     })
   }
 
-  /** Close the worker (if started) and the queue (only if it was constructed). */
+  /** Close the worker (if started), the QueueEvents stream, and the queue. */
   async close(): Promise<void> {
     await this.worker?.close()
+    await this._events?.close()
     await this._queue?.close()
   }
 
@@ -155,22 +189,29 @@ export class QueueDefinition<T> {
   }
 }
 
-/** Define (and register) a typed queue. */
-export function defineQueue<T = unknown>(name: string, options: QueueOptions<T> = {}): QueueDefinition<T> {
+/**
+ * Define (and register) a typed queue. The optional second type param `R` is the
+ * processor's RESULT type, surfaced by `dispatch` (defaults to `void` for
+ * fire-and-forget queues).
+ */
+export function defineQueue<T = unknown, R = void>(
+  name: string,
+  options: QueueOptions<T> = {}
+): QueueDefinition<T, R> {
   const existing = registry.get(name)
-  if (existing) return existing as QueueDefinition<T>
-  const q = new QueueDefinition<T>(name, options)
+  if (existing) return existing as QueueDefinition<T, R>
+  const q = new QueueDefinition<T, R>(name, options)
   registry.set(name, q)
   return q
 }
 
 /** Every queue defined this process (used by the worker runner + observability). */
-export function registeredQueues(): QueueDefinition<unknown>[] {
+export function registeredQueues(): QueueDefinition<unknown, unknown>[] {
   return [...registry.values()]
 }
 
 interface CronEntry {
-  queue: QueueDefinition<void>
+  queue: QueueDefinition<void, void>
   pattern: string
 }
 const crons: CronEntry[] = []
