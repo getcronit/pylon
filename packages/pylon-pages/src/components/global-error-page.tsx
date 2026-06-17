@@ -22,6 +22,15 @@ export default function GlobalError({
 
   const manifest = (globalThis as any).__PYLON_MANIFEST__
 
+  // Dev only: surface the REAL cause. A GQtyError's `.message` is just
+  // "GraphQL Errors, please check .graphQLErrors property" — the actual failures
+  // (resolver message + field path) live on `.graphQLErrors`. Show them (and the
+  // stack) so a failing page is debuggable in the browser. Prod keeps it minimal.
+  const isDev = process.env.NODE_ENV !== 'production'
+  const graphQLErrors = (error as any)?.graphQLErrors as
+    | Array<{message?: string; path?: Array<string | number>}>
+    | undefined
+
   const content = (
     <div className="fixed inset-0 bg-black/90 z-50 overflow-y-auto p-4 flex items-center justify-center">
       <div className="w-full max-w-3xl bg-black border border-red-600 rounded-lg overflow-hidden text-white font-sans">
@@ -57,6 +66,39 @@ export default function GlobalError({
               <div className="bg-neutral-900 rounded-md p-3 text-neutral-300 font-mono">
                 {error.digest}
               </div>
+            </div>
+          )}
+
+          {isDev && graphQLErrors && graphQLErrors.length > 0 && (
+            <div className="mb-4">
+              <h3 className="text-sm uppercase tracking-wider text-neutral-500 font-medium mb-2">
+                GraphQL Errors
+              </h3>
+              <div className="bg-neutral-900 rounded-md p-3 space-y-2">
+                {graphQLErrors.map((e, i) => (
+                  <div key={i} className="font-mono text-sm">
+                    <div className="text-red-400">
+                      {e.message || 'Unknown error'}
+                    </div>
+                    {e.path && e.path.length > 0 && (
+                      <div className="text-neutral-500">
+                        at {e.path.join('.')}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {isDev && error.stack && (
+            <div className="mb-4">
+              <h3 className="text-sm uppercase tracking-wider text-neutral-500 font-medium mb-2">
+                Stack
+              </h3>
+              <pre className="bg-neutral-900 rounded-md p-3 text-neutral-400 font-mono text-xs overflow-x-auto whitespace-pre-wrap">
+                {error.stack}
+              </pre>
             </div>
           )}
         </div>
