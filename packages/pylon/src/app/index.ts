@@ -106,12 +106,8 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
   /** Whether `installBasePipeline()` has already run on this instance (idempotency). */
   private basePipelineInstalled = false
 
-  /**
-   * The base-pipeline middleware handlers, tracked so `compose()` can keep them
-   * from being copied into a parent when THIS instance is itself composed (the
-   * nested-`compose` case) — see `stripBasePipeline`.
-   */
-  private readonly basePipelineHandlers = new Set<MiddlewareHandler>()
+  /** Whether `realize()` has mounted this instance's composed child tree (idempotency). */
+  private realized = false
 
   /**
    * Fuse child apps into this root: each child's `graphql` fragment merges into
@@ -123,28 +119,21 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
    * GraphQL doesn't federate — it merges; routes DO mount (Hono sub-app). This is
    * the single composition primitive: `new Pylon().compose(billing, catalog)`.
    *
-   * A child mounts at its `basePath` (default `/`), so an app's routes can be
-   * namespaced under a prefix (`new Pylon({basePath: '/vault'})` → its routes live
-   * under `/vault`). The GraphQL fragment still merges to the single root `/graphql`
-   * regardless — `basePath` only prefixes the child's Hono routes. The prefix is
-   * also the seam for per-app route middleware (e.g. gating `/vault/*`).
+   * RECORD-only: `compose` merges the graphql fragment and records each child, but
+   * does NOT mount routes or install any middleware. The child tree is mounted once,
+   * at boot, by `realize()` — after `installBasePipeline()` — so the once-per-request
+   * pipeline precedes the routes and is never duplicated (no "install on the composer,
+   * strip when re-composed" dance). A child mounts at its `basePath` (default `/`), so
+   * an app's routes can be namespaced under a prefix (`new Pylon({basePath: '/vault'})`
+   * → its routes live under `/vault`); the GraphQL fragment still merges to the single
+   * root `/graphql`. The prefix is the seam for per-app route middleware (gating `/vault/*`).
    */
   compose<C extends readonly Pylon<any>[]>(
     ...children: C
   ): Pylon<G & MergeGraphql<C>> {
-    // Composing makes THIS instance a served root → it owns the once-per-request
-    // base pipeline. Install it BEFORE mounting any child so it precedes the child
-    // routes in Hono's registration order (middleware must be registered before the
-    // routes it wraps).
-    this.installBasePipeline()
     for (const child of children) {
       this.children.push(child)
       mergeFragment(this.graphql, child.graphql)
-      // Drop the child's OWN base pipeline (if it was itself a composed sub-root) so
-      // it isn't copied into this root and run twice — Hono's `route()` copies from
-      // `child.routes`. A leaf child never installed one, so this is a no-op for it.
-      child.stripBasePipeline()
-      this.route(child.routePrefix ?? '/', child) // mount the child's routes (prefixed)
     }
     return this as unknown as Pylon<G & MergeGraphql<C>>
   }
@@ -199,35 +188,20 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
    * async-context bind, the request logger, the plugin chain (binds the per-request
    * DB/tenant/principal), and HTTP error mapping for plain routes.
    *
-   * This is a ROOT concern: it must run ONCE per request, not once per app. Hono's
-   * `route()` mounts a child by copying its `routes` into the parent, so if every
-   * `new Pylon()` installed the pipeline in its constructor, an N-app root would run
-   * N× compress/sentry/logger on every request (the duplicated `<-- GET /login`
-   * log lines). **Role, not constructor args, decides** — a single-app root is
-   * `new Pylon({graphql})` (has args, still served, still needs the pipeline); a
-   * child passed into `compose()` never needs it (it inherits the root's pipeline,
-   * and `executeConfig`/`handler` target the root). So the pipeline is installed on
-   * whoever is composed-onto or served, never on a mere fragment.
-   *
-   * Idempotent. `compose()` calls it before mounting children (so it precedes their
-   * routes in Hono's order); the serve path (`executeConfig`) calls it too, covering
-   * a root that is served without composing.
+   * A ROOT concern, installed ONCE by `executeConfig` (boot) — BEFORE `realize()`
+   * mounts the child tree, so the middleware precedes the routes in Hono's order.
+   * Children are never given a pipeline (they're only mounted by `realize`), so
+   * there's nothing to duplicate and nothing to strip. Idempotent (boot runs it for
+   * both the 'first' and 'last' plugin passes).
    */
   installBasePipeline() {
     if (this.basePipelineInstalled) return
     this.basePipelineInstalled = true
 
-    // Register through `base()` so each handler is tracked and can be stripped if
-    // this instance is later composed into another root (nested `compose`).
-    const base = (mw: MiddlewareHandler) => {
-      this.basePipelineHandlers.add(mw)
-      this.use('*', mw)
-    }
+    this.use('*', compress())
+    this.use('*', sentry())
 
-    base(compress())
-    base(sentry())
-
-    base(async (c, next) => {
+    this.use('*', async (c, next) => {
       return new Promise((resolve, reject) => {
         asyncContext.run(c, async () => {
           try {
@@ -239,9 +213,9 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
       })
     })
 
-    base(except(['/__pylon/*'], logger()))
+    this.use('*', except(['/__pylon/*'], logger()))
 
-    base((c, next) => {
+    this.use('*', (c, next) => {
       const dispatch = (i: number): Promise<void> => {
         const middleware = this.pluginsMiddleware[i]
         if (!middleware) return Promise.resolve(next())
@@ -258,8 +232,6 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
     // `await gate()` / `requireFeature()` and throw — and get a 403 instead of a
     // bare 500. GraphQL errors never reach here (Yoga maps them in the handler);
     // this is for the Hono routes apps mount (e.g. file serving, webhooks).
-    // (`onError` is app-level, not a route, so Hono's `route()` never copies it —
-    // only the `use()` middleware above can duplicate, hence only those are tracked.)
     this.onError((err, c) => {
       if (err instanceof HTTPException) return err.getResponse() // honor Hono's own
       const status = (err as {statusCode?: unknown}).statusCode
@@ -271,18 +243,23 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
   }
 
   /**
-   * Remove this instance's base-pipeline middleware from the `routes` Hono copies
-   * on `compose()`. Used when a composed sub-root (`root.compose(sub)` where
-   * `sub = new Pylon().compose(leaf)`) would otherwise duplicate its pipeline into
-   * its parent. A leaf child never installed one, so this is a no-op for it.
+   * Mount this instance's composed child tree (recorded by `compose`) onto its Hono
+   * routes. Depth-first — a child realizes its OWN children before being mounted, so
+   * a nested compose (`root.compose(sub)`, `sub = new Pylon().compose(leaf)`) mounts
+   * the whole tree. Each child mounts at its `basePath` (default `/`). Idempotent.
+   *
+   * Called once by boot (`executeConfig`) AFTER `installBasePipeline`, so the
+   * base-pipeline middleware is registered before any route it must wrap. Children
+   * never install a pipeline (only `realize` touches them), so mounting them can't
+   * duplicate it.
    */
-  private stripBasePipeline() {
-    if (!this.basePipelineInstalled) return
-    this.routes = this.routes.filter(
-      r => !this.basePipelineHandlers.has(r.handler as MiddlewareHandler)
-    )
-    this.basePipelineInstalled = false
-    this.basePipelineHandlers.clear()
+  realize() {
+    if (this.realized) return
+    this.realized = true
+    for (const child of this.children) {
+      child.realize()
+      this.route(child.routePrefix ?? '/', child)
+    }
   }
 }
 

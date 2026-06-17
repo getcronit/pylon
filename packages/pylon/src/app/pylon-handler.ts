@@ -65,10 +65,11 @@ export const executeConfig = async (
   },
   target: Pylon<any> = app
 ) => {
-  // The served target is a ROOT — ensure its once-per-request base pipeline is
-  // installed (idempotent; a no-op if it already composed, which installs it before
-  // mounting children). This covers a root that is served WITHOUT composing.
+  // Boot the served ROOT, in order (both idempotent — runs for the 'first' and
+  // 'last' passes): install the once-per-request base pipeline FIRST, then mount
+  // the composed child tree, so the pipeline middleware precedes every route.
   target.installBasePipeline()
+  target.realize()
 
   const plugins = [useSentry(), useViewer(), ...(config?.plugins || [])]
 
