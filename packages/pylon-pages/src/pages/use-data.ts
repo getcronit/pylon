@@ -29,11 +29,42 @@ export const useData = (options?: UseDataOptions) => {
   const dataClient = useDataClient()
   const useQuery = dataClient.client.useQuery
 
+  // `prepare` is the build-injected selection pre-pass — a pure OPTIMIZATION: gqty
+  // re-registers the very same selections when the component reads `data.x` during
+  // render. So if it throws a ReferenceError — a selection referenced a variable
+  // declared AFTER this useData() call (its temporal dead zone, since the build
+  // injects `prepare` at the call site but it can read later-declared locals) — skip
+  // it instead of crashing the whole page; the data still resolves lazily. Surface a
+  // clear, actionable hint in dev. Any other error is a real bug → rethrow.
+  const buildTimePrepare = options?.disableBuildTimeGeneration
+    ? undefined
+    : (options as {prepare?: (ctx: unknown) => void} | undefined)?.prepare
+  const prepare =
+    typeof buildTimePrepare === 'function'
+      ? (ctx: unknown) => {
+          try {
+            return buildTimePrepare(ctx)
+          } catch (e) {
+            if (e instanceof ReferenceError) {
+              if (process.env.NODE_ENV !== 'production') {
+                console.warn(
+                  `[pylon-pages] useData(): build-time prepare skipped — ${e.message}. ` +
+                    `A variable used in a data selection is declared after this useData() ` +
+                    `call (temporal dead zone). Move useData() below those variables to ` +
+                    `restore SSR pre-fetch; data still loads lazily for now.`
+                )
+              }
+              return
+            }
+            throw e
+          }
+        }
+      : undefined
+
   // Assuming your gqty Data proxy exposes $refetch
   const data = useQuery({
     ...options,
-    // @ts-expect-error
-    prepare: options?.disableBuildTimeGeneration ? undefined : options.prepare,
+    prepare,
     operationName: undefined,
     suspense: true
   }) as Data & {$refetch: () => void}
