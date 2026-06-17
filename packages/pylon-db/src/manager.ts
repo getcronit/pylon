@@ -1,6 +1,6 @@
 import {sql, type Expression, type ExpressionBuilder, type SqlBool} from 'kysely'
 import {joinColumn, joinTableName} from '@getcronit/pylon-ir'
-import {currentTenant, isSystem} from './app-context.js'
+import {currentTenant, dbLog, isSystem} from './app-context.js'
 import {getDatabase} from './database.js'
 import {signals} from './signals.js'
 import {
@@ -498,11 +498,19 @@ function policyOutcome(
 ): 'allow' | 'deny' | Record<string, unknown> {
   // per-model rule → app-wide default (models.app({policy})) → secure deny / allow.
   const rule = getPolicy(def)?.[action] ?? getAppPolicy(def.app)?.[action]
-  if (!rule) return def.secure ? 'deny' : 'allow' // secure ⇒ fail closed
+  if (!rule) {
+    const outcome = def.secure ? 'deny' : 'allow' // secure ⇒ fail closed
+    dbLog('policy', `${def.tableName}.${action} → ${outcome} (no rule; secure=${def.secure})`)
+    return outcome
+  }
   const result = rule(policyContext())
-  if (result === true) return 'allow'
-  if (result === false) return 'deny'
-  return result as Record<string, unknown>
+  const outcome = result === true ? 'allow' : result === false ? 'deny' : result
+  dbLog(
+    'policy',
+    `${def.tableName}.${action} → ${typeof outcome === 'string' ? outcome : 'row-filter'}`,
+    typeof outcome === 'object' ? outcome : undefined
+  )
+  return outcome as 'allow' | 'deny' | Record<string, unknown>
 }
 
 /**
@@ -565,6 +573,7 @@ export function applyTenantWhere<Q>(
         `within runAsSystem().`
     )
   }
+  dbLog('tenant', `${def.tableName} (relation) scoped: ${tcol} = ${String(tenant)}`)
   return (qb as any).where(`${ref}.${tcol}`, '=', tenant)
 }
 
@@ -683,7 +692,13 @@ export class QuerySet<T extends object> {
             `Bind one via useDatabase({tenant}) / the queue runtime, or use .unscoped().`
         )
       }
+      dbLog('tenant', `${def.tableName} scoped: ${tenantColumn} = ${String(tenant)}`)
       ps.push(eb => eb(tenantColumn, '=', tenant as any))
+    } else if (tenantColumn) {
+      dbLog(
+        'tenant',
+        `${def.tableName} UNSCOPED (${isSystem() ? 'runAsSystem' : '.unscoped()'})`
+      )
     }
     if (scoped) {
       const outcome = policyOutcome(def, action)

@@ -78,6 +78,14 @@ export interface UseDatabaseOptions {
    * authorize. Null-safe (return undefined for public requests).
    */
   principal?: (context: any) => unknown
+  /**
+   * Verbose ORM tracing: log every SQL query (+ params/duration), the tenant
+   * scoping applied per model, and each row-level policy decision (allow / deny /
+   * row-filter). Dev diagnostics — leave off in production. `true` traces all
+   * requests; pass a predicate to trace selectively (e.g.
+   * `c => c.req.header('x-debug') === '1'`).
+   */
+  debug?: boolean | ((context: any) => boolean)
 }
 
 export function useDatabase(options: UseDatabaseOptions = {}): Plugin {
@@ -119,7 +127,9 @@ export function useDatabase(options: UseDatabaseOptions = {}): Plugin {
         tenant: options.tenant ? options.tenant(c) : boundPrincipal?.tenant,
         // the feature provider may be async (DB/LaunchDarkly) — resolved once here
         features: await options.features?.(c),
-        principal: options.principal ? options.principal(c) : boundPrincipal
+        principal: options.principal ? options.principal(c) : boundPrincipal,
+        debug:
+          typeof options.debug === 'function' ? options.debug(c) : options.debug
       }
       const bound = () => runWithAppContext(appCtx, () => next())
       if (options.transactionPerRequest) {

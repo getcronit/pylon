@@ -1,6 +1,7 @@
 import {AsyncLocalStorage} from 'node:async_hooks'
 import {Kysely, PostgresDialect} from 'kysely'
 import {Pool, types, type PoolConfig} from 'pg'
+import {dbLog} from './app-context.js'
 
 // `pg` returns int8 (bigint/bigserial) as a string to avoid precision loss.
 // Auto-increment PKs are typed as `number` in models, so parse int8 back to a
@@ -31,7 +32,21 @@ export class Database {
     this.kysely = new Kysely<any>({
       dialect: new PostgresDialect({pool: this.pool}),
       log: event => {
-        if (event.level === 'query') this._queryCount++
+        if (event.level === 'query') {
+          this._queryCount++
+          dbLog('query', event.query.sql, {
+            params: event.query.parameters,
+            ms: Math.round(event.queryDurationMillis)
+          })
+        } else if (event.level === 'error') {
+          dbLog('query', 'ERROR executing query', {
+            sql: event.query.sql,
+            error:
+              event.error instanceof Error
+                ? event.error.message
+                : String(event.error)
+          })
+        }
       }
     })
   }

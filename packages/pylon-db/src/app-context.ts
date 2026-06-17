@@ -26,6 +26,9 @@ export interface AppContext {
   /** Trusted/system scope: bypasses tenant scoping AND row-level policies for
    *  every op inside (reads, writes, creates). Set via `runAsSystem`. */
   system?: boolean
+  /** Verbose ORM tracing for this scope: SQL queries, tenant scoping, and policy
+   *  decisions are logged. Set per request via `useDatabase({debug})`. */
+  debug?: boolean
 }
 
 const appContext = new AsyncLocalStorage<AppContext>()
@@ -75,6 +78,24 @@ export function currentPrincipal(): unknown {
 /** True inside `runAsSystem` — trusted scope that bypasses tenant + policy. */
 export function isSystem(): boolean {
   return appContext.getStore()?.system === true
+}
+
+/** True when verbose ORM tracing is on for the current scope (`useDatabase({debug})`). */
+export function isDebug(): boolean {
+  return appContext.getStore()?.debug === true
+}
+
+/**
+ * Emit an ORM trace line when `debug` is on for the current scope (no-op otherwise).
+ * Categories: `query` (SQL), `tenant` (scoping decision), `policy` (read/write
+ * authorization decision). Kept here so every layer (manager, relations, database)
+ * shares one gate + format without cross-imports.
+ */
+export function dbLog(category: string, message: string, detail?: unknown): void {
+  if (!isDebug()) return
+  const tag = `[pylon-db:${category}]`
+  if (detail !== undefined) console.log(tag, message, detail)
+  else console.log(tag, message)
 }
 
 /**
