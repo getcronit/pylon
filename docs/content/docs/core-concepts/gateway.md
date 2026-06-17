@@ -129,6 +129,124 @@ const gateway = createGateway<ExampleRegistry>().configure({
 })
 ```
 
+A patch's return shape is **authoritative for the schema**: a field you add in a
+patch (like `fullName`) becomes a real field of that type, queryable by clients.
 Fields the caller selected are always preserved, even if a patch returns a
 partial object — so a patch can only *add to or override* the remote data, never
 accidentally drop a requested field.
+
+A patch runs **after** the remote row is fetched, so it sees real data — you can
+branch on the row's values. If a computed field needs a column the client didn't
+select, list it in `needs`: `needs` is *additive* (client selection ∪ `needs`),
+so the underlying fields are fetched upstream even when the client only asks for
+the computed one.
+
+### Add a field that delegates to another service
+
+A patch is synchronous, but a field's value can be a **function** — GraphQL
+invokes it (and awaits the result) only when that field is selected. That lets a
+patch attach a *lazy* field that delegates to a **second** service through its own
+gateway:
+
+```ts
+// gateway #2 → a separate orgs service
+const orgs = createGateway<OrgsRegistry>().configure({url: process.env.ORGS_URL!})
+
+const users = createGateway<UsersRegistry>().configure({
+  url: process.env.USERS_URL!,
+  patches: {
+    User: u => ({
+      ...u,
+      // resolved lazily — only when `org` is selected, and only then is the
+      // orgs service called
+      org: () => orgs.delegate('Query.org', {args: {id: u.orgId}, needs: {id: true, name: true}})
+    })
+  }
+})
+```
+
+`{ user(id: "u1") { email org { name } } }` now resolves `email` from the users
+service and `org` from the orgs service — composed in your schema, fetched only
+on demand. A gateway with no `patches` (like `orgs` here) is a valid pure
+pass-through.
+
+## Turn a remote type into a polymorphic interface
+
+A remote service often exposes a single **flat** type with a discriminator —
+`User { kind: "doctor" | "patient", specialty, insuranceId }`. You can present it
+to your clients as a proper GraphQL **interface** with variant members, without
+any federation directives or a new config — just a class hierarchy plus a patch
+that stamps `__typename`.
+
+Declare the interface as a base class with subclasses (Pylon's normal convention
+— a returned base type with subclasses emits an interface), then discriminate in
+the patch:
+
+```ts title="src/index.ts"
+import {Pylon, createGateway} from '@getcronit/pylon'
+import type {RemoteRegistry as UsersRegistry} from './generated/users'
+
+// base class → interface; subclasses → members
+export class Profile {
+  id!: string
+  email!: string
+}
+export class DoctorProfile extends Profile {
+  specialty!: string
+}
+export class PatientProfile extends Profile {
+  insuranceId!: string
+}
+
+const users = createGateway<UsersRegistry>().configure({
+  url: process.env.USERS_URL!,
+  patches: {
+    // discriminate on the row, stamp the member __typename + project its fields
+    User: u =>
+      u.kind === 'doctor'
+        ? {__typename: 'DoctorProfile', id: u.id, email: u.email, specialty: u.specialty}
+        : {__typename: 'PatientProfile', id: u.id, email: u.email, insuranceId: u.insuranceId}
+  }
+})
+
+export default new Pylon({
+  graphql: {
+    Query: {
+      profile: (id: string): Profile | null =>
+        users.delegate('Query.user', {
+          args: {id},
+          needs: {id: true, email: true, kind: true, specialty: true, insuranceId: true}
+        }) as unknown as Profile | null
+    }
+  }
+})
+```
+
+Clients query it like any interface:
+
+```graphql
+{
+  profile(id: "u1") {
+    __typename
+    ... on DoctorProfile { specialty }
+    ... on PatientProfile { insuranceId }
+  }
+}
+```
+
+How the two halves line up:
+
+- **Schema (build time)** comes entirely from the classes. `Profile` + its
+  subclasses emit a `Profile` interface whose members are `DoctorProfile` /
+  `PatientProfile`, and `profile` is typed as that interface. The patch's runtime
+  branching plays no part in the schema.
+- **Runtime** runs the patch on each fetched row, stamps `__typename`, and the
+  gateway resolves the matching fragment. The variant fields are already present
+  because `needs` requested them.
+
+> **Gotcha.** The mapping *into* the interface is not type-checked: nothing
+> verifies that a branch stamping `__typename: 'DoctorProfile'` returns a shape
+> matching `DoctorProfile` (hence the `as unknown as Profile` cast). A typo'd
+> `__typename` or a missing variant field surfaces at runtime, not at build.
+> Stamp a `__typename` that exactly matches a declared member, and keep `needs` in
+> sync with the fields your variants project.
