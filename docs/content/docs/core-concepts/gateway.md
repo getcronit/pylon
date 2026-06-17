@@ -129,16 +129,21 @@ const gateway = createGateway<ExampleRegistry>().configure({
 })
 ```
 
-A patch's return shape is **authoritative for the schema**: a field you add in a
-patch (like `fullName`) becomes a real field of that type, queryable by clients.
+A patch's return shape is **authoritative for the type** (unless a resolver return
+annotation overrides it, as in the polymorphic example below). So a patch shapes
+the type three ways:
 
-The patch result is merged *over* the fetched data (`{...fetched, ...patched}`),
-so top-level fields you simply **omit** are preserved — returning a partial object
-won't drop a requested field by accident. But the merge is **shallow**, and it
-*does* let you override: returning a field explicitly (including to `null`), or
-returning a partial **nested** object, replaces that value wholesale and can drop
-sub-fields. So a patch can change or remove data — just not silently by leaving a
-top-level field out.
+- **Add** a field — `fullName` above becomes a real, queryable field of `User`.
+- **Override** a field — return it with a new value (including `null`).
+- **Omit** a field — leave it out of the return shape and it's dropped from the
+  type, a clean way to hide an upstream field from your clients. (Spreading
+  `...user` keeps everything; return an explicit subset to expose only that.)
+
+At runtime the patch result is shallow-merged over the fetched row
+(`{...fetched, ...patched}`): a value you don't restate is still present on the
+object — relevant when the field's type comes from an annotation rather than the
+patch, so it still resolves — but because the merge is shallow, a partial
+**nested** object replaces its original wholesale.
 
 A patch runs **after** the remote row is fetched, so it sees real data — you can
 branch on the row's values. If a computed field needs a column the client didn't
