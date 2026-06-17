@@ -387,7 +387,9 @@ class PylonPatchTransform<TPatch> implements Transform {
     }
 
     const typeName = data.__typename
-    const patchFn = (this.patches as any)[typeName]
+    // `patches` is optional — a pure pass-through gateway has none. Guard the lookup
+    // so a patch-less gateway doesn't crash on `undefined[typeName]`.
+    const patchFn = typeName ? (this.patches as any)?.[typeName] : undefined
     if (patchFn) {
       const patchedData = patchFn(processedData, this.api)
 
@@ -424,7 +426,7 @@ class PylonGateway<
     private config: {
       url: string
       headers?: (ctx: any) => Record<string, string>
-      patches: TPatch
+      patches?: TPatch
     }
   ) {
     this.apiContext = {
@@ -550,7 +552,7 @@ export function createGateway<TRegistry extends {delegate: any; types: any}>() {
     >(config: {
       url: string
       headers?: (ctx: Context) => Record<string, string>
-      patches: TPatch
+      patches?: TPatch
     }) => {
       return new PylonGateway<TRegistry, TPatch>(config)
     }
