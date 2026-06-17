@@ -75,14 +75,19 @@ describe.skipIf(!runDb)('cross-table search virtual (Postgres)', () => {
     setDefaultDatabase(undefined)
   })
 
-  it('matches rows whose OWN or RELATION FTS hits the term', async () => {
+  it('a BARE term routes through the search virtual (own OR relation FTS)', async () => {
+    const hits = await XsBook.objects.query('botany').all()
+    expect(hits.map(b => b.title).sort()).toEqual(['Botany Basics', 'Common Title'])
+  })
+
+  it('explicit search:term works too', async () => {
     const hits = await XsBook.objects.query('search:botany').all()
     expect(hits.map(b => b.title).sort()).toEqual(['Botany Basics', 'Common Title'])
   })
 
-  it('the virtual composes with other clauses', async () => {
-    // search:botany AND title:Botany* → only the own-title match
-    const hits = await XsBook.objects.query('search:botany title:Botany*').all()
+  it('a bare term composes with other clauses', async () => {
+    // botany AND title:Botany* → only the own-title match
+    const hits = await XsBook.objects.query('botany title:Botany*').all()
     expect(hits.map(b => b.title)).toEqual(['Botany Basics'])
   })
 })

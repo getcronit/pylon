@@ -325,15 +325,23 @@ class Parser {
     return negated ? {NOT: [where]} : where
   }
 
-  // Default search. Routes through the model's GIN-indexed `tsvector` (the
-  // `@model({search})` column) for performance — a `{search}` predicate the
-  // WhereInput compiler turns into `@@ websearch_to_tsquery` (or a prefix
-  // `to_tsquery(... :*)` for a trailing wildcard). Models WITHOUT a search column
-  // fall back to (un-indexed) substring `contains` over their text columns.
+  // Default search. If the model declares a `search` VIRTUAL field, a bare term
+  // routes through it — so a plain term spans the model + its relations exactly
+  // like an explicit `search:term` (cross-table search with no prefix needed;
+  // multi-word ANDs since the parser ANDs adjacent bare terms). Otherwise it
+  // routes through the model's GIN-indexed `tsvector` (`@model({search})`) — a
+  // `{search}` predicate the compiler turns into `@@ websearch_to_tsquery` (prefix
+  // `to_tsquery(... :*)` for a trailing `*`) — falling back to un-indexed substring
+  // `contains` over the text columns when there's no tsvector.
   private bareTerm(raw: string): Where {
     if (isBareStar(raw)) return {} // a lone `*` constrains nothing
     const {value, prefix} = literalWithWildcard(raw)
     if (!value) return {}
+    const sv = this.schema.byName.get('search')
+    if (sv?.kind === 'virtual' && sv.toWhere) {
+      const w = sv.toWhere(prefix ? 'startsWith' : 'eq', value)
+      return w && Object.keys(w).length ? w : {}
+    }
     const {fts, textColumns} = this.schema.search
     if (fts) {
       return {[fts.propertyKey]: prefix ? {search: value, prefix: true} : {search: value}}
