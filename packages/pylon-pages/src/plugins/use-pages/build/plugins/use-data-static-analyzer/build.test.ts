@@ -4884,4 +4884,54 @@ describe('Realistic NextJS App with useData', () => {
       "
     `)
   })
+
+  it('warns (not errors) and skips pre-fetch when a selection reads a TDZ variable', async () => {
+    const inputCode = `
+      import { useData } from "@getcronit/pylon-pages";
+      export function Component() {
+        const data = useData();
+        const searchValue = "x";
+        console.log(data.posts({ query: searchValue }).totalCount);
+      }
+    `
+    const filePath = path.join(tempDir, 'testTDZ.tsx')
+    fs.writeFileSync(filePath, inputCode)
+    // prepare is only an optimization, so this WARNS + skips injection (lazy
+    // fallback) — it must NOT fail the build.
+    const result = await esbuild.build({
+      entryPoints: [filePath],
+      plugins: [useDataStaticAnalyzer()],
+      write: false,
+      bundle: true,
+      format: 'esm',
+      external: ['@getcronit/pylon-pages']
+    })
+    expect(
+      result.warnings.some(w => /temporal dead zone|searchValue/.test(w.text))
+    ).toBe(true)
+    // pre-fetch skipped → no prepare injected for that call
+    expect(result.outputFiles[0].text).not.toContain('prepare:')
+  })
+
+  it('does NOT error when the variable is declared before useData', async () => {
+    const inputCode = `
+      import { useData } from "@getcronit/pylon-pages";
+      export function Component() {
+        const searchValue = "x";
+        const data = useData();
+        console.log(data.posts({ query: searchValue }).totalCount);
+      }
+    `
+    const filePath = path.join(tempDir, 'testNoTDZ.tsx')
+    fs.writeFileSync(filePath, inputCode)
+    const result = await esbuild.build({
+      entryPoints: [filePath],
+      plugins: [useDataStaticAnalyzer()],
+      write: false,
+      bundle: true,
+      format: 'esm',
+      external: ['@getcronit/pylon-pages']
+    })
+    expect(result.outputFiles[0].text).toContain('prepare:')
+  })
 })
