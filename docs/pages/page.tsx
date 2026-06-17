@@ -94,7 +94,7 @@ const Page: React.FC<PageProps> = () => {
           <div className="relative">
             <CodePanel filename="src/index.ts" accent>
               <code>
-                {Tok.k('import')} {'{app}'} {Tok.k('from')}{' '}
+                {Tok.k('import')} {'{Pylon}'} {Tok.k('from')}{' '}
                 {Tok.s("'@getcronit/pylon'")}
                 {'\n\n'}
                 {Tok.k('class')} {Tok.t('User')} {'{\n'}
@@ -108,19 +108,19 @@ const Page: React.FC<PageProps> = () => {
                 {Tok.k('!')}: {Tok.t('string')} | {Tok.k('null')}
                 {'\n'}
                 {'}\n\n'}
-                {Tok.k('export const')} graphql = {'{\n'}
-                {'  '}
+                {Tok.k('export default')} {Tok.k('new')} {Tok.t('Pylon')}({'{\n'}
+                {'  graphql: {\n'}
+                {'    '}
                 {Tok.f('Query')}: {'{\n'}
-                {'    user: ('}id: {Tok.t('string')}): {Tok.t('User')} ={'>'} {'{\n'}
-                {'      '}
-                {Tok.k('return')} {'{ id, name: '}
+                {'      user: ('}id: {Tok.t('string')}): {Tok.t('User')} ={'>'} {'({\n'}
+                {'        id, name: '}
                 {Tok.s("'Ada'")}
                 {', email: '}
                 {Tok.k('null')}
-                {' }\n'}
+                {'\n      })\n'}
                 {'    }\n'}
                 {'  }\n'}
-                {'}'}
+                {'})'}
               </code>
             </CodePanel>
 
@@ -239,17 +239,18 @@ const Page: React.FC<PageProps> = () => {
                 {'\n  title'}
                 {Tok.k('!')}: {Tok.t('string')}
                 {'\n}\n\n'}
-                {Tok.k('export const')} graphql = {'{\n'}
-                {'  '}
+                {Tok.k('export default')} {Tok.k('new')} {Tok.t('Pylon')}({'{\n'}
+                {'  graphql: {\n'}
+                {'    '}
                 {Tok.f('Query')}: {'{\n'}
-                {'    posts: (): '}
+                {'      posts: (): '}
                 {Tok.t('Post')}
                 {'[] => '}
                 {Tok.t('Post')}
                 {'.objects.'}
                 {Tok.f('all')}
                 {'()\n'}
-                {'  }\n}'}
+                {'    }\n  }\n})'}
               </code>
             </CodePanel>
 

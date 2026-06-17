@@ -1,5 +1,4 @@
-import {app} from '@getcronit/pylon'
-import {serve} from '@hono/node-server'
+import {Pylon} from '@getcronit/pylon'
 
 import {getDoc, getDocMetas, type DocMeta} from './lib/content.js'
 
@@ -104,10 +103,13 @@ function buildNav(): NavSection[] {
   return sections
 }
 
-// ---- Resolvers -----------------------------------------------------------
+// ---- The app -------------------------------------------------------------
+// One Pylon instance whose `graphql` fragment the compiler type-introspects.
+// Serving is owned by the app via a plugin in pylon.config.ts.
 
-export const graphql = {
-  Query: {
+export default new Pylon({
+  graphql: {
+    Query: {
     docPage: async (slug: string): Promise<DocPage | null> => {
       const doc = await getDoc(slug)
       if (!doc) return null
@@ -131,13 +133,7 @@ export const graphql = {
     },
 
     navTree: (): NavSection[] => buildNav()
-  },
-  Mutation: {}
-}
-
-serve(
-  {fetch: app.fetch, port: Number(process.env.PORT) || 3000},
-  info => {
-    console.log(`Pylon docs running at http://localhost:${info.port}`)
+    },
+    Mutation: {}
   }
-)
+})
