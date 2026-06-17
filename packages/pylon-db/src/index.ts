@@ -310,6 +310,18 @@ export const models = {
   ) {
     recordApp(name, options)
     if (options.policy) policyApi.defineAppPolicy(name, options.policy)
+    else if (options.secure) {
+      // A secure app with no policy fails CLOSED — every read/write with no
+      // per-model `definePolicy` is denied (→ silently empty results). The usual
+      // cause is `policy:` evaluating to `undefined` from an import cycle (the
+      // policy was defined in a module that imports this app). Warn loudly.
+      console.warn(
+        `[pylon-db] models.app("${name}", {secure: true}) has no \`policy\` — ` +
+          `all reads/writes without a per-model definePolicy will be DENIED. If you ` +
+          `passed a \`policy\`, it likely resolved to undefined via an import cycle; ` +
+          `move it to a module that does not import this app.`
+      )
+    }
     return {
       ...modelBuilders,
       model: (opts: fields.ModelOptions = {}) =>

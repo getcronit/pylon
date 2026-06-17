@@ -1,4 +1,4 @@
-import {describe, expect, it} from 'vitest'
+import {afterEach, describe, expect, it, vi} from 'vitest'
 import {appGroups, db, getModelDefinitionOrThrow, models} from '../src/index'
 
 const blog = models.app('blog')
@@ -53,5 +53,23 @@ describe('appGroups() derivation', () => {
     expect(byName.blog.dependencies).toEqual([]) // no FK out of blog
     // shop: 'blog' inferred (Order.buyer → Author) + 'payments' explicit
     expect([...byName.shop.dependencies!].sort()).toEqual(['blog', 'payments'])
+  })
+})
+
+describe('models.app() secure-without-policy guard', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('warns when a secure app gets no policy (e.g. an import cycle left it undefined)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    models.app('sec_no_policy', {secure: true, policy: undefined})
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0][0])).toContain('has no `policy`')
+  })
+
+  it('stays silent for a secure app WITH a policy, or a non-secure app', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    models.app('sec_with_policy', {secure: true, policy: () => true})
+    models.app('open_app', {})
+    expect(warn).not.toHaveBeenCalled()
   })
 })
