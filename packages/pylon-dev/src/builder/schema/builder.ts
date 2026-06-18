@@ -1,7 +1,43 @@
 import ts from 'typescript'
+import fs from 'node:fs'
 import {mergeIR, pruneUnreferencedEnums, toSDL, type PylonIR} from '@getcronit/pylon-ir'
 import {SchemaParser} from './schema-parser'
 import path from 'path'
+
+/**
+ * Persistent TS state per entry so dev rebuilds REUSE the expensive work instead of
+ * starting from scratch: a caching compiler host (keeps parsed SourceFiles — crucially
+ * the huge lib.d.ts + node_modules type files that never change), the prior program
+ * (structural reuse → the checker skips re-checking unchanged files), and the parsed
+ * options object (oldProgram reuse requires stable options). The outer schema cache
+ * (builder/index.ts) means this only runs when a source file actually changed; here we
+ * make that re-introspection incremental. (A tsconfig edit isn't picked up until a dev
+ * restart — config changes are rare and usually warrant one.)
+ */
+const tsState = new Map<
+  string,
+  {host: ts.CompilerHost; program: ts.Program; options: ts.CompilerOptions}
+>()
+
+function createCachingHost(options: ts.CompilerOptions): ts.CompilerHost {
+  const host = ts.createCompilerHost(options)
+  const cache = new Map<string, {mtime: number; file: ts.SourceFile | undefined}>()
+  const getSourceFile = host.getSourceFile.bind(host)
+  host.getSourceFile = (fileName, langVersion, onError, shouldCreate) => {
+    let mtime = -1
+    try {
+      mtime = fs.statSync(fileName).mtimeMs
+    } catch {
+      /* missing — let the real host report it */
+    }
+    const hit = cache.get(fileName)
+    if (hit && hit.mtime === mtime) return hit.file
+    const file = getSourceFile(fileName, langVersion, onError, shouldCreate)
+    cache.set(fileName, {mtime, file})
+    return file
+  }
+  return host
+}
 
 export interface BuildOptions {
   /**
@@ -24,15 +60,26 @@ export class SchemaBuilder {
   constructor(sfiFilePath: string) {
     this.sfiFilePath = sfiFilePath
 
-    const tsConfigOptions = this.loadTsConfigOptions()
-
     const filesInSfiDir = ts.sys
       .readDirectory(path.dirname(this.sfiFilePath), ['.ts'], ['.d.ts'])
       .concat([path.join(path.dirname(this.sfiFilePath), '..', 'pylon.d.ts')])
 
-    this.program = ts.createProgram(filesInSfiDir, tsConfigOptions)
+    // Reuse the prior build's host/options/program for this entry (see tsState):
+    // unchanged files (esp. lib + deps) skip re-parsing, and the checker reuses
+    // their type info — making a re-introspection after a source edit incremental.
+    const prev = tsState.get(this.sfiFilePath)
+    const tsConfigOptions = prev?.options ?? this.loadTsConfigOptions()
+    const host = prev?.host ?? createCachingHost(tsConfigOptions)
 
+    this.program = ts.createProgram(
+      filesInSfiDir,
+      tsConfigOptions,
+      host,
+      prev?.program
+    )
     this.checker = this.program.getTypeChecker()
+
+    tsState.set(this.sfiFilePath, {host, program: this.program, options: tsConfigOptions})
 
     this.loadSfi()
   }
