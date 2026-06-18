@@ -22,12 +22,14 @@ const e2eRoot = path.resolve(dir, '..')
 const cliBin = path.resolve(e2eRoot, '../packages/pylon-dev/dist/index.js')
 const appDir = path.resolve(e2eRoot, 'fixtures/dev-pages-app')
 const pageFile = path.join(appDir, 'pages/page.tsx')
+const srcFile = path.join(appDir, 'src/index.ts')
 
 const PORT = 4760
 const base = `http://localhost:${PORT}`
 
 let dev: ChildProcess | undefined
 let originalPage = ''
+let originalSrc = ''
 const devLog: string[] = []
 
 const recentLog = (n = 40) => devLog.slice(-n).join('')
@@ -64,6 +66,7 @@ describe('pylon dev — pages watch loop', () => {
   beforeAll(async () => {
     if (!existsSync(cliBin)) throw new Error(`pylon CLI not built at ${cliBin}.`)
     originalPage = await fs.readFile(pageFile, 'utf8')
+    originalSrc = await fs.readFile(srcFile, 'utf8')
     await fs.rm(path.join(appDir, '.pylon'), {recursive: true, force: true})
 
     dev = spawn('node', [cliBin, 'dev', '-c', 'node .pylon/index.js'], {
@@ -102,6 +105,7 @@ describe('pylon dev — pages watch loop', () => {
       }
     }
     if (originalPage) await fs.writeFile(pageFile, originalPage)
+    if (originalSrc) await fs.writeFile(srcFile, originalSrc)
     await fs.rm(path.join(appDir, 'components'), {recursive: true, force: true}).catch(() => {})
     await fs.rm(path.join(appDir, '.pylon'), {recursive: true, force: true}).catch(() => {})
   }, 30_000)
@@ -197,4 +201,32 @@ describe('pylon dev — pages watch loop', () => {
     )
     expect((await pageHtml())?.includes('GADGET_V2')).toBe(true)
   }, 150_000)
+
+  it('reflects a SRC (schema) edit — cache invalidates, never serves a stale schema', async () => {
+    // The schema build is cached (keyed by the type program's source files) to skip
+    // the ~1s introspection on page/component edits. This guards the OTHER half: a
+    // resolver edit MUST invalidate that cache so the new field is actually served.
+    const q = async (query: string) => {
+      const res = await fetch(`${base}/graphql`, {
+        method: 'POST',
+        headers: {'content-type': 'application/json'},
+        body: JSON.stringify({query})
+      })
+      return res.ok ? ((await res.json()) as any) : null
+    }
+    // Baseline: the new field does not exist yet.
+    expect((await q('{ pong }'))?.errors, 'pong should not exist yet').toBeTruthy()
+
+    await fs.writeFile(
+      srcFile,
+      "import {Pylon} from '@getcronit/pylon'\n" +
+        'export default new Pylon({graphql: {Query: {ping: (): string => "ok", pong: (): string => "pong"}, Mutation: {}}})\n'
+    )
+    await waitFor(
+      async () => (await q('{ pong }'))?.data?.pong === 'pong',
+      90_000,
+      'new resolver served after src edit (cache invalidated)'
+    )
+    expect((await q('{ pong }'))?.data?.pong).toBe('pong')
+  }, 120_000)
 })

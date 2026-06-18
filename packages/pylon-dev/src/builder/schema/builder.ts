@@ -186,4 +186,16 @@ export class SchemaBuilder {
       ir
     }
   }
+
+  /**
+   * The real source files the type program depends on (excluding lib + deps) —
+   * the entry plus everything it transitively imports. The dev build hashes these
+   * to cache the (expensive ~1s+) schema derivation and skip it when none changed.
+   */
+  public getSourceFiles(): string[] {
+    return this.program
+      .getSourceFiles()
+      .map(f => f.fileName)
+      .filter(n => !n.includes('/node_modules/') && !n.endsWith('.d.ts'))
+  }
 }

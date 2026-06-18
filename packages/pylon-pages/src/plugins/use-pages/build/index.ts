@@ -262,7 +262,10 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
       'gqty',
       '@gqty/react'
     ],
-    minify: true,
+    // Don't minify the node-only SSR bundle in dev — it's pure rebuild cost with no
+    // benefit. `PYLON_DEV_RELOAD_PORT` is set only by `pylon dev`, so prod builds
+    // (where it's absent) still minify.
+    minify: !process.env.PYLON_DEV_RELOAD_PORT,
     loader: {
       // Map file extensions to the file loader
 
