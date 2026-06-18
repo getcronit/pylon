@@ -106,6 +106,7 @@ describe('pylon dev — pages watch loop', () => {
     }
     if (originalPage) await fs.writeFile(pageFile, originalPage)
     if (originalSrc) await fs.writeFile(srcFile, originalSrc)
+    await fs.rm(path.join(appDir, 'src/widget.ts'), {force: true}).catch(() => {})
     await fs.rm(path.join(appDir, 'components'), {recursive: true, force: true}).catch(() => {})
     await fs.rm(path.join(appDir, '.pylon'), {recursive: true, force: true}).catch(() => {})
   }, 30_000)
@@ -228,5 +229,40 @@ describe('pylon dev — pages watch loop', () => {
       'new resolver served after src edit (cache invalidated)'
     )
     expect((await q('{ pong }'))?.data?.pong).toBe('pong')
+  }, 120_000)
+
+  it('reflects a SUB-FILE (transitive import) edit — cache key covers the whole import graph', async () => {
+    // The schema cache is keyed by the type program's source files (entry + every
+    // transitive import). Editing a sub-file the entry imports MUST invalidate it —
+    // guards against a future change narrowing the key to just the entry file.
+    const widgetFile = path.join(appDir, 'src/widget.ts')
+    const type = async (name: string) => {
+      const res = await fetch(`${base}/graphql`, {
+        method: 'POST',
+        headers: {'content-type': 'application/json'},
+        body: JSON.stringify({query: `{ __type(name:"${name}"){ fields { name } } }`})
+      })
+      const j = res.ok ? ((await res.json()) as any) : null
+      return (j?.data?.__type?.fields ?? []).map((f: any) => f.name)
+    }
+
+    await fs.writeFile(widgetFile, 'export class Widget {\n  id!: string\n}\n')
+    await fs.writeFile(
+      srcFile,
+      "import {Pylon} from '@getcronit/pylon'\n" +
+        "import {Widget} from './widget'\n" +
+        'export default new Pylon({graphql: {Query: {widget: (): Widget => ({id: "1"} as Widget), ping: (): string => "ok"}, Mutation: {}}})\n'
+    )
+    await waitFor(async () => (await type('Widget')).includes('id'), 90_000, 'Widget type appears')
+    expect(await type('Widget')).not.toContain('label')
+
+    // Edit ONLY the sub-file — add a field.
+    await fs.writeFile(widgetFile, 'export class Widget {\n  id!: string\n  label!: string\n}\n')
+    await waitFor(
+      async () => (await type('Widget')).includes('label'),
+      90_000,
+      'sub-file edit reflected in schema (Widget.label)'
+    )
+    expect(await type('Widget')).toEqual(expect.arrayContaining(['id', 'label']))
   }, 120_000)
 })
