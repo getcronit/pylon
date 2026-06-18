@@ -193,21 +193,15 @@ function set(obj, path, value) {
 export const cache = new Cache(
   undefined,
   /**
-   * Browser cache: stale-while-revalidate. \`maxAge\` is the freshness window — a
-   * cached entry is served instantly and considered fresh for this long; after it,
-   * a read serves the cached value and revalidates in the background (within
-   * \`staleWhileRevalidate\`), picking up data changed elsewhere.
-   *
-   * It must be > the SSR hydration time: the server-rendered cache is restored
-   * right before hydrateRoot, and restored entries get \`expiresAt = maxAge + now\`
-   * (the snapshot carries data only, not expiry). With \`maxAge: 0\` (clamped to the
-   * 100ms MINIMUM_CACHE_AGE) the SSR data expires before React mounts the
-   * components that read it, so every query on the first page re-fetches — defeating
-   * SSR. A few-seconds window lets the hydrated data be trusted on first load while
-   * still revalidating on later navigation. Tune to taste.
+   * Browser cache: stale-while-revalidate. \`maxAge: 0\` means a cached entry is
+   * served INSTANTLY but treated as stale, so navigating to a page (or re-mounting a
+   * query) serves the cached value and revalidates in the background — picking up
+   * data added on another page or changed on the backend. (\`maxAge: Infinity\` here
+   * was a bug: it never expired, so navigation showed stale data forever, defeating
+   * the staleWhileRevalidate window the comment describes.)
    */
   {
-    maxAge: 30 * 1000,
+    maxAge: 0,
     staleWhileRevalidate: 5 * 60 * 1000,
     normalization: true
   }
