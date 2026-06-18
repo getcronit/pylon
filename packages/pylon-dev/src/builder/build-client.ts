@@ -193,11 +193,15 @@ function set(obj, path, value) {
 export const cache = new Cache(
   undefined,
   /**
-   * Default option is immediate cache expiry but keep it for 5 minutes,
-   * allowing soft refetches in background.
+   * Browser cache: stale-while-revalidate. \`maxAge: 0\` means a cached entry is
+   * served INSTANTLY but treated as stale, so navigating to a page (or re-mounting a
+   * query) serves the cached value and revalidates in the background — picking up
+   * data added on another page or changed on the backend. (\`maxAge: Infinity\` here
+   * was a bug: it never expired, so navigation showed stale data forever, defeating
+   * the staleWhileRevalidate window the comment describes.)
    */
   {
-    maxAge: Infinity,
+    maxAge: 0,
     staleWhileRevalidate: 5 * 60 * 1000,
     normalization: true
   }
