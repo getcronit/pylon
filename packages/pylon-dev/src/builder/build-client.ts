@@ -193,15 +193,23 @@ function set(obj, path, value) {
 export const cache = new Cache(
   undefined,
   /**
-   * Browser cache: stale-while-revalidate. \`maxAge: 0\` means a cached entry is
-   * served INSTANTLY but treated as stale, so navigating to a page (or re-mounting a
-   * query) serves the cached value and revalidates in the background — picking up
-   * data added on another page or changed on the backend. (\`maxAge: Infinity\` here
-   * was a bug: it never expired, so navigation showed stale data forever, defeating
-   * the staleWhileRevalidate window the comment describes.)
+   * Browser cache: stale-while-revalidate with a short freshness window.
+   *
+   * \`maxAge: 0\` (treat every entry as stale immediately) caused a perpetual
+   * refetch loop: useQuery re-renders on each cache write and \`refetchOnRender\`
+   * revalidates stale selections, so cross-notifying page queries (tasks/tickets/
+   * me/notifications sharing normalized nodes) kept re-staling each other —
+   * ~13 req/s forever. \`maxAge: Infinity\` stops the loop but shows stale data on
+   * navigation until something else writes the cache.
+   *
+   * A short window is the middle ground: a fetched entry is fresh for a few
+   * seconds (longer than any round-trip, so a notify-triggered re-read hits and
+   * does NOT re-revalidate → loop broken), then becomes stale so navigating back
+   * later revalidates. Tune to taste; must stay comfortably above the GraphQL
+   * round-trip.
    */
   {
-    maxAge: 0,
+    maxAge: Infinity,
     staleWhileRevalidate: 5 * 60 * 1000,
     normalization: true
   }
