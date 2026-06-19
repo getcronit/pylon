@@ -235,13 +235,24 @@ export function entityFromDefinition(def: ModelDefinition): Entity {
       ...def.columns.map(col =>
         columnField({...col, sqlType: resolveColumnSqlType(def, col)})
       ),
-      // Paginated relations are SKIPPED here: they surface as callable fields
-      // (Relay `Connection` + args), which the type-checker reads off the field
-      // type and emits — letting the ORM contribute a plain list too would
-      // double-declare the field with a conflicting type.
+      // Paginated relations surface as callable fields (Relay `Connection` +
+      // args), which the type-checker reads off the field type and emits — so the
+      // ORM must NOT also contribute a plain list field (double-declare).
+      //
+      // EXCEPTION: a paginated many-to-many still needs its relation metadata in
+      // the IR so the migration engine synthesizes the join table (`joinTablesOf`
+      // scans m2m relations regardless of `exposed`). Without this, a paginated
+      // m2m's join table is missing from the desired schema and `db diff` drops
+      // the live table. So keep paginated m2m with `exposed: false` (present for
+      // migrations, absent from the GraphQL API); paginated hasMany has no join
+      // table and is dropped entirely.
       ...def.relations
-        .filter(rel => !rel.paginate)
-        .map(rel => relationField(rel, def))
+        .filter(rel => !rel.paginate || rel.kind === 'manyToMany')
+        .map(rel =>
+          rel.paginate
+            ? {...relationField(rel, def), exposed: false}
+            : relationField(rel, def)
+        )
     ],
     ...(indexes.length ? {indexes} : {})
   }
