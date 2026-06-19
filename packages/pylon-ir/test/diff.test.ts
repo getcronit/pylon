@@ -279,13 +279,13 @@ describe('migration engine — secondary indexes', () => {
     const m = makeMigration(base, withIndexes([idx]))
     expect(m.changes.map(c => c.kind)).toEqual(['addIndex'])
     expect(m.up).toEqual(['CREATE INDEX "user_email_idx" ON "user" ("email")'])
-    expect(m.down).toEqual(['DROP INDEX "user_email_idx"'])
+    expect(m.down).toEqual(['DROP INDEX IF EXISTS "user_email_idx"'])
   })
 
   it('drops an index when it disappears (down re-creates it)', () => {
     const m = makeMigration(withIndexes([idx]), base)
     expect(m.changes.map(c => c.kind)).toEqual(['dropIndex'])
-    expect(m.up).toEqual(['DROP INDEX "user_email_idx"'])
+    expect(m.up).toEqual(['DROP INDEX IF EXISTS "user_email_idx"'])
     expect(m.down).toEqual(['CREATE INDEX "user_email_idx" ON "user" ("email")'])
   })
 
@@ -304,7 +304,7 @@ describe('migration engine — secondary indexes', () => {
       User: {...base.User, fields: [idField]} // email column gone
     })
     expect(m.changes.map(c => c.kind)).toEqual(['dropColumn'])
-    expect(m.up).not.toContain('DROP INDEX "user_email_idx"')
+    expect(m.up).not.toContain('DROP INDEX IF EXISTS "user_email_idx"')
   })
 })
 

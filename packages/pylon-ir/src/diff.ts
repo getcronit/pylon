@@ -449,7 +449,11 @@ function addIndexSQL(ix: IndexSpec): string[] {
 }
 
 function dropIndexSQL(ix: IndexSpec): string {
-  return `DROP INDEX "${ix.name}"`
+  // `IF EXISTS` keeps the drop idempotent: an index can vanish out-of-band when
+  // its column/table is dropped (Postgres cascades index removal), leaving a
+  // snapshot that still lists it. The next diff then emits a phantom drop for an
+  // index that's already gone — without `IF EXISTS` that aborts the migration.
+  return `DROP INDEX IF EXISTS "${ix.name}"`
 }
 
 /** Postgres `ALTER COLUMN` statements bringing `before` to `after`. */
