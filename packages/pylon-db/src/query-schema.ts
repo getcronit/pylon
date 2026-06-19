@@ -84,11 +84,14 @@ export interface RelationField {
   target: () => QuerySchema
 }
 
-/** The bare-term search target: a generated tsvector (FTS) or the substring fallback. */
+/** The bare-term search target: FTS, trigram, or the substring fallback. */
 export interface SearchTarget {
   /** A `@model({search})` tsvector column → FTS (`@@`). */
   fts?: {propertyKey: string; language: string}
-  /** Property keys of textual columns used for the substring fallback (no FTS). */
+  /** Property keys with a `gin_trgm_ops` index (`@model({trigram})`) → index-backed
+   *  substring ILIKE. OR-ed with `fts` for mixed prose+identifier models. */
+  trigram?: string[]
+  /** Property keys of textual columns for the substring fallback (no FTS/trigram). */
   textColumns: string[]
 }
 
@@ -218,7 +221,20 @@ function build(def: ModelDefinition, depth: number): QuerySchema {
     byName.set(name, field)
   }
 
-  return {tableName: def.tableName, fields, byName, relations, search: {fts, textColumns}}
+  // `@model({trigram})` columns are stored as column names; resolve to property
+  // keys for the bare-term predicate. Only textual columns participate.
+  const trigram = (def.trigramColumns ?? [])
+    .map(colName => byName.get(colName))
+    .filter((f): f is QueryableField => !!f && f.textual)
+    .map(f => f.propertyKey)
+
+  return {
+    tableName: def.tableName,
+    fields,
+    byName,
+    relations,
+    search: {fts, textColumns, ...(trigram.length ? {trigram} : {})}
+  }
 }
 
 // Schemas are pure derivations of a (stable) model definition → memoize per

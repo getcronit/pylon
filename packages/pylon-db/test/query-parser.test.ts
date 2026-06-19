@@ -48,6 +48,25 @@ class Doc extends Model {
   body = text()
 }
 
+// A trigram model → default search ORs index-backed ILIKE substring over ONLY
+// the declared columns (names/identifiers FTS tokenizes poorly), not every text
+// column. `notes` is textual but excluded because it isn't in the trigram set.
+@model({trigram: {columns: ['email', 'phone']}})
+class Lead extends Model {
+  id = id()
+  email = text()
+  phone = text()
+  notes = text()
+}
+
+// A mixed model → FTS (prose `bio`) OR trigram (`handle`), OR-ed in one bare term.
+@model({search: {columns: ['bio']}, trigram: {columns: ['handle']}})
+class Author extends Model {
+  id = id()
+  handle = text()
+  bio = text()
+}
+
 // Relation models for the phase-2 path tests: Prod —belongsTo→ Brand, and
 // Prod —hasMany→ Variant (a to-many hop → `{some: …}`).
 @model()
@@ -97,6 +116,8 @@ const tagDef = getModelDefinitionOrThrow(Tag)
 const docDef = getModelDefinitionOrThrow(Doc)
 const prodDef = getModelDefinitionOrThrow(Prod)
 const catalogDef = getModelDefinitionOrThrow(Catalog)
+const leadDef = getModelDefinitionOrThrow(Lead)
+const authorDef = getModelDefinitionOrThrow(Author)
 const parse = (q: string) => parseSearchQuery(q, productDef)
 
 /** propertyKey of the synthesized tsvector column (avoids hardcoding its name). */
@@ -178,6 +199,35 @@ describe('parseSearchQuery', () => {
     it('passes a prefix flag to the tsvector search for a trailing *', () => {
       expect(parseSearchQuery('hel*', docDef)).toEqual({
         [ftsKey]: {search: 'hel', prefix: true}
+      })
+    })
+
+    it('routes a bare term to ONLY the trigram columns (not every text column)', () => {
+      // `email` + `phone` are the trigram set; `notes` (textual) is excluded.
+      expect(parseSearchQuery('acme', leadDef)).toEqual({
+        OR: [
+          {email: {contains: 'acme', mode: 'insensitive'}},
+          {phone: {contains: 'acme', mode: 'insensitive'}}
+        ]
+      })
+    })
+
+    it('uses startsWith on trigram columns for a trailing *', () => {
+      expect(parseSearchQuery('acme*', leadDef)).toEqual({
+        OR: [
+          {email: {startsWith: 'acme', mode: 'insensitive'}},
+          {phone: {startsWith: 'acme', mode: 'insensitive'}}
+        ]
+      })
+    })
+
+    it('ORs FTS and trigram together for a mixed model', () => {
+      const fts = authorDef.columns.find(c => c.sqlType === 'tsvector')!.propertyKey
+      expect(parseSearchQuery('acme', authorDef)).toEqual({
+        OR: [
+          {[fts]: {search: 'acme'}},
+          {handle: {contains: 'acme', mode: 'insensitive'}}
+        ]
       })
     })
   })
