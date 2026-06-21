@@ -5,6 +5,12 @@ export interface Data {
   $refetch: (ignoreCache?: boolean) => Promise<void>
 }
 
+/**
+ * The Mutation root, augmented by the generated client (callable-field style:
+ * `createUser(args): User`). `useMutation('createUser')` keys off `keyof Mutations`.
+ */
+export interface Mutations {}
+
 export type PageProps = {
   // @ts-expect-error
   context: Variables['pagesContext']

@@ -105,9 +105,15 @@ function sanitizeName(s: string): string {
   return s.replace(/[^A-Za-z0-9_]/g, '_').replace(/^([0-9])/, '_$1')
 }
 
-/** Extract the field name from a `m => m.field` mutation selector argument. */
+/**
+ * Mutation field from `useMutation('createUser')` (the string key, primary form)
+ * or the legacy `useMutation(m => m.createUser)` selector.
+ */
 function extractMutationField(arg: Node | undefined): string | null {
   if (!arg) return null
+  if (Node.isStringLiteral(arg) || Node.isNoSubstitutionTemplateLiteral(arg)) {
+    return arg.getLiteralText()
+  }
   if (Node.isArrowFunction(arg) || Node.isFunctionExpression(arg)) {
     let body: Node | undefined = arg.getBody()
     if (Node.isBlock(body)) {

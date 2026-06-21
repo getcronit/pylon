@@ -73,6 +73,17 @@ export function generateRootType(
   const rootName = queryType?.name ?? 'Query'
   out.push(`export type Data = ${rootName}`)
 
+  // Mutation root (callable-field style), for `useMutation` keyof typing.
+  // Always emitted (even when empty) so the augmentation import never breaks.
+  const mutationType = schema.getMutationType()
+  const hasMutations =
+    mutationType && Object.keys(mutationType.getFields()).length > 0
+  out.push(
+    hasMutations
+      ? `export type Mutations = ${mutationType!.name}`
+      : `export type Mutations = {}`
+  )
+
   return out.join('\n\n') + '\n'
 }
 

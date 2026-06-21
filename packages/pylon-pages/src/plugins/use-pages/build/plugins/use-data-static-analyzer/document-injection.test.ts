@@ -111,6 +111,19 @@ describe('analyzer document injection (schema present)', () => {
     expect(out).toContain('posts { title __typename id }')
   })
 
+  it('injects a mutation document from a string key', async () => {
+    const out = await transform(`
+      import { useMutation } from "@getcronit/pylon-pages";
+      export function Form() {
+        const [createUser, state] = useMutation('createUser');
+        return <button onClick={() => createUser({ name: 'Ada' })}>create</button>;
+      }
+    `)
+    expect(out).toContain('createUser(name: $name)')
+    expect(out).toContain('id name email')
+    expect(out).toMatch(/useMutation\(__pylonDoc_\w+_0\)/)
+  })
+
   it('fails loud on an unknown field', async () => {
     await expect(
       transform(`

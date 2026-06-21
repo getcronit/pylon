@@ -4,12 +4,18 @@ import {
   type TypedDoc
 } from '@getcronit/pylon-query'
 import {useCallback} from 'react'
+import type {Mutations} from './index'
 import {dataRefetch} from './use-data'
 
 export interface UseMutationOptions {
   /** After a successful mutation, refetch queries carrying these tags. */
   refetch?: string[]
 }
+
+// Mutations[K] is `(args) => Return` (callable-field style); extract both.
+type ArgsOf<F> = F extends (args: infer A) => any ? A : Record<string, never>
+type ResultOf<F> = F extends (...a: any[]) => infer R ? R : F
+type Trigger<F> = (variables?: ArgsOf<F>) => Promise<ResultOf<F>>
 
 /**
  * Mutation hook. Authored as:
@@ -26,23 +32,23 @@ export interface UseMutationOptions {
  * `refetch` covers list membership (creates/deletes) the entity patch can't:
  *   const [createUser] = useMutation(m => m.createUser, { refetch: ['users'] })
  */
-export function useMutation<TField>(
-  selector: (m: any) => TField,
+export function useMutation<K extends keyof Mutations>(
+  key: K,
   options?: UseMutationOptions
-): [(variables?: Record<string, unknown>) => Promise<TField>, MutationState]
+): [Trigger<Mutations[K]>, MutationState]
 export function useMutation<TResult>(
   doc: TypedDoc<TResult, any>,
   options?: UseMutationOptions
 ): [(variables?: Record<string, unknown>) => Promise<TResult>, MutationState]
 export function useMutation(
-  docOrSelector: TypedDoc<any, any> | ((m: any) => unknown),
+  docOrKey: TypedDoc<any, any> | keyof Mutations,
   options?: UseMutationOptions
 ): any {
-  // Post-analysis this is always a TypedDoc; the selector form only exists in
+  // Post-analysis this is always a TypedDoc; the string key only exists in
   // source before the analyzer rewrites it.
   const doc =
-    typeof docOrSelector === 'object'
-      ? (docOrSelector as TypedDoc<any, any>)
+    typeof docOrKey === 'object'
+      ? (docOrKey as TypedDoc<any, any>)
       : undefined
   const [trigger, state] = useMutationDoc(doc as TypedDoc<any, any>)
 

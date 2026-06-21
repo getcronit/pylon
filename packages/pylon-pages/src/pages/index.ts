@@ -10,6 +10,7 @@ export {default as GlobalErrorPage} from '@/components/global-error-page'
 export {StatusPage} from '@/components/status-page'
 export {
   type Data,
+  type Mutations,
   type LayoutProps,
   type MetadataRoute,
   type PageProps
