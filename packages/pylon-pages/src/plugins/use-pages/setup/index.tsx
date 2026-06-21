@@ -3,6 +3,7 @@ import path from 'path'
 import reactServer from 'react-dom/server'
 
 import {app, type Plugin} from '@getcronit/pylon'
+import {createPylonQueryClient, createServerFetcher} from '@getcronit/pylon-query'
 import {trimTrailingSlash} from 'hono/trailing-slash'
 import {
   createStaticHandler,
@@ -26,6 +27,39 @@ function isResponse(value: any): value is Response {
     typeof value.clone === 'function'
   )
 }
+
+/**
+ * Render a React tree to a complete HTML string in one pass. Suspense awaits
+ * each `useData` operation during this render, so by the time it resolves the
+ * store is fully populated — there is NO separate data-probe pass. The document
+ * shape is known at compile time; only the variable VALUES need a render (they
+ * come from props/route assembled by the tree), so a single render suffices.
+ *
+ * Component-thrown Responses (redirect/404/403) surface as a shell error and
+ * reject `renderToReadableStream`, so the caller's try/catch handles them.
+ */
+async function renderToHtml(
+  component: React.ReactElement,
+  appModule?: string
+): Promise<string> {
+  const bootstrapModules = appModule ? [appModule] : undefined
+  if (reactServer.renderToReadableStream) {
+    const stream = await reactServer.renderToReadableStream(component, {
+      bootstrapModules
+    })
+    // Consuming the stream to a string waits for everything (incl. Suspense).
+    return await new Response(stream as any).text()
+  }
+  if (reactServer.renderToString) {
+    return reactServer.renderToString(component)
+  }
+  throw new Error('Environment not supported')
+}
+
+/** Escape a value for safe embedding inside an inline `<script>` tag. */
+const serializeForScript = (value: unknown): string =>
+  JSON.stringify(value)
+    .replace(/[\u003c\u2028\u2029]/g, c => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"))
 
 export type {Data, LayoutProps, MetadataRoute, PageProps}
 
@@ -393,7 +427,13 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
 
   app.get('*', async c => {
     const pagesContext = c.get('pagesContext' as any) || {}
-    const pagesClient = _client.createPylonPagesClient()
+    // Per-request client with a request-bound fetcher: the in-process GraphQL
+    // call forwards this request's headers and hits the mounted app directly,
+    // avoiding AsyncLocalStorage (which React's async render breaks out of).
+    const pagesClient = createPylonQueryClient({
+      descriptor: _client.descriptor,
+      fetcher: createServerFetcher(app as any, c.req.raw) as any
+    })
 
     // =====================================================================
     // PHASE 1: Route Matching & Loader Execution
@@ -414,63 +454,58 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
     }
 
     const context = staticHandlerContext as StaticHandlerContext
-    const router = createStaticRouter(handler.dataRoutes, context)
 
-    const prerenderComponent = (
+    const renderComponent = (ctx: StaticHandlerContext) => (
       <__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider
         client={pagesClient}
-        staticData={{
-          context: pagesContext
-        }}>
-        <StaticRouterProvider router={router} context={context} />
+        staticData={{context: pagesContext}}>
+        <StaticRouterProvider
+          router={createStaticRouter(handler.dataRoutes, ctx)}
+          context={ctx}
+        />
       </__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider>
     )
 
-    let cacheSnapshot: object | undefined = undefined
-
     // =====================================================================
-    // PHASE 2: Component Render & Data Probing
+    // Render ONCE. Suspense drives useData fetching into the store during this
+    // render; the hydration payload (window.__pylon) is appended to the HTML
+    // afterwards. A second render happens ONLY on the error path (a component
+    // threw a redirect/notFound/crash → populate context.errors → render the
+    // error page).
     // =====================================================================
+    let html: string
     try {
-      // Execute a "dry run" to trigger component-level data fetching
-      const result = await pagesClient.prepareReactRender(prerenderComponent)
-      cacheSnapshot = result.cacheSnapshot
+      html = await renderToHtml(renderComponent(context), staticManifest['app.js'])
     } catch (errorOrResponse) {
       if (isResponse(errorOrResponse)) {
         const status = errorOrResponse.status
 
-        // 1. Intercept component-level Redirects (e.g., Auth checks)
+        // Component-level redirect (e.g. auth check).
         if (status >= 300 && status < 400) {
           const location = errorOrResponse.headers.get('Location')
           if (location) return c.redirect(location, status as any)
         }
 
-        // 2. Intercept component-level Data Errors (e.g., 404, 403)
+        // Component-level data error (404/403): hand it to React Router so the
+        // error boundary renders.
         const leafMatch = context.matches[context.matches.length - 1]
-
         if (leafMatch) {
-          // Unpack the stream so the client can serialize it during hydration
           let errorData = errorOrResponse.statusText
           try {
             errorData = await errorOrResponse.text()
           } catch {}
-
           context.errors = context.errors || {}
-
-          // Format the error exactly how React Router's internals expect it
           context.errors[leafMatch.route.id] = {
-            status: status,
+            status,
             statusText: errorOrResponse.statusText,
             data: errorData,
             internal: true
           }
-
           context.statusCode = status
         }
       } else {
-        // 3. Intercept standard application crashes (e.g., TypeErrors)
+        // Application crash (e.g. TypeError) → 500 boundary.
         const leafMatch = context.matches[context.matches.length - 1]
-
         if (leafMatch) {
           context.errors = context.errors || {}
           context.errors[leafMatch.route.id] = errorOrResponse
@@ -479,67 +514,37 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
           throw errorOrResponse
         }
       }
-    }
 
-    // =====================================================================
-    // PHASE 3: Final Stream Output
-    // =====================================================================
-    const finalComponent = (
-      <__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider
-        client={pagesClient}
-        staticData={{
-          cache: cacheSnapshot,
-          context: pagesContext
-        }}>
-        <StaticRouterProvider router={router} context={context} />
-      </__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider>
-    )
-
-    try {
-      if (reactServer.renderToReadableStream) {
-        const stream = await reactServer.renderToReadableStream(
-          finalComponent,
-          {
-            bootstrapModules: staticManifest['app.js']
-              ? [staticManifest['app.js']]
-              : undefined
-          }
+      // Error path only: re-render with the populated error context.
+      try {
+        html = await renderToHtml(
+          renderComponent(context),
+          staticManifest['app.js']
         )
-
-        // Apply the finalized status code to the HTTP response header
-        c.status(context.statusCode as any)
+      } catch (criticalError) {
+        console.error('CRITICAL RENDER ERROR', criticalError)
+        c.status(500)
         c.header('Content-Type', 'text/html')
-        return c.body(stream)
-      } else if (reactServer.renderToPipeableStream) {
-        return await new Promise<Response>((resolve, reject) => {
-          const {pipe} = reactServer.renderToPipeableStream(finalComponent, {
-            bootstrapModules: staticManifest['app.js']
-              ? [staticManifest['app.js']]
-              : undefined,
-            onShellReady: async () => {
-              c.status(context.statusCode as any)
-              c.header('Content-Type', 'text/html')
-              const passThrough = new PassThrough()
-              pipe(passThrough)
-              resolve(c.body(Readable.toWeb(passThrough) as any))
-            },
-            onShellError: async error => {
-              reject(error)
-            }
-          })
-        })
-      } else {
-        throw new Error('Environment not supported')
+        return c.html(
+          reactServer.renderToString(<ErrorPage error={criticalError as Error} />)
+        )
       }
-    } catch (criticalError) {
-      // Failsafe for catastrophic streaming errors
-      console.error('CRITICAL STREAM ERROR', criticalError)
-      c.status(500)
-      c.header('Content-Type', 'text/html')
-      return c.html(
-        reactServer.renderToString(<ErrorPage error={criticalError as Error} />)
-      )
     }
+
+    // Append the operation-keyed hydration payload right before </body>. A
+    // classic inline script runs during parse, before the deferred app.js module
+    // calls hydrate() — so window.__pylon is set in time.
+    const payload = pagesClient.collect()
+    if (payload && Object.keys(payload).length > 0) {
+      const script = `<script>window.__pylon = ${serializeForScript(payload)}</script>`
+      html = html.includes('</body>')
+        ? html.replace('</body>', `${script}</body>`)
+        : html + script
+    }
+
+    c.status(context.statusCode as any)
+    c.header('Content-Type', 'text/html')
+    return c.html(html)
   })
 }
 

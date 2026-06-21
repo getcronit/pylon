@@ -1,9 +1,14 @@
 import {Plugin} from 'esbuild'
 import * as fs from 'fs'
+import {buildSchema, GraphQLSchema} from 'graphql'
+import path from 'path'
 import {Node, SyntaxKind} from 'ts-morph'
-import {clearAnalyzeCache, extractQueries} from './analyze'
+import {clearAnalyzeCache, extractQueries, type QueryLocation} from './analyze'
 import {StaticAnalysisManager} from './manager'
+import {lowerQuery} from './selectors-to-document'
 import {generatePrepare} from './selectors-to-prepare'
+
+const DOC_IMPORT = `import { doc as __pylonDoc } from '@getcronit/pylon-query';\n`
 
 const ARG_RESERVED = new Set([
   'true', 'false', 'null', 'undefined', 'this', 'typeof', 'void', 'in', 'of',
@@ -78,12 +83,70 @@ function findPrepareTDZ(query: {
   return out
 }
 
+/** Infer the connection root path for a paginated query (single top-level field). */
+function inferConnectionPath(
+  selectors: any
+): {path: string[]} | undefined {
+  const keys = Object.keys(selectors).filter(
+    k => k !== '__args' && k !== '__isList'
+  )
+  if (keys.length === 0) return undefined
+  return {path: [keys[0]]}
+}
+
+/** Make a string safe as both a JS identifier and a GraphQL operation name. */
+function sanitizeName(s: string): string {
+  return s.replace(/[^A-Za-z0-9_]/g, '_').replace(/^([0-9])/, '_$1')
+}
+
+/**
+ * Rewrite a `useData(...)` / `usePaginatedData(...)` call's arguments to
+ * `(doc[, thunk][, origOptions])`. Existing options (e.g. `{tags}`) move to the
+ * 3rd slot; `undefined` fills the thunk slot when the op has no variables.
+ */
+function rewriteCall(
+  source: string,
+  node: any,
+  constName: string,
+  thunk?: string
+): string {
+  const open = node.getFirstChildByKind(SyntaxKind.OpenParenToken)
+  const close = node.getLastChildByKind(SyntaxKind.CloseParenToken)
+  if (!open || !close) return source
+  const innerStart = open.getEnd()
+  const innerEnd = close.getStart()
+  const orig = source.slice(innerStart, innerEnd).trim()
+  let inner: string
+  if (orig) {
+    inner = thunk
+      ? `${constName}, ${thunk}, ${orig}`
+      : `${constName}, undefined, ${orig}`
+  } else {
+    inner = thunk ? `${constName}, ${thunk}` : constName
+  }
+  return source.slice(0, innerStart) + inner + source.slice(innerEnd)
+}
+
 export interface UseDataStaticAnalyzerOptions {
   filter?: RegExp
   pylonPackage?: string
   hookName?: string
   debug?: boolean
   manager?: StaticAnalysisManager
+  /**
+   * When provided, the analyzer compiles each useData selection into a real
+   * GraphQL document (the pylon-query path) instead of injecting a gqty
+   * `prepare` closure. The production pages build always provides one (read from
+   * `.pylon/schema.graphql`). Standalone unit tests omit it and keep the legacy
+   * prepare injection.
+   */
+  schema?: GraphQLSchema
+  /** Path to the SDL to load a schema from, if `schema` isn't passed directly. */
+  schemaPath?: string
+  /** Hook to analyze as a Relay connection (e.g. "usePaginatedData"). */
+  paginatedHookName?: string
+  /** GraphQL scalar name → TS type, forwarded to the document compiler. */
+  scalarTypes?: Record<string, string>
 }
 
 export function useDataStaticAnalyzer(
@@ -93,12 +156,27 @@ export function useDataStaticAnalyzer(
     filter = /\.(ts|tsx)$/,
     pylonPackage = '@getcronit/pylon-pages',
     hookName = 'useData',
+    paginatedHookName = 'usePaginatedData',
     debug = false
   } = options
+
+  const loadSchema = (): GraphQLSchema | undefined => {
+    if (options.schema) return options.schema
+    const sdlPath =
+      options.schemaPath ?? path.join(process.cwd(), '.pylon/schema.graphql')
+    try {
+      return buildSchema(fs.readFileSync(sdlPath, 'utf8'))
+    } catch {
+      return undefined
+    }
+  }
 
   return {
     name: 'pylon-use-data-static-analyzer',
     async setup(build) {
+      // Resolve the schema once per build session (re-read on each build start
+      // so dev-loop schema changes are picked up).
+      let schema: GraphQLSchema | undefined = loadSchema()
       const manager =
         options.manager ||
         new StaticAnalysisManager({
@@ -109,6 +187,8 @@ export function useDataStaticAnalyzer(
       build.onStart(() => {
         manager.resetSession()
         clearAnalyzeCache() // Flushes internal analyze memoization
+        // Re-read the schema each build so dev-loop schema changes take effect.
+        schema = loadSchema()
       })
 
       const entries = build.initialOptions.entryPoints
@@ -176,6 +256,113 @@ export function useDataStaticAnalyzer(
             text: string
             location: {file: string; line: number}
           }[] = []
+          const buildErrors: {
+            text: string
+            location: {file: string; line: number}
+          }[] = []
+
+          // ── Document mode (production): compile selections to a real GraphQL
+          // document + variables thunk. TDZ is handled structurally at runtime
+          // (the wrapper evaluates the thunk lazily at first field access), so
+          // there are no TDZ warnings here.
+          if (schema) {
+            const base = sanitizeName(
+              path.basename(args.path).replace(/\.[^.]+$/, '')
+            )
+
+            type Item = {
+              query: QueryLocation
+              connection?: {path: string[]}
+              constName: string
+              index: number
+              decl?: string
+            }
+            const items: Item[] = []
+            queries.forEach(q => items.push({query: q, constName: '', index: 0}))
+
+            let allDeps = dependencies
+            if (contents.includes(paginatedHookName)) {
+              const paged = extractQueries(args.path, project, {
+                pylonPackage,
+                hookName: paginatedHookName,
+                skipDependencyResolution: true
+              })
+              paged.queries.forEach(q =>
+                items.push({
+                  query: q,
+                  connection: inferConnectionPath(q.selectors),
+                  constName: '',
+                  index: 0
+                })
+              )
+              allDeps = Array.from(new Set([...dependencies, ...paged.dependencies]))
+            }
+
+            if (items.length > 0) {
+              // Stable numbering by source order.
+              const ordered = [...items].sort(
+                (a, b) => a.query.start - b.query.start
+              )
+              ordered.forEach((it, i) => {
+                it.index = i
+                it.constName = `__pylonDoc_${base}_${i}`
+              })
+
+              // Apply call rewrites descending so positions stay valid.
+              const desc = [...items].sort((a, b) => b.query.start - a.query.start)
+              for (const it of desc) {
+                try {
+                  const lowered = lowerQuery(
+                    schema,
+                    it.query.selectors,
+                    `${base}_${it.index}`,
+                    it.constName,
+                    {
+                      scalarTypes: options.scalarTypes,
+                      connection: it.connection,
+                      docFnName: '__pylonDoc'
+                    }
+                  )
+                  it.decl = lowered.docDeclaration
+                  outputContents = rewriteCall(
+                    outputContents,
+                    it.query.node,
+                    it.constName,
+                    lowered.variablesThunk
+                  )
+                } catch (e: any) {
+                  buildErrors.push({
+                    text: `useData(): ${e?.message ?? e}`,
+                    location: {
+                      file: args.path,
+                      line: it.query.node.getStartLineNumber()
+                    }
+                  })
+                }
+              }
+
+              // Import prepended + declarations appended in source order. Doing
+              // this AFTER the rewrites keeps those slice positions original.
+              const declarations = ordered
+                .map(it => it.decl)
+                .filter(Boolean)
+                .join('\n\n')
+              outputContents =
+                DOC_IMPORT + outputContents + '\n\n' + declarations + '\n'
+            }
+
+            manager.setCache(args.path, {
+              contents: outputContents,
+              dependencies: allDeps,
+              hash: (manager as any).computeHash(contents)
+            })
+            return {
+              contents: outputContents,
+              loader: args.path.endsWith('.tsx') ? 'tsx' : 'ts',
+              watchFiles: allDeps,
+              errors: buildErrors.length ? buildErrors : undefined
+            }
+          }
 
           if (queries.length > 0) {
             // OPTIMIZATION: Sort descending so string slice replacements don't offset index paths

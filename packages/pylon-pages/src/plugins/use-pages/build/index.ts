@@ -183,7 +183,7 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
     plugins: [
       buildAppFilePlugin,
       injectAppHydrationPlugin(version),
-      useDataStaticAnalyzer({debug: true, manager: analysisManager}),
+      useDataStaticAnalyzer({debug: true, manager: analysisManager, scalarTypes: {Number: 'number', JSONObject: 'Record<string, unknown>'}}),
       imagePlugin,
       postcssPlugin,
       writeOnEndPlugin,
@@ -225,7 +225,7 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
     nodePaths,
     plugins: [
       buildAppFilePlugin,
-      useDataStaticAnalyzer({debug: true, manager: analysisManager}),
+      useDataStaticAnalyzer({debug: true, manager: analysisManager, scalarTypes: {Number: 'number', JSONObject: 'Record<string, unknown>'}}),
       imagePlugin,
       postcssPlugin,
       writeOnEndPlugin,
@@ -235,8 +235,7 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
         '@getcronit/pylon-pages',
         'react',
         'react-dom',
-        'gqty',
-        '@gqty/react'
+        '@getcronit/pylon-query'
       ])
     ],
     publicPath: '/__pylon/static',
@@ -259,8 +258,7 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
       '@getcronit/pylon-pages',
       'react',
       'react-dom',
-      'gqty',
-      '@gqty/react'
+      '@getcronit/pylon-query'
     ],
     // Don't minify the node-only SSR bundle in dev — it's pure rebuild cost with no
     // benefit. `PYLON_DEV_RELOAD_PORT` is set only by `pylon dev`, so prod builds

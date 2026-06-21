@@ -6,8 +6,8 @@ declare module '@getcronit/pylon' {
   interface Variables {}
 }
 
-import {Query} from './.pylon/client'
+import {Data as ClientData} from './.pylon/client'
 
 declare module '@getcronit/pylon-pages' {
-  interface Data extends ReturnType<typeof Query> {}
+  interface Data extends ClientData {}
 }

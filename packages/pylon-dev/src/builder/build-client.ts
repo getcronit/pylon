@@ -1,278 +1,63 @@
-import {generateClient} from '@gqty/cli'
+import {generateClientFiles} from '@getcronit/pylon-query/build'
 import esbuild from 'esbuild'
 import fs from 'fs/promises'
-import {buildSchema} from 'graphql'
 import path from 'path'
 import {updateFileIfChanged} from './update-file-if-changed'
 
 const PYLON_SCHEMA_PATH = path.join(process.cwd(), '.pylon/schema.graphql')
-const PYLON_CLIENT_PATH = path.join(process.cwd(), '.pylon/client/index.ts')
+const PYLON_CLIENT_DIR = path.join(process.cwd(), '.pylon/client')
+const PYLON_CLIENT_INDEX = path.join(PYLON_CLIENT_DIR, 'index.ts')
+const PYLON_CLIENT_TYPES = path.join(PYLON_CLIENT_DIR, 'types.ts')
 
 export interface BuildClientOptions {
   /**
-   * Client will be generated if the schema has changed or if the client does not exist
+   * Client is regenerated if the schema changed or if the client doesn't exist.
    */
   schemaChanged: boolean
 }
 
+/**
+ * Generate the typed pylon-query client from the build's SDL. Replaces the old
+ * gqty `generateClient` pipeline: no proxy client, no gqty codegen — just a
+ * descriptor-driven client plus the authoring `Data` root type.
+ */
 export const buildClient = async ({schemaChanged}: BuildClientOptions) => {
-  // Check if the schema exists
-
   try {
     await fs.access(PYLON_SCHEMA_PATH)
-  } catch (e) {
+  } catch {
     throw new Error(
       'Schema not found. Please run `pylon build` or `pylon dev` first.'
     )
   }
 
-  // Check if the client exists
   if (!schemaChanged) {
-    // If the schema has not changed, we need to check if the client exists
     try {
-      await fs.access(PYLON_CLIENT_PATH)
+      await fs.access(path.join(PYLON_CLIENT_DIR, 'index.js'))
       return
-    } catch (e) {
-      // If the client does not exist, we need to generate it
+    } catch {
+      // client missing → (re)generate
     }
   }
 
-  const schema = await fs.readFile(PYLON_SCHEMA_PATH, 'utf-8')
+  const sdl = await fs.readFile(PYLON_SCHEMA_PATH, 'utf-8')
 
-  const schemaObj = buildSchema(schema)
-
-  // Write the custom client index file because the default one is not compatible with Pylon
-  await fs.mkdir(path.dirname(PYLON_CLIENT_PATH), {recursive: true})
-  await updateFileIfChanged(PYLON_CLIENT_PATH, customClientIndex)
-
-  await generateClient(schemaObj, {
-    endpoint: 'will-be-overwritten',
-    frameworks: ['react'],
-    destination: PYLON_CLIENT_PATH,
-    react: true,
+  const {indexTs, typesTs} = generateClientFiles(sdl, {
     scalarTypes: {
       Number: 'number',
       JSONObject: 'Record<string, unknown>'
     }
   })
 
+  await fs.mkdir(PYLON_CLIENT_DIR, {recursive: true})
+  await updateFileIfChanged(PYLON_CLIENT_TYPES, typesTs)
+  await updateFileIfChanged(PYLON_CLIENT_INDEX, indexTs)
+
   await esbuild.build({
-    entryPoints: [PYLON_CLIENT_PATH],
+    entryPoints: [PYLON_CLIENT_INDEX],
     bundle: true,
-    outfile: path.join(process.cwd(), '.pylon/client/index.js'),
+    outfile: path.join(PYLON_CLIENT_DIR, 'index.js'),
     packages: 'external',
     format: 'esm',
     platform: 'node'
   })
 }
-
-const customClientIndex = `/**
- * GQty: You can safely modify this file based on your needs.
- */
-
-import {createReactClient} from '@gqty/react'
-import {
-  Cache,
-  createClient,
-  defaultResponseHandler,
-  type QueryFetcher
-} from 'gqty'
-import {
-  generatedSchema,
-  scalarsEnumsHash,
-  type GeneratedSchema
-} from './schema.generated'
-
-const queryFetcher: QueryFetcher = async function (
-  {query, variables, operationName},
-  fetchOptions
-) {
-  const headers = new Headers({});
-  let fetchToUse: typeof fetch | typeof app.request = fetch
-
-  try {
-    // 1. Try importing Pylon — if this works, we're on the server
-    const moduleNameToPreventBundling = '@getcronit/pylon'
-    const { app, getContext } = await import(moduleNameToPreventBundling)
-    // Prefer the booted app instance the entry registered (the user's
-    // \`export default new Pylon(...)\`), which is what actually has the GraphQL
-    // handler + plugins mounted. Fall back to the framework's default \`app\`
-    // singleton for back-compat.
-    const serverApp = (globalThis as any).__PYLON_APP__ ?? app
-    fetchToUse = serverApp.request
-
-    // 2. Get headers from the original server request and forward them
-    const context = getContext()
-    for (const [key, value] of context.req.raw.headers.entries()) {
-      headers.append(key, value)
-
-      // Set Accept-Encoding header to identity so the internal fetch returns JSON
-      headers.set('Accept-Encoding', 'identity')
-    }
-  } catch {
-    // 3. Pylon not available — fallback to default fetch (runs in browser)
-    // No additional headers are needed; browser sends cookies automatically
-  }
-
-  const formData = buildGraphQLMultipartForm(query, variables);
-
-  const response = await fetchToUse('/graphql', {
-    method: 'POST',
-    headers,
-    body: formData,
-    mode: 'cors',
-    ...fetchOptions
-  })
-
-  const serverVersion = response.headers.get('X-Pylon-Version')
-  if (
-    serverVersion &&
-    typeof window !== 'undefined' &&
-    (window as any).__PYLON_VERSION__ &&
-    serverVersion !== (window as any).__PYLON_VERSION__
-  ) {
-    const isMutation = query.trim().startsWith('mutation')
-    if (!isMutation) {
-      window.location.reload()
-    }
-  }
-
-  return await defaultResponseHandler(response)
-}
-
-function buildGraphQLMultipartForm(query, variables) {
-  const form = new FormData();
-  const map = {};
-  const files = [];
-  const filePaths = [];
-
-  // First pass: locate files in the ORIGINAL variables WITHOUT cloning.
-  // structuredClone throws (DataCloneError) on non-cloneable values — e.g. a gqty
-  // proxy or a function that slipped into a variable — so cloning every query up
-  // front turned an app-level bad-variable into an opaque crash. Most queries carry
-  // no files, so we only clone when we actually have to null one out.
-  function find(value, path = []) {
-    if (value instanceof File || value instanceof Blob) {
-      filePaths.push(path.slice());
-      files.push(value);
-    } else if (Array.isArray(value)) {
-      value.forEach((item, i) => find(item, [...path, i]));
-    } else if (value && typeof value === "object" && !(value instanceof Date)) {
-      Object.entries(value).forEach(([key, val]) => find(val, [...path, key]));
-    }
-  }
-  find(variables);
-
-  // Only clone when there are files to strip out; a file-less query is sent as-is.
-  const outVars = files.length ? structuredClone(variables) : variables;
-  filePaths.forEach((path, i) => {
-    map[i] = [\`variables.\${path.join(".")}\`];
-    set(outVars, path, null);
-  });
-
-  const operations = { query, variables: outVars };
-  form.append("operations", JSON.stringify(operations));
-  form.append("map", JSON.stringify(map));
-
-  files.forEach((file, i) => {
-    form.append(i, file);
-  });
-
-  return form;
-}
-
-// Utility to set a value at a path inside an object
-function set(obj, path, value) {
-  let curr = obj;
-  for (let i = 0; i < path.length - 1; i++) {
-    curr = curr[path[i]];
-  }
-  curr[path[path.length - 1]] = value;
-}
-
-export const cache = new Cache(
-  undefined,
-  /**
-   * Browser cache: stale-while-revalidate with a short freshness window.
-   *
-   * \`maxAge: 0\` (treat every entry as stale immediately) caused a perpetual
-   * refetch loop: useQuery re-renders on each cache write and \`refetchOnRender\`
-   * revalidates stale selections, so cross-notifying page queries (tasks/tickets/
-   * me/notifications sharing normalized nodes) kept re-staling each other —
-   * ~13 req/s forever. \`maxAge: Infinity\` stops the loop but shows stale data on
-   * navigation until something else writes the cache.
-   *
-   * A short window is the middle ground: a fetched entry is fresh for a few
-   * seconds (longer than any round-trip, so a notify-triggered re-read hits and
-   * does NOT re-revalidate → loop broken), then becomes stale so navigating back
-   * later revalidates. Tune to taste; must stay comfortably above the GraphQL
-   * round-trip.
-   */
-  {
-    maxAge: Infinity,
-    staleWhileRevalidate: 5 * 60 * 1000,
-    normalization: true
-  }
-)
-
-export const client = createClient<GeneratedSchema>({
-  schema: generatedSchema,
-  scalars: scalarsEnumsHash,
-  cache,
-  fetchOptions: {
-    fetcher: queryFetcher
-  }
-})
-
-export const createPylonPagesClient = () => {
-  const client = createClient<GeneratedSchema>({
-    schema: generatedSchema,
-    scalars: scalarsEnumsHash,
-    cache: new Cache(
-      undefined,
-      {
-        maxAge: Infinity,
-        staleWhileRevalidate: 5 * 60 * 1000,
-        normalization: true
-      }
-    ),
-    fetchOptions: {
-      fetcher: queryFetcher
-    }
-})
-
-  return createReactClient(client, {
-      defaults: {
-        suspense: true
-      }
-    })
-  }
-
-
-// Core functions
-export const {resolve, subscribe, schema} = client
-
-// Legacy functions
-export const {query, mutation, mutate, subscription, resolved, refetch, track} =
-  client
-
-export const {
-  graphql,
-  useQuery,
-  usePaginatedQuery,
-  useTransactionQuery,
-  useLazyQuery,
-  useRefetch,
-  useMutation,
-  useMetaState,
-  prepareReactRender,
-  useHydrateCache,
-  prepareQuery
-} = createReactClient<GeneratedSchema>(client, {
-  defaults: {
-    // Enable Suspense, you can override this option for each hook.
-    suspense: false
-  }
-})
-
-export * from './schema.generated'`

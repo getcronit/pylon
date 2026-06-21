@@ -1,105 +1,109 @@
-import type {UseQueryOptions} from '@gqty/react'
+import {
+  useQueryDoc,
+  usePaginatedDoc,
+  type PaginatedResult,
+  type TypedDoc,
+  type UsePaginatedDocOptions
+} from '@getcronit/pylon-query'
 import mitt from 'mitt'
 import {useEffect} from 'react'
 import type {Data} from './index'
-import {useDataClient} from './internals'
 
-// 1. Define your events and initialize the mitt emitter
-type Events = {
-  refetch: string[]
-}
-
+// Cross-component refetch bus (unchanged behavior from the gqty version).
+type Events = {refetch: string[]}
 const emitter = mitt<Events>()
 
-interface UseDataOptions extends Omit<
-  UseQueryOptions<any>,
-  'prepare' | 'suspense'
-> {
+export interface UseDataOptions {
+  /** Refetch this query when `dataRefetch(tags)` is called with a matching tag. */
   tags?: string[]
   /**
-   * By default, this page will use pylon's build time query analysis to fetch the data.
-   * This improves the runtime performance and allows you to use conditional logic,
-   * such as if-conditions, in your data fetching logic.
-   * Set this to false to disable this feature.
+   * Disable the build-time analyzer document for this call. Escape hatch /
+   * debugging only — with no document, `useData()` returns the root `Data` type
+   * but won't fetch.
    */
   disableBuildTimeGeneration?: boolean
 }
 
-export const useData = (options?: UseDataOptions) => {
-  const dataClient = useDataClient()
-  const useQuery = dataClient.client.useQuery
-
-  // `prepare` is the build-injected selection pre-pass — a pure OPTIMIZATION: gqty
-  // re-registers the very same selections when the component reads `data.x` during
-  // render. So if it throws a ReferenceError — a selection referenced a variable
-  // declared AFTER this useData() call (its temporal dead zone, since the build
-  // injects `prepare` at the call site but it can read later-declared locals) — skip
-  // it instead of crashing the whole page; the data still resolves lazily. Surface a
-  // clear, actionable hint in dev. Any other error is a real bug → rethrow.
-  const buildTimePrepare = options?.disableBuildTimeGeneration
-    ? undefined
-    : (options as {prepare?: (ctx: unknown) => void} | undefined)?.prepare
-  const prepare =
-    typeof buildTimePrepare === 'function'
-      ? (ctx: unknown) => {
-          try {
-            return buildTimePrepare(ctx)
-          } catch (e) {
-            if (e instanceof ReferenceError) {
-              if (process.env.NODE_ENV !== 'production') {
-                console.warn(
-                  `[pylon-pages] useData(): build-time prepare skipped — ${e.message}. ` +
-                    `A variable used in a data selection is declared after this useData() ` +
-                    `call (temporal dead zone). Move useData() below those variables to ` +
-                    `restore SSR pre-fetch; data still loads lazily for now.`
-                )
-              }
-              return
-            }
-            throw e
-          }
-        }
-      : undefined
-
-  // Assuming your gqty Data proxy exposes $refetch
-  const data = useQuery({
-    ...options,
-    prepare,
-    operationName: undefined,
-    suspense: true
-  }) as Data & {$refetch: () => void}
-
-  // 2. Set up the listener inside a useEffect
-  useEffect(() => {
-    const handleRefetch = (refetchTags: string[]) => {
-      // If the hook has no tags, we can ignore the refetch request
-      if (!options?.tags || options.tags.length === 0) return
-
-      // Check if there is an intersection between the emitted tags and this hook's tags
-      const shouldRefetch = options.tags.some(tag => refetchTags.includes(tag))
-
-      if (shouldRefetch && typeof data.$refetch === 'function') {
-        data.$refetch()
-      }
-    }
-
-    // Subscribe to the event
-    emitter.on('refetch', handleRefetch)
-
-    // Cleanup the subscription on unmount
-    return () => {
-      emitter.off('refetch', handleRefetch)
-    }
-    // We stringify the tags array so the effect doesn't re-run infinitely
-    // if options.tags is passed as an inline array like `tags={['user']}`
-  }, [options?.tags?.join(','), data])
-
+/**
+ * Page data hook. The build-time analyzer rewrites `useData()` into
+ * `useData(doc, variablesThunk, options)`:
+ *
+ *  - `doc` is the compiled GraphQL operation (module scope — never a TDZ risk).
+ *  - `variablesThunk` is evaluated lazily at first field access, in JSX, below
+ *    the component's `const`s — so field-argument variables are never read in
+ *    their temporal dead zone.
+ *
+ * Pre-analysis (hand-written `useData()`), it returns the root `Data` type for
+ * authoring autocomplete.
+ */
+export function useData(): Data
+export function useData<TResult>(
+  doc: TypedDoc<TResult, any>,
+  variables?: () => Record<string, unknown>,
+  options?: UseDataOptions
+): TResult & {$refetch: () => void}
+export function useData(
+  doc?: TypedDoc<any, any>,
+  variables?: () => Record<string, unknown>,
+  options?: UseDataOptions
+): any {
+  const data = useQueryDoc(doc, variables, options)
+  useTagRefetch(options?.tags, () => (data as any)?.$refetch?.())
   return data
 }
 
-// 3. Emit the event from the standalone function
-export const dataRefetch = (tags: string[]) => {
-  if (tags && tags.length > 0) {
-    emitter.emit('refetch', tags)
+export interface UsePaginatedDataOptions
+  extends UsePaginatedDocOptions {
+  tags?: string[]
+}
+
+/**
+ * Relay-connection pagination hook. The analyzer rewrites
+ * `usePaginatedData()` into `usePaginatedData(doc, variablesThunk, options)`
+ * where `doc` carries connection metadata. The result is keyed by the
+ * connection field so component code reads it the same way it selected it:
+ *
+ *   const data = usePaginatedData()
+ *   data.posts.edges.map(e => e.node.title)
+ *   data.posts.loadNext()
+ */
+export function usePaginatedData(): Data
+export function usePaginatedData<TResult>(
+  doc: TypedDoc<TResult, any>,
+  variables?: () => Record<string, unknown>,
+  options?: UsePaginatedDataOptions
+): Record<string, PaginatedResult>
+export function usePaginatedData(
+  doc?: TypedDoc<any, any>,
+  variables?: () => Record<string, unknown>,
+  options?: UsePaginatedDataOptions
+): any {
+  if (!doc || !doc.connection) {
+    throw new Error(
+      'usePaginatedData(): no connection document was injected. The build-time ' +
+        'analyzer must see a Relay connection selection (edges/node/pageInfo).'
+    )
   }
+  const result = usePaginatedDoc(doc, variables, options)
+  const field = doc.connection.path[0]
+  return {[field]: result}
+}
+
+function useTagRefetch(tags: string[] | undefined, refetch: () => void): void {
+  // Stringify so an inline `tags={['user']}` array doesn't re-run the effect.
+  const key = tags?.join(',')
+  useEffect(() => {
+    if (!tags || tags.length === 0) return
+    const handle = (refetchTags: string[]) => {
+      if (tags.some(t => refetchTags.includes(t))) refetch()
+    }
+    emitter.on('refetch', handle)
+    return () => emitter.off('refetch', handle)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key])
+}
+
+/** Trigger a refetch of every mounted query carrying one of these tags. */
+export const dataRefetch = (tags: string[]) => {
+  if (tags && tags.length > 0) emitter.emit('refetch', tags)
 }

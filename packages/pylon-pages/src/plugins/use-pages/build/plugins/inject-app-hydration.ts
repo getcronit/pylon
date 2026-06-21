@@ -57,12 +57,13 @@ ${
               );
             }
 
-            const payload = (window as any).__pylonStaticData
-            if (payload?.cache) {
+            // Operation-keyed hydration: seed the pylon-query store from the
+            // flat { opKey: result } map the server embedded as window.__pylon.
+            const payload = (window as any).__pylon
+            if (payload) {
               const coreClient = (client as any).client || client
-              if (coreClient && coreClient.cache) {
-                console.log('Hydrating cache with payload', payload.cache, coreClient)
-                coreClient.hydrateCache({cacheSnapshot: payload.cache, shouldRefetch: false})
+              if (coreClient && typeof coreClient.hydrate === 'function') {
+                coreClient.hydrate(payload)
               }
             }
 

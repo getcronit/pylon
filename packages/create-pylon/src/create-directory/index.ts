@@ -141,10 +141,10 @@ declare module '@getcronit/pylon' {
 `
 
   if (features.includes('pages')) {
-    data += `import {Query} from './.pylon/client'
+    data += `import {Data as ClientData} from './.pylon/client'
 
 declare module '@getcronit/pylon-pages' {
-  interface Data extends ReturnType<typeof Query> {}
+  interface Data extends ClientData {}
 }`
   }
 
@@ -527,8 +527,7 @@ export {Button, buttonVariants}
 
     packageJson.dependencies = {
       ...packageJson.dependencies,
-      '@gqty/react': '^3.1.0',
-      gqty: '^3.4.0',
+      '@getcronit/pylon-query': 'latest',
       '@radix-ui/react-slot': '^1.1.2',
       'class-variance-authority': '^0.7.1',
       clsx: '^2.1.1',

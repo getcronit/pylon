@@ -1,4 +1,5 @@
-import {createContext, useContext, useEffect, useMemo} from 'react'
+import {PylonQueryProvider} from '@getcronit/pylon-query'
+import {createContext, useContext, useMemo} from 'react'
 import {PageProps} from '.'
 
 /**
@@ -20,58 +21,53 @@ const dataClientContext = createContext<{
   pagesContext?: any
 } | null>(null)
 
+/**
+ * Provides the pylon-query client to `useData`/`usePaginatedData` (via
+ * `PylonQueryProvider`) and, on the server, embeds the operation-keyed
+ * hydration payload as `window.__pylon`.
+ *
+ * `client` may be the generated client module (`import * as client`) or a bare
+ * `PylonQueryClient`; we unwrap `.client` either way. `staticData.cache` is the
+ * flat `{ opKey: result }` map collected after the SSR prepass.
+ */
 const DataClientProvider: React.FC<{
   client: any
   staticData?: {
-    cache?: any
+    cache?: Record<string, unknown>
     context?: any
   }
   children: React.ReactNode
 }> = ({children, client, staticData}) => {
   const isServer = typeof window === 'undefined'
+  const coreClient = client?.client ?? client
 
-  useEffect(() => {
-    console.log('DataClientProvider mounted')
-    return () => {
-      console.log('DataClientProvider unmounted')
-    }
-  }, [])
+  // Server: the prepass already populated this client's store, so we just embed
+  // the collected snapshot for the browser. Client: hydration runs globally in
+  // inject-app-hydration.ts before hydrateRoot.
+  const cache = isServer ? staticData?.cache : undefined
+  const pagesContext = isServer
+    ? staticData?.context
+    : (typeof window !== 'undefined' && (window as any).__pylonContext) ||
+      undefined
 
-  // Hydrate the cache and context on the client.
-  const payload = useMemo(() => {
-    if (typeof window !== 'undefined') {
-      return (window as any).__pylonStaticData
-    }
-    return staticData
-  }, [staticData])
-
-  // On the server, we hydrate the cache if a snapshot is provided (e.g. from a prerender pass)
-  // On the client, hydration is handled globally in inject-app-hydration.ts
-  const coreClient = client.client || client
-  if (isServer && payload?.cache && coreClient && coreClient.cache) {
-    coreClient.cache.restore(payload.cache)
-  }
-
-  const pagesContext = payload?.context
-
-  const contextValue = useMemo(() => {
-    return {
-      client,
-      pagesContext
-    }
-  }, [client, pagesContext])
+  const contextValue = useMemo(
+    () => ({client: coreClient, pagesContext}),
+    [coreClient, pagesContext]
+  )
 
   return (
-    <dataClientContext.Provider value={contextValue}>
-      {isServer && payload && (
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `window.__pylonStaticData = ${serializeForScript(payload)}`
-          }}
-        />
-      )}
-      {children}
-    </dataClientContext.Provider>
+    <PylonQueryProvider value={coreClient}>
+      <dataClientContext.Provider value={contextValue}>
+        {isServer && cache && (
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `window.__pylon = ${serializeForScript(cache)}`
+            }}
+          />
+        )}
+        {children}
+      </dataClientContext.Provider>
+    </PylonQueryProvider>
   )
 }
 
