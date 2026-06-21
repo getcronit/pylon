@@ -123,4 +123,38 @@ describe('usePaginatedData serve', () => {
     expect(conn.pageInfo.hasNextPage).toBe(false)
     expect(conn.pageInfo.endCursor).toBe('25')
   })
+
+  it('SSR-renders a NESTED connection — post(id).comments first window', async () => {
+    const thread = await (await fetch(`${base}/thread`)).text()
+    expect(thread).toContain('Comment 1<')
+    expect(thread).toContain('Comment 3<')
+    expect(thread).not.toContain('Comment 4<') // page size 3
+    expect(thread).toMatch(/id="count">(<!-- -->)*3</)
+    expect(thread).toMatch(/id="total">(<!-- -->)*12</)
+    expect(thread).toMatch(/id="hasNext">(<!-- -->)*true</)
+  })
+
+  it('the nested connection pages by-id server-side (post(id).comments after)', async () => {
+    const r = await gql(
+      `query($id: String!, $first: Number!, $after: String) {
+        post(id: $id) {
+          comments(first: $first, after: $after) {
+            totalCount
+            pageInfo { hasNextPage endCursor }
+            edges { node { id body } }
+          }
+        }
+      }`,
+      {id: '1', first: 3, after: 'c3'}
+    )
+    expect(r.errors).toBeUndefined()
+    const conn = r.data.post.comments
+    expect(conn.totalCount).toBe(12)
+    expect(conn.edges.map((e: any) => e.node.body)).toEqual([
+      'Comment 4',
+      'Comment 5',
+      'Comment 6'
+    ])
+    expect(conn.pageInfo.endCursor).toBe('c6')
+  })
 })
