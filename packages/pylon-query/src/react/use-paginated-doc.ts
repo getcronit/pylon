@@ -38,6 +38,10 @@ function getAtPath(obj: any, path: string[]): any {
   for (const k of path) {
     if (cur == null) return undefined
     cur = cur[k]
+    // The connection field takes args (first/after), so the result wrapper
+    // exposes it as a callable; invoke to get the connection value. (Raw data
+    // is a plain object here, so this is a no-op on the un-wrapped path.)
+    if (typeof cur === 'function') cur = cur()
   }
   return cur
 }

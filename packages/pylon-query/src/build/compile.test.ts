@@ -104,6 +104,24 @@ describe('compileOperation', () => {
     expect(op.body).toContain('totalCount')
   })
 
+  it('compiles a connection from the `nodes` accessor, ignoring hook controls', () => {
+    const op = compile(
+      {
+        posts: {
+          nodes: {title: true},
+          loadNext: true,
+          isLoadingMore: true,
+          pageInfo: {hasNextPage: true}
+        } as any
+      },
+      {connection: {path: ['posts']}}
+    )
+    expect(op.body).toContain('node { title __typename id }')
+    // hook controls are not GraphQL fields → never selected
+    expect(op.body).not.toContain('loadNext')
+    expect(op.body).not.toContain('isLoadingMore')
+  })
+
   it('merges conditional branches into one selection', () => {
     const op = compile({me: [{name: true}, {age: true}] as any})
     expect(op.body).toBe('query Test { me { name age __typename id } }')

@@ -466,13 +466,11 @@ function compileConnectionField(
   }
   ctx.connectionMeta = meta
 
-  // Merge a default connection skeleton with the analyzer's node selection.
-  const nodeSel: SelectorNode =
-    typeof node === 'object' && node.edges && typeof node.edges === 'object'
-      ? (node as SelectorNode)
-      : ({
-          edges: {node: typeof node === 'object' ? node : {}}
-        } as SelectorNode)
+  // Node selection comes from `conn.nodes[].x` and/or `conn.edges[].node.x`.
+  // Everything else read on the connection — pageInfo/totalCount (always
+  // selected below) and the hook controls (loadNext/loadPrev/jumpTo/
+  // isLoadingMore) — is ignored, not treated as node fields.
+  const nodeSelection = extractNodeSelection(node)
 
   const skeleton: SelectorNode = {
     totalCount: hasField(named, 'totalCount') ? true : undefined,
@@ -482,12 +480,7 @@ function compileConnectionField(
       startCursor: true,
       endCursor: true
     },
-    edges: mergeSelector(
-      {cursor: true, node: getNodeSelection(nodeSel)},
-      typeof nodeSel.edges === 'object'
-        ? (nodeSel.edges as SelectorNode)
-        : {}
-    )
+    edges: {cursor: true, node: nodeSelection}
   }
   if (!skeleton.totalCount) delete skeleton.totalCount
 
@@ -498,13 +491,22 @@ function compileConnectionField(
   return {sdl: `${argSdl} ${sub.sdl}`, ts: sub.ts}
 }
 
-function getNodeSelection(connSel: SelectorNode): SelectorNode {
-  const edges = connSel.edges
-  if (edges && typeof edges === 'object' && (edges as SelectorNode).node) {
-    const node = (edges as SelectorNode).node
-    if (typeof node === 'object') return node as SelectorNode
+/** Node sub-selection, from both `conn.nodes[].x` and `conn.edges[].node.x`. */
+function extractNodeSelection(node: SelectorNode | boolean): SelectorNode {
+  if (typeof node !== 'object') return {}
+  let nodeSel: SelectorNode = {}
+  const nodes = node.nodes
+  if (nodes && typeof nodes === 'object' && !Array.isArray(nodes)) {
+    nodeSel = mergeSelector(nodeSel, nodes as SelectorNode)
   }
-  return {}
+  const edges = node.edges
+  if (edges && typeof edges === 'object' && !Array.isArray(edges)) {
+    const inner = (edges as SelectorNode).node
+    if (inner && typeof inner === 'object' && !Array.isArray(inner)) {
+      nodeSel = mergeSelector(nodeSel, inner as SelectorNode)
+    }
+  }
+  return nodeSel
 }
 
 function hasField(type: GraphQLObjectType, name: string): boolean {
