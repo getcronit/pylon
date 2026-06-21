@@ -10,6 +10,7 @@ const schema = buildSchema(/* GraphQL */ `
   type Query {
     user(id: ID!): User
     me: User
+    feed(first: Int, after: String, category: String): FeedConnection!
   }
   type Mutation {
     createUser(name: String!): User!
@@ -23,6 +24,21 @@ const schema = buildSchema(/* GraphQL */ `
   type Post {
     id: ID!
     title: String
+  }
+  type FeedConnection {
+    edges: [FeedEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int
+  }
+  type FeedEdge {
+    cursor: String!
+    node: Post!
+  }
+  type PageInfo {
+    hasNextPage: Boolean!
+    hasPreviousPage: Boolean!
+    startCursor: String
+    endCursor: String
   }
 `)
 
@@ -122,6 +138,21 @@ describe('analyzer document injection (schema present)', () => {
     expect(out).toContain('createUser(name: $name)')
     expect(out).toContain('id name email')
     expect(out).toMatch(/useMutation\(__pylonDoc_\w+_0\)/)
+  })
+
+  it('injects a connection document from a usePaginatedData chain selector', async () => {
+    const out = await transform(`
+      import { usePaginatedData } from "@getcronit/pylon-pages";
+      export function Page() {
+        const feed = usePaginatedData(q => q.feed, { category: 'tech' });
+        return <ul>{feed.nodes.map(n => <li key={n.id}>{n.title}</li>)}</ul>;
+      }
+    `)
+    // pagination args hook-managed; base arg `category` declared by name
+    expect(out).toContain('feed(first: $p_first, after: $p_after, category: $category)')
+    expect(out).toMatch(/node \{[^}]*title[^}]*__typename[^}]*\}/)
+    // selector replaced by the document; user args preserved as 3rd arg
+    expect(out).toMatch(/usePaginatedData\(__pylonDoc_\w+_0,\s*(undefined|void 0),\s*\{ category: ["']tech["'] \}\)/)
   })
 
   it('fails loud on an unknown field', async () => {

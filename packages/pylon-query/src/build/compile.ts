@@ -123,16 +123,12 @@ export function compileOperation(
     runtimeVarDecls: [],
     runtimeArgsField: options.runtimeArgsField,
     connectionOpt: options.connection,
+    connectionPath: options.connection?.path,
     connectionMeta: undefined
   }
 
-  const forceConn =
-    options.connection && options.connection.path.length === 1
-      ? options.connection.path[0]
-      : undefined
-
   // Root operation type is not an entity → no __typename/id injection.
-  const {sdl, ts} = compileObject(ctx, rootType, selectors, forceConn, false)
+  const {sdl, ts} = compileObject(ctx, rootType, selectors, [], false)
 
   const allDecls = [
     ...ctx.variables.map(v => `$${v.name}: ${v.gqlType}`),
@@ -164,7 +160,13 @@ interface Ctx {
   /** Field whose args become runtime variables (the mutation field). */
   runtimeArgsField?: string
   connectionOpt?: {path: string[]}
+  /** Path (any depth) to the connection field, e.g. ["post","comments"]. */
+  connectionPath?: string[]
   connectionMeta?: ConnectionMeta
+}
+
+function pathsEqual(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i])
 }
 
 function allocVar(ctx: Ctx, gqlType: string, expr: string): string {
@@ -184,7 +186,7 @@ function compileObject(
   ctx: Ctx,
   type: GraphQLObjectType,
   node: SelectorNode,
-  forceConnectionField?: string,
+  currentPath: string[],
   injectMeta = true
 ): {sdl: string; ts: string} {
   const fields = type.getFields()
@@ -212,8 +214,10 @@ function compileObject(
 
     const value = node[key]
     const merged = mergeBranches(value)
+    const fieldPath = [...currentPath, key]
 
-    if (forceConnectionField && key === forceConnectionField) {
+    // Terminal connection field (top-level or nested at any depth).
+    if (ctx.connectionPath && pathsEqual(fieldPath, ctx.connectionPath)) {
       const {sdl, ts} = compileConnectionField(ctx, field, merged)
       selections.push(`${key}${sdl}`)
       tsMembers.push(`${key}: ${ts}`)
@@ -227,7 +231,7 @@ function compileObject(
       continue
     }
 
-    const {sdl, ts} = compileField(ctx, field, merged)
+    const {sdl, ts} = compileField(ctx, field, merged, fieldPath)
     selections.push(`${key}${sdl}`)
     tsMembers.push(`${key}: ${ts}`)
   }
@@ -255,7 +259,8 @@ function compileObject(
 function compileField(
   ctx: Ctx,
   field: GraphQLField<any, any>,
-  node: SelectorNode | boolean
+  node: SelectorNode | boolean,
+  currentPath: string[]
 ): {sdl: string; ts: string} {
   const argsSdl =
     typeof node === 'object' ? compileArgs(ctx, field, node.__args) : ''
@@ -274,14 +279,14 @@ function compileField(
       innerSdl = ' { __typename }'
       innerTs = '{ __typename?: string }'
     } else {
-      const sub = compileObject(ctx, named, node)
+      const sub = compileObject(ctx, named, node, currentPath)
       innerSdl = ` ${sub.sdl}`
       innerTs = sub.ts
     }
   } else if (isInterfaceType(named) || isUnionType(named)) {
     const sub =
       typeof node === 'object'
-        ? compileInterfaceUnionField(ctx, named, node)
+        ? compileInterfaceUnionField(ctx, named, node, currentPath)
         : {sdl: '{ __typename }', ts: '{ __typename?: string }'}
     innerSdl = ` ${sub.sdl}`
     innerTs = sub.ts
@@ -336,7 +341,8 @@ function compileArgs(
 function compileInterfaceUnionField(
   ctx: Ctx,
   abstractType: GraphQLInterfaceType | GraphQLUnionType,
-  node: SelectorNode
+  node: SelectorNode,
+  currentPath: string[]
 ): {sdl: string; ts: string} {
   const ifaceFields = isInterfaceType(abstractType)
     ? abstractType.getFields()
@@ -365,7 +371,7 @@ function compileInterfaceUnionField(
   for (const key of accessed) {
     const f = ifaceFields[key]
     if (!f) continue
-    const {sdl, ts} = compileField(ctx, f, mergeBranches(node[key]))
+    const {sdl, ts} = compileField(ctx, f, mergeBranches(node[key]), [...currentPath, key])
     selections.push(`${key}${sdl}`)
     addMember(key, ts, false)
     handled.add(key)
@@ -386,7 +392,7 @@ function compileInterfaceUnionField(
       if (handled.has(key)) continue
       const f = tFields[key]
       if (!f) continue
-      const {sdl, ts} = compileField(ctx, f, mergeBranches(node[key]))
+      const {sdl, ts} = compileField(ctx, f, mergeBranches(node[key]), [...currentPath, key])
       fragSelections.push(`${key}${sdl}`)
       addMember(key, ts, true) // concrete field → optional
     }
@@ -437,7 +443,9 @@ function compileRuntimeArgsField(
     // Scalar-returning mutation: nothing to select.
     return {sdl: argSdl, ts: applyWrappers(field.type, ctx.scalars[named.name] ?? 'any')}
   }
-  const sub = compileObject(ctx, named, typeof node === 'object' ? node : {})
+  const sub = compileObject(ctx, named, typeof node === 'object' ? node : {}, [
+    field.name
+  ])
   return {sdl: `${argSdl} ${sub.sdl}`, ts: applyWrappers(field.type, sub.ts)}
 }
 
@@ -452,17 +460,18 @@ function compileConnectionField(
     throw new Error(`Connection field "${field.name}" is not an object type.`)
   }
 
-  const meta: ConnectionMeta = {path: [field.name]}
+  const meta: ConnectionMeta = {path: ctx.connectionPath ?? [field.name]}
   const argParts: string[] = []
-  for (const argName of PAGINATION_ARGS) {
-    const argDef = field.args.find(a => a.name === argName)
-    if (!argDef) continue
-    const varName = `p_${argName}`
-    // Connection vars are declared on the operation but carry no call-site
-    // expr — the hook supplies them at runtime by these names.
-    ctx.connVarDecls.push(`$${varName}: ${argDef.type.toString()}`)
-    argParts.push(`${argName}: $${varName}`)
-    meta[argName] = varName
+  // ALL connection args become runtime variables. Pagination ones (first/after/
+  // last/before) are hook-managed (recorded in meta, prefixed `p_`); the rest
+  // (e.g. `category`) are base args the hook supplies from the call's 2nd arg —
+  // declared by their own name so they bind by key.
+  for (const arg of field.args) {
+    const isPagination = (PAGINATION_ARGS as readonly string[]).includes(arg.name)
+    const varName = isPagination ? `p_${arg.name}` : arg.name
+    ctx.connVarDecls.push(`$${varName}: ${arg.type.toString()}`)
+    argParts.push(`${arg.name}: $${varName}`)
+    if (isPagination) meta[arg.name as (typeof PAGINATION_ARGS)[number]] = varName
   }
   ctx.connectionMeta = meta
 
@@ -484,7 +493,9 @@ function compileConnectionField(
   }
   if (!skeleton.totalCount) delete skeleton.totalCount
 
-  const sub = compileObject(ctx, named, skeleton)
+  // Inner currentPath = the connection's own path, so edges/pageInfo never
+  // re-match the connection path.
+  const sub = compileObject(ctx, named, skeleton, ctx.connectionPath ?? [])
 
   // Splice the connection vars into the operation's variable declarations.
   const argSdl = argParts.length ? `(${argParts.join(', ')})` : ''

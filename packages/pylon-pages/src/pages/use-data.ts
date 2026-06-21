@@ -2,12 +2,23 @@ import {
   useQueryDoc,
   usePaginatedDoc,
   type PaginatedResult,
-  type TypedDoc,
-  type UsePaginatedDocOptions
+  type TypedDoc
 } from '@getcronit/pylon-query'
 import mitt from 'mitt'
 import {useEffect} from 'react'
 import type {Data} from './index'
+
+// Connection arg → node type inference for the selector form.
+type NodeOf<C> = C extends {edges: (infer E)[]}
+  ? E extends {node: infer N}
+    ? N
+    : any
+  : C extends {nodes: (infer N)[]}
+    ? N
+    : any
+type ConnArgs<F> = F extends (args: infer A) => any
+  ? Omit<A, 'first' | 'after' | 'last' | 'before'> & {first?: number}
+  : {first?: number}
 
 // Cross-component refetch bus (unchanged behavior from the gqty version).
 type Events = {refetch: string[]}
@@ -52,10 +63,7 @@ export function useData(
   return data
 }
 
-export interface UsePaginatedDataOptions
-  extends UsePaginatedDocOptions {
-  tags?: string[]
-}
+const PAGINATION_KEYS = ['first', 'after', 'last', 'before']
 
 /**
  * Relay-connection pagination hook. The analyzer rewrites
@@ -67,26 +75,48 @@ export interface UsePaginatedDataOptions
  *   data.posts.edges.map(e => e.node.title)
  *   data.posts.loadNext()
  */
-export function usePaginatedData(): Data
+// Authoring: `usePaginatedData(q => q.posts, { category })` or nested
+// `usePaginatedData(q => q.post({ id }).comments, { role })`.
+export function usePaginatedData<F extends (args: any) => any>(
+  selector: (q: Data) => F,
+  args?: ConnArgs<F>
+): PaginatedResult<NodeOf<ReturnType<F>>>
+// Injected by the analyzer: (doc, base-vars thunk from the selector, user args).
 export function usePaginatedData<TResult>(
   doc: TypedDoc<TResult, any>,
-  variables?: () => Record<string, unknown>,
-  options?: UsePaginatedDataOptions
-): Record<string, PaginatedResult>
+  baseVarsThunk?: () => Record<string, unknown>,
+  userArgs?: Record<string, unknown>
+): PaginatedResult
 export function usePaginatedData(
-  doc?: TypedDoc<any, any>,
-  variables?: () => Record<string, unknown>,
-  options?: UsePaginatedDataOptions
+  docOrSelector: any,
+  baseVarsThunk?: any,
+  userArgs?: any
 ): any {
+  const doc =
+    typeof docOrSelector === 'object'
+      ? (docOrSelector as TypedDoc<any, any>)
+      : undefined
   if (!doc || !doc.connection) {
     throw new Error(
-      'usePaginatedData(): no connection document was injected. The build-time ' +
-        'analyzer must see a Relay connection selection (edges/node/pageInfo).'
+      'usePaginatedData(): no connection document was injected. Pass a connection ' +
+        'selector, e.g. `q => q.posts` or `q => q.post({ id }).comments`.'
     )
   }
-  const result = usePaginatedDoc(doc, variables, options)
-  const field = doc.connection.path[0]
-  return {[field]: result}
+
+  // Split the user args: base GraphQL args (e.g. `role`) join the connection
+  // variables; `first` is the page size; pagination keys are hook-managed.
+  const ua = userArgs ?? {}
+  const baseArgs: Record<string, unknown> = {}
+  for (const k of Object.keys(ua)) {
+    if (k !== 'first' && k !== 'tags' && !PAGINATION_KEYS.includes(k)) {
+      baseArgs[k] = ua[k]
+    }
+  }
+  const mergedThunk = () => ({...(baseVarsThunk ? baseVarsThunk() : {}), ...baseArgs})
+
+  return usePaginatedDoc(doc, mergedThunk, {
+    first: typeof ua.first === 'number' ? ua.first : undefined
+  })
 }
 
 function useTagRefetch(tags: string[] | undefined, refetch: () => void): void {

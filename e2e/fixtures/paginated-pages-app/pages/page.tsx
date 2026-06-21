@@ -1,18 +1,18 @@
 import {usePaginatedData} from '@getcronit/pylon-pages'
 
 export default function Page() {
-  const data = usePaginatedData()
+  const posts = usePaginatedData(q => q.posts)
   return (
     <div>
       <ul id="list">
-        {data.posts.nodes.map(n => (
+        {posts.nodes.map(n => (
           <li key={n.id}>{n.title}</li>
         ))}
       </ul>
-      <span id="count">{data.posts.nodes.length}</span>
-      <span id="total">{data.posts.totalCount}</span>
-      <span id="hasNext">{String(data.posts.pageInfo.hasNextPage)}</span>
-      <button id="more" onClick={() => data.posts.loadNext()}>
+      <span id="count">{posts.nodes.length}</span>
+      <span id="total">{posts.totalCount}</span>
+      <span id="hasNext">{String(posts.pageInfo.hasNextPage)}</span>
+      <button id="more" onClick={() => posts.loadNext()}>
         more
       </button>
     </div>

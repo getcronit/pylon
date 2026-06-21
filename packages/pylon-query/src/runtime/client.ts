@@ -74,10 +74,20 @@ export class PylonQueryClient {
         }
         // Normalize: hoist entities into the canonical table, store the ref tree
         // as the operation's data. Cross-query consistency falls out of this.
-        const {root, entities} = normalize(res.data)
-        this.store.mergeEntities(entities)
+        //
+        // EXCEPT connection documents: a connection lives on its parent (which
+        // may be an entity, e.g. post.comments), and each pagination window would
+        // overwrite that single entity field. So connection results are stored
+        // inline per window (opKey), un-normalized — paginated nodes don't share
+        // the entity table, which is an accepted v1 tradeoff.
+        let data: unknown = res.data
+        if (!d.connection) {
+          const {root, entities} = normalize(res.data)
+          this.store.mergeEntities(entities)
+          data = root
+        }
         this.store.patch(key, {
-          data: root,
+          data,
           error: undefined,
           promise: undefined,
           writtenAt: Date.now(),

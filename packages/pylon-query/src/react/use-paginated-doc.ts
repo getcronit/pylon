@@ -47,6 +47,16 @@ function getAtPath(obj: any, path: string[]): any {
 }
 
 /**
+ * Read the connection at `path` from an operation's stored root, going through
+ * the WRAPPED view so normalized refs are dereferenced (an intermediate field
+ * with an `id` — e.g. `post` in `post.comments` — is a ref in the raw root).
+ */
+function readConnection(client: any, data: any, path: string[]): any {
+  if (data == null) return undefined
+  return getAtPath(client.wrapData(() => data), path)
+}
+
+/**
  * Relay-connection pagination over a single analyzer-emitted connection
  * document. Each window is a separate operation (same document, different
  * cursor variables); the store caches each, and this hook merges their edges.
@@ -104,7 +114,8 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
       const windows = [{vars: firstWindowVars(base)}, ...extraWindows]
       const last = windows[windows.length - 1]
       const lastData = client.store.get(opKey(doc, last.vars))?.data
-      const endCursor = getAtPath(lastData, conn.path)?.pageInfo?.endCursor
+      const endCursor = readConnection(client, lastData, conn.path)?.pageInfo
+        ?.endCursor
       if (!endCursor) return
       const vars = {
         ...base,
@@ -127,7 +138,8 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
       const base = baseRef.current
       const windows = [{vars: firstWindowVars(base)}, ...extraWindows]
       const firstData = client.store.get(opKey(doc, windows[0].vars))?.data
-      const startCursor = getAtPath(firstData, conn.path)?.pageInfo?.startCursor
+      const startCursor = readConnection(client, firstData, conn.path)?.pageInfo
+        ?.startCursor
       if (!startCursor) return
       const vars = {
         ...base,
@@ -174,26 +186,27 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
   if (firstRead.error !== undefined) throw firstRead.error
   if (firstRead.promise) throw firstRead.promise
 
-  // Merge edges across all windows that already have data.
+  // Merge edges across all windows that already have data. All reads go through
+  // the deref-aware wrapped connection (so normalized intermediates resolve).
   const mergedEdges: any[] = []
   const seenCursors = new Set<string>()
-  let firstConnRaw: any
-  let lastConnRaw: any
+  let firstConn: any
+  let lastConn: any
   let totalCount: number | undefined
 
   windows.forEach((w, idx) => {
     const data =
       idx === 0 ? firstRead.data : client.store.get(opKey(doc, w.vars))?.data
-    if (data == null) return
-    const wrapped = client.wrapData<any>(() => data)
-    const connWrapped = getAtPath(wrapped, conn.path)
-    const connRaw = getAtPath(data, conn.path)
-    if (idx === 0) firstConnRaw = connRaw
-    lastConnRaw = connRaw
-    if (typeof connRaw?.totalCount === 'number') totalCount = connRaw.totalCount
-    const edges = connWrapped?.edges ?? []
+    const connWrapped = readConnection(client, data, conn.path)
+    if (connWrapped == null) return
+    if (idx === 0) firstConn = connWrapped
+    lastConn = connWrapped
+    if (typeof connWrapped.totalCount === 'number') {
+      totalCount = connWrapped.totalCount
+    }
+    const edges = connWrapped.edges ?? []
     for (let i = 0; i < edges.length; i++) {
-      const cursor = connRaw?.edges?.[i]?.cursor
+      const cursor = edges[i]?.cursor
       if (cursor != null) {
         if (seenCursors.has(cursor)) continue
         seenCursors.add(cursor)
@@ -205,10 +218,10 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
   void firstKey
 
   const pageInfo: PageInfo = {
-    hasNextPage: !!lastConnRaw?.pageInfo?.hasNextPage,
-    hasPreviousPage: !!firstConnRaw?.pageInfo?.hasPreviousPage,
-    startCursor: firstConnRaw?.pageInfo?.startCursor,
-    endCursor: lastConnRaw?.pageInfo?.endCursor
+    hasNextPage: !!lastConn?.pageInfo?.hasNextPage,
+    hasPreviousPage: !!firstConn?.pageInfo?.hasPreviousPage,
+    startCursor: firstConn?.pageInfo?.startCursor,
+    endCursor: lastConn?.pageInfo?.endCursor
   }
 
   return {

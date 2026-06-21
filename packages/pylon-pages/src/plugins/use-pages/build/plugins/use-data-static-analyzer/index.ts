@@ -171,6 +171,134 @@ function findMutationCalls(
   return out
 }
 
+/**
+ * Parse a connection chain selector `q => q.post({ id }).comments` into the path
+ * to the connection + the call args on intermediate fields. The terminal
+ * connection is left UNCALLED (its args come from usePaginatedData's 2nd arg).
+ */
+function parseChainSelector(
+  arg: Node | undefined
+): {path: string[]; args: Record<string, string>} | null {
+  if (!arg || !(Node.isArrowFunction(arg) || Node.isFunctionExpression(arg))) {
+    return null
+  }
+  let body: Node | undefined = arg.getBody()
+  if (Node.isBlock(body)) {
+    body = body.getStatements().find(Node.isReturnStatement)?.getExpression()
+  }
+  if (!body) return null
+
+  const path: string[] = []
+  const args: Record<string, string> = {}
+  const walk = (expr: Node): boolean => {
+    if (Node.isIdentifier(expr)) return true // the arrow param `q`
+    if (Node.isParenthesizedExpression(expr)) return walk(expr.getExpression())
+    if (Node.isPropertyAccessExpression(expr)) {
+      if (!walk(expr.getExpression())) return false
+      path.push(expr.getName())
+      return true
+    }
+    if (Node.isCallExpression(expr)) {
+      const callee = expr.getExpression()
+      if (!Node.isPropertyAccessExpression(callee)) return false
+      if (!walk(callee.getExpression())) return false
+      const name = callee.getName()
+      path.push(name)
+      const a = expr.getArguments()[0]
+      if (a) args[name] = a.getText()
+      return true
+    }
+    return false
+  }
+  if (!walk(body) || path.length === 0) return null
+  return {path, args}
+}
+
+/** The result binding from `const comments = usePaginatedData(...)`. */
+function extractResultVar(callNode: Node): string | null {
+  const varDecl = callNode.getFirstAncestorByKind(SyntaxKind.VariableDeclaration)
+  if (!varDecl) return null
+  const nameNode = varDecl.getNameNode()
+  return Node.isIdentifier(nameNode) ? nameNode.getText() : null
+}
+
+/** Find `usePaginatedData(...)` calls + their connection path + result binding. */
+function findPaginatedCalls(
+  sourceFile: any,
+  pylonPackage: string,
+  hookName: string
+): {node: Node; path: string[]; args: Record<string, string>; resultVar: string | null}[] {
+  const aliases = new Set<string>()
+  for (const imp of sourceFile.getImportDeclarations()) {
+    if (imp.getModuleSpecifierValue() !== pylonPackage) continue
+    for (const named of imp.getNamedImports()) {
+      if (named.getName() === hookName) {
+        aliases.add(named.getAliasNode()?.getText() ?? named.getName())
+      }
+    }
+  }
+  if (aliases.size === 0) return []
+
+  const out: {node: Node; path: string[]; args: Record<string, string>; resultVar: string | null}[] = []
+  sourceFile.forEachDescendant((node: Node) => {
+    if (!Node.isCallExpression(node)) return
+    const expr = node.getExpression()
+    if (!Node.isIdentifier(expr) || !aliases.has(expr.getText())) return
+    const chain = parseChainSelector(node.getArguments()[0])
+    out.push({
+      node,
+      path: chain?.path ?? [],
+      args: chain?.args ?? {},
+      resultVar: extractResultVar(node)
+    })
+  })
+  return out
+}
+
+/** Build the nested selector tree from a connection path + intermediate args + node selection. */
+function buildConnectionTree(
+  path: string[],
+  args: Record<string, string>,
+  resultSelectors: SelectorNode
+): SelectorNode {
+  const tree: SelectorNode = {}
+  let cur: SelectorNode = tree
+  path.forEach((field, i) => {
+    const node: SelectorNode = {}
+    if (args[field]) node.__args = args[field]
+    if (i === path.length - 1) Object.assign(node, resultSelectors)
+    cur[field] = node
+    cur = node
+  })
+  return tree
+}
+
+/**
+ * Rewrite `usePaginatedData(q => …, userArgs?)` → `usePaginatedData(doc, thunk,
+ * userArgs?)` — replace the selector with the document, keep the user args.
+ */
+function rewritePaginatedCall(
+  source: string,
+  node: any,
+  constName: string,
+  thunk: string | undefined
+): string {
+  const open = node.getFirstChildByKind(SyntaxKind.OpenParenToken)
+  const close = node.getLastChildByKind(SyntaxKind.CloseParenToken)
+  if (!open || !close) return source
+  const rest = node
+    .getArguments()
+    .slice(1)
+    .map((a: Node) => source.slice(a.getStart(), a.getEnd()))
+    .join(', ')
+  let inner: string
+  if (thunk && rest) inner = `${constName}, ${thunk}, ${rest}`
+  else if (thunk) inner = `${constName}, ${thunk}`
+  else if (rest) inner = `${constName}, undefined, ${rest}`
+  else inner = constName
+  return source.slice(0, open.getEnd()) + inner + source.slice(close.getStart())
+}
+
 /** Recursively drop `__args` — nested mutation-result fields can't take runtime args. */
 function stripArgs(node: SelectorNode): SelectorNode {
   const out: SelectorNode = {}
@@ -452,13 +580,16 @@ export function useDataStaticAnalyzer(
             )
 
             type Item = {
-              kind: 'query' | 'mutation'
+              kind: 'query' | 'mutation' | 'paginated'
               node: any
               start: number
               selectors?: any
               connection?: {path: string[]}
               field?: string | null
               trigger?: string | null
+              path?: string[]
+              chainArgs?: Record<string, string>
+              resultVar?: string | null
               constName: string
               index: number
               decl?: string
@@ -476,29 +607,34 @@ export function useDataStaticAnalyzer(
             )
 
             let allDeps = dependencies
-            if (contents.includes(paginatedHookName)) {
-              const paged = extractQueries(args.path, project, {
+            const sourceFileForCalls =
+              contents.includes(paginatedHookName) ||
+              contents.includes(mutationHookName)
+                ? project.getSourceFile(args.path)
+                : undefined
+
+            if (sourceFileForCalls && contents.includes(paginatedHookName)) {
+              for (const p of findPaginatedCalls(
+                sourceFileForCalls,
                 pylonPackage,
-                hookName: paginatedHookName,
-                skipDependencyResolution: true
-              })
-              paged.queries.forEach(q =>
+                paginatedHookName
+              )) {
                 items.push({
-                  kind: 'query',
-                  node: q.node,
-                  start: q.start,
-                  selectors: q.selectors,
-                  connection: inferConnectionPath(q.selectors),
+                  kind: 'paginated',
+                  node: p.node,
+                  start: p.node.getStart(),
+                  path: p.path,
+                  chainArgs: p.args,
+                  resultVar: p.resultVar,
                   constName: '',
                   index: 0
                 })
-              )
-              allDeps = Array.from(new Set([...dependencies, ...paged.dependencies]))
+              }
             }
 
-            if (contents.includes(mutationHookName)) {
-              const sf = project.getSourceFile(args.path)
-              if (sf) {
+            if (sourceFileForCalls && contents.includes(mutationHookName)) {
+              const sf = sourceFileForCalls
+              {
                 for (const m of findMutationCalls(sf, pylonPackage, mutationHookName)) {
                   items.push({
                     kind: 'mutation',
@@ -550,6 +686,42 @@ export function useDataStaticAnalyzer(
                       outputContents,
                       it.node,
                       it.constName
+                    )
+                  } else if (it.kind === 'paginated') {
+                    if (!it.path || it.path.length === 0) {
+                      throw new Error(
+                        'usePaginatedData expects a connection selector, e.g. ' +
+                          '`q => q.posts` or `q => q.post({ id }).comments`.'
+                      )
+                    }
+                    // Node selection comes from how the RESULT is read
+                    // (comments.nodes[].body); path + intermediate args from the
+                    // selector chain.
+                    const resultSelectors = it.resultVar
+                      ? extractAdvancedSelectors(contents, it.resultVar)
+                      : {}
+                    const tree = buildConnectionTree(
+                      it.path,
+                      it.chainArgs ?? {},
+                      resultSelectors
+                    )
+                    const lowered = lowerQuery(
+                      schema,
+                      tree,
+                      `${base}_${it.index}`,
+                      it.constName,
+                      {
+                        scalarTypes: options.scalarTypes,
+                        connection: {path: it.path},
+                        docFnName: '__pylonDoc'
+                      }
+                    )
+                    it.decl = lowered.docDeclaration
+                    outputContents = rewritePaginatedCall(
+                      outputContents,
+                      it.node,
+                      it.constName,
+                      lowered.variablesThunk
                     )
                   } else {
                     const lowered = lowerQuery(
