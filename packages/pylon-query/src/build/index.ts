@@ -2,7 +2,7 @@ import {buildSchema, GraphQLSchema} from 'graphql'
 import {describeSchema} from './describe-schema'
 import {generateRootType} from './root-type'
 
-export {compileOperation} from './compile'
+export {compileOperation, allScalarSelectors} from './compile'
 export type {
   CompiledOperation,
   CompiledVariable,

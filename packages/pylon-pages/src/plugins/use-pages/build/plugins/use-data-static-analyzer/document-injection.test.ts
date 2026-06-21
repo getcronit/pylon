@@ -11,6 +11,9 @@ const schema = buildSchema(/* GraphQL */ `
     user(id: ID!): User
     me: User
   }
+  type Mutation {
+    createUser(name: String!): User!
+  }
   type User {
     id: ID!
     name: String
@@ -68,6 +71,22 @@ describe('analyzer document injection (schema present)', () => {
     expect(out).toMatch(
       /useData\(__pylonDoc_\w+_0,\s*(undefined|void 0),\s*\{ tags: \["x"\] \}\)/
     )
+  })
+
+  it('injects a mutation document for useMutation(m => m.field)', async () => {
+    const out = await transform(`
+      import { useMutation } from "@getcronit/pylon-pages";
+      export function Form() {
+        const [createUser, state] = useMutation(m => m.createUser);
+        return <button onClick={() => createUser({ name: 'Ada' })}>create</button>;
+      }
+    `)
+    // Compiled mutation: runtime arg + allScalars + id + __typename.
+    expect(out).toContain('createUser(name: $name)')
+    expect(out).toContain('id name email __typename')
+    expect(out).toContain('rootField')
+    // The selector is replaced by the document.
+    expect(out).toMatch(/useMutation\(__pylonDoc_\w+_0\)/)
   })
 
   it('fails loud on an unknown field', async () => {

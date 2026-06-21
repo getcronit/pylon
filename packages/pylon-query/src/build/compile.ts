@@ -30,6 +30,8 @@ export interface CompiledVariable {
 export interface CompileOptions {
   /** Operation name. */
   name: string
+  /** Operation type — "query" (default) or "mutation". */
+  operation?: 'query' | 'mutation'
   /** GraphQL scalar name → TS type (e.g. {Number: "number"}). */
   scalarTypes?: Record<string, string>
   /**
@@ -37,6 +39,12 @@ export interface CompileOptions {
    * this path (length-1, top-level field) and select the full connection shape.
    */
   connection?: {path: string[]}
+  /**
+   * Top-level field whose arguments are declared as RUNTIME variables (named by
+   * arg) supplied at call time, not from the source. Used for mutations:
+   * `mutate(vars)` provides them.
+   */
+  runtimeArgsField?: string
 }
 
 export interface CompiledOperation {
@@ -59,6 +67,27 @@ const DEFAULT_SCALARS: Record<string, string> = {
   Boolean: 'boolean'
 }
 
+/**
+ * Selector tree of every (argument-free) scalar/enum field on a type. Used to
+ * build the `allScalars(ReturnType)` part of a mutation's return selection — so
+ * the mutation refreshes the full entity in the cache, not just the fields the
+ * handler happened to read.
+ */
+export function allScalarSelectors(
+  schema: GraphQLSchema,
+  typeName: string
+): SelectorNode {
+  const type = schema.getType(typeName)
+  if (!type || !isObjectType(type)) return {}
+  const out: SelectorNode = {}
+  for (const field of Object.values(type.getFields())) {
+    if (field.args.length > 0) continue // can't auto-select arg fields
+    const named = getNamedType(field.type)
+    if (isScalarType(named) || isEnumType(named)) out[field.name] = true
+  }
+  return out
+}
+
 const PAGINATION_ARGS = ['first', 'after', 'last', 'before'] as const
 
 /**
@@ -74,8 +103,12 @@ export function compileOperation(
   selectors: SelectorNode,
   options: CompileOptions
 ): CompiledOperation {
-  const queryType = schema.getQueryType()
-  if (!queryType) throw new Error('Schema has no Query type')
+  const operation = options.operation ?? 'query'
+  const rootType =
+    operation === 'mutation' ? schema.getMutationType() : schema.getQueryType()
+  if (!rootType) {
+    throw new Error(`Schema has no ${operation === 'mutation' ? 'Mutation' : 'Query'} type`)
+  }
 
   const ctx: Ctx = {
     schema,
@@ -83,6 +116,8 @@ export function compileOperation(
     varCount: 0,
     variables: [],
     connVarDecls: [],
+    runtimeVarDecls: [],
+    runtimeArgsField: options.runtimeArgsField,
     connectionOpt: options.connection,
     connectionMeta: undefined
   }
@@ -93,15 +128,16 @@ export function compileOperation(
       : undefined
 
   // Root operation type is not an entity → no __typename/id injection.
-  const {sdl, ts} = compileObject(ctx, queryType, selectors, forceConn, false)
+  const {sdl, ts} = compileObject(ctx, rootType, selectors, forceConn, false)
 
   const allDecls = [
     ...ctx.variables.map(v => `$${v.name}: ${v.gqlType}`),
+    ...ctx.runtimeVarDecls,
     ...ctx.connVarDecls
   ]
   const varDecls = allDecls.length ? `(${allDecls.join(', ')})` : ''
 
-  const body = `query ${options.name}${varDecls} ${sdl}`
+  const body = `${operation} ${options.name}${varDecls} ${sdl}`
 
   return {
     name: options.name,
@@ -119,6 +155,10 @@ interface Ctx {
   variables: Array<{name: string; gqlType: string; expr: string}>
   /** Declarations for runtime-supplied connection vars (no call-site expr). */
   connVarDecls: string[]
+  /** Declarations for runtime-supplied mutation-arg vars (no call-site expr). */
+  runtimeVarDecls: string[]
+  /** Field whose args become runtime variables (the mutation field). */
+  runtimeArgsField?: string
   connectionOpt?: {path: string[]}
   connectionMeta?: ConnectionMeta
 }
@@ -171,6 +211,13 @@ function compileObject(
 
     if (forceConnectionField && key === forceConnectionField) {
       const {sdl, ts} = compileConnectionField(ctx, field, merged)
+      selections.push(`${key}${sdl}`)
+      tsMembers.push(`${key}: ${ts}`)
+      continue
+    }
+
+    if (ctx.runtimeArgsField && key === ctx.runtimeArgsField) {
+      const {sdl, ts} = compileRuntimeArgsField(ctx, field, merged)
       selections.push(`${key}${sdl}`)
       tsMembers.push(`${key}: ${ts}`)
       continue
@@ -264,6 +311,31 @@ function compileArgs(
     parts.push(`${argName}: $${varName}`)
   }
   return `(${parts.join(', ')})`
+}
+
+/**
+ * Compile a mutation field: declare its arguments as runtime variables (named by
+ * arg, supplied by `mutate(vars)`) and select the return object.
+ */
+function compileRuntimeArgsField(
+  ctx: Ctx,
+  field: GraphQLField<any, any>,
+  node: SelectorNode | boolean
+): {sdl: string; ts: string} {
+  const argParts: string[] = []
+  for (const arg of field.args) {
+    ctx.runtimeVarDecls.push(`$${arg.name}: ${arg.type.toString()}`)
+    argParts.push(`${arg.name}: $${arg.name}`)
+  }
+  const argSdl = argParts.length ? `(${argParts.join(', ')})` : ''
+
+  const named = getNamedType(field.type)
+  if (!isObjectType(named)) {
+    // Scalar-returning mutation: nothing to select.
+    return {sdl: argSdl, ts: applyWrappers(field.type, ctx.scalars[named.name] ?? 'any')}
+  }
+  const sub = compileObject(ctx, named, typeof node === 'object' ? node : {})
+  return {sdl: `${argSdl} ${sub.sdl}`, ts: applyWrappers(field.type, sub.ts)}
 }
 
 /** Compile a Relay connection field, injecting runtime pagination variables. */

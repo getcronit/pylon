@@ -25,6 +25,8 @@ export interface DocInit {
   /** Operation name (debug + dedupe aid). */
   name: string
   connection?: ConnectionMeta
+  /** For mutations: the single top-level field whose value `mutate()` returns. */
+  rootField?: string
 }
 
 /**

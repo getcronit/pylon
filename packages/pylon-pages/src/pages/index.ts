@@ -19,3 +19,4 @@ import '../globals.css'
 
 export * from './http'
 export * from './use-data'
+export * from './use-mutation'

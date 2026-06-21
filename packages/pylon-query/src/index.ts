@@ -42,3 +42,8 @@ export {
   type PaginatedResult,
   type UsePaginatedDocOptions
 } from './react/use-paginated-doc'
+export {
+  useMutationDoc,
+  type MutationState,
+  type MutationTrigger
+} from './react/use-mutation-doc'

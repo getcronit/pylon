@@ -5,7 +5,7 @@ import path from 'path'
 import {Node, SyntaxKind} from 'ts-morph'
 import {clearAnalyzeCache, extractQueries, type QueryLocation} from './analyze'
 import {StaticAnalysisManager} from './manager'
-import {lowerQuery} from './selectors-to-document'
+import {lowerMutation, lowerQuery} from './selectors-to-document'
 import {generatePrepare} from './selectors-to-prepare'
 
 const DOC_IMPORT = `import { doc as __pylonDoc } from '@getcronit/pylon-query';\n`
@@ -99,6 +99,70 @@ function sanitizeName(s: string): string {
   return s.replace(/[^A-Za-z0-9_]/g, '_').replace(/^([0-9])/, '_$1')
 }
 
+/** Extract the field name from a `m => m.field` mutation selector argument. */
+function extractMutationField(arg: Node | undefined): string | null {
+  if (!arg) return null
+  if (Node.isArrowFunction(arg) || Node.isFunctionExpression(arg)) {
+    let body: Node | undefined = arg.getBody()
+    if (Node.isBlock(body)) {
+      const ret = body.getStatements().find(Node.isReturnStatement)
+      body = ret?.getExpression()
+    }
+    if (body && Node.isPropertyAccessExpression(body)) return body.getName()
+  }
+  return null
+}
+
+/** Find `useMutation(...)` calls and the mutation field each selects. */
+function findMutationCalls(
+  sourceFile: any,
+  pylonPackage: string,
+  hookName: string
+): {node: Node; field: string | null}[] {
+  const aliases = new Set<string>()
+  for (const imp of sourceFile.getImportDeclarations()) {
+    if (imp.getModuleSpecifierValue() !== pylonPackage) continue
+    for (const named of imp.getNamedImports()) {
+      if (named.getName() === hookName) {
+        aliases.add(named.getAliasNode()?.getText() ?? named.getName())
+      }
+    }
+  }
+  if (aliases.size === 0) return []
+
+  const out: {node: Node; field: string | null}[] = []
+  sourceFile.forEachDescendant((node: Node) => {
+    if (!Node.isCallExpression(node)) return
+    const expr = node.getExpression()
+    if (!Node.isIdentifier(expr) || !aliases.has(expr.getText())) return
+    out.push({node, field: extractMutationField(node.getArguments()[0])})
+  })
+  return out
+}
+
+/**
+ * Rewrite `useMutation(m => m.field[, options])` → `useMutation(doc[, options])`,
+ * replacing the selector with the compiled document and preserving options.
+ */
+function rewriteMutationCall(
+  source: string,
+  node: any,
+  constName: string
+): string {
+  const open = node.getFirstChildByKind(SyntaxKind.OpenParenToken)
+  const close = node.getLastChildByKind(SyntaxKind.CloseParenToken)
+  if (!open || !close) return source
+  const innerStart = open.getEnd()
+  const innerEnd = close.getStart()
+  const rest = node
+    .getArguments()
+    .slice(1)
+    .map((a: Node) => source.slice(a.getStart(), a.getEnd()))
+    .join(', ')
+  const inner = rest ? `${constName}, ${rest}` : constName
+  return source.slice(0, innerStart) + inner + source.slice(innerEnd)
+}
+
 /**
  * Rewrite a `useData(...)` / `usePaginatedData(...)` call's arguments to
  * `(doc[, thunk][, origOptions])`. Existing options (e.g. `{tags}`) move to the
@@ -145,6 +209,8 @@ export interface UseDataStaticAnalyzerOptions {
   schemaPath?: string
   /** Hook to analyze as a Relay connection (e.g. "usePaginatedData"). */
   paginatedHookName?: string
+  /** Mutation hook to analyze (e.g. "useMutation"). */
+  mutationHookName?: string
   /** GraphQL scalar name → TS type, forwarded to the document compiler. */
   scalarTypes?: Record<string, string>
 }
@@ -157,6 +223,7 @@ export function useDataStaticAnalyzer(
     pylonPackage = '@getcronit/pylon-pages',
     hookName = 'useData',
     paginatedHookName = 'usePaginatedData',
+    mutationHookName = 'useMutation',
     debug = false
   } = options
 
@@ -271,14 +338,27 @@ export function useDataStaticAnalyzer(
             )
 
             type Item = {
-              query: QueryLocation
+              kind: 'query' | 'mutation'
+              node: any
+              start: number
+              selectors?: any
               connection?: {path: string[]}
+              field?: string | null
               constName: string
               index: number
               decl?: string
             }
             const items: Item[] = []
-            queries.forEach(q => items.push({query: q, constName: '', index: 0}))
+            queries.forEach(q =>
+              items.push({
+                kind: 'query',
+                node: q.node,
+                start: q.start,
+                selectors: q.selectors,
+                constName: '',
+                index: 0
+              })
+            )
 
             let allDeps = dependencies
             if (contents.includes(paginatedHookName)) {
@@ -289,7 +369,10 @@ export function useDataStaticAnalyzer(
               })
               paged.queries.forEach(q =>
                 items.push({
-                  query: q,
+                  kind: 'query',
+                  node: q.node,
+                  start: q.start,
+                  selectors: q.selectors,
                   connection: inferConnectionPath(q.selectors),
                   constName: '',
                   index: 0
@@ -298,44 +381,79 @@ export function useDataStaticAnalyzer(
               allDeps = Array.from(new Set([...dependencies, ...paged.dependencies]))
             }
 
+            if (contents.includes(mutationHookName)) {
+              const sf = project.getSourceFile(args.path)
+              if (sf) {
+                for (const m of findMutationCalls(sf, pylonPackage, mutationHookName)) {
+                  items.push({
+                    kind: 'mutation',
+                    node: m.node,
+                    start: m.node.getStart(),
+                    field: m.field,
+                    constName: '',
+                    index: 0
+                  })
+                }
+              }
+            }
+
             if (items.length > 0) {
               // Stable numbering by source order.
-              const ordered = [...items].sort(
-                (a, b) => a.query.start - b.query.start
-              )
+              const ordered = [...items].sort((a, b) => a.start - b.start)
               ordered.forEach((it, i) => {
                 it.index = i
                 it.constName = `__pylonDoc_${base}_${i}`
               })
 
               // Apply call rewrites descending so positions stay valid.
-              const desc = [...items].sort((a, b) => b.query.start - a.query.start)
+              const desc = [...items].sort((a, b) => b.start - a.start)
               for (const it of desc) {
                 try {
-                  const lowered = lowerQuery(
-                    schema,
-                    it.query.selectors,
-                    `${base}_${it.index}`,
-                    it.constName,
-                    {
-                      scalarTypes: options.scalarTypes,
-                      connection: it.connection,
-                      docFnName: '__pylonDoc'
+                  if (it.kind === 'mutation') {
+                    if (!it.field) {
+                      throw new Error(
+                        'useMutation expects a `m => m.field` selector naming the mutation.'
+                      )
                     }
-                  )
-                  it.decl = lowered.docDeclaration
-                  outputContents = rewriteCall(
-                    outputContents,
-                    it.query.node,
-                    it.constName,
-                    lowered.variablesThunk
-                  )
+                    const lowered = lowerMutation(
+                      schema,
+                      it.field,
+                      `${base}_${it.index}`,
+                      it.constName,
+                      {scalarTypes: options.scalarTypes, docFnName: '__pylonDoc'}
+                    )
+                    it.decl = lowered.docDeclaration
+                    outputContents = rewriteMutationCall(
+                      outputContents,
+                      it.node,
+                      it.constName
+                    )
+                  } else {
+                    const lowered = lowerQuery(
+                      schema,
+                      it.selectors,
+                      `${base}_${it.index}`,
+                      it.constName,
+                      {
+                        scalarTypes: options.scalarTypes,
+                        connection: it.connection,
+                        docFnName: '__pylonDoc'
+                      }
+                    )
+                    it.decl = lowered.docDeclaration
+                    outputContents = rewriteCall(
+                      outputContents,
+                      it.node,
+                      it.constName,
+                      lowered.variablesThunk
+                    )
+                  }
                 } catch (e: any) {
                   buildErrors.push({
-                    text: `useData(): ${e?.message ?? e}`,
+                    text: `${it.kind === 'mutation' ? 'useMutation' : 'useData'}(): ${e?.message ?? e}`,
                     location: {
                       file: args.path,
-                      line: it.query.node.getStartLineNumber()
+                      line: it.node.getStartLineNumber()
                     }
                   })
                 }

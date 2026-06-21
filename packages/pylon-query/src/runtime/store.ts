@@ -47,11 +47,17 @@ export class Store {
     this.emit()
   }
 
-  /** Merge a patch into an entry (creating it if absent) and notify. */
-  patch(key: string, patch: Partial<StoreEntry>): StoreEntry {
+  /**
+   * Merge a patch into an entry (creating it if absent). Notifies unless
+   * `silent` — setting only the in-flight `promise` must NOT notify, because
+   * `ensure()` runs during render (a stale read kicks a background revalidation),
+   * and emitting there triggers a setState-during-render warning. Data/error
+   * writes (always async, post-network) emit normally.
+   */
+  patch(key: string, patch: Partial<StoreEntry>, silent = false): StoreEntry {
     const next = {...this.map.get(key), ...patch}
     this.map.set(key, next)
-    this.emit()
+    if (!silent) this.emit()
     return next
   }
 

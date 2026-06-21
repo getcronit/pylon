@@ -1,10 +1,11 @@
 import {
+  allScalarSelectors,
   compileOperation,
   documentId,
   type CompiledOperation,
   type SelectorNode as QuerySelectorNode
 } from '@getcronit/pylon-query/build'
-import type {GraphQLSchema} from 'graphql'
+import {getNamedType, type GraphQLSchema} from 'graphql'
 import type {SelectorNode} from './analyze'
 
 /**
@@ -75,4 +76,51 @@ export function lowerQuery(
   }
 
   return {docConstName: constName, docDeclaration, variablesThunk, compiled}
+}
+
+/**
+ * Lower a `useMutation(m => m.field)` selector into a compiled mutation document.
+ *
+ * v1 selection = allScalars(ReturnType) ∪ {id, __typename}. The analyzed nested
+ * trigger-return reads (`analyze(triggerReturn)`) can be merged in here later;
+ * full scalars already give cache-consistent updates for the common case.
+ */
+export function lowerMutation(
+  schema: GraphQLSchema,
+  fieldName: string,
+  operationName: string,
+  constName: string,
+  options: {scalarTypes?: Record<string, string>; docFnName?: string} = {}
+): LoweredQuery {
+  const mutationType = schema.getMutationType()
+  const field = mutationType?.getFields()[fieldName]
+  if (!field) {
+    throw new Error(
+      `Mutation field "${fieldName}" does not exist. ` +
+        `useMutation(m => m.${fieldName}) references an unknown mutation.`
+    )
+  }
+  const returnTypeName = getNamedType(field.type).name
+  const selectors = {
+    [fieldName]: allScalarSelectors(schema, returnTypeName)
+  } as unknown as QuerySelectorNode
+
+  const compiled = compileOperation(schema, selectors, {
+    name: operationName,
+    operation: 'mutation',
+    runtimeArgsField: fieldName,
+    scalarTypes: options.scalarTypes
+  })
+
+  const id = documentId(compiled.body)
+  const docFn = options.docFnName ?? 'doc'
+  const docDeclaration =
+    `const ${constName} = ${docFn}<${compiled.resultType}>({\n` +
+    `  id: ${JSON.stringify(id)},\n` +
+    `  name: ${JSON.stringify(compiled.name)},\n` +
+    `  rootField: ${JSON.stringify(fieldName)},\n` +
+    `  body: ${JSON.stringify(compiled.body)}\n` +
+    `})`
+
+  return {docConstName: constName, docDeclaration, variablesThunk: undefined, compiled}
 }

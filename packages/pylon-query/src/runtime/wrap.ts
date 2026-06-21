@@ -36,12 +36,13 @@ export function wrapResult<T = any>(
   getRoot: () => any,
   descriptor: SchemaDescriptor,
   rootExtras?: Record<string, unknown>,
-  deref: Deref = IDENTITY
+  deref: Deref = IDENTITY,
+  rootTypeName: string = descriptor.query
 ): T {
   const ctx: Ctx = {descriptor, deref}
   return buildObject(
     () => ctx.deref(getRoot()),
-    descriptor.query,
+    rootTypeName,
     ctx,
     rootExtras
   ) as T

@@ -91,7 +91,9 @@ export class PylonQueryClient {
       }
     )
 
-    this.store.patch(key, {promise})
+    // Silent: this may run during render (ensure() → SWR revalidate). The data
+    // write in the .then above emits normally once resolved.
+    this.store.patch(key, {promise}, true)
     return promise
   }
 
@@ -166,9 +168,44 @@ export class PylonQueryClient {
    */
   wrapData<T = any>(
     getRoot: () => unknown,
-    rootExtras?: Record<string, unknown>
+    rootExtras?: Record<string, unknown>,
+    rootTypeName?: string
   ): T {
-    return wrapResult<T>(getRoot, this.descriptor, rootExtras, this.deref)
+    return wrapResult<T>(
+      getRoot,
+      this.descriptor,
+      rootExtras,
+      this.deref,
+      rootTypeName ?? this.descriptor.query
+    )
+  }
+
+  /**
+   * Run a mutation: send it, normalize the result into the entity table (so every
+   * query reading the affected entities re-renders), and return the wrapped value
+   * of the single top-level mutation field.
+   */
+  async runMutation<TResult = any>(
+    doc: TypedDoc<TResult, any>,
+    variables?: Record<string, unknown>
+  ): Promise<any> {
+    const res = await this.fetcher(
+      {query: doc.body, variables, operationName: doc.name},
+      this.options
+    )
+    if (res.errors && res.errors.length) {
+      throw new GraphQLResultError(res.errors)
+    }
+    const {root, entities} = normalize(res.data)
+    this.store.mergeEntities(entities)
+
+    const rootObj = (root ?? {}) as Record<string, unknown>
+    const fieldName = doc.rootField ?? Object.keys(rootObj)[0]
+    const wrapped = this.wrapData<any>(() => root, undefined, 'Mutation')
+    const fieldVal = fieldName ? wrapped[fieldName] : wrapped
+    // Mutation fields take args → the wrapper exposes them as callable; invoke to
+    // get the wrapped return value (args are decorative at read time).
+    return typeof fieldVal === 'function' ? fieldVal() : fieldVal
   }
 }
 
