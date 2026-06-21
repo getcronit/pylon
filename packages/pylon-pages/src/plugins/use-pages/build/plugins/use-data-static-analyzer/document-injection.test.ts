@@ -18,6 +18,11 @@ const schema = buildSchema(/* GraphQL */ `
     id: ID!
     name: String
     email: String
+    posts: [Post!]!
+  }
+  type Post {
+    id: ID!
+    title: String
   }
 `)
 
@@ -87,6 +92,23 @@ describe('analyzer document injection (schema present)', () => {
     expect(out).toContain('rootField')
     // The selector is replaced by the document.
     expect(out).toMatch(/useMutation\(__pylonDoc_\w+_0\)/)
+  })
+
+  it('augments a mutation with analyze(triggerReturn) nested reads', async () => {
+    const out = await transform(`
+      import { useMutation } from "@getcronit/pylon-pages";
+      export function Form() {
+        const [createUser] = useMutation(m => m.createUser);
+        async function onClick() {
+          const u = await createUser({ name: 'Ada' });
+          u.posts.map(p => p.title);
+        }
+        return <button onClick={onClick}>create</button>;
+      }
+    `)
+    // allScalars (id name email) ∪ analyzed nested (posts { title }) ∪ {id,__typename}
+    expect(out).toContain('id name email')
+    expect(out).toContain('posts { title __typename id }')
   })
 
   it('fails loud on an unknown field', async () => {

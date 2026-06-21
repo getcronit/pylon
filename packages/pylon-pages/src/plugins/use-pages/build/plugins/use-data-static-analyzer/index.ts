@@ -3,7 +3,13 @@ import * as fs from 'fs'
 import {buildSchema, GraphQLSchema} from 'graphql'
 import path from 'path'
 import {Node, SyntaxKind} from 'ts-morph'
-import {clearAnalyzeCache, extractQueries, type QueryLocation} from './analyze'
+import {
+  clearAnalyzeCache,
+  extractAdvancedSelectors,
+  extractQueries,
+  type QueryLocation,
+  type SelectorNode
+} from './analyze'
 import {StaticAnalysisManager} from './manager'
 import {lowerMutation, lowerQuery} from './selectors-to-document'
 import {generatePrepare} from './selectors-to-prepare'
@@ -113,12 +119,27 @@ function extractMutationField(arg: Node | undefined): string | null {
   return null
 }
 
-/** Find `useMutation(...)` calls and the mutation field each selects. */
+/** The trigger binding name from `const [trigger, state] = useMutation(...)`. */
+function extractTriggerName(callNode: Node): string | null {
+  const varDecl = callNode.getFirstAncestorByKind(SyntaxKind.VariableDeclaration)
+  if (!varDecl) return null
+  const nameNode = varDecl.getNameNode()
+  if (Node.isArrayBindingPattern(nameNode)) {
+    const first = nameNode.getElements()[0]
+    if (first && Node.isBindingElement(first)) {
+      const n = first.getNameNode()
+      if (Node.isIdentifier(n)) return n.getText()
+    }
+  }
+  return null
+}
+
+/** Find `useMutation(...)` calls, the field each selects, and the trigger name. */
 function findMutationCalls(
   sourceFile: any,
   pylonPackage: string,
   hookName: string
-): {node: Node; field: string | null}[] {
+): {node: Node; field: string | null; trigger: string | null}[] {
   const aliases = new Set<string>()
   for (const imp of sourceFile.getImportDeclarations()) {
     if (imp.getModuleSpecifierValue() !== pylonPackage) continue
@@ -130,13 +151,100 @@ function findMutationCalls(
   }
   if (aliases.size === 0) return []
 
-  const out: {node: Node; field: string | null}[] = []
+  const out: {node: Node; field: string | null; trigger: string | null}[] = []
   sourceFile.forEachDescendant((node: Node) => {
     if (!Node.isCallExpression(node)) return
     const expr = node.getExpression()
     if (!Node.isIdentifier(expr) || !aliases.has(expr.getText())) return
-    out.push({node, field: extractMutationField(node.getArguments()[0])})
+    out.push({
+      node,
+      field: extractMutationField(node.getArguments()[0]),
+      trigger: extractTriggerName(node)
+    })
   })
+  return out
+}
+
+/** Recursively drop `__args` — nested mutation-result fields can't take runtime args. */
+function stripArgs(node: SelectorNode): SelectorNode {
+  const out: SelectorNode = {}
+  for (const [key, value] of Object.entries(node)) {
+    if (key === '__args') continue
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      out[key] = stripArgs(value as SelectorNode)
+    } else {
+      out[key] = value
+    }
+  }
+  return out
+}
+
+/**
+ * The `analyze(triggerReturn)` part of the mutation selection: trace how the
+ * trigger's awaited result is read across the component, so nested/relation reads
+ * (`const u = await createUser(...); u.posts[].title`) join the document.
+ * allScalars already covers scalar reads, so this adds object relations.
+ */
+function analyzeTriggerReturn(
+  useMutationCall: Node,
+  triggerName: string,
+  fileText: string
+): SelectorNode {
+  const fn = useMutationCall.getFirstAncestor(isFnLike)
+  if (!fn) return {}
+
+  let merged: SelectorNode = {}
+  fn.forEachDescendant((node: Node) => {
+    if (!Node.isCallExpression(node)) return
+    const callee = node.getExpression()
+    if (!Node.isIdentifier(callee) || callee.getText() !== triggerName) return
+
+    let p: Node | undefined = node.getParent()
+    if (p && Node.isAwaitExpression(p)) p = p.getParent()
+    if (p && Node.isParenthesizedExpression(p)) p = p.getParent()
+    if (!p) return
+
+    if (Node.isVariableDeclaration(p)) {
+      const nameNode = p.getNameNode()
+      if (Node.isIdentifier(nameNode)) {
+        // const u = await trigger(...) → analyze accesses on `u`.
+        merged = deepMergeSelectors(
+          merged,
+          stripArgs(extractAdvancedSelectors(fileText, nameNode.getText()))
+        )
+      } else if (Node.isObjectBindingPattern(nameNode)) {
+        // const { posts } = await trigger(...) → shallow field set.
+        for (const el of nameNode.getElements()) {
+          const name = el.getPropertyNameNode()?.getText() ?? el.getName()
+          if (name && !(name in merged)) merged[name] = true
+        }
+      }
+    } else if (Node.isPropertyAccessExpression(p)) {
+      // (await trigger(...)).field
+      const name = p.getName()
+      if (name && !(name in merged)) merged[name] = true
+    }
+  })
+  return merged
+}
+
+function deepMergeSelectors(a: SelectorNode, b: SelectorNode): SelectorNode {
+  const out: SelectorNode = {...a}
+  for (const [key, bv] of Object.entries(b)) {
+    const av = out[key]
+    if (
+      av &&
+      bv &&
+      typeof av === 'object' &&
+      typeof bv === 'object' &&
+      !Array.isArray(av) &&
+      !Array.isArray(bv)
+    ) {
+      out[key] = deepMergeSelectors(av as SelectorNode, bv as SelectorNode)
+    } else if (av === undefined || av === true) {
+      out[key] = bv
+    }
+  }
   return out
 }
 
@@ -344,6 +452,7 @@ export function useDataStaticAnalyzer(
               selectors?: any
               connection?: {path: string[]}
               field?: string | null
+              trigger?: string | null
               constName: string
               index: number
               decl?: string
@@ -390,6 +499,7 @@ export function useDataStaticAnalyzer(
                     node: m.node,
                     start: m.node.getStart(),
                     field: m.field,
+                    trigger: m.trigger,
                     constName: '',
                     index: 0
                   })
@@ -415,12 +525,19 @@ export function useDataStaticAnalyzer(
                         'useMutation expects a `m => m.field` selector naming the mutation.'
                       )
                     }
+                    const nested = it.trigger
+                      ? analyzeTriggerReturn(it.node, it.trigger, contents)
+                      : {}
                     const lowered = lowerMutation(
                       schema,
                       it.field,
                       `${base}_${it.index}`,
                       it.constName,
-                      {scalarTypes: options.scalarTypes, docFnName: '__pylonDoc'}
+                      {
+                        scalarTypes: options.scalarTypes,
+                        docFnName: '__pylonDoc',
+                        nested
+                      }
                     )
                     it.decl = lowered.docDeclaration
                     outputContents = rewriteMutationCall(

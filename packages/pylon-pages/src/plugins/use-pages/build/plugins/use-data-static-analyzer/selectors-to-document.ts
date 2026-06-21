@@ -85,12 +85,44 @@ export function lowerQuery(
  * trigger-return reads (`analyze(triggerReturn)`) can be merged in here later;
  * full scalars already give cache-consistent updates for the common case.
  */
+/** Deep-merge two selector trees (b's object subtrees win over a's `true`). */
+function mergeSelectorNodes(
+  a: Record<string, unknown>,
+  b: Record<string, unknown>
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {...a}
+  for (const [key, bv] of Object.entries(b)) {
+    const av = out[key]
+    if (
+      av &&
+      bv &&
+      typeof av === 'object' &&
+      typeof bv === 'object' &&
+      !Array.isArray(av) &&
+      !Array.isArray(bv)
+    ) {
+      out[key] = mergeSelectorNodes(
+        av as Record<string, unknown>,
+        bv as Record<string, unknown>
+      )
+    } else if (av === undefined || av === true) {
+      out[key] = bv
+    }
+  }
+  return out
+}
+
 export function lowerMutation(
   schema: GraphQLSchema,
   fieldName: string,
   operationName: string,
   constName: string,
-  options: {scalarTypes?: Record<string, string>; docFnName?: string} = {}
+  options: {
+    scalarTypes?: Record<string, string>
+    docFnName?: string
+    /** analyze(triggerReturn): nested/relation selectors read off the result. */
+    nested?: SelectorNode
+  } = {}
 ): LoweredQuery {
   const mutationType = schema.getMutationType()
   const field = mutationType?.getFields()[fieldName]
@@ -101,8 +133,13 @@ export function lowerMutation(
     )
   }
   const returnTypeName = getNamedType(field.type).name
+  // selection = allScalars(ReturnType) ∪ analyze(triggerReturn) ∪ {id, __typename}
+  const returnSelection = mergeSelectorNodes(
+    allScalarSelectors(schema, returnTypeName),
+    (options.nested ?? {}) as Record<string, unknown>
+  )
   const selectors = {
-    [fieldName]: allScalarSelectors(schema, returnTypeName)
+    [fieldName]: returnSelection
   } as unknown as QuerySelectorNode
 
   const compiled = compileOperation(schema, selectors, {
