@@ -44,10 +44,11 @@ const compile = (selectors: SelectorNode, opts?: any) =>
   compileOperation(schema, selectors, {name: 'Test', ...opts})
 
 describe('compileOperation', () => {
-  it('compiles a simple nested selection', () => {
+  it('compiles a simple nested selection (auto-selects __typename + id)', () => {
     const op = compile({me: {name: true, age: true}})
-    expect(op.body).toBe('query Test { me { name age } }')
+    expect(op.body).toBe('query Test { me { name age __typename id } }')
     expect(op.variables).toEqual([])
+    // TS type omits the auto-injected infra fields.
     expect(op.resultType).toBe(
       '{ me: { name: string | null; age: number } | null }'
     )
@@ -55,11 +56,13 @@ describe('compileOperation', () => {
 
   it('lifts field arguments into variables', () => {
     const op = compile({user: {__args: '{ id: userId }', name: true}})
-    expect(op.body).toBe('query Test($v0: ID!) { user(id: $v0) { name } }')
+    expect(op.body).toBe(
+      'query Test($v0: ID!) { user(id: $v0) { name __typename id } }'
+    )
     expect(op.variables).toEqual([{name: 'v0', expr: 'userId'}])
   })
 
-  it('handles a scalar field with arguments', () => {
+  it('handles a scalar field with arguments (no meta injection on scalars)', () => {
     const op = compile({count: {__args: '{ filter: q }'}})
     expect(op.body).toBe('query Test($v0: String) { count(filter: $v0) }')
     expect(op.variables).toEqual([{name: 'v0', expr: 'q'}])
@@ -96,13 +99,13 @@ describe('compileOperation', () => {
     expect(op.body).toContain(
       'posts(first: $p_first, after: $p_after, last: $p_last, before: $p_before)'
     )
-    expect(op.body).toContain('pageInfo { hasNextPage hasPreviousPage startCursor endCursor }')
-    expect(op.body).toContain('edges { cursor node { title } }')
+    expect(op.body).toContain('hasNextPage hasPreviousPage startCursor endCursor')
+    expect(op.body).toContain('node { title __typename id }')
     expect(op.body).toContain('totalCount')
   })
 
   it('merges conditional branches into one selection', () => {
     const op = compile({me: [{name: true}, {age: true}] as any})
-    expect(op.body).toBe('query Test { me { name age } }')
+    expect(op.body).toBe('query Test { me { name age __typename id } }')
   })
 })

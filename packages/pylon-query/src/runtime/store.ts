@@ -23,6 +23,8 @@ export interface StoreEntry {
 
 export class Store {
   private map = new Map<string, StoreEntry>()
+  /** Canonical entities, keyed "Type:id". Operation data holds refs into this. */
+  private entities = new Map<string, Record<string, unknown>>()
   private listeners = new Set<() => void>()
   private version = 0
 
@@ -76,6 +78,42 @@ export class Store {
     return () => {
       this.listeners.delete(fn)
     }
+  }
+
+  // ── entities ───────────────────────────────────────────────────────────────
+
+  /** Read a canonical entity (current value — reads reflect later mutations). */
+  getEntity = (key: string): Record<string, unknown> | undefined =>
+    this.entities.get(key)
+
+  /** Shallow-merge entities into the table and notify. */
+  mergeEntities(entities: Record<string, Record<string, unknown>>): void {
+    const keys = Object.keys(entities)
+    if (keys.length === 0) return
+    for (const key of keys) {
+      this.entities.set(key, {...this.entities.get(key), ...entities[key]})
+    }
+    this.emit()
+  }
+
+  /** Directly write/patch a single entity (manual cache writes, mutations). */
+  writeEntity(key: string, fields: Record<string, unknown>): void {
+    this.entities.set(key, {...this.entities.get(key), ...fields})
+    this.emit()
+  }
+
+  entitiesSnapshot(): Record<string, Record<string, unknown>> {
+    const out: Record<string, Record<string, unknown>> = {}
+    for (const [key, value] of this.entities) out[key] = value
+    return out
+  }
+
+  hydrateEntities(record: Record<string, Record<string, unknown>> | undefined | null): void {
+    if (!record) return
+    for (const key of Object.keys(record)) {
+      if (!this.entities.has(key)) this.entities.set(key, record[key])
+    }
+    this.emit()
   }
 
   /**

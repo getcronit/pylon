@@ -92,7 +92,8 @@ export function compileOperation(
       ? options.connection.path[0]
       : undefined
 
-  const {sdl, ts} = compileObject(ctx, queryType, selectors, forceConn)
+  // Root operation type is not an entity → no __typename/id injection.
+  const {sdl, ts} = compileObject(ctx, queryType, selectors, forceConn, false)
 
   const allDecls = [
     ...ctx.variables.map(v => `$${v.name}: ${v.gqlType}`),
@@ -128,22 +129,31 @@ function allocVar(ctx: Ctx, gqlType: string, expr: string): string {
   return name
 }
 
-/** Compile a selection set against an object type. Returns SDL + TS literal. */
+/**
+ * Compile a selection set against an object type. Returns SDL + TS literal.
+ *
+ * `injectMeta` (default true) auto-selects `__typename`, and `id` when the type
+ * has it, so the store can normalize the object into the entity table. The root
+ * operation type passes `false` (it isn't an entity).
+ */
 function compileObject(
   ctx: Ctx,
   type: GraphQLObjectType,
   node: SelectorNode,
-  forceConnectionField?: string
+  forceConnectionField?: string,
+  injectMeta = true
 ): {sdl: string; ts: string} {
   const fields = type.getFields()
   const selections: string[] = []
   const tsMembers: string[] = []
+  const selected = new Set<string>()
 
   for (const key of Object.keys(node)) {
     if (key === '__args' || key === '__isList') continue
     if (key === '__typename') {
       selections.push('__typename')
       tsMembers.push('__typename?: string')
+      selected.add('__typename')
       continue
     }
 
@@ -154,6 +164,7 @@ function compileObject(
           `The useData selection references a field the schema doesn't have.`
       )
     }
+    selected.add(key)
 
     const value = node[key]
     const merged = mergeBranches(value)
@@ -168,6 +179,13 @@ function compileObject(
     const {sdl, ts} = compileField(ctx, field, merged)
     selections.push(`${key}${sdl}`)
     tsMembers.push(`${key}: ${ts}`)
+  }
+
+  // Normalization metadata — added to the wire document only (not the TS type;
+  // these are infra fields the user didn't select).
+  if (injectMeta) {
+    if (!selected.has('__typename')) selections.push('__typename')
+    if (fields['id'] && !selected.has('id')) selections.push('id')
   }
 
   if (selections.length === 0) {

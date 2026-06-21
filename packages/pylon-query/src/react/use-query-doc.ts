@@ -1,6 +1,5 @@
 import {useCallback, useSyncExternalStore} from 'react'
 import type {TypedDoc} from '../runtime/doc'
-import {wrapResult} from '../runtime/wrap'
 import {usePylonQueryClient} from './context'
 
 export interface UseQueryDocOptions {
@@ -64,7 +63,5 @@ export function useQueryDoc<TResult, TVars extends Record<string, unknown>>(
     return rootData
   }
 
-  return wrapResult<WithRefetch<TResult>>(getRoot, client.descriptor, {
-    $refetch: refetch
-  })
+  return client.wrapData<WithRefetch<TResult>>(getRoot, {$refetch: refetch})
 }

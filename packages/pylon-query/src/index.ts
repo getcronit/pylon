@@ -19,8 +19,15 @@ export {
   type PylonQueryClientOptions,
   type QueryRead
 } from './runtime/client'
-export {wrapResult} from './runtime/wrap'
+export {wrapResult, type Deref} from './runtime/wrap'
 export {variablesHash, stableStringify, hashString} from './runtime/hash'
+export {
+  normalize,
+  isRef,
+  entityKey,
+  type Ref,
+  type NormalizeResult
+} from './runtime/normalize'
 
 // ── React ────────────────────────────────────────────────────────────────
 export {PylonQueryProvider, usePylonQueryClient} from './react/context'

@@ -38,7 +38,7 @@ describe('PylonQueryClient', () => {
     const {client} = makeClient({me: {name: 'Ada'}})
     await client.fetch(D)
     const snapshot = client.collect()
-    expect(Object.values(snapshot)).toContainEqual({me: {name: 'Ada'}})
+    expect(Object.values(snapshot.ops)).toContainEqual({me: {name: 'Ada'}})
 
     const {client: client2, fetcher: fetcher2} = makeClient({me: {name: 'X'}})
     client2.hydrate(snapshot)

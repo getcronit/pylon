@@ -6,7 +6,9 @@ import {
   type FetcherResult,
   type GraphQLRequest
 } from './fetcher'
+import {isRef, normalize} from './normalize'
 import {Store} from './store'
+import {wrapResult} from './wrap'
 
 /** Empty descriptor — every field falls back to raw values (no wrapping). */
 const EMPTY_DESCRIPTOR: SchemaDescriptor = {query: 'Query', types: {}}
@@ -70,8 +72,12 @@ export class PylonQueryClient {
           this.store.patch(key, {error: err, promise: undefined})
           throw err
         }
+        // Normalize: hoist entities into the canonical table, store the ref tree
+        // as the operation's data. Cross-query consistency falls out of this.
+        const {root, entities} = normalize(res.data)
+        this.store.mergeEntities(entities)
         this.store.patch(key, {
-          data: res.data,
+          data: root,
           error: undefined,
           promise: undefined,
           writtenAt: Date.now(),
@@ -130,14 +136,39 @@ export class PylonQueryClient {
     return this.fetch(d, variables)
   }
 
-  /** SSR: flat operation-keyed snapshot for `window.__pylon`. */
-  collect(): Record<string, unknown> {
-    return this.store.snapshot()
+  /**
+   * SSR snapshot for `window.__pylon`: the operation ref-trees plus the entity
+   * table they reference (refs would be dangling without it).
+   */
+  collect(): {ops: Record<string, unknown>; entities: Record<string, unknown>} {
+    return {ops: this.store.snapshot(), entities: this.store.entitiesSnapshot()}
   }
 
-  /** Client: seed the cache from a hydration payload. */
-  hydrate(record: Record<string, unknown> | undefined | null): void {
-    this.store.hydrate(record)
+  /** Client: seed the cache from a hydration payload (entities first). */
+  hydrate(
+    payload:
+      | {ops?: Record<string, unknown>; entities?: Record<string, Record<string, unknown>>}
+      | null
+      | undefined
+  ): void {
+    if (!payload) return
+    this.store.hydrateEntities(payload.entities)
+    this.store.hydrate(payload.ops)
+  }
+
+  /** Resolve a ref into its canonical entity (identity for non-refs). */
+  deref = (value: any): any =>
+    isRef(value) ? this.store.getEntity(value.__ref) : value
+
+  /**
+   * Wrap an operation root (ref tree) for component reads — dereferencing
+   * entities against the live table, so reads reflect later mutations.
+   */
+  wrapData<T = any>(
+    getRoot: () => unknown,
+    rootExtras?: Record<string, unknown>
+  ): T {
+    return wrapResult<T>(getRoot, this.descriptor, rootExtras, this.deref)
   }
 }
 

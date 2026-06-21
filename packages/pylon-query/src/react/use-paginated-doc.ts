@@ -1,6 +1,5 @@
 import {useCallback, useRef, useState, useSyncExternalStore} from 'react'
 import {opKey, type TypedDoc} from '../runtime/doc'
-import {wrapResult} from '../runtime/wrap'
 import {usePylonQueryClient} from './context'
 
 export interface PageInfo {
@@ -182,7 +181,7 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
     const data =
       idx === 0 ? firstRead.data : client.store.get(opKey(doc, w.vars))?.data
     if (data == null) return
-    const wrapped = wrapResult<any>(() => data, client.descriptor)
+    const wrapped = client.wrapData<any>(() => data)
     const connWrapped = getAtPath(wrapped, conn.path)
     const connRaw = getAtPath(data, conn.path)
     if (idx === 0) firstConnRaw = connRaw

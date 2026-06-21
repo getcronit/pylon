@@ -59,7 +59,7 @@ describe('analyzer selectors → pylon-query document', () => {
 
     const lowered = lowerQuery(schema, queries[0].selectors, 'Page', '__doc')
     expect(lowered.compiled.body).toBe(
-      'query Page($v0: ID!) { user(id: $v0) { name email } }'
+      'query Page($v0: ID!) { user(id: $v0) { name email __typename id } }'
     )
     expect(lowered.variablesThunk).toBe('() => ({v0: id})')
     expect(lowered.docDeclaration).toContain('doc<')
@@ -84,7 +84,7 @@ describe('analyzer selectors → pylon-query document', () => {
       last: 'p_last',
       before: 'p_before'
     })
-    expect(lowered.compiled.body).toContain('edges { cursor node { title } }')
+    expect(lowered.compiled.body).toContain('node { title __typename id }')
     expect(lowered.docDeclaration).toContain('connection')
   })
 })
