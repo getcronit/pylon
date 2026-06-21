@@ -54,13 +54,20 @@ function buildField(
   fieldName: string,
   ctx: Ctx
 ): unknown {
-  const fd = ctx.descriptor.types[ownerType]?.[fieldName]
+  let fd = ctx.descriptor.types[ownerType]?.[fieldName]
   const getValue = () => {
     const owner = getOwner()
     return owner == null ? undefined : ctx.deref(owner[fieldName])
   }
 
-  // Unknown field (concrete-type field via an interface, or __typename): raw.
+  // Polymorphic dispatch: a field not on the static (interface/union) type is
+  // resolved via the value's runtime __typename → its concrete type's descriptor.
+  if (!fd) {
+    const tn = getOwner()?.__typename
+    if (tn) fd = ctx.descriptor.types[tn]?.[fieldName]
+  }
+
+  // Truly unknown field → raw value.
   if (!fd) return getValue()
 
   if (fd.callable) {

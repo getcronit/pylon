@@ -4,12 +4,16 @@ import {
   GraphQLObjectType,
   GraphQLSchema,
   isEnumType,
+  isInterfaceType,
   isListType,
   isNonNullType,
   isObjectType,
   isScalarType,
+  isUnionType,
   type GraphQLField,
-  type GraphQLOutputType
+  type GraphQLInterfaceType,
+  type GraphQLOutputType,
+  type GraphQLUnionType
 } from 'graphql'
 import type {ConnectionMeta} from '../runtime/doc'
 
@@ -274,8 +278,14 @@ function compileField(
       innerSdl = ` ${sub.sdl}`
       innerTs = sub.ts
     }
+  } else if (isInterfaceType(named) || isUnionType(named)) {
+    const sub =
+      typeof node === 'object'
+        ? compileInterfaceUnionField(ctx, named, node)
+        : {sdl: '{ __typename }', ts: '{ __typename?: string }'}
+    innerSdl = ` ${sub.sdl}`
+    innerTs = sub.ts
   } else {
-    // interface/union — not fully supported yet; select __typename.
     innerSdl = ' { __typename }'
     innerTs = '{ __typename?: string }'
   }
@@ -311,6 +321,99 @@ function compileArgs(
     parts.push(`${argName}: $${varName}`)
   }
   return `(${parts.join(', ')})`
+}
+
+/**
+ * Compile a field returning an interface or union into inline fragments.
+ *
+ * The analyzer records a flat selection (`{ id, title, body }`); we partition it
+ * against the schema: fields on the interface itself select directly, and each
+ * remaining field is grouped under `... on ConcreteType { … }` for every possible
+ * type that declares it. `__typename` discriminates. Result TS is merged-optional
+ * (concrete fields become optional), so component code reads `node.title`
+ * casually and branches on `node.__typename`.
+ */
+function compileInterfaceUnionField(
+  ctx: Ctx,
+  abstractType: GraphQLInterfaceType | GraphQLUnionType,
+  node: SelectorNode
+): {sdl: string; ts: string} {
+  const ifaceFields = isInterfaceType(abstractType)
+    ? abstractType.getFields()
+    : ({} as Record<string, GraphQLField<any, any>>)
+  const possible = ctx.schema.getPossibleTypes(abstractType)
+
+  const selections: string[] = []
+  // member name → {types, optional}; rendered merged-optional.
+  const members = new Map<string, {types: Set<string>; optional: boolean}>()
+  const addMember = (name: string, ts: string, optional: boolean) => {
+    const m = members.get(name)
+    if (m) {
+      m.types.add(ts)
+      if (!optional) m.optional = false
+    } else {
+      members.set(name, {types: new Set([ts]), optional})
+    }
+  }
+
+  const accessed = Object.keys(node).filter(
+    k => k !== '__args' && k !== '__isList' && k !== '__typename'
+  )
+  const handled = new Set<string>()
+
+  // 1. Fields on the interface itself → select directly (required in TS).
+  for (const key of accessed) {
+    const f = ifaceFields[key]
+    if (!f) continue
+    const {sdl, ts} = compileField(ctx, f, mergeBranches(node[key]))
+    selections.push(`${key}${sdl}`)
+    addMember(key, ts, false)
+    handled.add(key)
+  }
+
+  // 2. __typename discriminator (string-literal union of the possible types).
+  selections.push('__typename')
+  members.set('__typename', {
+    types: new Set(possible.map(t => JSON.stringify(t.name))),
+    optional: false
+  })
+
+  // 3. Per possible type: remaining accessed fields it declares.
+  for (const type of possible) {
+    const tFields = type.getFields()
+    const fragSelections: string[] = []
+    for (const key of accessed) {
+      if (handled.has(key)) continue
+      const f = tFields[key]
+      if (!f) continue
+      const {sdl, ts} = compileField(ctx, f, mergeBranches(node[key]))
+      fragSelections.push(`${key}${sdl}`)
+      addMember(key, ts, true) // concrete field → optional
+    }
+    if (fragSelections.length === 0) continue
+    fragSelections.push('__typename')
+    if (tFields['id']) fragSelections.push('id')
+    selections.push(`... on ${type.name} { ${fragSelections.join(' ')} }`)
+  }
+
+  // Fail loud on a field present on neither the interface nor any possible type.
+  for (const key of accessed) {
+    if (handled.has(key)) continue
+    if (!possible.some(t => t.getFields()[key])) {
+      throw new Error(
+        `Field "${key}" does not exist on "${abstractType.name}" or any of its ` +
+          `possible types. The selection references a field the schema doesn't have.`
+      )
+    }
+  }
+
+  const tsMembers = [...members.entries()].map(
+    ([name, m]) => `${name}${m.optional ? '?' : ''}: ${[...m.types].join(' | ')}`
+  )
+  return {
+    sdl: `{ ${selections.join(' ')} }`,
+    ts: `{ ${tsMembers.join('; ')} }`
+  }
 }
 
 /**

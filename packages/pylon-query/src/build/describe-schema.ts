@@ -1,8 +1,10 @@
 import {
   getNamedType,
+  GraphQLInterfaceType,
   GraphQLObjectType,
   GraphQLSchema,
   isEnumType,
+  isInterfaceType,
   isListType,
   isObjectType,
   isScalarType,
@@ -22,8 +24,11 @@ export function describeSchema(schema: GraphQLSchema): SchemaDescriptor {
 
   for (const type of Object.values(schema.getTypeMap())) {
     if (type.name.startsWith('__')) continue
-    if (!isObjectType(type)) continue
-    types[type.name] = describeObject(type)
+    // Object types AND interface types (the latter so the wrapper knows their
+    // shared fields; concrete fields resolve via the runtime __typename).
+    if (isObjectType(type) || isInterfaceType(type)) {
+      types[type.name] = describeObject(type)
+    }
   }
 
   return {
@@ -32,7 +37,9 @@ export function describeSchema(schema: GraphQLSchema): SchemaDescriptor {
   }
 }
 
-function describeObject(type: GraphQLObjectType): Record<string, FieldDesc> {
+function describeObject(
+  type: GraphQLObjectType | GraphQLInterfaceType
+): Record<string, FieldDesc> {
   const out: Record<string, FieldDesc> = {}
   for (const field of Object.values(type.getFields())) {
     const named = getNamedType(field.type)
