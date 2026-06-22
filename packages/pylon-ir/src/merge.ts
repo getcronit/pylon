@@ -25,6 +25,22 @@ export function mergeFields(base: Field[], extra: Field[]): Field[] {
     // owns the GraphQL enum's identity (name + members). Keep the parser's type
     // rather than the ORM's placeholder `String`.
     if (f.column?.enum && prev.type) merged.type = prev.type
+    // Paginated many-to-many: the type-checker emits it as a callable Relay
+    // Connection (`field(first, …): TConnection`, with args + exposed). The ORM
+    // contributes the SAME field only to carry join-table metadata for migrations,
+    // marked `exposed: false` (so a plain m2m list isn't double-declared). That
+    // placeholder must not hide or reshape the checker's Connection field — keep
+    // the exposed callable shape, while retaining the ORM's join `relation` meta.
+    if (
+      f.relation?.kind === 'manyToMany' &&
+      f.exposed === false &&
+      prev.exposed &&
+      prev.args
+    ) {
+      merged.exposed = true
+      merged.type = prev.type
+      merged.args = prev.args
+    }
     byName.set(f.name, merged)
   }
   return Array.from(byName.values())
