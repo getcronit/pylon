@@ -15,6 +15,8 @@ export interface ConnectionMeta {
   last?: string
   /** Variable name carrying `before` (backward cursor). */
   before?: string
+  /** Variable name carrying `skip` (offset) — drives `jumpTo(index)`. */
+  skip?: string
 }
 
 export interface DocInit {

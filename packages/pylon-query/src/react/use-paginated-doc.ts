@@ -17,9 +17,21 @@ export interface PaginatedResult<TNode = any, TEdge = any> {
   /** Merged page info (next from the last window, prev from the first). */
   pageInfo: PageInfo
   totalCount?: number
+  /**
+   * Absolute index of `nodes[0]` within the full list — the offset a virtualizer
+   * needs to place the loaded window against `totalCount`. 0 at the start / after
+   * a base-variable reset, the `jumpTo` target after a jump, and shifts down as
+   * `loadPrev` prepends.
+   */
+  startIndex: number
   loadNext: (n?: number) => Promise<void>
   loadPrev: (n?: number) => Promise<void>
-  jumpTo: (cursor: string, n?: number) => Promise<void>
+  /**
+   * Deep-link the window to an absolute node index via the connection's `skip`
+   * offset (needs a `skip` arg on the connection). Replaces the loaded windows
+   * with the anchor page; `loadNext`/`loadPrev` then continue keyset from there.
+   */
+  jumpTo: (index: number, n?: number) => Promise<void>
   isLoadingMore: boolean
 }
 
@@ -86,11 +98,15 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
     client.store.getVersion
   )
 
-  const [extraWindows, setExtraWindows] = useState<Window[]>([])
+  // The loaded windows in DISPLAY order (head = oldest, tail = newest), plus the
+  // absolute index of the head window's first node. Empty `windows` = not yet
+  // interacted with → the lazy default below provides the first (Suspense) window.
+  const [windows, setWindows] = useState<Window[]>([])
+  const [startIndex, setStartIndex] = useState(0)
   const [isLoadingMore, setLoadingMore] = useState(false)
   const baseRef = useRef<Record<string, unknown>>({})
 
-  const baseVars = (): Record<string, unknown> => {
+  const readBase = (): Record<string, unknown> => {
     const v = (variablesThunk ? variablesThunk() : {}) as Record<string, unknown>
     baseRef.current = v
     return v
@@ -101,74 +117,82 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
     ...(conn.first ? {[conn.first]: pageSize} : {})
   })
 
-  // Window list: window 0 (initial) + imperatively-appended windows.
-  const allWindows = (base: Record<string, unknown>): Window[] => [
-    {vars: firstWindowVars(base)},
-    ...extraWindows
-  ]
+  // Current display windows, materializing the lazy default when none are set.
+  const liveWindows = (): Window[] =>
+    windows.length ? windows : [{vars: firstWindowVars(baseRef.current)}]
 
   // ── loaders ──────────────────────────────────────────────────────────────
   const loadNext = useCallback(
     async (n?: number) => {
-      const base = baseRef.current
-      const windows = [{vars: firstWindowVars(base)}, ...extraWindows]
-      const last = windows[windows.length - 1]
-      const lastData = client.store.get(opKey(doc, last.vars))?.data
-      const endCursor = readConnection(client, lastData, conn.path)?.pageInfo
+      const eff = liveWindows()
+      const tail = eff[eff.length - 1]
+      const tailData = client.store.get(opKey(doc, tail.vars))?.data
+      const endCursor = readConnection(client, tailData, conn.path)?.pageInfo
         ?.endCursor
-      if (!endCursor) return
+      if (endCursor == null || !conn.after) return
       const vars = {
-        ...base,
+        ...baseRef.current,
         ...(conn.first ? {[conn.first]: n ?? pageSize} : {}),
-        ...(conn.after ? {[conn.after]: endCursor} : {})
+        [conn.after]: endCursor
       }
       setLoadingMore(true)
       try {
         await client.fetch(doc, vars as TVars)
-        setExtraWindows(w => [...w, {vars}])
+        setWindows([...eff, {vars}]) // append: startIndex unchanged
       } finally {
         setLoadingMore(false)
       }
     },
-    [client, doc, extraWindows, pageSize]
+    [client, doc, windows, pageSize]
   )
 
   const loadPrev = useCallback(
     async (n?: number) => {
-      const base = baseRef.current
-      const windows = [{vars: firstWindowVars(base)}, ...extraWindows]
-      const firstData = client.store.get(opKey(doc, windows[0].vars))?.data
-      const startCursor = readConnection(client, firstData, conn.path)?.pageInfo
+      const eff = liveWindows()
+      const headData = client.store.get(opKey(doc, eff[0].vars))?.data
+      const startCursor = readConnection(client, headData, conn.path)?.pageInfo
         ?.startCursor
-      if (!startCursor) return
+      if (startCursor == null || !conn.before) return
       const vars = {
-        ...base,
+        ...baseRef.current,
         ...(conn.last ? {[conn.last]: n ?? pageSize} : {}),
-        ...(conn.before ? {[conn.before]: startCursor} : {})
+        [conn.before]: startCursor
       }
       setLoadingMore(true)
       try {
         await client.fetch(doc, vars as TVars)
-        setExtraWindows(w => [{vars}, ...w])
+        // Prepend: the head's first node moves down by however many we fetched.
+        const added =
+          readConnection(client, client.store.get(opKey(doc, vars))?.data, conn.path)
+            ?.edges?.length ?? 0
+        setWindows([{vars}, ...eff])
+        setStartIndex(s => Math.max(0, s - added))
       } finally {
         setLoadingMore(false)
       }
     },
-    [client, doc, extraWindows, pageSize]
+    [client, doc, windows, pageSize]
   )
 
   const jumpTo = useCallback(
-    async (cursor: string, n?: number) => {
-      const base = baseRef.current
+    async (index: number, n?: number) => {
+      const target = Math.max(0, Math.floor(index ?? 0))
+      if (target > 0 && !conn.skip) {
+        throw new Error(
+          `usePaginatedData: jumpTo(index) needs a "skip" arg on the connection ` +
+            `"${doc.name}". Only cursor-adjacent loadNext/loadPrev are available.`
+        )
+      }
       const vars = {
-        ...base,
+        ...baseRef.current,
         ...(conn.first ? {[conn.first]: n ?? pageSize} : {}),
-        ...(conn.after ? {[conn.after]: cursor} : {})
+        ...(target > 0 && conn.skip ? {[conn.skip]: target} : {})
       }
       setLoadingMore(true)
       try {
         await client.fetch(doc, vars as TVars)
-        setExtraWindows([{vars}])
+        setWindows([{vars}]) // replace the stack with the anchor page
+        setStartIndex(target)
       } finally {
         setLoadingMore(false)
       }
@@ -176,27 +200,41 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
     [client, doc, pageSize]
   )
 
-  // ── read + merge (Suspense on the first window) ────────────────────────────
-  const base = baseVars()
-  const windows = allWindows(base)
+  // ── base-variable reset ────────────────────────────────────────────────────
+  // A changed base (e.g. a new search `query`) invalidates the cursor windows, so
+  // fall back to a single fresh window. Done during render (bounded by the sig
+  // ref) so this render already uses the reset window for Suspense + merge.
+  const base = readBase()
+  const baseSig = JSON.stringify(base)
+  const sigRef = useRef(baseSig)
+  let resetting = false
+  if (sigRef.current !== baseSig) {
+    sigRef.current = baseSig
+    resetting = true
+    if (windows.length) setWindows([])
+    if (startIndex !== 0) setStartIndex(0)
+  }
 
-  // First window: suspend on miss.
-  const firstKey = opKey(doc, windows[0].vars)
-  const firstRead = client.ensure(doc, windows[0].vars as TVars)
-  if (firstRead.error !== undefined) throw firstRead.error
-  if (firstRead.promise) throw firstRead.promise
+  const effWindows: Window[] =
+    !resetting && windows.length ? windows : [{vars: firstWindowVars(base)}]
+  const effStartIndex = resetting ? 0 : startIndex
 
-  // Merge edges across all windows that already have data. All reads go through
-  // the deref-aware wrapped connection (so normalized intermediates resolve).
+  // ── read + merge (Suspense on the head window) ─────────────────────────────
+  const headRead = client.ensure(doc, effWindows[0].vars as TVars)
+  if (headRead.error !== undefined) throw headRead.error
+  if (headRead.promise) throw headRead.promise
+
+  // Merge edges across all windows that already have data, in display order. All
+  // reads go through the deref-aware wrapped connection.
   const mergedEdges: any[] = []
   const seenCursors = new Set<string>()
   let firstConn: any
   let lastConn: any
   let totalCount: number | undefined
 
-  windows.forEach((w, idx) => {
+  effWindows.forEach((w, idx) => {
     const data =
-      idx === 0 ? firstRead.data : client.store.get(opKey(doc, w.vars))?.data
+      idx === 0 ? headRead.data : client.store.get(opKey(doc, w.vars))?.data
     const connWrapped = readConnection(client, data, conn.path)
     if (connWrapped == null) return
     if (idx === 0) firstConn = connWrapped
@@ -214,8 +252,6 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
       mergedEdges.push(edges[i])
     }
   })
-  // keep the unused key reference meaningful for debugging
-  void firstKey
 
   const pageInfo: PageInfo = {
     hasNextPage: !!lastConn?.pageInfo?.hasNextPage,
@@ -229,6 +265,7 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
     nodes: mergedEdges.map(e => e?.node),
     pageInfo,
     totalCount,
+    startIndex: effStartIndex,
     loadNext,
     loadPrev,
     jumpTo,

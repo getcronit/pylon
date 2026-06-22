@@ -49,6 +49,13 @@ export interface CompileOptions {
    * `mutate(vars)` provides them.
    */
   runtimeArgsField?: string
+  /**
+   * For imperative `op` selectors: when an object is returned with no explicit
+   * sub-selection, fetch all of its (argument-free) scalar/enum fields instead of
+   * just `__typename`. Makes `op.query(q => q.user({id}))` fetch the whole user,
+   * so any scalar read off the awaited result resolves — matching gqty `resolve`.
+   */
+  fillObjectLeaves?: boolean
 }
 
 export interface CompiledOperation {
@@ -92,7 +99,7 @@ export function allScalarSelectors(
   return out
 }
 
-const PAGINATION_ARGS = ['first', 'after', 'last', 'before'] as const
+const PAGINATION_ARGS = ['first', 'after', 'last', 'before', 'skip'] as const
 
 /**
  * Lower an analyzer selector tree into a typed GraphQL operation. This is the
@@ -124,7 +131,8 @@ export function compileOperation(
     runtimeArgsField: options.runtimeArgsField,
     connectionOpt: options.connection,
     connectionPath: options.connection?.path,
-    connectionMeta: undefined
+    connectionMeta: undefined,
+    fillObjectLeaves: options.fillObjectLeaves ?? false
   }
 
   // Root operation type is not an entity → no __typename/id injection.
@@ -163,6 +171,8 @@ interface Ctx {
   /** Path (any depth) to the connection field, e.g. ["post","comments"]. */
   connectionPath?: string[]
   connectionMeta?: ConnectionMeta
+  /** op: expand bare-object returns to allScalars (see CompileOptions). */
+  fillObjectLeaves: boolean
 }
 
 function pathsEqual(a: string[], b: string[]): boolean {
@@ -194,7 +204,25 @@ function compileObject(
   const tsMembers: string[] = []
   const selected = new Set<string>()
 
-  for (const key of Object.keys(node)) {
+  // op `fillObjectLeaves`: a returned object with no explicit field projection
+  // fetches all (argument-free) scalar/enum fields, so any scalar read off the
+  // awaited result resolves. Injected before the loop so wrappers/meta apply.
+  let effectiveNode = node
+  if (ctx.fillObjectLeaves) {
+    const hasUserFields = Object.keys(node).some(
+      k => k !== '__args' && k !== '__isList' && k !== '__typename'
+    )
+    if (!hasUserFields) {
+      effectiveNode = {...node}
+      for (const f of Object.values(fields)) {
+        if (f.args.length > 0) continue
+        const n = getNamedType(f.type)
+        if (isScalarType(n) || isEnumType(n)) effectiveNode[f.name] = true
+      }
+    }
+  }
+
+  for (const key of Object.keys(effectiveNode)) {
     if (key === '__args' || key === '__isList') continue
     if (key === '__typename') {
       selections.push('__typename')
@@ -212,7 +240,7 @@ function compileObject(
     }
     selected.add(key)
 
-    const value = node[key]
+    const value = effectiveNode[key]
     const merged = mergeBranches(value)
     const fieldPath = [...currentPath, key]
 
@@ -275,9 +303,16 @@ function compileField(
     innerTs = enumTs(named)
   } else if (isObjectType(named)) {
     if (typeof node !== 'object') {
-      // Object field selected as a leaf — keep valid with __typename.
-      innerSdl = ' { __typename }'
-      innerTs = '{ __typename?: string }'
+      if (ctx.fillObjectLeaves) {
+        // op: a bare object return (`q.me`) fetches all its scalars.
+        const sub = compileObject(ctx, named, {}, currentPath)
+        innerSdl = ` ${sub.sdl}`
+        innerTs = sub.ts
+      } else {
+        // Object field selected as a leaf — keep valid with __typename.
+        innerSdl = ' { __typename }'
+        innerTs = '{ __typename?: string }'
+      }
     } else {
       const sub = compileObject(ctx, named, node, currentPath)
       innerSdl = ` ${sub.sdl}`
