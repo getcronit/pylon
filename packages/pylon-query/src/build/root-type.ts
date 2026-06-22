@@ -113,12 +113,24 @@ function renderObject(
   return `export interface ${type.name} {\n${members.join('\n')}\n}`
 }
 
+/**
+ * Emit a GraphQL enum as a real, importable value alongside its type — not just
+ * a bare string-literal union. The `as const` object gives runtime members
+ * (`Status.ACTIVE`), and the same-named type alias keeps the type a string
+ * union, so raw literals still assign (`data.status === "ACTIVE"`) and it unifies
+ * with the analyzer's inline result types. Value + type share the name via TS
+ * declaration merging.
+ */
 function renderEnum(type: GraphQLEnumType): string {
-  const union = type
-    .getValues()
-    .map(v => JSON.stringify(v.value))
-    .join(' | ')
-  return `export type ${type.name} = ${union}`
+  const values = type.getValues()
+  const members = values
+    .map(v => `  ${v.name}: ${JSON.stringify(v.value)}`)
+    .join(',\n')
+  const union = values.map(v => JSON.stringify(v.value)).join(' | ')
+  return (
+    `export const ${type.name} = {\n${members}\n} as const\n\n` +
+    `export type ${type.name} = ${union}`
+  )
 }
 
 function renderInput(

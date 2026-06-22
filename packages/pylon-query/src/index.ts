@@ -47,3 +47,8 @@ export {
   type MutationState,
   type MutationTrigger
 } from './react/use-mutation-doc'
+export {
+  op,
+  registerOperationClient,
+  type Operation
+} from './runtime/operation'
