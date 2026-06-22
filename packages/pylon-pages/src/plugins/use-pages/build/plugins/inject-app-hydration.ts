@@ -58,8 +58,9 @@ ${
             }
 
             // Operation-keyed hydration: seed the pylon-query store from the
-            // flat { opKey: result } map the server embedded as window.__pylon.
-            const payload = (window as any).__pylon
+            // flat { opKey: result } map the server embedded under
+            // window.__pylonStaticData.cache.
+            const payload = (window as any).__pylonStaticData?.cache
             if (payload) {
               const coreClient = (client as any).client || client
               if (coreClient && typeof coreClient.hydrate === 'function') {

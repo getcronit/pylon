@@ -47,7 +47,8 @@ const DataClientProvider: React.FC<{
   const cache = isServer ? staticData?.cache : undefined
   const pagesContext = isServer
     ? staticData?.context
-    : (typeof window !== 'undefined' && (window as any).__pylonContext) ||
+    : (typeof window !== 'undefined' &&
+        (window as any).__pylonStaticData?.context) ||
       undefined
 
   const contextValue = useMemo(
@@ -58,10 +59,19 @@ const DataClientProvider: React.FC<{
   return (
     <PylonQueryProvider value={coreClient}>
       <dataClientContext.Provider value={contextValue}>
-        {isServer && cache && (
+        {isServer && (cache || pagesContext) && (
           <script
             dangerouslySetInnerHTML={{
-              __html: `window.__pylon = ${serializeForScript(cache)}`
+              // Embed the SSR static data as a single envelope mirroring the
+              // `staticData` prop: `{cache, context}`. `cache` seeds the
+              // pylon-query store pre-hydration (inject-app-hydration.ts);
+              // `context` (auth/features/role) feeds `useRouteData`. Without the
+              // latter, `context` was undefined on hydration and feature-gated UI
+              // rendered on the server flashed away on the client.
+              __html: `window.__pylonStaticData = ${serializeForScript({
+                ...(cache ? {cache} : {}),
+                ...(pagesContext ? {context: pagesContext} : {})
+              })};`
             }}
           />
         )}
