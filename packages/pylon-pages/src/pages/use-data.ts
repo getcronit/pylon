@@ -114,9 +114,15 @@ export function usePaginatedData(
   }
   const mergedThunk = () => ({...(baseVarsThunk ? baseVarsThunk() : {}), ...baseArgs})
 
-  return usePaginatedDoc(doc, mergedThunk, {
+  const result = usePaginatedDoc(doc, mergedThunk, {
     first: typeof ua.first === 'number' ? ua.first : undefined
   })
+
+  // `dataRefetch(tags)` with a matching tag force-refetches the loaded windows
+  // in place — same bus as useData, so mutations/refresh buttons refresh lists.
+  useTagRefetch(ua.tags as string[] | undefined, () => void result.refetch())
+
+  return result
 }
 
 function useTagRefetch(tags: string[] | undefined, refetch: () => void): void {

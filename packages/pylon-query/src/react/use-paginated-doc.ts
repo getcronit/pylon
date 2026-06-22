@@ -32,6 +32,9 @@ export interface PaginatedResult<TNode = any, TEdge = any> {
    * with the anchor page; `loadNext`/`loadPrev` then continue keyset from there.
    */
   jumpTo: (index: number, n?: number) => Promise<void>
+  /** Force-refetch every loaded window in place (keeps the current windows and
+   *  scroll position). Used to refresh after a mutation / tag-refetch. */
+  refetch: () => Promise<void>
   isLoadingMore: boolean
 }
 
@@ -200,6 +203,18 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
     [client, doc, pageSize]
   )
 
+  const refetch = useCallback(async () => {
+    const eff = liveWindows()
+    setLoadingMore(true)
+    try {
+      // Force a fresh fetch of every loaded window (in place — windows + scroll
+      // position are preserved). The store update re-renders with fresh data.
+      await Promise.all(eff.map(w => client.refetch(doc, w.vars as TVars)))
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [client, doc, windows])
+
   // ── base-variable reset ────────────────────────────────────────────────────
   // A changed base (e.g. a new search `query`) invalidates the cursor windows, so
   // fall back to a single fresh window. Done during render (bounded by the sig
@@ -269,6 +284,7 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
     loadNext,
     loadPrev,
     jumpTo,
+    refetch,
     isLoadingMore
   }
 }
