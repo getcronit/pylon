@@ -216,23 +216,28 @@ export function date(options: FieldOptions = {}): Date | null {
 
 /**
  * A timestamp set once on insert — Prisma's `@default(now())` for `createdAt`.
- * The value is generated client-side (`new Date()`), so no SQL default leaks
- * into the model. For a DB-authoritative timestamp use the escape hatch
- * `timestamp({defaultSql: 'now()'})`.
+ * Filled client-side (`new Date()`) AND backed by a DB default (`now()`), so
+ * adding the column to an existing (populated) table backfills its rows and
+ * direct-SQL inserts still get a value. Override with `{defaultSql: …}`.
  */
 export function createdAt(options: FieldOptions = {}): Date {
-  return field('timestamptz', {}, {...options, default: () => new Date()}) as Date
+  return field('timestamptz', {}, {
+    ...options,
+    default: () => new Date(),
+    defaultSql: options.defaultSql ?? 'now()'
+  }) as Date
 }
 
 /**
  * A timestamp set on insert AND re-stamped on every update — Prisma's
- * `@updatedAt`. Same client-side generator: `default` fills it on insert,
- * `onUpdate` re-runs it on every write.
+ * `@updatedAt`. `default` fills it on insert, `onUpdate` re-runs it on every
+ * write, and a DB default (`now()`) backfills column-adds / direct-SQL inserts.
  */
 export function updatedAt(options: FieldOptions = {}): Date {
   return field('timestamptz', {}, {
     ...options,
     default: () => new Date(),
+    defaultSql: options.defaultSql ?? 'now()',
     onUpdate: () => new Date()
   }) as Date
 }
