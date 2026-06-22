@@ -116,7 +116,10 @@ const ITERATOR_METHODS = new Set([
   'flatMap',
   'toReversed',
   'toSorted',
-  'toSpliced'
+  'toSpliced',
+  // `.at(i)` returns an element (like `find`) — selection flows to the node, so
+  // `connection.nodes.at(0).field` compiles instead of treating `at` as a field.
+  'at'
 ])
 
 export interface QueryLocation {

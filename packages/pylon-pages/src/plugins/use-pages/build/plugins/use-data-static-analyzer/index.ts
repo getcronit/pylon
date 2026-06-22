@@ -299,6 +299,71 @@ function rewritePaginatedCall(
   return source.slice(0, open.getEnd()) + inner + source.slice(close.getStart())
 }
 
+/** Find `op.query(cb)` / `op.mutation(cb)` calls (op imported from pylonPackage). */
+function findOperationCalls(
+  sourceFile: any,
+  pylonPackage: string
+): {node: Node; opType: 'query' | 'mutation'; callback: Node | undefined}[] {
+  const aliases = new Set<string>()
+  for (const imp of sourceFile.getImportDeclarations()) {
+    if (imp.getModuleSpecifierValue() !== pylonPackage) continue
+    for (const named of imp.getNamedImports()) {
+      if (named.getName() === 'op') {
+        aliases.add(named.getAliasNode()?.getText() ?? named.getName())
+      }
+    }
+  }
+  if (aliases.size === 0) return []
+
+  const out: {node: Node; opType: 'query' | 'mutation'; callback: Node | undefined}[] = []
+  sourceFile.forEachDescendant((node: Node) => {
+    if (!Node.isCallExpression(node)) return
+    const expr = node.getExpression()
+    if (!Node.isPropertyAccessExpression(expr)) return
+    const obj = expr.getExpression()
+    if (!Node.isIdentifier(obj) || !aliases.has(obj.getText())) return
+    const method = expr.getName()
+    if (method !== 'query' && method !== 'mutation') return
+    out.push({node, opType: method, callback: node.getArguments()[0]})
+  })
+  return out
+}
+
+/** Analyze an `op.query`/`op.mutation` callback's field access on its root param. */
+function analyzeOperationCallback(
+  callback: Node | undefined
+): SelectorNode | null {
+  if (
+    !callback ||
+    !(Node.isArrowFunction(callback) || Node.isFunctionExpression(callback))
+  ) {
+    return null
+  }
+  const param = callback.getParameters()[0]
+  if (!param) return null
+  const nameNode = param.getNameNode()
+  if (!Node.isIdentifier(nameNode)) return null // destructured param: unsupported v1
+  // Analyze accesses on the callback's root param within its body — the same
+  // selector extraction useData runs on `data`.
+  return extractAdvancedSelectors(callback.getBody().getText(), nameNode.getText())
+}
+
+/** Rewrite `op.query(cb)` → `op.query(doc, thunk, cb)` — keep cb for projection. */
+function rewriteOperationCall(
+  source: string,
+  node: any,
+  constName: string,
+  thunk: string | undefined
+): string {
+  const open = node.getFirstChildByKind(SyntaxKind.OpenParenToken)
+  const close = node.getLastChildByKind(SyntaxKind.CloseParenToken)
+  const cb = node.getArguments()[0]
+  if (!open || !close || !cb) return source
+  const cbText = source.slice(cb.getStart(), cb.getEnd())
+  const inner = `${constName}, ${thunk ?? 'undefined'}, ${cbText}`
+  return source.slice(0, open.getEnd()) + inner + source.slice(close.getStart())
+}
+
 /** Recursively drop `__args` — nested mutation-result fields can't take runtime args. */
 function stripArgs(node: SelectorNode): SelectorNode {
   const out: SelectorNode = {}
@@ -341,10 +406,18 @@ function analyzeTriggerReturn(
     if (Node.isVariableDeclaration(p)) {
       const nameNode = p.getNameNode()
       if (Node.isIdentifier(nameNode)) {
-        // const u = await trigger(...) → analyze accesses on `u`.
+        // const u = await trigger(...) → analyze accesses on `u`, scoped to the
+        // enclosing function body. Sibling handlers commonly reuse the same
+        // result name (e.g. several `const res = await otherTrigger()`); tracing
+        // the bare name across the whole file would merge THEIR field reads into
+        // this mutation's selection and flag fields the payload doesn't have.
+        const scopeFn = p.getFirstAncestor(isFnLike)
+        const scopeBody = (scopeFn as any)?.getBody?.() as Node | undefined
+        const scopeText =
+          scopeBody && Node.isBlock(scopeBody) ? scopeBody.getText() : fileText
         merged = deepMergeSelectors(
           merged,
-          stripArgs(extractAdvancedSelectors(fileText, nameNode.getText()))
+          stripArgs(extractAdvancedSelectors(scopeText, nameNode.getText()))
         )
       } else if (Node.isObjectBindingPattern(nameNode)) {
         // const { posts } = await trigger(...) → shallow field set.
@@ -359,7 +432,27 @@ function analyzeTriggerReturn(
       if (name && !(name in merged)) merged[name] = true
     }
   })
-  return merged
+  return stripAnalyzerArtifacts(merged)
+}
+
+/**
+ * Drop analyzer-internal placeholder keys from a mutation's trigger-return
+ * selection. `extractAdvancedSelectors` traces the result variable across the
+ * whole file and can leak markers that aren't real fields — `__state` /
+ * `__index_*` (the `useState` tuple model), `__literal_*` (a literal in
+ * selection position), `__prop_*`, etc. A mutation result field is always a real
+ * GraphQL name; the only `__`-prefixed field that is selectable is `__typename`.
+ */
+function stripAnalyzerArtifacts(sel: SelectorNode): SelectorNode {
+  const out: SelectorNode = {}
+  for (const [key, val] of Object.entries(sel)) {
+    if (key.startsWith('__') && key !== '__typename') continue
+    out[key] =
+      val && typeof val === 'object' && !Array.isArray(val)
+        ? stripAnalyzerArtifacts(val as SelectorNode)
+        : val
+  }
+  return out
 }
 
 function deepMergeSelectors(a: SelectorNode, b: SelectorNode): SelectorNode {
@@ -580,7 +673,7 @@ export function useDataStaticAnalyzer(
             )
 
             type Item = {
-              kind: 'query' | 'mutation' | 'paginated'
+              kind: 'query' | 'mutation' | 'paginated' | 'operation'
               node: any
               start: number
               selectors?: any
@@ -590,6 +683,8 @@ export function useDataStaticAnalyzer(
               path?: string[]
               chainArgs?: Record<string, string>
               resultVar?: string | null
+              opType?: 'query' | 'mutation'
+              callback?: Node
               constName: string
               index: number
               decl?: string
@@ -609,7 +704,8 @@ export function useDataStaticAnalyzer(
             let allDeps = dependencies
             const sourceFileForCalls =
               contents.includes(paginatedHookName) ||
-              contents.includes(mutationHookName)
+              contents.includes(mutationHookName) ||
+              contents.includes('op.')
                 ? project.getSourceFile(args.path)
                 : undefined
 
@@ -646,6 +742,21 @@ export function useDataStaticAnalyzer(
                     index: 0
                   })
                 }
+              }
+            }
+
+            // Imperative op.query / op.mutation calls (the `resolve` replacement).
+            if (sourceFileForCalls && contents.includes('op.')) {
+              for (const o of findOperationCalls(sourceFileForCalls, pylonPackage)) {
+                items.push({
+                  kind: 'operation',
+                  node: o.node,
+                  start: o.node.getStart(),
+                  opType: o.opType,
+                  callback: o.callback,
+                  constName: '',
+                  index: 0
+                })
               }
             }
 
@@ -723,6 +834,33 @@ export function useDataStaticAnalyzer(
                       it.constName,
                       lowered.variablesThunk
                     )
+                  } else if (it.kind === 'operation') {
+                    const selectors = analyzeOperationCallback(it.callback)
+                    if (!selectors) {
+                      throw new Error(
+                        `op.${it.opType} expects an inline \`q => …\` selector ` +
+                          'with a single root param.'
+                      )
+                    }
+                    const lowered = lowerQuery(
+                      schema,
+                      selectors,
+                      `${base}_${it.index}`,
+                      it.constName,
+                      {
+                        scalarTypes: options.scalarTypes,
+                        operation: it.opType,
+                        docFnName: '__pylonDoc',
+                        fillObjectLeaves: true
+                      }
+                    )
+                    it.decl = lowered.docDeclaration
+                    outputContents = rewriteOperationCall(
+                      outputContents,
+                      it.node,
+                      it.constName,
+                      lowered.variablesThunk
+                    )
                   } else {
                     const lowered = lowerQuery(
                       schema,
@@ -744,8 +882,14 @@ export function useDataStaticAnalyzer(
                     )
                   }
                 } catch (e: any) {
+                  const label =
+                    it.kind === 'mutation'
+                      ? 'useMutation'
+                      : it.kind === 'operation'
+                        ? `op.${it.opType}`
+                        : 'useData'
                   buildErrors.push({
-                    text: `${it.kind === 'mutation' ? 'useMutation' : 'useData'}(): ${e?.message ?? e}`,
+                    text: `${label}(): ${e?.message ?? e}`,
                     location: {
                       file: args.path,
                       line: it.node.getStartLineNumber()

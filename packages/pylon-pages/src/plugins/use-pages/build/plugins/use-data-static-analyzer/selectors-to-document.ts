@@ -5,7 +5,7 @@ import {
   type CompiledOperation,
   type SelectorNode as QuerySelectorNode
 } from '@getcronit/pylon-query/build'
-import {getNamedType, type GraphQLSchema} from 'graphql'
+import {getNamedType, type GraphQLObjectType, type GraphQLSchema} from 'graphql'
 import type {SelectorNode} from './analyze'
 
 /**
@@ -35,6 +35,10 @@ export interface LowerOptions {
   connection?: {path: string[]}
   /** Identifier for the `doc` factory in the emitted declaration (default "doc"). */
   docFnName?: string
+  /** Operation type — "query" (default) or "mutation". */
+  operation?: 'query' | 'mutation'
+  /** op: expand bare-object returns to allScalars (see compile's CompileOptions). */
+  fillObjectLeaves?: boolean
 }
 
 export function lowerQuery(
@@ -49,8 +53,10 @@ export function lowerQuery(
     selectors as unknown as QuerySelectorNode,
     {
       name: operationName,
+      operation: options.operation,
       scalarTypes: options.scalarTypes,
-      connection: options.connection
+      connection: options.connection,
+      fillObjectLeaves: options.fillObjectLeaves
     }
   )
 
@@ -112,6 +118,48 @@ function mergeSelectorNodes(
   return out
 }
 
+/**
+ * Prune a heuristic selector tree (from `analyze(triggerReturn)`) to fields that
+ * actually exist on the schema type. Trigger-return tracing is name-based: it can
+ * pick up reads from sibling handlers that reuse the result variable name (e.g.
+ * several `const res = await otherTrigger()` in one component). Those false
+ * positives must be dropped rather than compiled — otherwise the build fails on a
+ * field the payload doesn't have. Real reads (e.g. `userErrors { message }`) and
+ * `__typename` survive; `allScalars` already covers scalar fields independently,
+ * so this is purely a safety filter on the additive nested selection.
+ */
+function pruneSelectorToSchema(
+  schema: GraphQLSchema,
+  typeName: string,
+  sel: Record<string, unknown>
+): Record<string, unknown> {
+  const type = schema.getType(typeName)
+  const fields =
+    type && 'getFields' in type
+      ? (type as GraphQLObjectType).getFields()
+      : null
+  if (!fields) return {}
+  const out: Record<string, unknown> = {}
+  for (const [key, val] of Object.entries(sel)) {
+    if (key === '__typename') {
+      out[key] = val
+      continue
+    }
+    const f = fields[key]
+    if (!f) continue // heuristic false positive — not a real field on this type
+    if (val && typeof val === 'object' && !Array.isArray(val)) {
+      out[key] = pruneSelectorToSchema(
+        schema,
+        getNamedType(f.type).name,
+        val as Record<string, unknown>
+      )
+    } else {
+      out[key] = val
+    }
+  }
+  return out
+}
+
 export function lowerMutation(
   schema: GraphQLSchema,
   fieldName: string,
@@ -133,10 +181,16 @@ export function lowerMutation(
     )
   }
   const returnTypeName = getNamedType(field.type).name
-  // selection = allScalars(ReturnType) ∪ analyze(triggerReturn) ∪ {id, __typename}
+  // selection = allScalars(ReturnType) ∪ prune(analyze(triggerReturn)) ∪ {id, __typename}
+  // The trigger-return reads are heuristic, so prune them to real schema fields
+  // before merging (drops cross-handler false positives instead of failing build).
   const returnSelection = mergeSelectorNodes(
     allScalarSelectors(schema, returnTypeName),
-    (options.nested ?? {}) as Record<string, unknown>
+    pruneSelectorToSchema(
+      schema,
+      returnTypeName,
+      (options.nested ?? {}) as Record<string, unknown>
+    )
   )
   const selectors = {
     [fieldName]: returnSelection
