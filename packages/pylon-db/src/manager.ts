@@ -859,28 +859,66 @@ export class QuerySet<T extends object> {
     const desc = raw.startsWith('-')
     const col = columnFor(this.def, desc ? raw.slice(1) : raw).columnName
 
+    // Keyset tiebreaker. The order column alone is rarely unique and may be
+    // NULLABLE, which makes a single-column keyset INCOMPLETE: rows that share an
+    // order value get skipped at page boundaries, and NULL-valued rows are
+    // unreachable (`col > cursor` is never true for NULL). So we page on the
+    // composite (orderCol, primaryKey) — the PK is unique + non-null, making the
+    // keyset total — with explicit NULLS ordering in the seek predicate.
+    const pkCol = this.def.primaryKey?.columnName
+    const composite = !!pkCol && pkCol !== col
+
     // Backward paging walks the reverse of the natural order, then flips back.
     const backward = args.last !== undefined || args.before !== undefined
     const size = (backward ? args.last : args.first) ?? 20
     const naturalAsc = !desc
-    const orderDir = backward
-      ? naturalAsc
-        ? 'desc'
-        : 'asc'
-      : naturalAsc
-        ? 'asc'
-        : 'desc'
+    // Effective (possibly reversed) direction + NULL placement applied to SQL.
+    // Natural order keeps NULLs LAST; reversing for backward puts them FIRST so
+    // they land last again after the page is flipped back.
+    const ea = backward ? !naturalAsc : naturalAsc // effective ascending?
+    const nullsLast = !backward
+    const dir: 'asc' | 'desc' = ea ? 'asc' : 'desc'
+    const gt = ea ? '>' : '<'
 
     const db = getDatabase()
     let q: any = db.kysely.selectFrom(this.def.tableName).select(selectableColumns(this.def))
     q = this.applyWhere(q)
-    if (!backward && args.after !== undefined) {
-      q = q.where(col, desc ? '<' : '>', decodeCursor(args.after) as any)
+
+    const cursorArg = backward ? args.before : args.after
+    if (cursorArg !== undefined) {
+      const decoded = decodeCursor(cursorArg) as any
+      // New cursors are [orderValue, pkValue]; tolerate legacy scalar cursors.
+      const [cv, ck] = Array.isArray(decoded) ? decoded : [decoded, undefined]
+      if (composite) {
+        q = q.where((eb: any) => {
+          if (cv !== null && cv !== undefined) {
+            const base = eb.or([
+              eb(col, gt, cv),
+              eb.and([eb(col, '=', cv), eb(pkCol!, gt, ck)])
+            ])
+            // NULLs sit after the non-nulls (nullsLast) → a non-null cursor's
+            // "after" includes them; otherwise they precede and are excluded.
+            return nullsLast ? eb.or([base, eb(col, 'is', null)]) : base
+          }
+          // Cursor sits on a NULL row → seek within the NULL group by PK, and
+          // (when NULLs come first) the non-null section follows.
+          const nullPart = eb.and([eb(col, 'is', null), eb(pkCol!, gt, ck)])
+          return nullsLast ? nullPart : eb.or([nullPart, eb(col, 'is not', null)])
+        })
+      } else {
+        q = q.where(col, gt, Array.isArray(decoded) ? cv : decoded)
+      }
     }
-    if (backward && args.before !== undefined) {
-      q = q.where(col, desc ? '>' : '<', decodeCursor(args.before) as any)
-    }
-    q = q.orderBy(col as any, orderDir)
+
+    q = composite
+      ? q
+          .orderBy(
+            sql`${sql.ref(col)} ${sql.raw(dir)} nulls ${sql.raw(
+              nullsLast ? 'last' : 'first'
+            )}`
+          )
+          .orderBy(pkCol as any, dir)
+      : q.orderBy(col as any, dir)
     if (!backward && args.skip) q = q.offset(args.skip)
 
     const fetched = await q.limit(size + 1).execute()
@@ -888,7 +926,8 @@ export class QuerySet<T extends object> {
     let page = hasExtra ? fetched.slice(0, size) : fetched
     if (backward) page = page.reverse() // restore natural order
 
-    const cursorOf = (r: any) => encodeCursor(r[col])
+    const cursorOf = (r: any) =>
+      encodeCursor(composite ? [r[col], r[pkCol!]] : r[col])
     const edges = page.map(r => ({cursor: cursorOf(r), node: hydrate(this.ctor, r)}))
     return {
       edges,
