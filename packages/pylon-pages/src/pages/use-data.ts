@@ -17,8 +17,14 @@ type NodeOf<C> = C extends {edges: (infer E)[]}
     ? N
     : any
 type ConnArgs<F> = F extends (args: infer A) => any
-  ? Omit<A, 'first' | 'after' | 'last' | 'before'> & {first?: number}
-  : {first?: number}
+  ? // NonNullable: the connection field's args param is optional, so `A` includes
+    // `undefined` — `Omit<… | undefined>` would drop the base args (e.g. `query`).
+    Omit<NonNullable<A>, 'first' | 'after' | 'last' | 'before' | 'skip'> & {
+      first?: number
+      /** Refetch this list when `dataRefetch(tags)` matches (create/delete). */
+      tags?: string[]
+    }
+  : {first?: number; tags?: string[]}
 
 // Cross-component refetch bus (unchanged behavior from the gqty version).
 type Events = {refetch: string[]}
