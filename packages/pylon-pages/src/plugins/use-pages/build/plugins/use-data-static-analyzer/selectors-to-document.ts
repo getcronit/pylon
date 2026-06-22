@@ -2,6 +2,7 @@ import {
   allScalarSelectors,
   compileOperation,
   documentId,
+  mutationResultSelectors,
   type CompiledOperation,
   type SelectorNode as QuerySelectorNode
 } from '@getcronit/pylon-query/build'
@@ -185,7 +186,10 @@ export function lowerMutation(
   // The trigger-return reads are heuristic, so prune them to real schema fields
   // before merging (drops cross-handler false positives instead of failing build).
   const returnSelection = mergeSelectorNodes(
-    allScalarSelectors(schema, returnTypeName),
+    // Recurse one level (payload scalars + each object/list field's scalars +id)
+    // so the returned entity normalizes and updates the cache by default — the
+    // analyzer's trigger-return reads add deeper relations on top.
+    mutationResultSelectors(schema, returnTypeName),
     pruneSelectorToSchema(
       schema,
       returnTypeName,

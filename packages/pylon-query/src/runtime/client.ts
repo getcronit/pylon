@@ -73,15 +73,20 @@ export class PylonQueryClient {
           throw err
         }
         // Normalize: hoist entities into the canonical table, store the ref tree
-        // as the operation's data. Cross-query consistency falls out of this.
+        // as the operation's data. Cross-query consistency falls out of this —
+        // a mutation patching an entity live-updates every op that refs it.
         //
-        // EXCEPT connection documents: a connection lives on its parent (which
-        // may be an entity, e.g. post.comments), and each pagination window would
-        // overwrite that single entity field. So connection results are stored
-        // inline per window (opKey), un-normalized — paginated nodes don't share
-        // the entity table, which is an accepted v1 tradeoff.
+        // This includes TOP-LEVEL connections (path length 1, e.g. q.tickets):
+        // their nodes become entity refs (so list rows reflect mutations without
+        // a refetch), while the connection object itself has no id and stays
+        // inline in the op root per window — no clobber.
+        //
+        // EXCEPT NESTED connections (e.g. post.comments): the connection lives on
+        // a parent entity's field, so normalizing would make each pagination
+        // window overwrite that single field. Those stay inline per opKey.
         let data: unknown = res.data
-        if (!d.connection) {
+        const nestedConnection = (d.connection?.path?.length ?? 0) > 1
+        if (!nestedConnection) {
           const {root, entities} = normalize(res.data)
           this.store.mergeEntities(entities)
           data = root
@@ -123,20 +128,39 @@ export class PylonQueryClient {
       return {key, error: entry.error}
     }
 
-    if (entry?.data !== undefined) {
-      const isFresh =
-        !entry.stale &&
-        entry.writtenAt !== undefined &&
-        Date.now() - entry.writtenAt < this.freshMs
-      if (!isFresh && entry.promise === undefined) {
-        // revalidate in the background; keep serving current data
-        void this.fetch(d, variables).catch(() => {})
-      }
-      return {key, data: entry.data as TResult}
-    }
+    // Render-pure: serve whatever is cached and NEVER kick off a time-based
+    // revalidation here. `ensure` runs during render, and the global store
+    // subscription re-renders every mounted query on ANY mutation — so a
+    // revalidate-during-render would make one unrelated mutation refetch every
+    // mounted query (a request storm). Mount/variables-change revalidation lives
+    // in `revalidate()`, called from an effect. Cross-query freshness after a
+    // mutation comes from entity normalization, not from refetching.
+    if (entry?.data !== undefined) return {key, data: entry.data as TResult}
 
     if (entry?.promise) return {key, promise: entry.promise}
     return {key, promise: this.fetch(d, variables)}
+  }
+
+  /**
+   * Stale-while-revalidate background check. Call from an EFFECT (mount /
+   * variables change) — never during render. Serves the cached entry untouched
+   * and, if it is older than `freshMs` (or explicitly marked stale), refetches
+   * in the background. This is what makes navigating back to a page revalidate,
+   * without coupling revalidation to unrelated re-renders.
+   */
+  revalidate<TResult, TVars extends Record<string, unknown>>(
+    d: TypedDoc<TResult, TVars>,
+    variables?: TVars
+  ): void {
+    const key = opKey(d, variables)
+    const entry = this.store.get(key)
+    // No data yet, or a fetch already in flight → render-time `ensure` owns it.
+    if (!entry || entry.data === undefined || entry.promise !== undefined) return
+    const isFresh =
+      !entry.stale &&
+      entry.writtenAt !== undefined &&
+      Date.now() - entry.writtenAt < this.freshMs
+    if (!isFresh) void this.fetch(d, variables).catch(() => {})
   }
 
   /** Force a refetch of a specific (document, variables) pair. */

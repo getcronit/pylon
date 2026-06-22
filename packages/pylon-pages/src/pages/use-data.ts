@@ -5,7 +5,7 @@ import {
   type TypedDoc
 } from '@getcronit/pylon-query'
 import mitt from 'mitt'
-import {useEffect} from 'react'
+import {useEffect, useRef} from 'react'
 import type {Data} from './index'
 
 // Connection arg → node type inference for the selector form.
@@ -132,12 +132,18 @@ export function usePaginatedData(
 }
 
 function useTagRefetch(tags: string[] | undefined, refetch: () => void): void {
+  // Keep the LATEST refetch in a ref so the (once-subscribed) handler always
+  // calls the current one. Without this it captures the first render's closure —
+  // e.g. a paginated list's `refetch` bound to only the initial window, so a
+  // tag-refetch would refresh just the first page.
+  const refetchRef = useRef(refetch)
+  refetchRef.current = refetch
   // Stringify so an inline `tags={['user']}` array doesn't re-run the effect.
   const key = tags?.join(',')
   useEffect(() => {
     if (!tags || tags.length === 0) return
     const handle = (refetchTags: string[]) => {
-      if (tags.some(t => refetchTags.includes(t))) refetch()
+      if (tags.some(t => refetchTags.includes(t))) refetchRef.current()
     }
     emitter.on('refetch', handle)
     return () => emitter.off('refetch', handle)

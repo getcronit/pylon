@@ -47,6 +47,36 @@ describe('PylonQueryClient', () => {
     expect(fetcher2).not.toHaveBeenCalled()
   })
 
+  it('ensure() is render-pure: never revalidates cached data, even when stale', async () => {
+    // freshMs:0 → every cached entry is immediately "stale". ensure() must still
+    // serve it WITHOUT refetching — otherwise every render (and every unrelated
+    // mutation re-render) would trigger a request storm.
+    const fetcher = vi.fn(async () => ({data: {me: {name: 'Ada'}}}))
+    const client = createPylonQueryClient({fetcher: fetcher as any, freshMs: 0})
+    await client.fetch(D)
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    client.ensure(D)
+    client.ensure(D)
+    expect(fetcher).toHaveBeenCalledTimes(1) // no render-time revalidation
+  })
+
+  it('revalidate() refetches stale data in the background (mount/key effect)', async () => {
+    const fetcher = vi.fn(async () => ({data: {me: {name: 'Ada'}}}))
+    const client = createPylonQueryClient({fetcher: fetcher as any, freshMs: 0})
+    await client.fetch(D)
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    client.revalidate(D)
+    expect(fetcher).toHaveBeenCalledTimes(2) // stale → background refetch
+  })
+
+  it('revalidate() leaves fresh data untouched', async () => {
+    const fetcher = vi.fn(async () => ({data: {me: {name: 'Ada'}}}))
+    const client = createPylonQueryClient({fetcher: fetcher as any, freshMs: 60_000})
+    await client.fetch(D)
+    client.revalidate(D)
+    expect(fetcher).toHaveBeenCalledTimes(1) // still fresh → no refetch
+  })
+
   it('surfaces GraphQL errors', async () => {
     const fetcher = vi.fn(async () => ({errors: [{message: 'boom'}]}))
     const client = createPylonQueryClient({fetcher: fetcher as any})

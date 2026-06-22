@@ -99,6 +99,48 @@ export function allScalarSelectors(
   return out
 }
 
+/**
+ * Default selection for a MUTATION result.
+ *
+ * Two shapes, distinguished by whether the return type has an `id`:
+ *
+ *  - Entity return (`createUser: User`, has `id`): its own scalars already
+ *    normalize and live-update the cache — behave exactly like `allScalars` and
+ *    do NOT expand relations (no over-fetching `user.posts` etc.).
+ *  - Payload wrapper (`{ ticket: Ticket, userErrors: [UserError] }`, no `id`):
+ *    the first layer is all objects, so `allScalars` selects nothing and the
+ *    result never updates the cache. Recurse ONE level — payload scalars + each
+ *    object/list field's scalars (incl. their `id`, so the wrapped entity
+ *    normalizes and live-updates every reader).
+ *
+ * Either way, the analyzer's trigger-return reads still add deeper relation
+ * selections on top.
+ */
+export function mutationResultSelectors(
+  schema: GraphQLSchema,
+  typeName: string
+): SelectorNode {
+  const type = schema.getType(typeName)
+  if (!type || !isObjectType(type)) return {}
+  const fields = type.getFields()
+  // Entity return: own scalars are enough (and normalizable). Don't pull in
+  // relations — those come from explicit trigger-return reads when needed.
+  if (fields.id) return allScalarSelectors(schema, typeName)
+  // Payload wrapper: recurse one level so each wrapped entity/error selects its
+  // scalars and normalizes.
+  const out: SelectorNode = {}
+  for (const field of Object.values(fields)) {
+    if (field.args.length > 0) continue
+    const named = getNamedType(field.type)
+    if (isScalarType(named) || isEnumType(named)) {
+      out[field.name] = true
+    } else if (isObjectType(named)) {
+      out[field.name] = allScalarSelectors(schema, named.name)
+    }
+  }
+  return out
+}
+
 const PAGINATION_ARGS = ['first', 'after', 'last', 'before', 'skip'] as const
 
 /**

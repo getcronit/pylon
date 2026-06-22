@@ -531,12 +531,21 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
       }
     }
 
-    // Append the operation-keyed hydration payload right before </body>. A
-    // classic inline script runs during parse, before the deferred app.js module
-    // calls hydrate() — so window.__pylon is set in time.
+    // Append the operation-keyed hydration payload right before </body>. The
+    // store can only be collected AFTER the render that populated it, so this
+    // can't be embedded by the in-tree DataClientProvider (which already wrote
+    // `window.__pylonStaticData = {context}` earlier in the body). Merge the
+    // collected snapshot into that SAME envelope under `.cache` — that is what
+    // inject-app-hydration.ts reads (`__pylonStaticData.cache`) and feeds to
+    // `client.hydrate()`. Both are classic inline scripts, so they run in
+    // document order before the deferred app.js calls hydrate().
     const payload = pagesClient.collect()
-    if (payload && Object.keys(payload).length > 0) {
-      const script = `<script>window.__pylon = ${serializeForScript(payload)}</script>`
+    const hasData =
+      payload &&
+      (Object.keys(payload.ops ?? {}).length > 0 ||
+        Object.keys(payload.entities ?? {}).length > 0)
+    if (hasData) {
+      const script = `<script>window.__pylonStaticData = Object.assign(window.__pylonStaticData || {}, {cache: ${serializeForScript(payload)}})</script>`
       html = html.includes('</body>')
         ? html.replace('</body>', `${script}</body>`)
         : html + script

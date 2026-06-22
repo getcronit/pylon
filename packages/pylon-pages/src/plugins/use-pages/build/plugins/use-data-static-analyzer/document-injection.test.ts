@@ -155,6 +155,54 @@ describe('analyzer document injection (schema present)', () => {
     expect(out).toMatch(/usePaginatedData\(__pylonDoc_\w+_0,\s*(undefined|void 0),\s*\{ category: ["']tech["'] \}\)/)
   })
 
+  it('injects a query document for op.query(q => …) and keeps the projection', async () => {
+    const out = await transform(`
+      import { op } from "@getcronit/pylon-pages";
+      export async function loadUser(id: string) {
+        const user = await op.query(q => q.user({ id }).name);
+        return user;
+      }
+    `)
+    expect(out).toContain('user(id: $v0)')
+    expect(out).toContain('name')
+    // op.query(cb) → op.query(doc, thunk, cb): doc + variables thunk + kept cb.
+    expect(out).toMatch(/op\.query\(__pylonDoc_\w+_0,\s*\(\)\s*=>/)
+    expect(out).toContain('v0: id')
+    // The original selector is kept as the trailing projection argument.
+    expect(out).toMatch(/\(?q\)?\s*=>\s*q\.user/)
+  })
+
+  it('analyzes a block-body op.query callback (intermediate const + return)', async () => {
+    const out = await transform(`
+      import { op } from "@getcronit/pylon-pages";
+      export async function fetchUser(id: string) {
+        const user = await op.query(q => {
+          const u = q.user({ id });
+          return { name: u.name, email: u.email };
+        });
+        return user;
+      }
+    `)
+    expect(out).toContain('user(id: $v0)')
+    expect(out).toMatch(/name[\s\S]*email|email[\s\S]*name/)
+    expect(out).toMatch(/op\.query\(__pylonDoc_\w+_0,/)
+  })
+
+  it('injects a mutation document for op.mutation(m => …)', async () => {
+    const out = await transform(`
+      import { op } from "@getcronit/pylon-pages";
+      export async function create(name: string) {
+        const res = await op.mutation(m => m.createUser({ name }));
+        return res;
+      }
+    `)
+    // Closure arg (like op.query), not a runtime trigger arg.
+    expect(out).toContain('createUser(name: $v0)')
+    // Bare object return → fillObjectLeaves expands to allScalars of the result.
+    expect(out).toContain('id name email')
+    expect(out).toMatch(/op\.mutation\(__pylonDoc_\w+_0,/)
+  })
+
   it('fails loud on an unknown field', async () => {
     await expect(
       transform(`

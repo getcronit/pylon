@@ -1,4 +1,4 @@
-import {useCallback, useRef, useState, useSyncExternalStore} from 'react'
+import {useCallback, useEffect, useRef, useState, useSyncExternalStore} from 'react'
 import {opKey, type TypedDoc} from '../runtime/doc'
 import {usePylonQueryClient} from './context'
 
@@ -123,6 +123,20 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
   // Current display windows, materializing the lazy default when none are set.
   const liveWindows = (): Window[] =>
     windows.length ? windows : [{vars: firstWindowVars(baseRef.current)}]
+
+  // SWR revalidation of the head window on mount / base-variable change ONLY.
+  // `ensure` (below) is render-pure, and the store subscription re-renders this
+  // hook on ANY mutation, so revalidation is effect-driven and self-guarded on
+  // the head window's key — refetch once per mount, again only when the base
+  // vars change. Loaded tail windows revalidate via explicit refetch(), not here.
+  const lastHeadKeyRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    const headVars = firstWindowVars(baseRef.current)
+    const key = opKey(doc, headVars)
+    if (key === lastHeadKeyRef.current) return
+    lastHeadKeyRef.current = key
+    client.revalidate(doc, headVars as TVars)
+  })
 
   // ── loaders ──────────────────────────────────────────────────────────────
   const loadNext = useCallback(

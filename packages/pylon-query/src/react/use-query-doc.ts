@@ -1,5 +1,5 @@
-import {useCallback, useSyncExternalStore} from 'react'
-import type {TypedDoc} from '../runtime/doc'
+import {useCallback, useEffect, useRef, useSyncExternalStore} from 'react'
+import {opKey, type TypedDoc} from '../runtime/doc'
 import {usePylonQueryClient} from './context'
 
 export interface UseQueryDocOptions {
@@ -36,6 +36,23 @@ export function useQueryDoc<TResult, TVars extends Record<string, unknown>>(
     client.store.getVersion,
     client.store.getVersion
   )
+
+  // SWR revalidation on mount / variables change ONLY — never on every render.
+  // The subscription above re-renders this hook on ANY mutation, and `ensure`
+  // is render-pure, so revalidation must be driven from an effect. No dep array:
+  // the body runs after every commit but self-guards on the operation key, so it
+  // refetches just once per mount and again only when the variables change.
+  // (The thunk is evaluated here, post-commit, where component locals are
+  // initialized — so reading later-declared locals never hits a TDZ.)
+  const lastKeyRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    if (!doc) return
+    const vars = variablesThunk ? variablesThunk() : undefined
+    const key = opKey(doc, vars)
+    if (key === lastKeyRef.current) return
+    lastKeyRef.current = key
+    client.revalidate(doc, vars as TVars)
+  })
 
   const refetch = useCallback(() => {
     if (!doc) return
