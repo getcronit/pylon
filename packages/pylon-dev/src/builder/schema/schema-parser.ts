@@ -306,6 +306,20 @@ export class SchemaParser {
               if (!derivedSchemaType.implements.includes(interfaceName)) {
                 derivedSchemaType.implements.push(interfaceName)
               }
+
+              // Ensure the derived type includes all interface fields.
+              // Without this, GraphQL schema validation fails:
+              // "Interface field IFoo.x expected but Bar does not provide it."
+              if (targetInterface) {
+                for (const ifaceField of targetInterface.fields) {
+                  const alreadyHasField = derivedSchemaType.fields.some(
+                    f => f.name === ifaceField.name
+                  )
+                  if (!alreadyHasField) {
+                    derivedSchemaType.fields.push({...ifaceField})
+                  }
+                }
+              }
             }
 
             // Check if this derived type is also a base type for other types
