@@ -6,6 +6,7 @@ import {Node, SyntaxKind} from 'ts-morph'
 import {
   clearAnalyzeCache,
   extractAdvancedSelectors,
+  extractAdvancedSelectorsForSourceFile,
   extractQueries,
   type QueryLocation,
   type SelectorNode
@@ -642,6 +643,20 @@ export function useDataStaticAnalyzer(
 
         manager.updateSourceFile(args.path, contents)
 
+        // Eagerly load this file's RELATIVE imports into the project so JSX
+        // components imported from sibling files (e.g. a row component that reads
+        // connection node fields) resolve during analysis. Without this, the
+        // connection pass may run before the component's file is loaded → the
+        // component body isn't traced → an empty node selection (`{ id }`).
+        try {
+          const sf = project.getSourceFile(args.path)
+          sf?.getImportDeclarations().forEach(imp => {
+            if (imp.getModuleSpecifierValue().startsWith('.')) {
+              imp.getModuleSpecifierSourceFile()
+            }
+          })
+        } catch {}
+
         if (debug) {
           console.log(`[Pylon] Analyzing ${args.path}`)
         }
@@ -808,8 +823,14 @@ export function useDataStaticAnalyzer(
                     // Node selection comes from how the RESULT is read
                     // (comments.nodes[].body); path + intermediate args from the
                     // selector chain.
+                    // Trace the result var on the MAIN source file (not an
+                    // in-memory text copy) so reads that cross into imported row
+                    // components resolve and contribute node fields.
                     const resultSelectors = it.resultVar
-                      ? extractAdvancedSelectors(contents, it.resultVar)
+                      ? extractAdvancedSelectorsForSourceFile(
+                          sourceFileForCalls!,
+                          it.resultVar
+                        )
                       : {}
                     const tree = buildConnectionTree(
                       it.path,

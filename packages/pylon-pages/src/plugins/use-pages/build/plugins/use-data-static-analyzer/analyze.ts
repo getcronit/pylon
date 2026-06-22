@@ -1374,14 +1374,17 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
         }
 
         if (!decl) {
-          let symbol: any
-          if (needsTypeChecker(tagNameNode)) {
-            symbol =
-              getSymbol(tagNameNode) || getNodeType(tagNameNode).getSymbol()
-          }
+          // Always resolve via the symbol for an unresolved custom component —
+          // don't gate on needsTypeChecker (a value-read perf guard that can be
+          // false here, leaving the imported component body untraced → empty node
+          // selection). Import-alias + React.memo/forwardRef unwrapping live in
+          // resolveFunctionDefinition.
+          const symbol =
+            getSymbol(tagNameNode) || getNodeType(tagNameNode)?.getSymbol?.()
           decl = resolveFunctionDefinition(symbol, options.onFileAccess)
         }
       }
+
 
       // ⬇️ ALWAYS runs, processing onClick, onChange, etc. for BOTH custom and HTML elements
       const attributes = node.getAttributes()
@@ -1771,6 +1774,44 @@ export function extractAdvancedSelectors(
   // OPTIMIZED: Remove temp file to prevent memory leaks in shared project
   project.removeSourceFile(sourceFile)
 
+  return result
+}
+
+/** Drop analyzer-internal placeholder keys from an advanced-selector result. */
+function cleanAdvancedResult(obj: any): void {
+  if (typeof obj !== 'object' || obj === null) return
+  if (Array.isArray(obj)) {
+    obj.forEach(cleanAdvancedResult)
+    return
+  }
+  for (const key in obj) {
+    if (
+      key.startsWith('__prop_') ||
+      key === '__decl' ||
+      key === '__element'
+    ) {
+      delete obj[key]
+    } else {
+      cleanAdvancedResult(obj[key])
+    }
+  }
+}
+
+/**
+ * Like `extractAdvancedSelectors`, but traces `objectName` on an EXISTING project
+ * source file instead of a fresh in-memory copy of its text. This is essential
+ * when the traced reads cross into imported components (e.g. a paginated list's
+ * row component): the in-memory variant has no sibling files, so imported JSX
+ * components never resolve and their node-field reads are lost. The real source
+ * file lives in the disk-backed project where imports resolve.
+ */
+export function extractAdvancedSelectorsForSourceFile(
+  sourceFile: SourceFile,
+  objectName: string,
+  onFileAccess?: (sf: SourceFile) => void
+): SelectorNode {
+  const {result} = coreAnalyze(sourceFile, {rootObjectName: objectName, onFileAccess})
+  cleanAdvancedResult(result)
   return result
 }
 
