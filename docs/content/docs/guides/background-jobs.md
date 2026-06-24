@@ -15,43 +15,44 @@ rows that rolled back.
 
 ## 1. Define the queue
 
-A queue is typed by its payload. Attach a zod `schema` to validate payloads at the
-boundary, plus retry and concurrency options:
+A queue is a class typed by its payload, with a `process` handler and a static
+enqueue manager — the same shape as a model's `static objects = manager(X)`.
+Define the payload from a zod schema with `Queue.input(schema)`: the schema is the
+single source of truth, inferring the payload type **and** validating every job at
+runtime. That matters here because the job is serialized into Redis and pulled back
+out by a separate worker process — the compile-time type is gone by then, so the
+schema is what guards the boundary:
 
 ```ts title="src/queues.ts"
-import {defineQueue} from '@getcronit/pylon-queues'
+import {Pylon} from '@getcronit/pylon'
+import {Queue, enqueuer} from '@getcronit/pylon-queues'
 import {z} from 'zod'
 
-export const sendWelcome = defineQueue('send-welcome', {
-  schema: z.object({userId: z.string(), email: z.string().email()}),
-  attempts: 3,
-  backoff: {type: 'exponential', delay: 1000},
-  concurrency: 5,
-  removeOnComplete: true
-})
+const app = new Pylon({name: 'app'})
+
+@app.queue({attempts: 3, backoff: {type: 'exponential', delay: 1000}})
+class SendWelcome extends Queue.input(
+  z.object({userId: z.string(), email: z.string().email()})
+) {
+  static jobs = enqueuer(SendWelcome)
+
+  async process({data, job, log}) {
+    await log(`attempt ${job.attemptsMade + 1} → ${data.email}`)
+    await mailer.send({
+      to: data.email,
+      subject: 'Welcome aboard',
+      body: 'Glad to have you.'
+    })
+  }
+}
 ```
 
 `attempts` and `backoff` make the email survive a flaky mail provider — three
-tries with exponential backoff before the job is failed.
+tries with exponential backoff before the job is failed. Defining `process` only
+declares the handler; workers consume it separately. `enqueuer(SendWelcome)`
+exposes the typed enqueue manager on `SendWelcome.jobs`.
 
-## 2. Write the processor
-
-`.process()` registers the handler. It receives the validated `data`, the raw
-`job`, and a `log` helper for structured progress. It only *registers* — workers
-consume it separately:
-
-```ts title="src/queues.ts"
-sendWelcome.process(async ({data, job, log}) => {
-  await log(`attempt ${job.attemptsMade + 1} → ${data.email}`)
-  await mailer.send({
-    to: data.email,
-    subject: 'Welcome aboard',
-    body: 'Glad to have you.'
-  })
-})
-```
-
-## 3. Enqueue from a signal — transactionally
+## 2. Enqueue from a signal — transactionally
 
 Rather than enqueue from the signup resolver, connect a `postSave` receiver to the
 `User` model. Signals fire **inside the write transaction**, so the `.add()` lands
@@ -61,13 +62,13 @@ email is never enqueued:
 ```ts title="src/signals.ts"
 import {signals} from '@getcronit/pylon-db'
 import {User} from './models'
-import {sendWelcome} from './queues'
+import {SendWelcome} from './queues'
 
 signals.postSave.connect(User, async ({instances, created}) => {
   if (!created) return // only on insert, not update
   for (const user of instances) {
     // queued iff the surrounding transaction commits
-    await sendWelcome.add({userId: String(user.id), email: user.email})
+    await SendWelcome.jobs.add({userId: String(user.id), email: user.email})
   }
 })
 ```
@@ -86,7 +87,7 @@ export default new Pylon({
         const user = new User()
         user.email = email
         user.name = name
-        await user.$save() // postSave fires → sendWelcome enqueued in the outbox
+        await user.$save() // postSave fires → SendWelcome enqueued in the outbox
         return user
       }
     }
@@ -94,7 +95,7 @@ export default new Pylon({
 })
 ```
 
-## 4. Wire up queues
+## 3. Wire up queues
 
 Enable queues with the `useQueues` plugin. Turn the outbox on for
 enqueue-iff-commit; in development, `worker: 'in-process'` runs the workers inside
@@ -120,7 +121,7 @@ export default {
 With the queues plugin, importing `./src/signals` and `./src/queues` somewhere in
 your app's module graph is enough to register the receiver and the processor.
 
-## 5. Run workers in production
+## 4. Run workers in production
 
 In production, run a dedicated worker process. The worker entry imports your app to
 register the queues, then starts the workers and drains the outbox:

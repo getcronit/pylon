@@ -8,39 +8,32 @@ order: 0
 
 An **app** is a self-contained feature: its own GraphQL resolvers and routes, its
 own authorization gate, and its own set of models. Technically, an app is a
-smaller [`Pylon`](/docs/core-concepts/the-pylon-app) instance plus models tagged
-with `models.app(name)`. The root `Pylon` **composes** apps into a single
-deployment — one schema, one `/graphql`, one set of migrations ordered by
-dependency. This is Django-style modular structure, brought to a fully typed
-TypeScript stack: bundle a feature, then compose features.
+smaller [`Pylon`](/docs/core-concepts/the-pylon-app) instance, named with `name`,
+whose models are attached with `@app.model()`. The root `Pylon` **composes** apps
+into a single deployment — one schema, one `/graphql`, one set of migrations
+ordered by dependency. This is Django-style modular structure, brought to a fully
+typed TypeScript stack: bundle a feature, then compose features.
 
 ## What an app is
 
 An app folder owns three things:
 
-- **Models** tagged with `models.app(name)`, so `pylon db` puts their migrations
-  in one dependency-ordered group.
-- **A `Pylon` instance** carrying the app's `graphql` resolvers, any HTTP routes,
-  an optional `basePath`, and a `gate`.
-- **Abilities / policies** scoping the app's rows (see
-  [Policies](/docs/data/policies)).
+- **A named `Pylon` instance** carrying the app's `graphql` resolvers, any HTTP
+  routes, an optional `basePath`, and a `gate`. The `name` is the migration-group
+  key.
+- **Models** attached with `@app.model()` (and background jobs with
+  `@app.queue()` — see [Background Jobs](/docs/background-jobs/overview)), so
+  `pylon db` puts the app's migrations in one dependency-ordered group.
+- **Abilities / policies** scoping the app's rows — co-located on each model with
+  [`static abilities`](/docs/data/policies).
 
 ```ts title="src/apps/blog/index.ts"
-import {models, db, gate} from '@getcronit/pylon-db'
+import {Model, manager, id, text, gate} from '@getcronit/pylon-db'
 import {hasRole} from '@getcronit/pylon-auth'
 import {Pylon} from '@getcronit/pylon'
 
-const blog = models.app('blog')
-
-@blog.model()
-export class Post extends blog.Model {
-  static objects = db.manager(Post)
-  id = blog.ID()
-  title = blog.Text()
-  body = blog.Text()
-}
-
 export const blogApp = new Pylon({
+  name: 'blog',
   graphql: {
     Query: {posts: () => Post.objects.orderBy('-id').all()},
     Mutation: {
@@ -50,31 +43,45 @@ export const blogApp = new Pylon({
   },
   gate: gate({authorize: p => hasRole(p, 'author')})
 })
+
+@blogApp.model()
+export class Post extends Model {
+  static objects = manager(Post)
+  id = id()
+  title = text()
+  body = text()
+}
 ```
 
-A second app looks the same — its own models, resolvers, and gate:
+A second app looks the same — its own name, models, resolvers, and gate:
 
 ```ts title="src/apps/shop/index.ts"
-import {models, db, gate} from '@getcronit/pylon-db'
+import {Model, manager, id, text, numeric, gate} from '@getcronit/pylon-db'
 import {hasRole} from '@getcronit/pylon-auth'
 import {Pylon} from '@getcronit/pylon'
 
-const shop = models.app('shop')
-
-@shop.model()
-export class Product extends shop.Model {
-  static objects = db.manager(Product)
-  id = shop.ID()
-  name = shop.Text()
-  price = shop.Numeric({precision: 10, scale: 2})
-}
-
 export const shopApp = new Pylon({
+  name: 'shop',
   graphql: {Query: {products: () => Product.objects.all()}},
   gate: gate({authorize: p => hasRole(p, 'shopper')}),
   basePath: '/shop'
 })
+
+@shopApp.model()
+export class Product extends Model {
+  static objects = manager(Product)
+  id = id()
+  name = text()
+  price = numeric({precision: 10, scale: 2})
+}
 ```
+
+:::note
+The older `models.app(name)` string scoping still works — `const blog =
+models.app('blog')` then `@blog.model()` — but naming the `Pylon` instance and
+attaching models with `@app.model()` keeps the app, its models, and its
+migrations under one object.
+:::
 
 ## Compose them at the root
 
@@ -96,8 +103,9 @@ That's the whole deployment: a `posts` and `createPost` from the blog, a
 
 ## Migrations follow the apps
 
-Because each app's models are tagged with `models.app(name)`, `pylon db` derives
-one migration group per app and orders the groups by their dependencies —
+Because each app's models are attached with `@app.model()`, `pylon db` derives
+one migration group per app — keyed by the app's `name` — and orders the groups
+by their dependencies —
 inferred from cross-app foreign keys, plus any explicit `dependsOn`. Generate a
 migration for a single app, or migrate everything in order:
 
@@ -126,12 +134,12 @@ products = manyToMany(() => Product, {inverse: true})
 
 ## Tenancy per app
 
-An app can be tenant-scoped and secure as a unit. `models.app(name, {tenant,
-secure})` applies the tenant column and deny-by-default authorization to every
-model in the app:
+An app can be tenant-scoped and secure as a unit. The `models` config on the
+`Pylon` constructor applies the tenant column and deny-by-default authorization
+to every model in the app:
 
 ```ts
-const crm = models.app('crm', {tenant: 'orgId', secure: true})
+const crm = new Pylon({name: 'crm', models: {tenant: 'orgId', secure: true}})
 ```
 
 See [Multi-Tenancy](/docs/data/multi-tenancy) for the scoping model.

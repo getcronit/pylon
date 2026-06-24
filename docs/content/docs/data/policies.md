@@ -13,32 +13,83 @@ resolver. This is the **resource tier** of authz. The **capability tier**
 (roles, permissions, who the principal is) lives in
 [`@getcronit/pylon-auth`](/docs/authentication/overview); the two compose.
 
-## Abilities — the high-level surface
+## `static abilities` — the co-located policy
 
-`defineAbilities` receives the current `principal` and a `can` builder. You grant
-actions on models, optionally scoped by a row condition that's AND-ed into every
-read:
+Declare a model's row-level rules right on the model with **`static abilities`**.
+It receives the current `principal`, a `can` builder, and a `cannot` builder. The
+**subject is implicit — it's the model itself** — so there's no `{subjects}`
+argument to keep in sync and no global registration to remember:
 
-```ts title="src/abilities.ts"
-import {defineAbilities} from '@getcronit/pylon-db'
+```ts title="src/apps/blog/index.ts"
+import {Pylon} from '@getcronit/pylon'
+import {Model, manager, id, text, boolean, foreignKey} from '@getcronit/pylon-db'
+
+const blog = new Pylon({name: 'blog', models: {secure: true}})
+
+@blog.model()
+class Post extends Model {
+  static objects = manager(Post)
+
+  id = id()
+  title = text()
+  published = boolean({default: false})
+  authorId = foreignKey(() => User)
+
+  static abilities(p: {id?: string} | undefined, can) {
+    // a row condition AND-ed into every read
+    can('read', {OR: [{published: true}, {authorId: p?.id}]})
+    can('update', {authorId: p?.id})
+
+    // stamp server-owned columns on create so clients can't spoof them
+    if (p) can('create').stamp(post => { post.authorId = p.id })
+  }
+}
+```
+
+- `can(action, condition?)` grants the action on **this model**, scoped by an
+  optional `WhereInput` the row must match.
+- `cannot(action, condition?)` is the inverse — an explicit deny that overrides a
+  grant.
+- `can('create').stamp(fn)` grants create and mutates the new instance before
+  insert — the place to stamp ownership or tenant from the principal.
+
+Because the rules live next to the fields they reference, column names stay in
+step with the schema, and a model's policy travels with the model when you lift
+its [app](/docs/apps/overview) into another deployment.
+
+## Cross-cutting rules — `models.abilities`
+
+Some rules span multiple models or grant across the board — like giving an admin
+everything. Those don't belong on a single model, so declare them on the app via
+the constructor's **`models.abilities`** config. It receives the `principal`, a
+`can` builder, and a `cannot` builder, and names the **subject explicitly**:
+
+```ts title="src/apps/tasks/index.ts"
+import {Pylon} from '@getcronit/pylon'
 import {hasRole} from '@getcronit/pylon-auth'
 import {Task} from './models'
 
-defineAbilities((principal, can) => {
-  // role-based: admins can do anything
-  if (hasRole(principal, 'admin')) can('manage', 'all')
+const tasks = new Pylon({
+  name: 'tasks',
+  models: {
+    tenant: 'orgId',
+    abilities(principal, can, cannot) {
+      // role-based: admins can do anything, across every model
+      if (hasRole(principal, 'admin')) can('manage', 'all')
 
-  // attribute-based: a row condition AND-ed into every read
-  can('read', Task, {OR: [{ownerId: principal?.id}, {shared: true}]})
-  can('update', Task, {ownerId: principal?.id})
-  can('delete', Task, {ownerId: principal?.id})
+      // attribute-based: a row condition AND-ed into every read
+      can('read', Task, {OR: [{ownerId: principal?.id}, {shared: true}]})
+      can('update', Task, {ownerId: principal?.id})
+      can('delete', Task, {ownerId: principal?.id})
 
-  // stamp server-owned columns on create so clients can't spoof them
-  if (principal) {
-    can('create', Task).stamp(t => {
-      t.orgId = String(principal.tenant)
-      t.ownerId = String(principal.id)
-    })
+      // stamp server-owned columns on create so clients can't spoof them
+      if (principal) {
+        can('create', Task).stamp(t => {
+          t.orgId = String(principal.tenant)
+          t.ownerId = String(principal.id)
+        })
+      }
+    }
   }
 })
 ```
@@ -48,6 +99,13 @@ defineAbilities((principal, can) => {
   scoped by an optional `WhereInput` the row must match.
 - `can('create', Model).stamp(fn)` grants create and mutates the new instance
   before insert — the place to stamp ownership or tenant from the principal.
+
+The `models` config accepts `tenant`, `secure`, `dependsOn`, `policy`, and
+`abilities`. Per-model `static abilities` and app-level `models.abilities`
+compose: both sets of grants apply, so use `static abilities` for a model's own
+rules and `models.abilities` for the cross-cutting ones. Because `abilities`
+lives on the `Pylon` constructor, the compiler harvests it into the IR alongside
+the rest of the app.
 
 ## How it applies
 
@@ -110,7 +168,14 @@ marking the model, or the whole app, `secure`. Then any action without a matchin
 rule is denied, so forgetting a rule fails closed:
 
 ```ts
-const projects = models.app('projects', {tenant: 'orgId', secure: true})
+// the whole app, via the models config
+const projects = new Pylon({name: 'projects', models: {tenant: 'orgId', secure: true}})
+
+// or one model, via static config
+static config = {secure: true} satisfies ModelConfig<Project>
+
+// the older forms still work
+const legacy = models.app('projects', {tenant: 'orgId', secure: true}) // string scoping
 // or on one model: @model({secure: true})
 ```
 
@@ -177,37 +242,42 @@ Putting it together — a secure, tenant-scoped app whose resolvers are gated an
 whose rows are owner-scoped:
 
 ```ts title="src/apps/crm/index.ts"
-import {authorize, db, defineAbilities, gate, models} from '@getcronit/pylon-db'
+import {Model, manager, id, text, boolean, gate} from '@getcronit/pylon-db'
 import {hasRole} from '@getcronit/pylon-auth'
 import {Pylon} from '@getcronit/pylon'
 
-const crm_ = models.app('crm', {tenant: 'orgId', secure: true})
+export const crm = new Pylon({
+  name: 'crm',
+  models: {
+    tenant: 'orgId',
+    secure: true,
+    // cross-cutting rule, harvested into the IR with the rest of the app
+    abilities(p, can) {
+      if (hasRole(p, 'admin')) can('manage', 'all')
+    }
+  },
+  graphql: {Query: {contacts: () => Contact.objects.orderBy('name').all()}},
+  gate: gate({authorize: p => hasRole(p, 'crm')})
+})
 
-@crm_.model()
-export class Contact extends crm_.Model {
-  static objects = db.manager(Contact)
-  id = crm_.ID()
-  orgId = crm_.Text()
-  ownerId = crm_.Text()
-  shared = crm_.Boolean({default: false})
-  name = crm_.Text()
-}
+@crm.model()
+export class Contact extends Model {
+  static objects = manager(Contact)
+  id = id()
+  orgId = text()
+  ownerId = text()
+  shared = boolean({default: false})
+  name = text()
 
-defineAbilities((p, can) => {
-  if (hasRole(p, 'admin')) can('manage', 'all')
-  can('read', Contact, {OR: [{ownerId: p?.id}, {shared: true}]})
-  if (p) {
-    can('create', Contact).stamp(c => {
+  // the model's own rules, co-located
+  static abilities(p: {id?: string; tenant?: string} | undefined, can) {
+    can('read', {OR: [{ownerId: p?.id}, {shared: true}]})
+    if (p) can('create').stamp(c => {
       c.orgId = String(p.tenant)
       c.ownerId = String(p.id)
     })
   }
-})
-
-export const crm = new Pylon({
-  graphql: {Query: {contacts: () => Contact.objects.orderBy('name').all()}},
-  gate: gate({authorize: p => hasRole(p, 'crm')})
-})
+}
 ```
 
 `secure: true` means a `Contact` action with no `can(...)` is denied; the

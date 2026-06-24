@@ -8,16 +8,169 @@ order: 0
 
 Some work doesn't belong in the request path — sending email, generating reports,
 syncing a third party. `@getcronit/pylon-queues` gives you **typed background jobs**:
-a queue is parameterized by its payload and its result, so enqueuing the wrong
-shape is a compile error. Add a transactional outbox and you get **exactly-once
-enqueue-iff-commit** — a job is enqueued only when the database transaction that
-created it commits.
+a queue is a class typed by its payload, so enqueuing the wrong shape is a compile
+error and a schema can validate it at runtime too. Add a transactional outbox and
+you get **exactly-once enqueue-iff-commit** — a job is enqueued only when the
+database transaction that created it commits.
 
 ## Define a queue
 
-A queue is typed by its payload `T` and the result `R` its processor returns.
-Attach a zod `schema` to validate payloads at the boundary, plus retry and
-concurrency options:
+A queue is a class. Subclass `Queue`, type its payload, and write a `process`
+handler — the same shape as a model's `process`/`objects` pairing. Decorate it
+with `@app.queue()` to bind it to your app, and expose a typed enqueue manager on
+a static, exactly as a model exposes `static objects = manager(X)`:
+
+```ts title="src/queues.ts"
+import {Pylon} from '@getcronit/pylon'
+import {Queue, enqueuer} from '@getcronit/pylon-queues'
+
+const blog = new Pylon({name: 'blog'})
+
+@blog.queue({attempts: 3})
+class SendWelcome extends Queue<{userId: string}> {
+  static jobs = enqueuer(SendWelcome)
+
+  async process({data}) {
+    // data.userId is typed
+  }
+}
+```
+
+Importing `@getcronit/pylon-queues` is what enables the `@app.queue()` decorator.
+The decorator namespaces the queue name by the app — kebab-casing the class name,
+so `SendWelcome` on `blog` becomes `blog:send-welcome` — and tracks it for that
+app. A free `queue()` decorator exists too, with no app namespacing.
+
+`enqueuer(QueueClass)` returns the typed enqueue manager. Assign it to a static
+(`static jobs = enqueuer(SendWelcome)`) for the same reason a model needs
+`static objects = manager(X)`: TypeScript can't infer an inherited static, so you
+re-state the binding once.
+
+`QueueClassOptions`:
+
+| Option | Meaning |
+|---|---|
+| `attempts` | Max attempts before a job is failed |
+| `backoff` | `{type: 'exponential' \| 'fixed', delay}` between attempts |
+| `concurrency` | Jobs processed in parallel per worker |
+| `removeOnComplete` / `removeOnFail` | Prune finished jobs |
+| `schema` | Validates the payload before it's enqueued (see below) |
+| `name` / `cron` | Override the queue name; schedule on a cron pattern |
+
+## Validate the payload — schema-first
+
+The bare `Queue<Payload>` generic is type-only: it shapes the payload at compile
+time and nothing more. For anything that crosses the wire, define the payload from
+a schema with `Queue.input(schema)`. The schema becomes the single source of
+truth — the payload type is **inferred from it**, and it **validates every job at
+runtime**:
+
+```ts title="src/queues.ts"
+import {z} from 'zod'
+import {Queue, enqueuer} from '@getcronit/pylon-queues'
+
+@blog.queue({attempts: 3})
+class SendWelcome extends Queue.input(z.object({userId: z.string()})) {
+  static jobs = enqueuer(SendWelcome)
+
+  async process({data}) {
+    // data: {userId: string}, already validated
+  }
+}
+```
+
+:::warning[Validate at the queue boundary]
+A queue boundary is a wire boundary. A job payload is serialized into Redis and
+pulled back out later by a **separate worker process** — possibly running a
+different version of your code. By the time the worker calls `process`, the
+compile-time type has been erased; nothing structural survives the round trip. The
+schema is what guards that boundary, so a malformed or stale payload fails loudly
+at the edge instead of corrupting your handler.
+:::
+
+:::tip
+Use `Queue.input(schema)` for any queue whose jobs originate from user input or
+another service. Reach for the bare `Queue<Payload>` generic only for trivial,
+internal queues where you accept no runtime validation. An explicit `{schema}`
+option overrides a schema attached via `Queue.input`.
+:::
+
+## Process jobs
+
+The `process` method is the handler. It receives the validated `data` (plus the
+raw `job` and a `log` helper for structured progress). Defining the method only
+declares the handler — workers start consuming separately, in the `pylon worker`
+process:
+
+```ts title="src/queues.ts"
+@blog.queue({attempts: 3})
+class SendEmail extends Queue.input(
+  z.object({to: z.string().email(), subject: z.string()})
+) {
+  static jobs = enqueuer(SendEmail)
+
+  async process({data, job, log}) {
+    await log(`attempt ${job.attemptsMade + 1} → ${data.to}`)
+    await mailer.send(data.to, data.subject)
+  }
+}
+```
+
+## Enqueue jobs
+
+Enqueue through the static manager from anywhere — a resolver, a route, another
+job:
+
+```ts
+import {Pylon} from '@getcronit/pylon'
+import {SendEmail} from './src/queues'
+
+export default new Pylon({
+  graphql: {
+    Mutation: {
+      invite: async (to: string) => {
+        await SendEmail.jobs.add({to, subject: 'You are invited'})
+        return true
+      }
+    }
+  }
+})
+```
+
+The manager exposes three typed methods:
+
+- `.add(data)` — fire-and-forget enqueue. Inside a pylon-db transaction it's
+  routed through the outbox (enqueue-iff-commit, see below).
+- `.addDelayed(data, ms)` — enqueue after a delay.
+- `.dispatch(data)` — enqueue **and await** the handler's typed result, for
+  request/response over a worker:
+
+```ts
+const result = await GenerateReport.jobs.dispatch({month: '2026-06'})
+//    ^? the value process() resolves to
+```
+
+## Cron jobs
+
+Schedule repeatable work with a cron pattern via the `cron` option — no payload
+needed:
+
+```ts title="src/queues.ts"
+@blog.queue({cron: '0 * * * *'})
+class Heartbeat extends Queue {
+  async process() {
+    await pingMonitoring()
+  }
+}
+```
+
+## Lower-level alternatives
+
+The class form is the recommended surface, but the function-style API remains
+valid and is occasionally handier for one-off or dynamically named queues.
+
+`defineQueue<T, R>(name, options)` creates a queue typed by payload `T` and result
+`R`; `.process()` registers its handler:
 
 ```ts title="src/queues.ts"
 import {defineQueue} from '@getcronit/pylon-queues'
@@ -27,71 +180,17 @@ export const sendEmail = defineQueue('send-email', {
   schema: z.object({to: z.string().email(), subject: z.string()}),
   attempts: 3,
   backoff: {type: 'exponential', delay: 1000},
-  concurrency: 5,
-  removeOnComplete: true
+  concurrency: 5
 })
-```
 
-`QueueOptions`:
-
-| Option | Meaning |
-|---|---|
-| `schema` | Validates the payload before it's enqueued |
-| `attempts` | Max attempts before a job is failed |
-| `backoff` | `{type: 'exponential' \| 'fixed', delay}` between attempts |
-| `concurrency` | Jobs processed in parallel per worker |
-| `removeOnComplete` / `removeOnFail` | Prune finished jobs |
-
-## Process jobs
-
-Register a processor with `.process()`. The handler receives the validated `data`,
-the raw `job`, and a `log` helper for structured progress logging:
-
-```ts title="src/queues.ts"
 sendEmail.process(async ({data, job, log}) => {
   await log(`attempt ${job.attemptsMade + 1} → ${data.to}`)
   await mailer.send(data.to, data.subject)
 })
 ```
 
-`.process()` only **registers** the handler — it's safe to call wherever your
-module is imported. Workers start consuming separately, in the `pylon worker`
-process.
-
-## Enqueue jobs
-
-Add jobs from anywhere — a resolver, a route, another job:
-
-```ts
-import {Pylon} from '@getcronit/pylon'
-import {sendEmail} from './src/queues'
-
-export default new Pylon({
-  graphql: {
-    Mutation: {
-      invite: async (to: string) => {
-        await sendEmail.add({to, subject: 'You are invited'})
-        return true
-      }
-    }
-  }
-})
-```
-
-- `.add(data, opts?)` — enqueue immediately.
-- `.addDelayed(data, ms, opts?)` — enqueue after a delay.
-- `.dispatch(data, opts?): Promise<R>` — enqueue **and await** the processor's
-  typed result, for request/response over a worker:
-
-```ts
-const result = await reportQueue.dispatch({month: '2026-06'})
-//    ^? the processor's return type R
-```
-
-## Cron jobs
-
-Schedule repeatable work with a cron pattern. `cron` registers a queue and its
-processor in one call:
+`cron(name, pattern, handler)` registers a scheduled queue and its handler in one
+call:
 
 ```ts title="src/queues.ts"
 import {cron} from '@getcronit/pylon-queues'
@@ -159,11 +258,11 @@ A relay then drains only committed rows to the queue:
 
 ```ts
 import {getDatabase} from '@getcronit/pylon-db'
-import {sendEmail} from './src/queues'
+import {SendEmail} from './src/queues'
 
 await getDatabase().transaction(async () => {
   await createOrder(...)
-  await sendEmail.add({to: customer.email, subject: 'Order confirmed'})
+  await SendEmail.jobs.add({to: customer.email, subject: 'Order confirmed'})
   // if this transaction rolls back, the job is never enqueued
 })
 ```

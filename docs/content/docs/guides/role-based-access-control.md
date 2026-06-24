@@ -113,35 +113,56 @@ fine-grained row rules below.
 
 ## 4. Auto-scope rows by ability
 
-The resource tier lives in the ORM. `defineAbilities` receives the `principal`
-and a `can` builder; a row condition you attach to `can('read', ...)` is AND-ed
-into **every** read of that model — queries, relation loads, paginations. Forget
-a `WHERE` clause in a resolver and the rule still applies.
+The resource tier lives in the ORM. Declare a model's row-level rules right on the
+model with **`static abilities`** — the subject is implicit, so there's no model
+argument to keep in sync. A row condition you attach to `can('read', ...)` is
+AND-ed into **every** read of that model — queries, relation loads, paginations.
+Forget a `WHERE` clause in a resolver and the rule still applies.
 
-```ts title="src/abilities.ts"
-import {defineAbilities} from '@getcronit/pylon-db'
+```ts title="src/apps/blog/models.ts"
+import {Model, manager, id, text} from '@getcronit/pylon-db'
+import {blog} from './index'
+
+@blog.model()
+export class Post extends Model {
+  static objects = manager(Post)
+  id = id()
+  title = text()
+  authorId = text()
+
+  static abilities(p: {id?: string} | undefined, can) {
+    // a row condition AND-ed into every read of Post
+    can('read', {authorId: p?.id})
+    can('update', {authorId: p?.id})
+    can('delete', {authorId: p?.id})
+
+    // stamp ownership on create so a client can't spoof authorId
+    if (p) can('create').stamp(post => { post.authorId = String(p.id) })
+  }
+}
+```
+
+Cross-cutting rules — ones that span models or grant across the board, like
+giving an admin everything — go on the app via the constructor's
+`models.abilities` config, where the subject is named explicitly:
+
+```ts title="src/apps/blog/index.ts"
+import {Pylon} from '@getcronit/pylon'
 import {hasRole} from '@getcronit/pylon-auth'
-import {Post} from './models'
 
-defineAbilities((p, can) => {
-  // admins do anything
-  if (hasRole(p, 'admin')) can('manage', 'all')
-
-  // everyone else reads only their own posts
-  can('read', Post, {authorId: p?.id})
-  can('update', Post, {authorId: p?.id})
-  can('delete', Post, {authorId: p?.id})
-
-  // stamp ownership on create so a client can't spoof authorId
-  if (p) {
-    can('create', Post).stamp(post => {
-      post.authorId = String(p.id)
-    })
+export const blog = new Pylon({
+  name: 'blog',
+  models: {
+    // admins do anything, across every model in the app
+    abilities(p, can) {
+      if (hasRole(p, 'admin')) can('manage', 'all')
+    }
   }
 })
 ```
 
-Now the read resolver stays clean — the scope applies implicitly:
+Both sets compose, and both are harvested into the IR. Now the read resolver
+stays clean — the scope applies implicitly:
 
 ```ts title="src/index.ts"
 import {Pylon} from '@getcronit/pylon'

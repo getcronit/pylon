@@ -20,10 +20,10 @@ Four pieces compose:
   belongs to.
 - **A bare `useDatabase()`** derives the tenant from that `Principal`, so every
   query is automatically scoped.
-- **`models.app(name, {tenant, secure})`** declares the tenant column and turns
-  on deny-by-default authorization for a feature's models.
-- **`defineAbilities`** adds row-level rules; **`gate`** adds capability checks at
-  the app boundary.
+- **`new Pylon({name, models: {tenant, secure}})`** declares the tenant column and
+  turns on deny-by-default authorization for a feature's models.
+- **`models.abilities`** (and per-model `static abilities`) adds row-level rules;
+  **`gate`** adds capability checks at the app boundary.
 
 Define each feature as its own `Pylon`, then `compose` them at the root.
 
@@ -90,34 +90,45 @@ ambient tenant — both happen in the data layer.
 
 ## 3. Row-level abilities
 
-`defineAbilities` adds resource authz on top of tenant scoping: who can read or
-write which rows, and which server-owned fields get stamped on create.
+Abilities add resource authz on top of tenant scoping: who can read or write
+which rows, and which server-owned fields get stamped on create. Declare them on
+the app via the constructor's `models.abilities` config — the cross-cutting,
+IR-harvestable form that can name any of the app's models:
 
 ```ts title="apps/projects.ts"
-import {defineAbilities} from '@getcronit/pylon-db'
+import {Pylon} from '@getcronit/pylon'
 import {hasRole} from '@getcronit/pylon-auth'
 
-defineAbilities((principal, can) => {
-  if (hasRole(principal, 'admin')) can('manage', 'all')
+const projectsApp = new Pylon({
+  name: 'projects',
+  models: {
+    tenant: 'orgId',
+    secure: true,
+    abilities(principal, can) {
+      if (hasRole(principal, 'admin')) can('manage', 'all')
 
-  const uid = principal?.id ?? '__anon__'
+      const uid = principal?.id ?? '__anon__'
 
-  // members read tasks they own; update only their own
-  can('read', Task, {ownerId: uid})
-  can('update', Task, {ownerId: uid})
+      // members read tasks they own; update only their own
+      can('read', Task, {ownerId: uid})
+      can('update', Task, {ownerId: uid})
 
-  // stamp ownership on create so clients can't spoof it
-  if (principal) {
-    can('create', Task).stamp(t => {
-      t.ownerId = String(principal.id)
-    })
-  }
+      // stamp ownership on create so clients can't spoof it
+      if (principal) {
+        can('create', Task).stamp(t => {
+          t.ownerId = String(principal.id)
+        })
+      }
+    }
+  },
+  // ...gate and graphql as above
 })
 ```
 
-Reads filter automatically; for writes, call `authorize('update', task)` in a
-resolver to enforce the rule on a specific instance. See
-[Authorization](/docs/data/policies).
+A rule that belongs to a single model can instead live on the model itself with
+`static abilities`, where the subject is implicit. Reads filter automatically;
+for writes, call `authorize('update', task)` in a resolver to enforce the rule on
+a specific instance. See [Authorization](/docs/data/policies).
 
 ## 4. Compose apps at the root
 

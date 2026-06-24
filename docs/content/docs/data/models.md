@@ -203,13 +203,90 @@ filters are Postgres features. `pylon-db` targets Postgres, so they're always
 available.
 :::
 
+## Binding a model to an app
+
+The recommended way to declare a model is to bind it to a [`Pylon`](/docs/apps/overview)
+instance with **`@app.model()`**. Importing `@getcronit/pylon-db` auto-enables
+the decorator — there's nothing extra to import. The app's `name` groups the
+model's migrations, and its `models` config carries shared ORM settings:
+
+```ts title="src/apps/blog/index.ts"
+import {Pylon} from '@getcronit/pylon'
+import {Model, manager, id, text, boolean, foreignKey, type ModelConfig} from '@getcronit/pylon-db'
+
+const blog = new Pylon({name: 'blog', models: {tenant: 'authorId', secure: true}})
+
+@blog.model()
+class Post extends Model {
+  static objects = manager(Post)
+
+  id = id()
+  title = text()
+  published = boolean({default: false})
+  authorId = foreignKey(() => User)
+
+  // Typed config — column names are checked against THIS model's fields.
+  static config = {
+    indexes: [{columns: ['authorId', 'title']}],
+    search: {columns: ['title']}
+  } satisfies ModelConfig<Post>
+}
+```
+
+`static config satisfies ModelConfig<Post>` puts a model's table options on the
+model itself, with column names **type-checked against the model's own fields** —
+a typo in `indexes` or `search` is a compile error. App-level ORM settings are
+the constructor `models` option: `new Pylon({name: 'blog', models: {tenant: 'authorId'}})`.
+
+`ModelConfig<T>` accepts `table`, `abstract`, `secure`, `tenant` (a field name),
+`indexes` (`{columns, unique?}[]`), `search`, `trigram`, and `query`.
+
+:::generates
+```ts title="You write"
+const blog = new Pylon({name: 'blog'})
+
+@blog.model()
+class Post extends Model {
+  id = id()
+  title = text()
+  published = boolean({default: false})
+
+  static config = {
+    indexes: [{columns: ['title']}]
+  } satisfies ModelConfig<Post>
+}
+```
+
+```sql title="Pylon generates"
+CREATE TABLE "post" (
+  "id"        bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  "title"     text NOT NULL,
+  "published" boolean NOT NULL DEFAULT false
+);
+CREATE INDEX "post_title_idx" ON "post" ("title");
+```
+:::
+
+Declare a model's row-level access rules right next to its fields with
+[`static abilities`](/docs/data/policies).
+
+:::note
+The standalone `@model()` decorator and `models.app(name)` string scoping still
+work — see below — but binding with `@app.model()` and declaring `static config`
+is the recommended form.
+:::
+
 ## `@model()` options
+
+The standalone `@model({...})` decorator remains a valid alternative to
+`@app.model()` + `static config`, and its arguments **override** `static config`
+when both are present:
 
 ```ts
 @model({
   table: 'people',     // override the table name
   abstract: true,      // base model: contributes columns, has no table of its own
-  app: 'crm',          // migration group / app (prefer models.app(name))
+  app: 'crm',          // migration group / app (prefer @app.model() or models.app(name))
   tenant: 'orgId',     // tenant column for auto-scoping (see multi-tenancy)
   secure: true,        // deny-by-default authorization (see policies)
   indexes: [...],      // composite indexes
@@ -218,11 +295,6 @@ available.
   query: {...}         // the search-query DSL configuration
 })
 ```
-
-:::warning
-There is no `ModelConfig<T>` or `static config` on a model. Everything is
-declared with field builders and the `@model({...})` options above.
-:::
 
 ## The namespaced API
 
