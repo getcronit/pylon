@@ -13,6 +13,10 @@ bun.lockb
 
 examples
 
+# Pylon build / verify artifacts
+.pylon
+.pylon-verify
+
 # Local package tarballs (npm pack output)
 tarballs
 

@@ -24,6 +24,7 @@
   "dependencies": {
     "@getcronit/pylon-ir": "workspace:*",
     "@getcronit/pylon-query": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.12.0",
     "chokidar": "^4.0.3",
     "commander": "^12.1.0",
     "conf": "^13.1.0",

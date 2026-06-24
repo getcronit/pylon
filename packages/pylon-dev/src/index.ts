@@ -17,6 +17,8 @@ import {
 } from './analytics'
 import {build} from './builder'
 import {appModelToDDL, appModelToSDL, inspectApp} from './inspect'
+import {verifyApp} from './verify'
+import {startMcpServer} from './mcp'
 import {buildClient} from './builder/build-client'
 import {startDevReloadServer} from './builder/dev-reload-server'
 import {runDbCommand} from './db'
@@ -84,6 +86,39 @@ program
       // Default + explicit --json: machine-readable AppModel on stdout.
       process.stdout.write(JSON.stringify(model, null, 2) + '\n')
     }
+  })
+
+program
+  .command('verify')
+  .description('Build + typecheck + migration check → a stratified verdict (pass/review/fail)')
+  .option('-m, --models <path>', 'Entry that exports the app', './src/index.ts')
+  .option('--json', 'Emit the verdict as JSON')
+  .action(async (options: {models: string; json?: boolean}) => {
+    const result = await verifyApp(process.cwd(), options.models)
+    if (options.json) {
+      // Lean payload for agents — verdict + checks (the AppModel is a separate call).
+      process.stdout.write(JSON.stringify({verdict: result.verdict, checks: result.checks}, null, 2) + '\n')
+    } else {
+      const mark = (s: string) =>
+        s === 'pass' ? '✓' : s === 'fail' ? '✗' : s === 'warn' ? '!' : '·'
+      for (const c of result.checks)
+        process.stdout.write(`  ${mark(c.status)} ${c.name}: ${c.detail}\n`)
+      process.stdout.write(`\nverdict: ${result.verdict.toUpperCase()}\n`)
+    }
+    process.exitCode = result.verdict === 'fail' ? 1 : 0
+  })
+
+program
+  .command('mcp')
+  .description('Run the Pylon MCP server (stdio): describe_app / get_entity / get_operation / verify')
+  .option('-m, --models <path>', 'Entry that exports the app', './src/index.ts')
+  .option('-c, --cwd <dir>', 'Project root to inspect (default: current directory)', '.')
+  .action(async (options: {models: string; cwd: string}) => {
+    // Directory-independent: resolve the target root so an MCP client config never
+    // has to depend on the launch cwd. The spawned inspect/verify run with this root.
+    const root = path.resolve(process.cwd(), options.cwd)
+    // stdout is the MCP protocol stream from here on — do not write to it.
+    await startMcpServer(root, options.models)
   })
 
 program
