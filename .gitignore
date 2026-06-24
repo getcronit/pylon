@@ -17,6 +17,12 @@ examples
 .pylon
 .pylon-verify
 
+# pylon eval run workdirs
+.eval-runs
+
+# Local MCP server config (absolute machine paths — kept out of the repo)
+.mcp.json
+
 # Local package tarballs (npm pack output)
 tarballs
 

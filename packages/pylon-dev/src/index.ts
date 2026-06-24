@@ -19,6 +19,8 @@ import {build} from './builder'
 import {appModelToDDL, appModelToSDL, inspectApp} from './inspect'
 import {verifyApp} from './verify'
 import {startMcpServer} from './mcp'
+import {runEval, formatReport, SdkRunner} from './eval'
+import {fileURLToPath} from 'node:url'
 import {buildClient} from './builder/build-client'
 import {startDevReloadServer} from './builder/dev-reload-server'
 import {runDbCommand} from './db'
@@ -119,6 +121,27 @@ program
     const root = path.resolve(process.cwd(), options.cwd)
     // stdout is the MCP protocol stream from here on — do not write to it.
     await startMcpServer(root, options.models)
+  })
+
+program
+  .command('eval')
+  .description('A/B usefulness harness: run an agent on tasks WITH vs WITHOUT the Pylon MCP')
+  .option('-b, --bench <dir>', 'Bench dir (subfolders with scenario.json)', './bench')
+  .option('--json', 'Emit the full report as JSON')
+  .option('--keep', 'Keep run workdirs (under .eval-runs) for debugging')
+  .option('--model <id>', 'Model the agent should use')
+  .option('--max-turns <n>', 'Max agent turns per task', '30')
+  .action(async (options: {bench: string; json?: boolean; keep?: boolean; model?: string; maxTurns: string}) => {
+    const cliPath = fileURLToPath(import.meta.url) // bundled → dist/index.js
+    const report = await runEval({
+      benchDir: path.resolve(process.cwd(), options.bench),
+      cliPath,
+      runner: new SdkRunner({model: options.model, maxTurns: Number(options.maxTurns)}),
+      keep: options.keep,
+      onProgress: m => process.stderr.write(m + '\n')
+    })
+    if (options.json) process.stdout.write(JSON.stringify(report, null, 2) + '\n')
+    else process.stdout.write(formatReport(report) + '\n')
   })
 
 program
