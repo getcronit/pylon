@@ -19,6 +19,16 @@ Without the SDK installed the command still runs and reports the missing-SDK err
 row, so the wiring is verifiable offline (and `vitest run test/eval-harness.test.ts`
 exercises the full copy→run→score→aggregate plumbing with a fake runner).
 
+### Auth
+
+The headless agent needs to authenticate, one of:
+
+- **API key** — `export ANTHROPIC_API_KEY=sk-ant-...` (bills API credits). Or
+- **Subscription** — `npm i -g @anthropic-ai/claude-code` then `claude` → `/login`
+  (browser OAuth). Writes `~/.claude/.credentials.json`, which the SDK reuses.
+
+A `Not logged in · Please run /login` runner-error on every row means neither is set.
+
 ## A scenario
 
 One subfolder per task, each holding a `scenario.json`:
