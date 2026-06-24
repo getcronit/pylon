@@ -1,25 +1,28 @@
 /**
- * Adds `app.model()` / `app.models()` to the core `Pylon` class so a model binds to
- * its app *instance* —
+ * Adds `@app.model()` to the core `Pylon` class so a model binds to its app instance:
  *
  * ```ts
  * const blog = new Pylon({name: 'blog', models: {tenant: 'authorId', secure: true}})
  * @blog.model() class Post extends Model { … }
  * ```
  *
- * Auto-loaded from the package entry: importing `@getcronit/pylon-db` (which you do to
- * extend `Model`) enables it. This module does NOT import core at runtime — it
+ * App-level ORM config — tenant scoping, deny-by-default, migration deps, and
+ * CROSS-CUTTING abilities — is the constructor `models` option (`AppModelOptions`).
+ * Per-model rules belong on the model itself (`static abilities`).
+ *
+ * Auto-loaded from the package entry (importing `@getcronit/pylon-db`, which you do to
+ * extend `Model`, enables it). This module does NOT import core at runtime — it
  * registers a prototype-patcher on a shared global that core applies when it loads
- * (see the extension bus in core's `app/index.ts`). That keeps `@getcronit/pylon` an
- * OPTIONAL peer: the migration CLI defines models without pulling in core's web
- * runtime. The `declare module` below supplies the types (a type-only core import).
+ * (the extension bus in core's `app/index.ts`), so `@getcronit/pylon` stays an
+ * OPTIONAL peer. The `declare module` below supplies the types (a type-only import).
  */
 import type {Resolvers, PylonOptions, Pylon as PylonClass} from '@getcronit/pylon'
 import {model as modelDecorator, type ModelOptions} from './fields.js'
 import {recordApp} from './registry.js'
 import {defineAppPolicy, type AppPolicy} from './policies.js'
+import {defineAbilities, type AbilitiesFn} from './abilities.js'
 
-/** App-level model defaults — pass via `new Pylon({models})` or `app.models(...)`. */
+/** App-level ORM config — the constructor `models` option: `new Pylon({name, models})`. */
 export interface AppModelOptions {
   /** Property name of the tenant FK; every model in the app auto-scopes by it. */
   tenant?: string
@@ -29,48 +32,57 @@ export interface AppModelOptions {
   dependsOn?: string[]
   /** App-wide fallback policy for any model/action a per-model `definePolicy` omits. */
   policy?: AppPolicy
+  /**
+   * CROSS-CUTTING resource rules for the app's models (subject explicit, e.g.
+   * `can('manage', 'all')` or `can('read', Comment, {…})`). The app-scoped,
+   * IR-harvestable home for what a global `defineAbilities` used to do — a model's
+   * OWN rules belong in its `static abilities`.
+   */
+  abilities?: AbilitiesFn
 }
 
 declare module '@getcronit/pylon' {
   interface Pylon<G extends Resolvers = {}> {
-    /** Configure app-level model defaults and register the migration group. Chainable. */
-    models(options?: AppModelOptions): this
     /** App-bound model decorator — tags the model to THIS app's migration group. */
     model(options?: ModelOptions): ClassDecorator
   }
   interface PylonOptions<G extends Resolvers = {}> {
-    /** App-level ORM config, applied to every `app.model()` — the constructor-injected form. */
+    /** App-level ORM config (tenant/secure/deps/policy/abilities), applied to every `@app.model()`. */
     models?: AppModelOptions
   }
 }
 
-/** Patch `Pylon.prototype`. Called by core's extension bus with the class — no core import. */
+/** App-level cross-cutting abilities, keyed by app instance — the IR-harvest seam. */
+const appAbilities = new WeakMap<object, AbilitiesFn>()
+
+/** Read an app's cross-cutting abilities (for `pylon inspect`'s authz harvest). */
+export function appAbilitiesOf(app: object): AbilitiesFn | undefined {
+  return appAbilities.get(app)
+}
+
 function install(Pylon: typeof PylonClass): void {
-  const overrides = new WeakMap<object, AppModelOptions>()
   const registered = new WeakSet<object>()
 
   const appName = (app: any): string => {
     const name = app.name ?? app.routePrefix?.replace(/^\/+/, '')
     if (!name) {
       throw new Error(
-        "[pylon-db] app.model() needs the Pylon to have a `name` so migrations can " +
-          'group it. Pass `new Pylon({name: "blog"})`, or use `models.app("blog")`.'
+        '[pylon-db] @app.model() needs the Pylon to have a `name` so migrations can ' +
+          'group it — pass `new Pylon({name: "blog"})`.'
       )
     }
     return name
   }
 
-  // Constructor-injected `{models}` is the base; `app.models(...)` overrides it.
-  const resolved = (app: any): AppModelOptions => ({
-    ...(app.pylonOptions?.models as AppModelOptions | undefined),
-    ...overrides.get(app)
-  })
+  /** The app's ORM config — the constructor `models` option (the single home). */
+  const config = (app: any): AppModelOptions =>
+    (app.pylonOptions?.models as AppModelOptions | undefined) ?? {}
 
   const register = (app: any): string => {
     const name = appName(app)
     if (registered.has(app)) return name
     registered.add(app)
-    const opts = resolved(app)
+    const opts = config(app)
     recordApp(name, {dependsOn: opts.dependsOn})
     if (opts.policy) defineAppPolicy(name, opts.policy)
     else if (opts.secure) {
@@ -79,19 +91,19 @@ function install(Pylon: typeof PylonClass): void {
           'without a per-model definePolicy will be DENIED.'
       )
     }
+    if (opts.abilities) {
+      appAbilities.set(app, opts.abilities) // synchronous: harvestable immediately
+      // Defer the rule wiring to a microtask so it runs AFTER every `@app.model()`
+      // in the module graph has registered — otherwise a cross-cutting rule that
+      // governs a model decorated later wouldn't get its row policy wired.
+      queueMicrotask(() => defineAbilities(opts.abilities!))
+    }
     return name
-  }
-
-  Pylon.prototype.models = function (options: AppModelOptions = {}) {
-    overrides.set(this, {...overrides.get(this), ...options})
-    registered.delete(this) // re-apply policy/deps with the merged options
-    register(this)
-    return this
   }
 
   Pylon.prototype.model = function (options: ModelOptions = {}) {
     const name = register(this)
-    const opts = resolved(this)
+    const opts = config(this)
     return modelDecorator({
       ...options,
       app: name,

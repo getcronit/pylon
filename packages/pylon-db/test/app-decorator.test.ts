@@ -2,7 +2,7 @@ import {describe, it, expect} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
 // Importing the package entry (which you do to extend `Model`) enables `app.model()`.
 // No separate `@getcronit/pylon-db/app` import.
-import {Model, manager, id, text} from '../src/index'
+import {Model, manager, id, text, can, filter, runWithAppContext} from '../src/index'
 import {getModelDefinition} from '../src/registry'
 
 describe('app.model() — bind a model to its Pylon instance', () => {
@@ -37,18 +37,6 @@ describe('app.model() — bind a model to its Pylon instance', () => {
     expect(def?.tableName).toBe('shop_product')
   })
 
-  it('app.models() overrides constructor config and is chainable', () => {
-    const acct = new Pylon({name: 'acct', models: {secure: false}}).models({secure: true})
-
-    @acct.model()
-    class Ledger extends Model {
-      static objects = manager(Ledger)
-      id = id()
-    }
-
-    expect(getModelDefinition(Ledger)?.secure).toBe(true) // the .models() override wins
-  })
-
   it('a per-model option still overrides the app default', () => {
     const inv = new Pylon({name: 'inv'})
 
@@ -59,6 +47,34 @@ describe('app.model() — bind a model to its Pylon instance', () => {
     }
 
     expect(getModelDefinition(Entry)?.tableName).toBe('custom_ledger')
+  })
+
+  it('cross-cutting abilities live in the constructor models config', async () => {
+    const crm = new Pylon({
+      name: 'crm',
+      models: {
+        abilities(p, can) {
+          can('read', Contact, {ownerId: p?.id})
+        }
+      }
+    })
+
+    @crm.model()
+    class Contact extends Model {
+      static objects = manager(Contact)
+      id = id()
+      ownerId = text()
+      name = text()
+    }
+
+    // App-level abilities are wired in a microtask (after all models load).
+    await new Promise(r => setTimeout(r))
+
+    runWithAppContext({principal: {id: 'u1'}}, () => {
+      expect(filter('read', Contact)).toEqual({OR: [{ownerId: 'u1'}]})
+      expect(can('read', Object.assign(new Contact(), {ownerId: 'u1'}))).toBe(true)
+      expect(can('read', Object.assign(new Contact(), {ownerId: 'u2'}))).toBe(false)
+    })
   })
 
   it('throws a clear error when the app has no name', () => {
