@@ -1,113 +1,117 @@
 ---
-title: Multi-tenancy & Features
-description: Automatic tenant scoping and feature gating that apply across every query and resolver.
+title: Multi-Tenancy
+nav: Multi-Tenancy
+description: Declare a tenant column once and the ORM auto-scopes every read, write, and relation load to the current tenant.
 section: Data — pylon-db
-order: 7
+order: 8
 ---
 
-Pylon ORM has first-class support for multi-tenant applications. Tenant scoping
-and feature flags are bound once per request and applied automatically to every
-query — no manual `WHERE tenantId = ...` anywhere.
+Multi-tenancy in `pylon-db` is a property of the model, not a habit you have to
+keep. You name the tenant column once; from then on the ORM **AND-s
+`tenant = currentTenant()` into every read, write, and relation load, and
+auto-stamps the tenant on create**. A query that forgets the tenant filter is not
+possible — the scope is applied below your resolver, where it can't be skipped.
 
-## App context
+## Declare the tenant column
 
-The ambient context for a request (or background job) holds the `tenant`,
-`features`, and `principal`. You set it with `runWithAppContext`:
+Set the tenant property on the app (covers every model in it) or on a single
+model:
 
-```ts
-import {runWithAppContext} from '@getcronit/pylon-db'
+```ts title="src/apps/crm/models.ts"
+import {models, db} from '@getcronit/pylon-db'
 
-await runWithAppContext({tenant: 'org-A', features: ['shop']}, async () => {
-  // every query in here is scoped to org-A
-  const widgets = await Widget.objects.all()
-})
-```
+// every model in this app is tenant-scoped on `orgId`
+const crm = models.app('crm', {tenant: 'orgId'})
 
-In a Pylon app you rarely set this by hand. Bind an
-[identity](/docs/authentication/overview) and a **bare** `useDatabase()` derives
-the tenant and principal from it automatically:
-
-```ts title="pylon.config.ts"
-import {useIdentity} from '@getcronit/pylon-auth'
-import {useDatabase} from '@getcronit/pylon-db'
-import {headerAuth} from './src/identity'
-
-// identity first; the database derives tenant + principal from the Principal
-export default {plugins: [useIdentity(headerAuth), useDatabase()]}
-```
-
-Read the current values anywhere with `currentTenant()`, `currentFeatures()`,
-and `currentPrincipal()`.
-
-## Tenant auto-scoping
-
-Declare which column carries the tenant id, and Pylon stamps it on insert and
-filters by it on every read:
-
-```ts
-import {models, manager} from '@getcronit/pylon-db'
-
-const shop = models.app('shop', {tenant: 'orgId'})
-
-@shop.model()
-class Widget extends shop.Model {
-  static objects = manager(Widget)
-  id = shop.ID()
-  orgId = shop.Text() // the tenant column
-  name = shop.Text()
+@crm.model()
+export class Contact extends crm.Model {
+  static objects = db.manager(Contact)
+  id = crm.ID()
+  orgId = crm.Text()   // the tenant column
+  name = crm.Text()
+  email = crm.Text()
 }
 ```
 
-Now scoping is automatic:
+The equivalent on a standalone model is `@model({tenant: 'orgId'})`.
+
+## How scoping applies
+
+With `orgId` declared as the tenant, the ORM rewrites every operation against
+`Contact`:
 
 ```ts
-await runWithAppContext({tenant: 'org-A'}, async () => {
-  const w = await Widget.objects.create({name: 'a1'})
-  w.orgId // 'org-A' — stamped from the ambient tenant
+// resolver — no tenant filter in sight
+contacts: () => Contact.objects.all()
+// runs as: SELECT ... FROM contact WHERE org_id = $currentTenant
 
-  await Widget.objects.all()   // only org-A's rows
-  await Widget.objects.count() // only org-A's rows
+createContact: (name: string) => Contact.objects.create({name})
+// org_id is stamped from the current tenant automatically
+```
+
+The scope follows relations too — loading `contact.notes` filters the notes to
+the same tenant. **There is no path to a cross-tenant read through the normal
+API.**
+
+## Wiring
+
+`useDatabase()` derives the tenant — and the principal for
+[policies](/docs/data/policies) — from the bound `Principal` that `useIdentity`
+sets. With identity in place, the minimal wiring is two plugins:
+
+```ts title="pylon.config.ts"
+import type {PylonConfig} from '@getcronit/pylon'
+import {useIdentity} from '@getcronit/pylon-auth'
+import {useDatabase} from '@getcronit/pylon-db'
+import {sessionAuth} from './src/identity'
+
+export default {
+  plugins: [
+    useIdentity(sessionAuth), // resolves the Principal (incl. its tenant)
+    useDatabase()             // reads tenant + principal off the Principal
+  ]
+} satisfies PylonConfig
+```
+
+If your tenant lives somewhere other than the bound `Principal`, point
+`useDatabase` at it explicitly — the resolver receives the request context:
+
+```ts
+useDatabase({
+  tenant: c => c.get('session')?.orgId
 })
 ```
 
-If a query runs against a tenant-scoped model with no tenant bound, it throws —
-so you can never accidentally leak across tenants. Trusted code can cross tenants
-explicitly with `unscoped()`:
+`currentTenant()` reads the active tenant anywhere inside a request.
+
+:::warning
+A tenant-scoped read with **no bound tenant** throws — an unauthenticated or
+misconfigured request can't silently fall through to every tenant's rows. Provide
+a tenant, or opt out explicitly below.
+:::
+
+## Crossing tenants deliberately
+
+Admin tooling, cross-tenant reports, and background reconciliation need to step
+outside the scope. Two escape hatches make that explicit:
 
 ```ts
-await Widget.objects.unscoped().all() // every tenant's rows
-```
+import {runAsSystem} from '@getcronit/pylon-db'
 
-## Feature flags
+// one query, no tenant filter
+const allContacts = await Contact.objects.unscoped().all()
 
-Define a typed set of features, then gate code on them:
-
-```ts
-import {defineFeatures, requireFeature} from '@getcronit/pylon-db'
-
-const FEATURES = defineFeatures(['shop', 'billing'] as const)
-
-// throws ForbiddenError if the feature isn't enabled for this request
-requireFeature(FEATURES.shop)
-```
-
-An app can declare the feature it requires; gate individual resolvers with
-`requireFeature`:
-
-```ts
-const shop = models.app('shop', {tenant: 'orgId', feature: FEATURES.shop})
-
-new Pylon({
-  graphql: {
-    Query: {
-      widgets: () => {
-        requireFeature(FEATURES.shop) // ForbiddenError if the tenant lacks it
-        return Widget.objects.all()
-      }
-    }
+// a whole block with full access (also bypasses policies)
+await runAsSystem(async () => {
+  for (const org of await Org.objects.all()) {
+    await reindex(org)
   }
 })
 ```
 
-The active feature set comes from the bound identity automatically — so a tenant
-without `shop` enabled simply can't reach shop functionality.
+Both are deliberate, greppable, and out of the request path — the default stays
+safe.
+
+Tenant scoping composes with [authorization policies](/docs/data/policies): the
+tenant filter narrows rows to the org, and the policy narrows them to what the
+principal may see within it.

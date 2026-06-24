@@ -1,79 +1,110 @@
 ---
 title: Styling
-description: Tailwind CSS v4, global styles, fonts, and static assets in a usePages app.
+nav: Styling
+description: Tailwind out of the box, content-hashed CSS linked from the root layout, plus the Link and Image components.
 section: Frontend — usePages
-order: 2
+order: 8
 ---
 
-usePages has first-class support for [Tailwind CSS v4](https://tailwindcss.com).
-New projects come with it configured.
+usePages ships with Tailwind. You import a stylesheet once in the root layout —
+either the bundled `@getcronit/pylon-pages/index.css` or your own
+`globals.css` — and Pylon content-hashes it and links it into the document head
+at build time. Alongside styling, usePages gives you a `Link` for navigation and
+an `Image` component that serves optimized images through a media proxy.
 
-## Global styles
+## Tailwind & the stylesheet
 
-A `globals.css` at the project root imports Tailwind and defines your theme using
-Tailwind v4's CSS-first configuration — no `tailwind.config.js` needed:
+Import your CSS in the root layout. The bundled stylesheet sets up Tailwind and
+Pylon's base styles:
 
-```css
-/* globals.css */
-@import 'tailwindcss';
+```tsx title="pages/layout.tsx"
+import type {LayoutProps} from '@getcronit/pylon-pages'
+import '@getcronit/pylon-pages/index.css'
 
-@theme {
-  --color-brand: #38f6fc;
-  --font-sans: 'Inter', system-ui, sans-serif;
-}
-```
-
-Import it from the root layout so it applies everywhere:
-
-```tsx
-// pages/layout.tsx
-import '../globals.css'
-
-export default function RootLayout({children}: {children: React.ReactNode}) {
+export default function RootLayout({children}: LayoutProps) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body className="min-h-screen antialiased">{children}</body>
     </html>
   )
 }
 ```
 
-CSS is processed through your `postcss.config.js`, which uses
-`@tailwindcss/postcss`:
+To add your own styles — custom Tailwind config, fonts, base rules — point at a
+local `globals.css` instead:
 
-```js
-import tailwindPostCss from '@tailwindcss/postcss'
+```tsx title="pages/layout.tsx"
+import '../globals.css'
+```
 
-export default {
-  plugins: [tailwindPostCss]
+```css title="globals.css"
+@import 'tailwindcss';
+
+:root {
+  --brand: #0f62fe;
 }
 ```
 
-## Components and the `@/` alias
+The build pipeline processes the stylesheet, content-hashes the output, and
+links it from the root layout's head — so the browser caches it aggressively and
+busts the cache automatically when the CSS changes. You write Tailwind classes on
+your elements and they work, server-rendered and hydrated.
 
-Project files resolve through the `@/` path alias, so you can import shared
-components and utilities cleanly:
+## The Link component
 
-```tsx
-import {Button} from '@/components/ui/button'
-import {cn} from '@/lib/utils'
-```
-
-## Static assets and fonts
-
-Files in `public/` are served at the site root. Drop in images, icons, and font
-files, then reference them by path:
-
-```css
-@font-face {
-  font-family: 'Inter';
-  src: url('/fonts/Inter.woff2') format('woff2');
-}
-```
+`Link` does client-side navigation. It takes an **`href`** prop (not `to`):
 
 ```tsx
-<img src="/logo.svg" alt="Logo" />
+import {Link} from '@getcronit/pylon-pages'
+
+<Link href="/docs/overview">Read the docs</Link>
+<Link href={`/posts/${post.id}`} className="text-brand underline">
+  {post.title}
+</Link>
 ```
 
-That's all the wiring you need — write components, use Tailwind utilities, and
-the build bundles your CSS alongside the page JavaScript.
+Navigations through `Link` keep layouts mounted and swap only the inner route —
+no full page reload.
+
+## The Image component
+
+`Image` serves optimized images through Pylon's media proxy — resized to the
+dimensions you ask for, with an optional blur placeholder:
+
+```tsx
+import {Image} from '@getcronit/pylon-pages'
+
+<Image
+  src="/uploads/cover.jpg"
+  width={1200}
+  height={630}
+  alt="Cover image"
+  blurDataURL={post.blurDataURL}
+/>
+```
+
+Props:
+
+- `src` — the image URL.
+- `width` / `height` — the rendered dimensions; the proxy serves an image sized
+  to match.
+- `alt` — alternative text.
+- `fill` — stretch to fill the positioned parent instead of using fixed
+  `width`/`height`.
+- `blurDataURL` — a tiny placeholder shown until the full image loads.
+
+```tsx
+// Fill a positioned container:
+<div className="relative aspect-video">
+  <Image src={post.cover} fill alt="" />
+</div>
+```
+
+:::tip
+Generate a `blurDataURL` once when you store the image and read it back as a
+field on the entity. usePages renders it as the placeholder, so layout doesn't
+shift when the full image arrives.
+:::
+
+Both components import from `@getcronit/pylon-pages`. For where the stylesheet
+gets linked and how layouts compose, see [Layouts](/docs/frontend/layouts).

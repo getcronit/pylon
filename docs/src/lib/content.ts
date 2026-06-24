@@ -60,7 +60,8 @@ function resolveFile(slug: string): string | null {
     // Guard against path traversal — resolved file must stay under CONTENT_DIR.
     const resolved = path.resolve(file)
     if (!resolved.startsWith(CONTENT_DIR)) continue
-    if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) return resolved
+    if (fs.existsSync(resolved) && fs.statSync(resolved).isFile())
+      return resolved
   }
   return null
 }

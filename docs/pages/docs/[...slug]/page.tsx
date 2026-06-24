@@ -1,5 +1,6 @@
 import {Link, useData, type PageProps} from '@getcronit/pylon-pages'
 import {Sidebar, type NavSection} from '@/components/docs/sidebar'
+import {MobileDocsNav} from '@/components/docs/mobile-docs-nav'
 import {Toc, type TocHeading} from '@/components/docs/toc'
 import {Pager} from '@/components/docs/pager'
 import {useDocsEnhancers} from '@/components/docs/enhancers'
@@ -60,6 +61,7 @@ const DocsPage: React.FC<PageProps> = ({params, path}) => {
       </aside>
 
       <article className="min-w-0">
+        <MobileDocsNav nav={nav} currentPath={path} />
         {section && (
           <div className="mb-2 text-sm font-medium text-accent">{section}</div>
         )}

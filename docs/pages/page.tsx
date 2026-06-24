@@ -36,7 +36,7 @@ const FEATURES = [
   {
     icon: Workflow,
     title: 'Job queues',
-    body: 'Define typed queues, processors, and cron jobs with an outbox for exactly-once delivery — background work without a second framework.'
+    body: 'Define typed queues, processors, and cron jobs with a transactional outbox for exactly-once delivery — background work without a second framework.'
   },
   {
     icon: Layers,

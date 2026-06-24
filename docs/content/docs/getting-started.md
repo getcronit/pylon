@@ -1,65 +1,37 @@
 ---
 title: Getting Started
-description: Create your first Pylon project and serve a type-driven GraphQL API in under a minute.
+nav: Getting Started
+description: Scaffold a Pylon project, write your first resolver, and get a typed GraphQL API with a playground in a couple of minutes.
 section: Introduction
 order: 3
 ---
 
-This guide takes you from an empty folder to a running, type-driven GraphQL API in
-about a minute.
+This page takes you from nothing to a running, typed GraphQL API. It takes about
+two minutes.
 
-## Create a project
+## Scaffold a project
 
-```bash
-npm create pylon@latest my-pylon
-cd my-pylon
+```bash title="Terminal"
+npm create pylon@latest
+```
+
+The scaffolder asks for a project directory, a runtime (Node.js, Bun, Deno, or
+Cloudflare Workers), and optional features like the [usePages](/docs/frontend/overview)
+frontend. When it finishes:
+
+```bash title="Terminal"
+cd my-app
 npm install
 ```
 
-The scaffolder asks for a runtime (Node, Bun, Deno, or Cloudflare Workers) and
-whether to include the [usePages](/docs/frontend/overview) frontend.
+## Your first API
 
-## Write your API
-
-Everything starts in `src/index.ts`. Export a `graphql` object — Pylon reads the
-TypeScript types of your resolvers and builds the schema for you.
+Open `src/index.ts`. A Pylon app is one default export — `new Pylon({graphql})` —
+whose resolver functions *are* your API:
 
 ```ts title="src/index.ts"
 import {Pylon} from '@getcronit/pylon'
 
-export default new Pylon({
-  graphql: {
-    Query: {
-      hello: () => 'Hello, world!'
-    },
-    Mutation: {}
-  }
-})
-```
-
-Your app is a `Pylon` instance. The `graphql` you pass it is what the compiler
-reads to build your schema — there's nothing else to wire up.
-
-## Run the dev server
-
-```bash
-npm run dev
-```
-
-Pylon watches your source, rebuilds the schema on every change, and serves an
-interactive GraphiQL playground.
-
-:::tip
-Open `http://localhost:3000/graphql` to explore your API in GraphiQL — every
-type and field you'll see is generated from the TypeScript above.
-:::
-
-## Add a typed field
-
-Return a class and Pylon turns it into a GraphQL type — no schema edits, no
-codegen step:
-
-```ts title="src/index.ts" {1-5,10}
 class User {
   id!: string
   name!: string
@@ -69,19 +41,90 @@ class User {
 export default new Pylon({
   graphql: {
     Query: {
-      user: (id: string): User | null => ({id, name: 'Ada', email: null})
+      user: (id: string): User => ({id, name: 'Ada', email: null})
     }
   }
 })
 ```
 
-Refresh the playground and `User` is already there, with `id`, `name`, and a
-nullable `email`. That's the whole loop — change a type, the schema follows.
+That's the whole schema. Pylon reads the types — `User`, the `id: string`
+argument, the nullable `email` — and derives the GraphQL schema from them. There's
+no SDL to write and nothing to keep in sync.
 
-## Next steps
+## Run the dev server
 
-:::note[Where to go next]
-- See how the [type-driven schema](/docs/core-concepts/type-driven-schema) maps your types to GraphQL.
-- Add a database with [models](/docs/data/models) and [migrations](/docs/data/migrations).
-- Build a UI with the [usePages](/docs/frontend/overview) frontend.
-:::
+```bash title="Terminal"
+npm run dev
+```
+
+`pylon dev` introspects your types, builds the server, and starts it with live
+reload. Open the GraphQL playground it prints (by default
+[http://localhost:3000/graphql](http://localhost:3000/graphql)) and run:
+
+```graphql title="Playground"
+query {
+  user(id: "1") {
+    id
+    name
+    email
+  }
+}
+```
+
+Edit a resolver, save, and the server rebuilds and reloads automatically.
+
+## Add a database-backed model
+
+Real apps need persistence. Pylon's [ORM](/docs/data/overview) lets the same class
+back a database table *and* a GraphQL type:
+
+```ts title="src/index.ts"
+import {Pylon} from '@getcronit/pylon'
+import {model, Model, manager, id, text} from '@getcronit/pylon-db'
+
+@model()
+class User extends Model {
+  static objects = manager(User)
+  id = id()
+  name = text({min: 2})
+  email = text({unique: true, email: true, nullable: true})
+}
+
+export default new Pylon({
+  graphql: {
+    Query: {
+      users: (): Promise<User[]> => User.objects.all()
+    },
+    Mutation: {
+      createUser: (name: string): Promise<User> => User.objects.create({name})
+    }
+  }
+})
+```
+
+Wire the database connection in `pylon.config.ts` with the
+[`useDatabase`](/docs/reference/config) plugin, then create the tables:
+
+```bash title="Terminal"
+pylon db push        # sync your models to the database (great for dev)
+```
+
+`User.objects` is a fully typed query manager — `.filter()`, `.paginate()`,
+`.create()`, and more. See [Querying](/docs/data/queries).
+
+## Build for production
+
+```bash title="Terminal"
+pylon build          # → ./.pylon (server bundle, schema, generated client)
+npm start            # run the built app
+```
+
+For real migrations, deployment targets, and CI gating, see
+[Migrations](/docs/data/migrations) and [Deployment](/docs/production/deployment).
+
+## Where to go next
+
+- [Type-Driven Schema](/docs/core-concepts/type-driven-schema) — how your types become the API.
+- [Data](/docs/data/overview) — models, relations, and queries.
+- [Frontend](/docs/frontend/overview) — add server-rendered React pages in the same project.
+- [Build an App](/docs/guides/build-an-app) — an end-to-end tutorial.

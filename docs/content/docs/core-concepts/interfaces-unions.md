@@ -1,107 +1,135 @@
 ---
 title: Interfaces & Unions
-description: Model polymorphism with TypeScript inheritance and union types — generated as GraphQL interfaces and unions.
+nav: Interfaces & Unions
+description: Enums, interfaces, and unions fall out of ordinary TypeScript — literal unions, class inheritance, and object unions.
 section: Core Concepts
-order: 2
+order: 5
 ---
 
-Pylon maps two TypeScript patterns to GraphQL's polymorphic types: class
-inheritance becomes a GraphQL **interface**, and a union type becomes a GraphQL
-**union**.
+GraphQL's polymorphic types — enums, interfaces, and unions — all have natural
+TypeScript counterparts, and Pylon derives each from the construct you'd reach for
+anyway. **You express variation in TypeScript; the schema mirrors it.**
 
-## Interfaces from inheritance
+## Enums from string-literal unions
 
-A base class implemented by subclasses generates a GraphQL interface plus the
-concrete types that implement it:
+A union of string literals becomes a GraphQL enum:
 
-```ts
-class Media {
+:::generates
+```ts title="You write"
+type Role = 'ADMIN' | 'EDITOR' | 'READER'
+
+class User {
   id!: string
-  url!: string
-}
-
-class Image extends Media {
-  width!: number
-  height!: number
-  altText!: string | null
-}
-
-class Video extends Media {
-  durationSeconds!: number
-  captions!: string[]
-}
-
-export default new Pylon({
-  graphql: {
-    Query: {
-      // returns the Media interface; resolves to Image or Video at runtime
-      media: (): Media[] => []
-    }
-  }
-})
-```
-
-Clients can select common fields directly and concrete fields with inline
-fragments:
-
-```graphql
-{
-  media {
-    id
-    url
-    ... on Image { width height }
-    ... on Video { durationSeconds }
-  }
+  role!: Role
 }
 ```
 
-## Unions from union types
+```graphql title="Pylon generates"
+enum Role {
+  ADMIN
+  EDITOR
+  READER
+}
 
-A TypeScript union of object types becomes a GraphQL union:
+type User {
+  id: String!
+  role: Role!
+}
+```
+:::
 
-```ts
-class Post {
+## Interfaces from class inheritance
+
+When classes share a base class, the base becomes a GraphQL interface and each
+subclass an implementing type:
+
+:::generates
+```ts title="You write"
+class Node {
   id!: string
+}
+
+class Post extends Node {
   title!: string
 }
 
-class User {
-  id!: string
-  name!: string
+class Comment extends Node {
+  body!: string
+}
+```
+
+```graphql title="Pylon generates"
+interface Node {
+  id: String!
 }
 
-type SearchResult = Post | User
+type Post implements Node {
+  id: String!
+  title: String!
+}
 
-export default new Pylon({
+type Comment implements Node {
+  id: String!
+  body: String!
+}
+```
+:::
+
+## Unions from object-type unions
+
+A TypeScript union of object types — types that share no base class — becomes a
+GraphQL union:
+
+:::generates
+```ts title="You write"
+class TextBlock {
+  text!: string
+}
+
+class ImageBlock {
+  url!: string
+  alt!: string | null
+}
+
+type Block = TextBlock | ImageBlock
+
+new Pylon({
   graphql: {
-    Query: {
-      search: (query: string): SearchResult[] => []
-    }
+    Query: {blocks: (): Block[] => []}
   }
 })
 ```
 
+```graphql title="Pylon generates"
+union Block = TextBlock | ImageBlock
+
+type Query {
+  blocks: [Block!]!
+}
+```
+:::
+
+## `__typename`
+
+Clients resolve which member they received with the standard `__typename` field,
+available on every interface and union:
+
 ```graphql
 {
-  search(query: "ada") {
-    ... on Post { title }
-    ... on User { name }
+  blocks {
+    __typename
+    ... on TextBlock { text }
+    ... on ImageBlock { url }
   }
 }
 ```
 
-## Enums
+At runtime Pylon resolves the concrete type from the object you return — the class
+instance for interfaces, the matching shape for unions — so you return ordinary
+objects and the right `__typename` follows.
 
-String-literal union types become GraphQL enums:
-
-```ts
-type Role = 'ADMIN' | 'AUTHOR' | 'READER'
-
-class User {
-  id!: string
-  role!: Role // generated as enum Role { ADMIN AUTHOR READER }
-}
-```
-
-Because every one of these types is derived from your TypeScript, the schema
-always matches your code — there's no separate SDL to keep aligned.
+:::note
+Polymorphic types compose across services too. When stitching a remote API, an
+interface is resolved through a patch plus `__typename` — see
+[Gateway](/docs/core-concepts/gateway).
+:::

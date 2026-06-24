@@ -1,6 +1,7 @@
 import '../globals.css'
 import {SiteHeader} from '@/components/site-header'
 import {SiteFooter} from '@/components/site-footer'
+import {ScrollToTop} from '@/components/scroll-to-top'
 
 export default function RootLayout({children}: {children: React.ReactNode}) {
   return (
@@ -55,6 +56,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
         />
 
         <div className="flex min-h-screen flex-col">
+          <ScrollToTop />
           <SiteHeader />
           <div className="flex-1">{children}</div>
           <SiteFooter />

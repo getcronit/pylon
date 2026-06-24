@@ -1,116 +1,225 @@
 ---
-title: Building a Multi-tenant SaaS
-description: Combine tenant scoping, row-level policies, and feature flags into a safe multi-tenant data layer.
+title: Multi-Tenant SaaS
+description: Combine tenancy, identity, abilities, and apps so every request is scoped to its org automatically — with no manual filters.
 section: Guides
-order: 3
+order: 1
 ---
 
-Multi-tenant SaaS is where Pylon's data layer earns its keep. Tenant isolation,
-per-user authorization, and plan-based feature gating all live at the data layer,
-so they apply to every query automatically — you can't forget them in a resolver.
+A multi-tenant SaaS shares one database across many organizations, and the cost
+of a single missing `WHERE orgId = ...` is a cross-tenant data leak. Pylon moves
+tenant scoping and authorization **out of your resolvers and into the data
+layer**, so a request is bound to its org once and every query is scoped from
+there. This recipe wires identity, tenancy, row-level abilities, and app
+composition into a coherent whole.
 
-This guide wires the three together.
+## The shape of the solution
 
-## 1. Scope models to a tenant
+Four pieces compose:
 
-Declare the tenant column on an [app](/docs/apps/overview) (or a model), and Pylon
-stamps it on insert and filters by it on every read:
+- **Identity** binds a `Principal` per request — including which `tenant` it
+  belongs to.
+- **A bare `useDatabase()`** derives the tenant from that `Principal`, so every
+  query is automatically scoped.
+- **`models.app(name, {tenant, secure})`** declares the tenant column and turns
+  on deny-by-default authorization for a feature's models.
+- **`defineAbilities`** adds row-level rules; **`gate`** adds capability checks at
+  the app boundary.
 
-```ts
-import {db, models} from '@getcronit/pylon-db'
+Define each feature as its own `Pylon`, then `compose` them at the root.
 
-// secure: deny-by-default; tenant: auto-scope every query by orgId
-const core = models.app('core', {tenant: 'orgId', feature: 'core', secure: true})
+## 1. Bind the identity
 
-@core.model()
-class Project extends core.Model {
-  static objects = db.manager(Project)
-  id = core.ID()
-  orgId = core.Text()  // tenant column
-  name = core.Text()
-  ownerId = core.Text()
+An identity provider turns a verified request into a `Principal`. Crucially, it
+sets `tenant` — that single field is what scopes the entire request.
+
+```ts title="src/identity.ts"
+import type {IdentityProvider} from '@getcronit/pylon-auth'
+
+export const headerAuth: IdentityProvider = c => {
+  const id = c.req.header('x-user-id')
+  if (!id) return undefined // anonymous
+  return {
+    id,
+    tenant: c.req.header('x-org') ?? undefined, // ← the org this request acts as
+    roles: (c.req.header('x-roles') ?? 'member').split(',')
+  }
 }
 ```
 
-## 2. Authorize within the tenant
+## 2. A tenant-scoped, secure app
 
-Tenant scoping isolates organizations; [abilities](/docs/data/policies) control
-what a user can see and do inside their org:
+`models.app('projects', {tenant: 'orgId', secure: true})` declares two things:
+the `orgId` column carries the tenant, and `secure: true` makes the app
+deny-by-default — any action without a matching `can(...)` rule is rejected.
 
-```ts
-import {defineAbilities} from '@getcronit/pylon-db'
+```ts title="apps/projects.ts"
+import {Pylon} from '@getcronit/pylon'
+import {db, models, gate} from '@getcronit/pylon-db'
 import {hasRole} from '@getcronit/pylon-auth'
 
-defineAbilities((principal, can) => {
-  const uid = principal?.id ?? '__anon__'
-  if (hasRole(principal, 'admin')) can('manage', 'all')
+const projects = models.app('projects', {tenant: 'orgId', secure: true})
 
-  can('read', Project, {ownerId: uid})
-  can('update', Project, {ownerId: uid})
-  if (principal) {
-    can('create', Project).stamp(p => {
-      p.orgId = String(principal.tenant)
-      p.ownerId = String(principal.id)
-    })
-  }
-})
-```
-
-## 3. Gate features by plan
-
-Define your plan features and require them where they're used. A tenant whose
-plan doesn't include a feature simply can't reach it:
-
-```ts
-import {defineFeatures, requireFeature} from '@getcronit/pylon-db'
-
-const FEATURES = defineFeatures(['core', 'analytics'] as const)
-
-export const Query = {
-  analyticsReport: () => {
-    requireFeature(FEATURES.analytics)
-    return buildReport()
-  }
+@projects.model() // → table "projects_task"
+export class Task extends projects.Model {
+  static objects = db.manager(Task)
+  id = projects.ID()
+  orgId = projects.Text()   // tenant column — stamped automatically
+  ownerId = projects.Text() // stamped by an ability (below)
+  title = projects.Text()
+  done = projects.Boolean({default: false})
 }
-```
 
-## 4. Bind it to the request
-
-Bind an [identity](/docs/authentication/overview) once, then a bare `useDatabase()`
-derives the principal, tenant, and features from it — and every query downstream
-is scoped, authorized, and gated:
-
-```ts title="pylon.config.ts"
-import {useIdentity} from '@getcronit/pylon-auth'
-import {useDatabase} from '@getcronit/pylon-db'
-import {sessionAuth} from './src/identity'
-
-export default {
-  plugins: [useIdentity(sessionAuth), useDatabase()]
-}
-```
-
-## The payoff
-
-With those four pieces in place, your resolvers stay clean and your guarantees are
-structural:
-
-```ts
-new Pylon({
+export const projectsApp = new Pylon({
+  // capability gate at the app boundary: must be a signed-in member
+  gate: gate({authorize: p => hasRole(p, 'member', 'admin')}),
   graphql: {
     Query: {
-      // automatically: this org only, rows this user may read
-      projects: () => Project.objects.all()
+      // no manual filter — scoped to this org AND to readable rows
+      tasks: (): Promise<Task[]> => Task.objects.all()
     },
     Mutation: {
-      // automatically: orgId + ownerId stamped from the principal
-      createProject: (name: string) => Project.objects.create({name})
+      addTask: (title: string): Promise<Task> => Task.objects.create({title})
     }
   }
 })
 ```
 
-A new query against `Project` is tenant-scoped and policy-checked the moment it's
-written — there is no path that forgets the `WHERE` clause, because the rules
-live with the data, not in each resolver. That's the difference between
-"we try to remember to scope by org" and "it cannot leak."
+Notice the resolvers contain **no tenancy or ownership logic**. `Task.objects.all()`
+returns only the current org's rows, and `create({title})` stamps `orgId` from the
+ambient tenant — both happen in the data layer.
+
+## 3. Row-level abilities
+
+`defineAbilities` adds resource authz on top of tenant scoping: who can read or
+write which rows, and which server-owned fields get stamped on create.
+
+```ts title="apps/projects.ts"
+import {defineAbilities} from '@getcronit/pylon-db'
+import {hasRole} from '@getcronit/pylon-auth'
+
+defineAbilities((principal, can) => {
+  if (hasRole(principal, 'admin')) can('manage', 'all')
+
+  const uid = principal?.id ?? '__anon__'
+
+  // members read tasks they own; update only their own
+  can('read', Task, {ownerId: uid})
+  can('update', Task, {ownerId: uid})
+
+  // stamp ownership on create so clients can't spoof it
+  if (principal) {
+    can('create', Task).stamp(t => {
+      t.ownerId = String(principal.id)
+    })
+  }
+})
+```
+
+Reads filter automatically; for writes, call `authorize('update', task)` in a
+resolver to enforce the rule on a specific instance. See
+[Authorization](/docs/data/policies).
+
+## 4. Compose apps at the root
+
+Each app is self-contained — its own models, resolvers, gate, and tenant config.
+The root `Pylon` merges them into **one schema served at one `/graphql`**.
+
+```ts title="src/index.ts"
+import {Pylon} from '@getcronit/pylon'
+import {projectsApp} from './apps/projects'
+import {billingApp} from './apps/billing'
+
+export default new Pylon().compose(projectsApp, billingApp)
+```
+
+Add the plugins — identity first, then a **bare** `useDatabase()` that derives the
+tenant and principal from the bound `Principal`:
+
+```ts title="pylon.config.ts"
+import {serve} from '@hono/node-server'
+import type {PylonConfig} from '@getcronit/pylon'
+import {useIdentity} from '@getcronit/pylon-auth'
+import {useDatabase} from '@getcronit/pylon-db'
+import {headerAuth} from './src/identity'
+
+export default {
+  plugins: [
+    useIdentity(headerAuth), // binds the Principal (incl. tenant)
+    useDatabase(),           // derives tenant + principal from it
+    {
+      name: 'serve',
+      strategy: 'last',
+      setup: app => serve({fetch: app.fetch, port: Number(process.env.PORT) || 3000})
+    }
+  ]
+} satisfies PylonConfig
+```
+
+## What a request looks like end to end
+
+Trace one request through the stack to see why no manual scoping is needed:
+
+1. `useIdentity` runs `headerAuth`, binding `{id, tenant: 'org-A', roles}`.
+2. `useDatabase` reads that `Principal` and binds `tenant: 'org-A'` to the request.
+3. The app's `gate` runs `authorize` — rejects with `403` if the caller isn't a
+   member.
+4. `Task.objects.all()` resolves with an implicit `WHERE orgId = 'org-A'` **and**
+   the `read` ability's `ownerId` condition.
+5. `Task.objects.create({title})` stamps `orgId = 'org-A'` and the `create`
+   ability stamps `ownerId`.
+
+If a tenant-scoped query ever runs with no tenant bound, it **throws** rather than
+returning every org's rows — so a forgotten scope fails loudly instead of leaking.
+
+## Feature flags per tenant
+
+Tenants on different plans see different surfaces. Declare a feature on an app and
+gate resolvers with `requireFeature`; the active feature set comes from the bound
+identity automatically.
+
+```ts title="apps/billing.ts"
+import {defineFeatures, requireFeature, models, gate} from '@getcronit/pylon-db'
+import {hasRole} from '@getcronit/pylon-auth'
+
+const FEATURES = defineFeatures(['billing'] as const)
+const billing = models.app('billing', {tenant: 'orgId', feature: FEATURES.billing})
+
+export const billingApp = new Pylon({
+  gate: gate({authorize: p => hasRole(p, 'admin'), feature: FEATURES.billing}),
+  graphql: {
+    Query: {
+      invoices: () => {
+        requireFeature(FEATURES.billing) // ForbiddenError if the tenant lacks it
+        return Invoice.objects.all()
+      }
+    }
+  }
+})
+```
+
+A tenant without `billing` enabled simply can't reach billing functionality — the
+gate throws a `403` before any resolver runs.
+
+## Test setup bypasses scoping
+
+Tenancy makes seeding awkward — a fixture has no request, so no tenant is bound.
+Run setup with `runAsSystem` (full access) and `unscoped()` (skip tenant scoping):
+
+```ts
+import {runAsSystem} from '@getcronit/pylon-db'
+
+await runAsSystem(async () => {
+  await Task.objects.unscoped().create({orgId: 'org-A', ownerId: 'u1', title: 'seed'})
+})
+```
+
+See [Testing](/docs/guides/testing) for the full pattern.
+
+## Where to go next
+
+- [Apps](/docs/apps/overview) — the composition model in depth.
+- [Multi-tenancy & Features](/docs/data/multi-tenancy) — tenant scoping and
+  feature flags.
+- [Authorization](/docs/data/policies) — abilities, `stamp`, and `runAsSystem`.
+- [Authentication](/docs/authentication/overview) — providers, OIDC, and the
+  `Principal`.

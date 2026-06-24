@@ -1,117 +1,145 @@
 ---
 title: Apps
-description: Compose modular feature units — each its own Pylon with models, resolvers, routes, and authz — into one service.
+nav: Apps
+description: Bundle models, migrations, resolvers, and a gate into a feature — then compose features into one deployment.
 section: Apps
 order: 0
-nav: Composing apps
 ---
 
-As a project grows, you'll want to group related models, resolvers, routes, and
-authorization into self-contained units. In Pylon, **an app is just a `Pylon`
-instance** — with its own `graphql`, its own routes, and its own models. The root
-`Pylon` composes them into a single service with one merged schema.
+An **app** is a self-contained feature: its own GraphQL resolvers and routes, its
+own authorization gate, and its own set of models. Technically, an app is a
+smaller [`Pylon`](/docs/core-concepts/the-pylon-app) instance plus models tagged
+with `models.app(name)`. The root `Pylon` **composes** apps into a single
+deployment — one schema, one `/graphql`, one set of migrations ordered by
+dependency. This is Django-style modular structure, brought to a fully typed
+TypeScript stack: bundle a feature, then compose features.
 
-## An app is a Pylon
+## What an app is
 
-Define a feature as a `Pylon` whose `graphql` is declared in its constructor, with
-name-tagged, tenant-scoped models alongside it:
+An app folder owns three things:
 
-```ts title="apps/projects.ts"
+- **Models** tagged with `models.app(name)`, so `pylon db` puts their migrations
+  in one dependency-ordered group.
+- **A `Pylon` instance** carrying the app's `graphql` resolvers, any HTTP routes,
+  an optional `basePath`, and a `gate`.
+- **Abilities / policies** scoping the app's rows (see
+  [Policies](/docs/data/policies)).
+
+```ts title="src/apps/blog/index.ts"
+import {models, db, gate} from '@getcronit/pylon-db'
+import {hasRole} from '@getcronit/pylon-auth'
 import {Pylon} from '@getcronit/pylon'
-import {db, models} from '@getcronit/pylon-db'
 
-// Tenant-scoped (orgId) + deny-by-default authorization.
-const projects = models.app('projects', {tenant: 'orgId', secure: true})
+const blog = models.app('blog')
 
-@projects.model() // → table "projects_task"
-export class Task extends projects.Model {
-  static objects = db.manager(Task)
-  id = projects.ID()
-  orgId = projects.Text()
-  ownerId = projects.Text()
-  title = projects.Text()
+@blog.model()
+export class Post extends blog.Model {
+  static objects = db.manager(Post)
+  id = blog.ID()
+  title = blog.Text()
+  body = blog.Text()
 }
 
-export const projectsApp = new Pylon({
+export const blogApp = new Pylon({
   graphql: {
-    Query: {
-      tasks: (): Promise<Task[]> => Task.objects.all() // ability- + tenant-scoped automatically
-    },
+    Query: {posts: () => Post.objects.orderBy('-id').all()},
     Mutation: {
-      createTask: (title: string): Promise<Task> => Task.objects.create({title})
+      createPost: (title: string, body: string) =>
+        Post.objects.create({title, body})
     }
-  }
+  },
+  gate: gate({authorize: p => hasRole(p, 'author')})
 })
-
-// A Pylon extends Hono — add routes directly on the instance.
-projectsApp.get('/projects/health', c => c.json({ok: true}))
 ```
 
-## Compose at the root
+A second app looks the same — its own models, resolvers, and gate:
 
-The root imports each app and merges them with `compose`. The result is one
-schema (the deep union of every app's `graphql`) and all their routes mounted
-together:
-
-```ts title="src/index.ts"
+```ts title="src/apps/shop/index.ts"
+import {models, db, gate} from '@getcronit/pylon-db'
+import {hasRole} from '@getcronit/pylon-auth'
 import {Pylon} from '@getcronit/pylon'
-import {projectsApp} from './apps/projects'
-import {billingApp} from './apps/billing'
-
-export default new Pylon().compose(projectsApp, billingApp)
-```
-
-The compiler reads the composed `graphql` and type-introspects it into a single
-merged schema — exactly as it does for a single app.
-
-## Route prefixes
-
-Give an app a `basePath` to namespace its routes (handy for per-app middleware or
-gating a whole surface):
-
-```ts
-export const vaultApp = new Pylon({
-  basePath: '/vault',
-  graphql: {/* ... */}
-})
-```
-
-GraphQL still merges to the root `/graphql`; the `basePath` only prefixes the
-app's own Hono routes.
-
-## Cross-app relations
-
-An app can reference another app's models. A foreign key that points across apps
-works like any other:
-
-```ts title="apps/shop.ts"
-import {db, models} from '@getcronit/pylon-db'
-import {Task} from './projects'
 
 const shop = models.app('shop')
 
 @shop.model()
-export class Purchase extends shop.Model {
-  static objects = db.manager(Purchase)
+export class Product extends shop.Model {
+  static objects = db.manager(Product)
   id = shop.ID()
-  taskId = shop.ForeignKey(() => Task) // cross-app FK → projects_task
+  name = shop.Text()
+  price = shop.Numeric({precision: 10, scale: 2})
 }
+
+export const shopApp = new Pylon({
+  graphql: {Query: {products: () => Product.objects.all()}},
+  gate: gate({authorize: p => hasRole(p, 'shopper')}),
+  basePath: '/shop'
+})
 ```
 
-## Per-app migrations
+## Compose them at the root
 
-Migrations are organized per app under `migrations/<app>/`. Pylon infers the
-dependency order from cross-app foreign keys and applies them correctly:
+The root entry composes the apps. `compose` merges every app's `graphql` into
+**one schema served at one `/graphql`**, mounts each app's routes at its
+`basePath`, and keeps each app's `gate` local to the feature that owns it:
+
+```ts title="src/index.ts"
+import {Pylon} from '@getcronit/pylon'
+import {blogApp} from './apps/blog'
+import {shopApp} from './apps/shop'
+
+export default new Pylon().compose(blogApp, shopApp)
+```
+
+That's the whole deployment: a `posts` and `createPost` from the blog, a
+`products` from the shop, all on one endpoint, each guarded by its own gate. See
+[The Pylon App](/docs/core-concepts/the-pylon-app) for the composition mechanics.
+
+## Migrations follow the apps
+
+Because each app's models are tagged with `models.app(name)`, `pylon db` derives
+one migration group per app and orders the groups by their dependencies —
+inferred from cross-app foreign keys, plus any explicit `dependsOn`. Generate a
+migration for a single app, or migrate everything in order:
 
 ```bash
-pylon db diff -a projects   # generate a migration for the projects app
-pylon db migrate            # apply all apps, in dependency order
+pylon db diff --app blog add_post_table   # generate for the blog app
+pylon db migrate                          # apply every app's migrations, ordered
+pylon db status                           # per-app applied / pending
 ```
 
-## Authorization & tenancy per app
+See [Migrations](/docs/data/migrations) for the full workflow.
 
-Because an app declares its tenant column and `secure` flag on `models.app(...)`,
-tenant scoping and deny-by-default apply to all of its models. Pair that with
-[abilities](/docs/data/policies) for row-level rules and
-[identity](/docs/authentication/overview) for the principal — see
-[Multi-tenancy & Features](/docs/data/multi-tenancy).
+## Cross-app relations
+
+A model in one app can relate to a model in another. Declare the canonical side
+of a many-to-many normally and mark the other side `{inverse: true}`, so each app
+still synthesizes only its own tables — the inverse side reads and writes the
+join table the canonical app owns:
+
+```ts
+// in the shop app — owns the join table
+tags = manyToMany(() => Tag)
+
+// in the blog app — borrows it
+products = manyToMany(() => Product, {inverse: true})
+```
+
+## Tenancy per app
+
+An app can be tenant-scoped and secure as a unit. `models.app(name, {tenant,
+secure})` applies the tenant column and deny-by-default authorization to every
+model in the app:
+
+```ts
+const crm = models.app('crm', {tenant: 'orgId', secure: true})
+```
+
+See [Multi-Tenancy](/docs/data/multi-tenancy) for the scoping model.
+
+## When to reach for apps
+
+Start with a single `Pylon`. Split into apps when a feature earns its own
+boundary — its own models, its own gate, its own migration history that ships and
+evolves on its own cadence. An app is the unit you can lift into another
+deployment intact, because it carries everything it needs: data, API, and access
+rules together.

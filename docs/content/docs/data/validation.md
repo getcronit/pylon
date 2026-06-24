@@ -1,87 +1,132 @@
 ---
 title: Validation
-description: Validate data before it is written — built-in rules, custom functions, and Standard Schema integration.
+nav: Validation
+description: Field rules that run before every write, project into DB CHECK constraints, and surface as structured client errors.
 section: Data — pylon-db
 order: 4
 ---
 
-Validation runs **before** every insert and update. Invalid data never reaches
-the database, and numeric and enum rules are also projected to SQL `CHECK`
-constraints as defense-in-depth.
+Validation lives on the field. The rules you attach to a builder run **before
+the database write** — on `$save()`, `create`, and `createMany` — and a throwing
+rule aborts the write. A subset of those rules is also projected into a Postgres
+`CHECK` constraint, so the database enforces the same invariant against raw SQL
+and non-ORM writers. **The check is declared once and enforced in two places.**
 
-## Built-in rules
+## Field rules
 
-Declare rules as field options:
+Every field builder accepts the validation options below. They compose — a field
+can have several:
 
-```ts
+```ts title="src/models.ts"
 import {Model, manager, id, text, int} from '@getcronit/pylon-db'
 
 @model()
 class User extends Model {
   static objects = manager(User)
+
   id = id()
-  email = text({email: true, max: 255})
+  email = text({email: true})
+  username = text({min: 3, max: 32, pattern: /^[a-z0-9_]+$/})
   age = int({min: 0, max: 130})
-  handle = text({pattern: /^[a-z0-9_]+$/, min: 3})
+  bio = text({nullable: true, max: 280, validate: v =>
+    String(v).includes('http') ? 'No links in bio' : true})
 }
 ```
 
-Available options: `min`, `max` (value for numbers, length for strings),
-`pattern`, `email`, plus `unique` (enforced by the database and surfaced as a
-validation error).
-
-## Custom validation
-
-Pass a `validate` function that returns `true` on success or a message on
-failure:
-
-```ts
-text({
-  validate: value => (value.includes('@') ? true : 'Must contain an @')
-})
-```
+| Option | Rule |
+| --- | --- |
+| `min` | minimum value (numbers) or length (strings) |
+| `max` | maximum value (numbers) or length (strings) |
+| `email` | must be a valid email address |
+| `pattern` | string must match the `RegExp` |
+| `validate` | custom rule: return `true` or an error message |
+| `schema` | a Standard Schema (Zod / Valibot / ArkType) |
 
 ## Standard Schema
 
-Any [Standard Schema](https://standardschema.dev) validator — Zod, Valibot,
-ArkType — can be attached with `schema`. Pylon reads the standard interface, so
-the library is never imported by the ORM:
+Pass any [Standard Schema](https://standardschema.dev) validator via `{schema}`.
+The ORM never imports the validation library — it reads the standard
+`~standard` interface, so the library owns the error message:
 
 ```ts
 import {z} from 'zod'
 
 @model()
-class User extends Model {
-  static objects = manager(User)
+class Product extends Model {
+  static objects = manager(Product)
   id = id()
-  email = text({
-    schema: z.string().email().transform(s => s.toLowerCase())
-  })
+  sku = text({schema: z.string().regex(/^[A-Z]{3}-\d{4}$/)})
+  price = numeric({precision: 10, scale: 2, schema: z.number().positive()})
 }
 ```
 
-## Handling validation errors
+## The error shape
 
-A failed write throws a `ValidationError` carrying structured issues:
+A failed write throws a structured `ValidationError`. Its `issues` array carries
+a machine-readable `code`, the `path` (the field), constraint `params` for
+translation, and a default English `message`:
 
 ```ts
 import {ValidationError} from '@getcronit/pylon-db'
 
 try {
-  await User.objects.create({email: 'nope', age: -5})
-} catch (err) {
-  if (err instanceof ValidationError) {
-    err.issues // [{path: 'email', code: 'email', message: '...'}, {path: 'age', code: 'min', ...}]
+  await User.objects.create({email: 'nope', age: 200})
+} catch (e) {
+  if (e instanceof ValidationError) {
+    console.log(e.issues)
+    // [
+    //   {path: 'email', code: 'email', message: 'Must be a valid email'},
+    //   {path: 'age',   code: 'max', params: {max: 130}, message: '...'}
+    // ]
   }
 }
 ```
 
-Each issue has a `path` (the property), a `code`
-(`required`, `type`, `min`, `max`, `length`, `pattern`, `email`, `enum`,
-`unique`, or `custom`), an optional `params` object, and a default English
-`message`.
+`code` is one of `required`, `type`, `min`, `max`, `length`, `pattern`, `email`,
+`enum`, `unique`, or `custom`.
 
-When you use the [`useDatabase`](/docs/data/models) plugin, these errors are
-mapped automatically to client-safe GraphQL errors — and when returned from a
-[`mutation()`](/docs/core-concepts/errors), they become Shopify-style
-`userErrors` with the field path attached.
+## Surfacing to clients
+
+`useDatabase` maps a thrown `ValidationError` to a client-safe GraphQL
+`BAD_USER_INPUT` error carrying the structured issues — so a resolver doesn't
+need a `try/catch`, and the client gets a typed, actionable response. Customize
+or disable the mapping:
+
+```ts title="pylon.config.ts"
+import {useDatabase} from '@getcronit/pylon-db'
+
+export default {
+  plugins: [
+    useDatabase({
+      // localize from `code` + `params` using the request locale, or pass
+      // `false` to leave the error masked.
+      validationErrors: (error, ctx) => translate(error.issues, ctx)
+    })
+  ]
+}
+```
+
+## What reaches the database
+
+Numeric bounds, string-length bounds, and enum membership are projected into a
+column `CHECK` — the database backs up the same rule:
+
+:::generates
+```ts title="You write"
+@model()
+class User extends Model {
+  age = int({min: 0, max: 130})
+}
+```
+
+```sql title="Pylon generates"
+"age" integer NOT NULL CHECK ("age" >= 0 AND "age" <= 130)
+```
+:::
+
+:::note
+`pattern` and `email` are **not** projected to a `CHECK` — a JavaScript `RegExp`
+doesn't translate faithfully to Postgres POSIX regex, so they stay JS-only to
+avoid the app and database disagreeing. The structured `ValidationError` still
+enforces them on every ORM write.
+:::

@@ -5,9 +5,11 @@ import {
   Braces,
   Database,
   GraduationCap,
+  KeyRound,
   Rocket,
   Sparkles,
   Terminal,
+  Workflow,
   type LucideIcon
 } from 'lucide-react'
 
@@ -24,8 +26,10 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   Introduction: Sparkles,
   'Core Concepts': Braces,
   'Data — pylon-db': Database,
+  Authentication: KeyRound,
   Apps: Boxes,
   'Frontend — usePages': AppWindow,
+  'Background Jobs': Workflow,
   Production: Rocket,
   Guides: GraduationCap,
   Reference: Terminal

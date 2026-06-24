@@ -1,161 +1,165 @@
 ---
-title: Queries
-description: Create, read, update, delete — plus filtering, ordering, pagination, and full-text search through the manager API.
+title: Querying
+nav: Querying
+description: Filter, order, paginate, search, and write — an immutable QuerySet with Prisma-shaped filters and Relay keyset pagination.
 section: Data — pylon-db
-order: 2
+order: 3
 ---
 
-Every model exposes a typed query manager as `Model.objects`. Managers return
-chainable query sets; terminal methods like `.all()`, `.get()`, and `.count()`
-execute the query.
-
-## Create
-
-```ts
-const user = await User.objects.create({email: 'a@b.co', name: 'Ada'})
-// auto-generated id, defaults, and server timestamps are backfilled
-
-const many = await User.objects.createMany([
-  {email: 'b@b.co', name: 'Bo'},
-  {email: 'c@b.co', name: 'Cy'}
-])
-```
-
-## Read
+`Model.objects` is a `Manager`. Calling a query method on it returns a
+`QuerySet` — an **immutable, chainable** description of a query that runs only
+when you reach a terminal method like `.all()`. Each chain link returns a new
+`QuerySet`, so you can branch a base query without mutating it.
 
 ```ts
-// get() returns exactly one row, or throws NotFoundError
-const ada = await User.objects.get({email: 'a@b.co'})
-
-// all rows
-const users = await User.objects.all()
-
-// first() returns one row or null
-const first = await User.objects.filter({isActive: true}).first()
-
-// count
-const active = await User.objects.filter({isActive: true}).count()
-```
-
-## Update
-
-Load a row, mutate it, and persist with `$save()`:
-
-```ts
-const ada = await User.objects.get({email: 'a@b.co'})
-ada.name = 'Ada Lovelace'
-await ada.$save()
-```
-
-Or update many rows at once:
-
-```ts
-const changed = await User.objects.filter({isActive: false}).update({isActive: true})
-// returns the number of rows updated
-```
-
-## Delete
-
-```ts
-const ada = await User.objects.get({id: 1})
-await ada.$delete()
-
-// bulk delete returns the count
-const removed = await User.objects.filter({isActive: false}).delete()
+const open = Task.objects.filter({status: 'OPEN'})
+const mine = await open.filter({ownerId: me}).orderBy('-createdAt').all()
+const count = await open.count() // `open` is unchanged
 ```
 
 ## Filtering
 
-`filter()` takes a typed `WhereInput`. Use shorthand equality, or per-field
-operators:
+`.filter(where)` takes a Prisma-shaped `WhereInput`. A bare value is equality
+shorthand; an operator object refines it:
 
 ```ts
-// shorthand equality
-await Widget.objects.filter({name: 'Alpha', active: true}).all()
+// equality shorthand
+await User.objects.filter({email: 'ada@example.com'}).all()
 
-// comparison operators
-await Widget.objects.filter({qty: {gt: 10}}).all()
-await Widget.objects.filter({qty: {gte: 10, lte: 20}}).all()
-
-// strings
-await Widget.objects.filter({name: {contains: 'amm'}}).all()
-await Widget.objects.filter({name: {startsWith: 'Al'}}).all()
-await Widget.objects.filter({name: {contains: 'alph', mode: 'insensitive'}}).all()
-
-// sets and null
-await Widget.objects.filter({plan: {in: ['PRO', 'ENTERPRISE']}}).all()
-await Widget.objects.filter({note: {not: null}}).all()
-
-// arrays
-await Widget.objects.filter({tags: {has: 'red'}}).all()
-await Widget.objects.filter({tags: {hasEvery: ['red', 'blue']}}).all()
+// operators
+await Post.objects.filter({
+  views: {gte: 100, lt: 1000},
+  title: {contains: 'engine', mode: 'insensitive'}, // ILIKE — Postgres
+  status: {in: ['OPEN', 'PENDING']},
+  authorId: {not: null}
+}).all()
 ```
 
-Combine conditions with `AND`, `OR`, and `NOT`:
+Scalar operators: `gt`, `gte`, `lt`, `lte`, `in`, `notIn`, `contains`,
+`startsWith`, `endsWith`, `not`, and `mode: 'insensitive'` for case-insensitive
+string matches.
+
+Combine clauses with `AND` / `OR` / `NOT`:
 
 ```ts
-await Widget.objects
-  .filter({OR: [{active: true}, {qty: {gte: 5}}]})
-  .all()
+await Task.objects.filter({
+  OR: [{ownerId: me}, {shared: true}],
+  NOT: {status: 'ARCHIVED'}
+}).all()
 ```
 
-Available operators: `equals`, `not`, `in`, `notIn`, `lt`, `lte`, `gt`, `gte`,
-`contains`, `startsWith`, `endsWith`, `mode: 'insensitive'`, and the array
-operators `has`, `hasEvery`, `hasSome`, `isEmpty`.
+Filter across relations with a nested `WhereInput` (many-to-one) or
+`some` / `every` / `none` (to-many):
+
+```ts
+await Post.objects.filter({author: {name: 'Ada'}}).all()
+await Author.objects.filter({posts: {some: {published: true}}}).all()
+```
 
 ## Ordering and limiting
 
-```ts
-// ascending by name, descending by createdAt
-await Widget.objects.orderBy('name').all()
-await Widget.objects.orderBy('-createdAt').limit(10).all()
-```
-
-## Pagination
-
-`paginate()` returns a Relay-style connection with cursors:
+`.orderBy('field')` sorts ascending; prefix with `-` for descending. `.limit(n)`
+caps the result:
 
 ```ts
-const page = await Widget.objects.paginate({first: 20})
-
-page.nodes          // Widget[]
-page.edges          // { cursor, node }[]
-page.totalCount     // total matching rows (ignores the cursor window)
-page.pageInfo       // { hasNextPage, hasPreviousPage, startCursor, endCursor }
-
-// next page
-const next = await Widget.objects.paginate({
-  first: 20,
-  after: page.pageInfo.endCursor!
-})
-
-// order and paginate together
-await Widget.objects.paginate({first: 10, orderBy: '-createdAt'})
-
-// backward pagination
-await Widget.objects.paginate({last: 10, before: page.pageInfo.startCursor!})
-
-// compose with a filter
-await Widget.objects.filter({active: true}).paginate({first: 10})
+await Post.objects.orderBy('-createdAt').limit(10).all()
 ```
+
+## Terminal methods
+
+| Method | Returns |
+| --- | --- |
+| `.all()` | `T[]` — every matching row |
+| `.first()` | `T \| null` — the first row, or null |
+| `.get(where?)` | `T` — exactly one row; throws `NotFoundError` if missing |
+| `.count()` | `number` — matching rows |
+| `.paginate(args?)` | `Connection<T>` — a Relay page |
+
+```ts
+const task = await Task.objects.get({id: 42}) // throws NotFoundError if absent
+const recent = await Task.objects.orderBy('-createdAt').first()
+```
+
+## Relay pagination
+
+`.paginate()` returns a keyset-cursor `Connection<T>` —
+`{edges, nodes, pageInfo, totalCount}`. It pages forward with `first`/`after` and
+backward with `last`/`before`, keyed on `orderBy` (defaulting to the primary
+key):
+
+```ts
+const page = await Post.objects
+  .filter({published: true})
+  .paginate({first: 20, after: cursor, orderBy: '-createdAt'})
+
+page.nodes        // Post[]
+page.edges        // {node, cursor}[]
+page.pageInfo     // {hasNextPage, hasPreviousPage, startCursor, endCursor}
+page.totalCount   // total matching the filter, ignoring the window
+```
+
+Return a `Connection` straight from a resolver and Pylon generates the Relay
+connection type. On the frontend, drive it with
+[`usePaginatedData`](/docs/frontend/pagination).
+
+## The search-query DSL
+
+Both `.query()` and `.paginate({query})` accept a Shopify/GitHub-style search
+string, parsed against the model's columns and AND-ed onto the current filter.
+It's a plain scalar — no per-model filter-input type required:
+
+```ts
+await Ticket.objects.query('status:OPEN -isRead:true "needs review"').all()
+```
+
+`field:value` matches, `-field:value` negates, and a quoted `"phrase"` does a
+free-text match across the searchable columns.
 
 ## Full-text search
 
-Declare searchable columns on the model, then use `.search()` (Postgres only). A
-stored `tsvector` column with a GIN index is generated for you:
+`.search(text, opts?)` runs a Postgres full-text query against the `tsvector`
+column declared by [`@model({search})`](/docs/data/models#full-text-search). Pass
+`{rank: true}` to order by relevance:
 
 ```ts
-@model({search: {columns: ['title', 'body'], language: 'english'}})
-class Doc extends Model {
-  static objects = manager(Doc)
-  id = id()
-  title = text()
-  body = text()
-}
-
-// websearch_to_tsquery — accepts raw user input
-await Doc.objects.search('postgres tsvector').all()
-
-// rank by relevance, then compose
-await Doc.objects.search('fox', {rank: true}).paginate({first: 10})
+await Article.objects.search('postgres indexes', {rank: true}).limit(20).all()
 ```
+
+## Writes
+
+Create through the manager:
+
+```ts
+const user = await User.objects.create({email: 'ada@example.com', name: 'Ada'})
+const many = await User.objects.createMany([{name: 'A'}, {name: 'B'}])
+```
+
+Update or delete an instance you've loaded:
+
+```ts
+user.name = 'Grace'
+await user.$save()
+await user.$delete()
+```
+
+Or run a **set-based** update or delete directly on a `QuerySet`. These hit the
+database in one statement and return the affected count:
+
+```ts
+const archived = await Task.objects.filter({status: 'DONE'}).update({status: 'ARCHIVED'})
+const removed = await Session.objects.filter({expiresAt: {lt: new Date()}}).delete()
+```
+
+:::warning
+Set-based `.update()` / `.delete()` use Django semantics — they run as a single
+SQL statement and **do not load instances or fire
+[lifecycle signals](/docs/data/signals)**. Use `$save()` / `$delete()` (or
+`createMany`) when you need hooks to run per row.
+:::
+
+## Bypassing scope
+
+For trusted server code, `.unscoped()` skips tenant auto-scoping on a single
+query; `runAsSystem()` runs a whole block with full access. See
+[Multi-Tenancy](/docs/data/multi-tenancy) and
+[Authorization Policies](/docs/data/policies).

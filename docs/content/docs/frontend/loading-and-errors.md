@@ -1,63 +1,102 @@
 ---
-title: Loading & Errors
-description: Handle not-found, unauthorized, and redirect cases — and let Pylon manage loading states for you.
+title: Loading & Error States
+nav: Loading & Errors
+description: Suspense-driven loading, throwing control-flow helpers like notFound and redirect, and the error pages that render them.
 section: Frontend — usePages
-order: 3
-nav: Loading & errors
+order: 6
 ---
 
-usePages gives pages a small set of control-flow helpers for the common HTTP
-outcomes, and handles loading states for you during server rendering and
-navigation.
+usePages handles loading and errors with the React tools you already know —
+Suspense for in-flight data, thrown values for HTTP control flow. A page reads
+data optimistically; while that data resolves the route shows a fallback, and
+when something is missing or denied you **throw** a helper that turns into the
+right HTTP status and error page.
 
-## Short-circuiting a render
+## Loading
 
-Import these helpers from `@getcronit/pylon-pages` and call them anywhere in a
-page (or a component it renders) to stop and produce the right response:
+`useData` suspends while its query is in flight. Each route is wrapped in a
+Suspense boundary with a `HydrateFallback`, so a page that's still fetching shows
+the fallback instead of a blank frame — no loading flag to thread through your
+component:
 
-```tsx
-import {notFound, unauthorized, forbidden, redirect, useData} from '@getcronit/pylon-pages'
-import type {PageProps} from '@getcronit/pylon-pages'
+```tsx title="pages/posts/page.tsx"
+import {useData} from '@getcronit/pylon-pages'
+
+export default function Posts() {
+  const data = useData() // suspends until resolved
+  return <ul>{data.posts.map(p => <li key={p.id}>{p.title}</li>)}</ul>
+}
+```
+
+During SSR the server awaits the data before sending HTML, so the first paint is
+already populated. On the client, the fallback covers navigations that need
+fresh data.
+
+## Control-flow helpers
+
+These functions **throw** — they never return, so call them inline and let them
+unwind the render. All import from `@getcronit/pylon-pages`:
+
+| Helper | Status | Use it when |
+| --- | --- | --- |
+| `notFound(message?)` | 404 | the requested entity doesn't exist |
+| `forbidden(message?)` | 403 | the user is signed in but not allowed |
+| `unauthorized(message?)` | 401 | the user must sign in |
+| `redirect(url, {status?})` | 302 (default) | the route should bounce elsewhere |
+
+```tsx title="pages/posts/[id]/page.tsx"
+import {notFound, useData, type PageProps} from '@getcronit/pylon-pages'
 
 export default function PostPage({params}: PageProps) {
   const id = params.id as string
   const data = useData()
   const post = data.post({id})
 
-  if (!post) {
-    notFound('No post with that id')
-  }
+  if (!post) notFound('No post with that id')
 
-  return <article>{post.title}</article>
+  return (
+    <article>
+      <h1>{post.title}</h1>
+      <p>{post.body}</p>
+    </article>
+  )
 }
 ```
 
-| Helper | Result |
-| --- | --- |
-| `notFound(message?)` | a 404 response / not-found page |
-| `unauthorized(message?)` | a 401 response |
-| `forbidden(message?)` | a 403 response |
-| `redirect(url, {status?})` | a redirect (302 by default) |
-
-On the server these throw a real `Response` with the right status code; on the
-client they drive navigation. Each accepts an optional message and, for the error
-helpers, `returnText` / `returnUrl` to offer the user a way back:
+On the server these throw a real `Response` with the right status; in the
+browser they unwind the render and show the matching error element. `redirect`
+navigates client-side when it can, and emits a `Location` response on the
+server:
 
 ```tsx
-unauthorized('Please sign in', {returnText: 'Go to login', returnUrl: '/auth/login'})
-redirect('/dashboard')
+import {redirect} from '@getcronit/pylon-pages'
+
+if (!data.session) redirect('/login', {status: 303})
 ```
 
-## Loading states
+## Error pages
 
-You don't wire up spinners for data fetching. usePages renders each route on the
-server with its data already resolved, so the first paint is complete. During
-client-side navigation and code-splitting, Pylon shows a fallback while the next
-route loads. Data access through [`useData`](/docs/frontend/use-data) integrates
-with React Suspense, so a page renders once its data is ready.
+When a route throws, usePages renders an error element:
 
-## Unexpected errors
+- **`StatusPage`** handles HTTP errors — the 404/403/401 from the helpers above,
+  with the message you passed and a return link.
+- **`GlobalErrorPage`** is the catch-all for unexpected (500-class) errors.
 
-Errors that aren't one of the cases above are caught by an error boundary around
-each route, so a failure in one page doesn't take down the whole app. Use the
-helpers above for expected outcomes, and let the boundary handle the unexpected.
+Both are wired in automatically per route, and both are exported from
+`@getcronit/pylon-pages` if you want to render or theme them yourself:
+
+```tsx
+import {StatusPage, GlobalErrorPage} from '@getcronit/pylon-pages'
+```
+
+:::tip
+Prefer the helpers to ad-hoc conditionals. `if (!post) notFound()` reads clearly,
+returns the correct status to crawlers and clients, and renders a consistent
+error page — all from one line.
+:::
+
+:::note
+Because the helpers throw, code after them never runs. TypeScript narrows on the
+`never` return, so after `if (!post) notFound()` the compiler knows `post` is
+non-null below.
+:::

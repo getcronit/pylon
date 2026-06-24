@@ -1,95 +1,94 @@
 ---
-title: Errors & Mutations
-description: Structured errors and Shopify-style mutation payloads with typed userErrors.
+title: Errors
+nav: Errors
+description: One structured error type for GraphQL and HTTP — thrown errors map cleanly to GraphQL and to HTTP status codes.
 section: Core Concepts
 order: 4
 ---
 
-Pylon distinguishes two kinds of failure: **unexpected errors** (bugs, outages)
-that should surface as GraphQL errors, and **expected errors** (validation, a
-business rule) that the client should handle as data.
+Errors in Pylon are values you throw, not envelopes you build. **`ServiceError` is
+the canonical structured error** — throw it from a resolver and Pylon surfaces a
+clean, coded GraphQL error; throw a status-bearing error from a route and Pylon
+maps it to the right HTTP response.
 
-## ServiceError
+## `ServiceError`
 
-Throw a `ServiceError` for a deliberate, coded failure. It carries a machine
-`code`, an HTTP `statusCode`, and optional `details`:
+`ServiceError` carries a machine-readable code, an HTTP status, and optional
+structured details alongside the message:
 
 ```ts
 import {Pylon, ServiceError} from '@getcronit/pylon'
 
 export default new Pylon({
   graphql: {
-    Mutation: {
-      reserve: (sku: string) => {
-        if (isSoldOut(sku)) {
-          throw new ServiceError('Item is sold out', {
-            code: 'SOLD_OUT',
-            statusCode: 409,
-            details: {sku}
+    Query: {
+      author: async (id: string): Promise<Author> => {
+        const author = await Author.objects.find({id})
+        if (!author) {
+          throw new ServiceError('Author not found', {
+            code: 'AUTHOR_NOT_FOUND',
+            statusCode: 404,
+            details: {id}
           })
         }
-        // ...
+        return author
       }
     }
   }
 })
 ```
 
-The code and details are exposed in the GraphQL error's `extensions`, so clients
-can branch on `code` instead of parsing messages.
+The `code` and `details` travel in the GraphQL error's `extensions`, so clients can
+branch on `code` instead of string-matching messages.
 
-## Mutation payloads
+:::tip
+For mutations with expected, user-facing validation failures, prefer the
+[`mutation()` payload wrapper](/docs/core-concepts/resolvers#mutation-payloads) — a
+thrown `ServiceError` is folded into `userErrors` instead of becoming a top-level
+error.
+:::
 
-Wrap a mutation with `mutation()` to turn expected errors into a typed
-`userErrors` array — the [Shopify](https://shopify.dev) convention — instead of a
-thrown GraphQL error. On success the wrapper adds an empty `userErrors: []`:
+## Errors in HTTP routes
+
+Plain Hono routes don't go through GraphQL, so Pylon gives them their own mapping.
+`Pylon.onError` reads a thrown error's numeric `statusCode` and turns it into the
+HTTP status. The `@getcronit/pylon-db` errors carry the right status out of the box:
+
+| Thrown error | HTTP status |
+| --- | --- |
+| `ForbiddenError` | 403 |
+| `FeatureDisabledError` | 403 |
+| `NotFoundError` | 404 |
+| any error with a numeric `statusCode` | that status |
+| a Hono `HTTPException` | its own status |
+| anything else | 500 |
+
+So a route guard can simply throw and trust the status:
 
 ```ts
-import {Pylon, mutation, ServiceError} from '@getcronit/pylon'
+import {Pylon} from '@getcronit/pylon'
+import {ForbiddenError} from '@getcronit/pylon-db'
 
-export default new Pylon({
-  graphql: {
-    Mutation: {
-      productCreate: mutation(async (input: {name: string; sku: string}) => {
-        // a thrown ValidationError or ServiceError becomes a userError
-        const product = await Product.objects.create(input)
-        return {product}
-      })
-    }
+const app = new Pylon({graphql: {Query: {ping: (): string => 'pong'}}})
+
+app.get('/admin/report', async c => {
+  const role = c.req.header('x-role')
+  if (role !== 'admin') {
+    throw new ForbiddenError('Admins only') // → 403, not a bare 500
   }
+  return c.json({ok: true})
 })
+
+export default app
 ```
 
-The generated payload looks like:
+GraphQL errors never reach `onError` — Yoga maps those, including the
+`extensions` from a `ServiceError`.
 
-```graphql
-type ProductCreatePayload {
-  product: Product
-  userErrors: [UserError!]!
-}
+## Development vs production
 
-type UserError {
-  field: [String!]!
-  message: String!
-  code: String!
-}
-```
-
-- On success: `{ product, userErrors: [] }`
-- On a handled error: `{ userErrors: [{ field: ['sku'], message: '…', code: 'SKU_TAKEN' }] }`
-
-This makes form-style mutations easy to consume: the client always gets a payload
-and reads `userErrors` to show field-level messages.
-
-## ORM errors
-
-The [`useDatabase`](/docs/data/policies) plugin maps ORM errors to client-safe
-GraphQL errors automatically:
-
-- `ValidationError` → `BAD_USER_INPUT`, with the structured field issues
-- `ForbiddenError` → `FORBIDDEN`
-- `NotFoundError` → `NOT_FOUND`
-
-Inside a `mutation()` wrapper, a `ValidationError`'s issues are surfaced as
-`userErrors` with their `field` paths and `code`s — so model validation flows
-straight through to the client with no extra wiring.
+In development (`NODE_ENV === 'development'`) errors are **unmasked**: messages and
+stack details pass through so you can debug. In production, generic errors are
+masked to avoid leaking internals — but a `ServiceError`'s message, `code`, and
+`details` are intentional and always visible, which is why deliberate, recoverable
+failures should be `ServiceError`s rather than raw `throw`s.

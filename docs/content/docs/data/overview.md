@@ -1,74 +1,116 @@
 ---
 title: Overview
-description: Why Pylon ships its own ORM, and how the data layer fits the type-driven model.
-section: Data — pylon-db
-order: -1
 nav: Overview
+description: Pylon's ORM — one TypeScript class drives the table, the migrations, and the GraphQL type your resolvers return.
+section: Data — pylon-db
+order: 0
 ---
 
-`@getcronit/pylon-db` is Pylon's database layer. It isn't a thin query builder
-bolted onto the side — it's a full ORM that participates in the same
-type-introspection pipeline as your API, so a model is **one definition** that
-becomes both a GraphQL type and a database table.
+`@getcronit/pylon-db` is Pylon's ORM. You define a model once, as a TypeScript
+class, and that single definition drives three things at once: the database
+table, the migrations that create and evolve it, and the GraphQL type your
+resolvers return. **There is no separate schema file to keep in sync** — the
+class is the schema.
 
-## Why an ORM in the framework
+## One class, three jobs
 
-Most type-safe API tools stop at the API and hand you off to a separate ORM. That
-works, but it reintroduces the very thing Pylon exists to remove: two sources of
-truth that can drift. By owning the data layer, Pylon can:
+A model is a class that extends `Model`, is decorated with `@model()`, and
+exposes a `static objects` manager. Each field is declared by calling a builder,
+whose return type is the field's value type — so your instances are fully typed.
 
-- derive your **SQL schema and migrations** from the same models that shape your
-  API ([how it works](/docs/how-pylon-works));
-- apply **authorization** and **tenant scoping** at the data layer, so they cover
-  every query and relation load automatically;
-- run **lifecycle signals** inside the same transaction as your writes;
-- keep relation loading **batched** so traversing your graph never causes N+1
-  queries.
-
-## What's in the box
-
-| Capability | Page |
-| --- | --- |
-| Models, fields, and columns | [Models & Fields](/docs/data/models) |
-| Foreign keys, one-to-many, many-to-many | [Relations](/docs/data/relations) |
-| Create, read, update, delete, filter, paginate | [Queries](/docs/data/queries) |
-| Validation before every write | [Validation](/docs/data/validation) |
-| Row-level authorization | [Policies](/docs/data/policies) |
-| Lifecycle hooks | [Signals](/docs/data/signals) |
-| Tenant scoping and feature flags | [Multi-tenancy](/docs/data/multi-tenancy) |
-| Authored, reviewable schema migrations | [Migrations](/docs/data/migrations) |
-
-## A taste
-
-```ts
-import {Model, manager, id, text, hasMany, foreignKey} from '@getcronit/pylon-db'
-import {model} from '@getcronit/pylon-db'
+```ts title="src/models.ts"
+import {Model, manager, model, id, text, boolean} from '@getcronit/pylon-db'
 
 @model()
-class Author extends Model {
-  static objects = manager(Author)
+class User extends Model {
+  static objects = manager(User)
+
   id = id()
+  email = text({unique: true})
   name = text()
-  posts = hasMany(() => Post, {foreignKey: 'authorId'})
+  isActive = boolean({default: true})
 }
-
-@model()
-class Post extends Model {
-  static objects = manager(Post)
-  id = id()
-  title = text()
-  authorId = foreignKey(() => Author)
-}
-
-// query
-const author = await Author.objects.get({name: 'Ada'})
-const posts = await author.posts.all()
 ```
 
-The ORM works on PostgreSQL. It can be used on its own — `connect()` a database
-and call your managers — but inside a Pylon app you'll usually add the
-[`useDatabase`](/docs/data/database) plugin, which binds a connection,
-transactions, and the request principal/tenant for you.
+That one class becomes a table and a GraphQL type:
 
-Start with [Connecting a database](/docs/data/database), then
-[Models & Fields](/docs/data/models).
+:::generates
+```ts title="You write"
+@model()
+class User extends Model {
+  id = id()
+  email = text({unique: true})
+  name = text()
+  isActive = boolean({default: true})
+}
+```
+
+```graphql title="Pylon generates"
+type User {
+  id: Int!
+  email: String!
+  name: String!
+  isActive: Boolean!
+}
+```
+:::
+
+## Return models from resolvers
+
+The manager queries rows; the rows are model instances; the instances are the
+GraphQL type. Return one from a resolver and the schema lines up automatically:
+
+```ts title="src/index.ts"
+import {Pylon} from '@getcronit/pylon'
+import {User} from './models'
+
+export default new Pylon({
+  graphql: {
+    Query: {
+      users: () => User.objects.orderBy('name').all(),
+      user: (id: number) => User.objects.get({id})
+    }
+  }
+})
+```
+
+The mental model is one line: **a model class is both a table and a GraphQL
+type, and the manager is how you move rows between them.**
+
+## Wire the connection
+
+`useDatabase()` is the plugin that connects to Postgres and binds the
+per-request context — the tenant, the principal, and the transaction. Add it to
+`pylon.config.ts` and every model is live:
+
+```ts title="pylon.config.ts"
+import type {PylonConfig} from '@getcronit/pylon'
+import {useDatabase} from '@getcronit/pylon-db'
+
+export default {
+  plugins: [useDatabase()]
+} satisfies PylonConfig
+```
+
+It defaults the connection string to `DATABASE_URL`. See
+[Multi-Tenancy](/docs/data/multi-tenancy) for how it derives the tenant and
+principal from your identity provider.
+
+## The rest of this section
+
+- [Models & Fields](/docs/data/models) — every field builder, column option, and
+  `@model()` setting, including composite indexes and full-text search.
+- [Relations](/docs/data/relations) — foreign keys, one-to-many, and
+  many-to-many, with batched, N+1-free loading.
+- [Querying](/docs/data/queries) — the `Manager` / `QuerySet` API: filters,
+  ordering, Relay pagination, search, and writes.
+- [Validation](/docs/data/validation) — field rules that run before every write
+  and surface as structured client errors.
+- [Lifecycle Signals](/docs/data/signals) — Django-style hooks that fire inside
+  the write transaction.
+- [Migrations](/docs/data/migrations) — `db push` for dev, versioned migrations
+  with a ledger for production.
+- [Authorization Policies](/docs/data/policies) — row-level access rules that
+  apply to every read, relation load, and write.
+- [Multi-Tenancy](/docs/data/multi-tenancy) — a tenant column that the ORM
+  auto-scopes into every query.

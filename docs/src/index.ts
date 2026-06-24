@@ -47,8 +47,10 @@ const SECTION_ORDER = [
   'Introduction',
   'Core Concepts',
   'Data — pylon-db',
+  'Authentication',
   'Apps',
   'Frontend — usePages',
+  'Background Jobs',
   'Production',
   'Guides',
   'Reference'

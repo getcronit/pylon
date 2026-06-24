@@ -1,129 +1,131 @@
 ---
 title: How Pylon Works
-description: The type-introspection compiler — how one set of TypeScript types becomes your API, your database, your client, and your UI's data layer.
+nav: How It Works
+description: The compiler reads your types to derive the schema, the database, and the client — a build phase and a run phase, one source of truth.
 section: Introduction
 order: 2
-nav: How it works
 ---
 
-Most backends make you describe your data several times over: once in a schema
-language, again in resolvers, again in database migrations, and again in your
-client's types. Every copy is a chance for them to drift apart, and keeping them
-in sync is a tax you pay on every change.
+Pylon has one trick, and everything else follows from it: **a compiler that reads
+the types of your code and derives the rest of the stack from them.** Understanding
+that compiler — and the two phases it runs in — is the whole mental model.
 
-Pylon removes the copies. It reads your TypeScript types **once**, builds a single
-internal description of your system, and **projects that description** into every
-artifact you need. This page explains how.
+## Your types are the source of truth
 
-## One source, many projections
+You write plain TypeScript. A class is a data shape; a function is a resolver. You
+never write SDL, never write a `.prisma` file, never run a client codegen step by
+hand. At build time, Pylon walks the *types* of your default-exported app and
+projects them into concrete artifacts.
 
-At the center of Pylon is an **intermediate representation** (IR): a normalized,
-serializable description of your types, operations, and database entities. The
-compiler derives the IR from your TypeScript, and everything else is a pure
-projection of it:
+:::generates
+```ts title="You write — src/index.ts"
+import {Pylon} from '@getcronit/pylon'
 
+class Post {
+  id!: string
+  title!: string
+  published!: boolean
+}
+
+export default new Pylon({
+  graphql: {
+    Query: {
+      posts: (): Post[] => Post.objects.all()
+    }
+  }
+})
 ```
-  your TypeScript
-  ┌─────────────────────────────┐
-  │ new Pylon({ graphql: {…} })  │   resolvers (functions & classes)
-  │ @model class User extends …  │   data models
-  └──────────────┬──────────────┘
-                 │   TypeScript compiler (type checker)
-                 ▼
-        ┌──────────────────┐
-        │   Pylon IR        │   one normalized, serializable model
-        └───┬───┬───┬───┬──┘
-            │   │   │   │
-   ┌────────┘   │   │   └─────────────┐
-   ▼            ▼   ▼                 ▼
-GraphQL      SQL   Migrations     Typed client
- schema      DDL    (IR diff)     (gqty) ──► usePages
-                                              per-page query
+```graphql title="Pylon derives — schema.graphql"
+type Post {
+  id: String!
+  title: String!
+  published: Boolean!
+}
+
+type Query {
+  posts: [Post!]!
+}
+```
+:::
+
+Nullability is significant: a return type of `Post | null` becomes a nullable
+field, `Post[]` becomes `[Post!]!`. The compiler reads it exactly as TypeScript
+sees it.
+
+## The entry contract
+
+Every Pylon app has one entry file with one default export:
+
+```ts title="src/index.ts"
+export default new Pylon({graphql, gate?, basePath?})
 ```
 
-Because every output reads the same IR, they can't disagree. A rename is just a
-rename; a breaking change is a TypeScript error at build time.
+The compiler reads the **`.graphql` property of that default export** to build the
+schema. At runtime, the same object supplies the resolver functions. One object,
+read two ways — statically by the compiler, dynamically by the server.
 
-## Reading your types
+Apps compose. An "app" is just a smaller `Pylon`, and a root app stitches them
+together:
 
-When you run `pylon build` (or `pylon dev`), Pylon starts a TypeScript program
-over your source and uses the **type checker** — the same engine your editor uses
-— to inspect the `graphql` export. It doesn't parse text or rely on decorators
-for the API; it asks the compiler what the types actually are.
+```ts title="src/index.ts"
+export default new Pylon().compose(blogApp, shopApp)
+```
 
-From those types it infers the whole GraphQL shape:
+`compose` merges every app's `graphql` into **one schema at one `/graphql`** and
+mounts each app's routes. See [The Pylon App](/docs/core-concepts/the-pylon-app)
+and [Apps](/docs/apps/overview).
 
-- a function's parameters become **arguments**, its return type becomes the
-  **field type**;
-- a class becomes an **object type**, its public fields become **fields**;
-- `T | null` becomes a **nullable** field, `T[]` a **list** (with nesting
-  preserved — `number[][]` is `[[Int!]!]!`, not a flat list);
-- `Promise<T>` is awaited to `T`;
-- class **inheritance** becomes a GraphQL **interface**;
-- a **union type** becomes a GraphQL **union**, with the `__resolveType`
-  discriminator generated for you;
-- a **string-literal union** (`'ADMIN' | 'READER'`) becomes an **enum**.
+## Two phases: build and run
 
-No SDL, no schema builder, no decorators on your resolvers. The schema is a fact
-about your code, derived from it.
+Pylon does its work in two clearly separated phases.
 
-## Where the database comes from
+**Build** is mostly static. The compiler uses the TypeScript type-checker to
+introspect your entry, derives the GraphQL schema, validates it, bundles your
+server into `.pylon/index.js`, and generates a typed query client from the schema
+into `.pylon/client`. When the ORM is present, its model definitions contribute a
+richer intermediate representation (precise column types, relations, hidden
+fields) that's merged into the schema. The build never touches your database or
+network — it's pure type-introspection plus runtime-agnostic model loading.
 
-Your [models](/docs/data/models) are TypeScript classes too. The compiler runs
-their definitions to populate a registry, then asks the ORM to contribute its
-own slice of the IR: each model becomes an **entity** with precise SQL columns,
-relations, indexes, and a primary key.
+**Run** is your app serving traffic. The generated bundle boots the GraphQL
+handler and your plugins. Notably, **Pylon does not serve for you** — your app
+owns serving through a small `strategy: 'last'` plugin in `pylon.config.ts` that
+calls the host runtime's `serve()`. That keeps Pylon portable across Node.js,
+Bun, Deno, and Cloudflare Workers, and means serving starts only after every
+route is registered.
 
-The two contributions — the API types inferred from the type checker, and the
-entities described by the ORM — are **merged into one IR**. For a persisted type,
-the ORM's column and relation metadata is authoritative (it knows the SQL
-intent — a primary key is an `ID`, a `numeric` is a decimal), while computed
-methods on the model are folded in as extra fields. The result: a single `User`
-that is **both a GraphQL type and a database table**, described once.
+```ts title="pylon.config.ts"
+import type {PylonConfig} from '@getcronit/pylon'
+import {serve} from '@hono/node-server'
 
-## Projecting the IR
+export default {
+  plugins: [
+    {
+      name: 'serve',
+      strategy: 'last',
+      setup: app => serve({fetch: app.fetch, port: Number(process.env.PORT) || 3000})
+    }
+  ]
+} satisfies PylonConfig
+```
 
-With one IR in hand, each output is a small, pure function over it:
+## The frontend rides the same compiler
 
-- **GraphQL schema** — the IR renders to SDL, which becomes the schema your
-  server serves and your playground introspects.
-- **SQL & migrations** — the IR's entities render to DDL. Migrations are computed
-  by **diffing two IR snapshots** (your last migration vs. your current models),
-  not by inspecting a live database. That makes them reproducible, reviewable,
-  and free of accidental drift — the CLI never has to run your app to generate
-  them.
-- **A typed client** — the schema generates a fully typed
-  [gqty](https://gqty.dev) client, so the frontend accesses your API with
-  autocomplete and type-checking.
-- **Per-page queries** — in [usePages](/docs/frontend/use-pages), a build-time
-  analyzer reads each component, sees exactly which fields and arguments it
-  touches on the [`useData`](/docs/frontend/use-data) proxy, and generates the
-  minimal query for that page. The type flow reaches all the way into your UI.
+The build phase also analyzes your [usePages](/docs/frontend/overview) frontend.
+When a page reads `data.posts.map(p => p.title)`, the compiler sees exactly which
+fields the page touches and generates the minimal GraphQL query for them — at
+build time, type-checked against the same schema your resolvers produced. The
+frontend literally cannot ask for a field the API doesn't have.
 
-## Build time vs. runtime
+## Why the two-phase split matters
 
-All of this introspection happens at **build time**. `pylon build` produces a
-`.pylon/` directory containing the schema, the generated client, and a bundled
-server. At **runtime** there's no type reflection and no schema assembly on the
-hot path — just a lean [Hono](https://hono.dev) app serving a precompiled schema.
-That's why the same build runs unchanged on Node, Bun, Deno, and Cloudflare
-Workers.
+Because the schema, the database DDL, and the client are all projections of one
+intermediate representation, a single change ripples through all of them and is
+checked by the compiler before anything runs. Rename a field and the schema, the
+migration diff, and the client types all move together — or the build fails and
+tells you why.
 
-## Why this matters
+That's the payoff of the whole design: [one model the compiler can verify](/docs/why-pylon),
+end to end.
 
-The payoff isn't only less boilerplate — it's a category of bugs that simply
-can't occur:
-
-- Your API can't drift from your resolvers, because it's derived from them.
-- Your database can't drift from your models, because it's the same IR.
-- Your client can't drift from your API, because it's generated from the schema.
-- A page can't over- or under-fetch, because its query is computed from what it
-  renders.
-
-You change a type in one place, and every layer that depends on it updates or
-fails the build. That is the whole idea: **write TypeScript once, and let the
-compiler keep the rest honest.**
-
-Ready to see it in practice? Start with [Getting Started](/docs/getting-started),
-or read about the [type-driven schema](/docs/core-concepts/type-driven-schema) in
-detail.
+Next: [scaffold a project and ship your first API](/docs/getting-started).
