@@ -76,6 +76,10 @@ export interface EvalRow {
   score: Score
   turns: number
   toolCalls: number
+  /** How many of those calls were Pylon MCP tools (0 ⇒ the MCP was never used). */
+  mcpCalls: number
+  /** Full tool-call names, for offline analysis of HOW the agent worked. */
+  tools: string[]
   durationMs: number
   error?: string
 }

@@ -17,8 +17,9 @@ examples
 .pylon
 .pylon-verify
 
-# pylon eval run workdirs
+# pylon eval run workdirs + reports
 .eval-runs
+eval-report.json
 
 # Local MCP server config (absolute machine paths — kept out of the repo)
 .mcp.json

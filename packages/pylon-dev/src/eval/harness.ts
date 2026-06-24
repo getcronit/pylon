@@ -112,18 +112,21 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
       const durationMs = Date.now() - started
 
       const score = scoreWorkdir(opts.cliPath, workdir, models, scenario.expect, baseline)
+      const mcpCalls = result.toolCalls.filter(t => t.startsWith('mcp__pylon')).length
       rows.push({
         scenario: scenario.name,
         arm: arm.name,
         score,
         turns: result.turns,
         toolCalls: result.toolCalls.length,
+        mcpCalls,
+        tools: result.toolCalls,
         durationMs,
         error: result.error
       })
       log(
         `  ${score.success ? '✓ success' : '✗ fail'} · verdict=${score.verdict} · ` +
-          `turns=${result.turns} · tools=${result.toolCalls.length}` +
+          `turns=${result.turns} · tools=${result.toolCalls.length} · mcp=${mcpCalls}` +
           (result.error ? ` · runner-error: ${result.error}` : '')
       )
       if (!opts.keep) await fs.rm(workdir, {recursive: true, force: true})
@@ -146,22 +149,23 @@ export function formatReport(report: EvalReport): string {
   }
   for (const [scenario, rs] of byScenario) {
     lines.push(`\n${scenario}`)
-    lines.push(`  ${'arm'.padEnd(12)} ${'result'.padEnd(8)} ${'verdict'.padEnd(8)} ${'turns'.padEnd(6)} tools`)
+    lines.push(`  ${'arm'.padEnd(12)} ${'result'.padEnd(8)} ${'verdict'.padEnd(8)} ${'turns'.padEnd(6)} ${'tools'.padEnd(6)} mcp`)
     for (const r of rs) {
       lines.push(
         `  ${r.arm.padEnd(12)} ${(r.score.success ? 'PASS' : 'FAIL').padEnd(8)} ` +
-          `${r.score.verdict.padEnd(8)} ${String(r.turns).padEnd(6)} ${r.toolCalls}`
+          `${r.score.verdict.padEnd(8)} ${String(r.turns).padEnd(6)} ${String(r.toolCalls).padEnd(6)} ${r.mcpCalls}`
       )
     }
   }
-  // Headline: success rate + median turns per arm.
+  // Headline: success rate + avg turns + whether the MCP was actually used.
   const arms = [...new Set(report.rows.map(r => r.arm))]
   lines.push('\nsummary')
   for (const arm of arms) {
     const rs = report.rows.filter(r => r.arm === arm)
     const wins = rs.filter(r => r.score.success).length
     const avgTurns = rs.length ? (rs.reduce((s, r) => s + r.turns, 0) / rs.length).toFixed(1) : '0'
-    lines.push(`  ${arm.padEnd(12)} success ${wins}/${rs.length} · avg turns ${avgTurns}`)
+    const mcp = rs.reduce((s, r) => s + r.mcpCalls, 0)
+    lines.push(`  ${arm.padEnd(12)} success ${wins}/${rs.length} · avg turns ${avgTurns} · mcp-calls ${mcp}`)
   }
   return lines.join('\n')
 }

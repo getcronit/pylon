@@ -140,8 +140,12 @@ program
       keep: options.keep,
       onProgress: m => process.stderr.write(m + '\n')
     })
+    // Always persist the full report (incl. per-row tool-call names) for offline
+    // analysis of HOW each arm worked — without paying for another run.
+    const reportPath = path.resolve(process.cwd(), 'eval-report.json')
+    await fs.writeFile(reportPath, JSON.stringify(report, null, 2))
     if (options.json) process.stdout.write(JSON.stringify(report, null, 2) + '\n')
-    else process.stdout.write(formatReport(report) + '\n')
+    else process.stdout.write(formatReport(report) + `\n\nfull report → ${reportPath}\n`)
   })
 
 program
