@@ -12,3 +12,9 @@ bun.lockb
 .DS_Store
 
 examples
+
+# Local package tarballs (npm pack output)
+tarballs
+
+# Local planning / design notes (kept out of the repo)
+dd
