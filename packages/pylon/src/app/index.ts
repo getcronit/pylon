@@ -52,6 +52,20 @@ function mergeFragment(into: Resolvers, from: Resolvers | undefined) {
  */
 export type Gate = () => void | Promise<void>
 
+/**
+ * Constructor options for a `Pylon`. Named + AUGMENTABLE on purpose: satellite
+ * packages add their own app-level config keys via `declare module` (e.g. pylon-db
+ * adds `models?: {...}`), so an app's whole configuration lives in one
+ * `new Pylon({...})` call — without core knowing what those keys mean. Core stashes
+ * the object on `app.pylonOptions`; each satellite reads its own slice from there.
+ */
+export interface PylonOptions<G extends Resolvers = {}> {
+  graphql?: G
+  gate?: Gate
+  basePath?: string
+  name?: string
+}
+
 /** Wrap every resolver so the gate runs (and may throw) before it. Type-transparent. */
 function gateResolvers<R extends Resolvers>(resolvers: R, gate: Gate): R {
   const out: Record<string, Record<string, (...a: any[]) => any>> = {}
@@ -149,6 +163,21 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
    * a defaulted type param is a known inference weak spot) — which silently drops
    * the schema. (Verified: that fallback produced an empty `graphql` type.)
    */
+  /**
+   * A stable identity for this app. Generic and auth/db-free — core only stores it.
+   * Satellites use it as the app's key: `pylon-db` groups this app's migrations under
+   * it when models bind via `app.model()`, and `pylon-queues` namespaces `app.queue()`.
+   * Optional; composition never requires it.
+   */
+  readonly name?: string
+
+  /**
+   * The raw constructor options, including satellite-augmented keys (e.g. pylon-db's
+   * `models`). Core never interprets the extra keys — satellites read their own slice
+   * (`app.pylonOptions.models`) so app config can live in one `new Pylon({...})` call.
+   */
+  readonly pylonOptions: PylonOptions<G>
+
   /** This app's capability gate (if any) — wraps its resolvers. */
   readonly gate?: Gate
 
@@ -160,10 +189,17 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
   readonly routePrefix?: string
 
   constructor()
-  constructor(opts: {graphql: G; gate?: Gate; basePath?: string})
-  constructor(opts?: {graphql?: G; gate?: Gate; basePath?: string}) {
+  // `{graphql: G}` leads (graphql REQUIRED) so the checker still infers `G` from the
+  // argument — an optional `graphql?` here silently dropped the schema. `& PylonOptions`
+  // adds the rest, including any satellite-augmented keys (e.g. pylon-db's `models`).
+  constructor(opts: {graphql: G} & PylonOptions<G>)
+  // A graphql-less app (routes/models/queues only) — `Pylon<{}>`.
+  constructor(opts: PylonOptions<G>)
+  constructor(opts?: PylonOptions<G>) {
     super()
 
+    this.pylonOptions = opts ?? {}
+    this.name = opts?.name
     this.gate = opts?.gate
     this.routePrefix = opts?.basePath
 
@@ -261,6 +297,25 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
       this.route(child.routePrefix ?? '/', child)
     }
   }
+}
+
+/**
+ * Generic, content-agnostic extension point. Satellite packages (pylon-db,
+ * pylon-queues) add instance methods like `app.model()` / `app.queue()` by patching
+ * `Pylon.prototype` — but they must NOT import core (it would pull core's web-runtime
+ * closure into e.g. the migration CLI and make the optional `@getcronit/pylon` peer
+ * effectively required). So they register a patcher on a shared global; core applies
+ * it here once `Pylon` exists. A satellite loaded LATER sees `bus.Pylon` set and
+ * applies itself immediately. Core never learns what the patchers do.
+ */
+{
+  const EXT = Symbol.for('@getcronit/pylon.extend')
+  const bus = ((globalThis as any)[EXT] ??= {
+    fns: [] as Array<(P: typeof Pylon) => void>,
+    Pylon: undefined as typeof Pylon | undefined
+  })
+  bus.Pylon = Pylon
+  for (const patch of bus.fns.splice(0)) patch(Pylon)
 }
 
 export const app = new Pylon()

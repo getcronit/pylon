@@ -204,6 +204,39 @@ export function defineAbilities(fn: AbilitiesFn, options: {subjects?: ModelCtor<
   }
 }
 
+/** Per-model `can`/`cannot` — the subject is the model itself, so it's omitted. */
+export type ModelAbilityRule<T = any> = (
+  action: string | string[],
+  conditions?: WhereInput<T>
+) => AbilityRuleResult
+
+/** Signature of a model's co-located `static abilities`. */
+export type ModelAbilitiesFn<T = any> = (
+  principal: Principal | undefined,
+  can: ModelAbilityRule<T>,
+  cannot: ModelAbilityRule<T>
+) => void
+
+/**
+ * Wire a model's CO-LOCATED `static abilities(p, can, cannot)` into the resource-authz
+ * machinery, with the subject pre-bound to that model. Equivalent to `defineAbilities`
+ * scoped to one class — so a model governs itself with no `{subjects}` footgun (the
+ * subject is implicit, and the class is always registered as governed). Called by the
+ * `@model()` decorator when a `static abilities` is present.
+ */
+export function registerModelAbilities(Ctor: ModelCtor<any>, fn: ModelAbilitiesFn): void {
+  defineAbilities(
+    (principal, can, cannot) => {
+      fn(
+        principal,
+        (action, conditions) => can(action, Ctor, conditions),
+        (action, conditions) => cannot(action, Ctor, conditions)
+      )
+    },
+    {subjects: [Ctor]}
+  )
+}
+
 /** True iff the current principal may perform `action` on the resource (+ field). */
 export function can(action: string, resource: SubjectArg, field?: string): boolean {
   return canFor(currentActor(), action, resource, field)

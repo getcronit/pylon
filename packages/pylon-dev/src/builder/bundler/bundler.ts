@@ -108,6 +108,11 @@ export class Bundler {
       outdir: dir,
       bundle: true,
       format: 'esm',
+      // Preserve function/class `.name` even when esbuild renames a binding to
+      // avoid an identifier collision (e.g. two `Notification` classes → one
+      // becomes `Notification2`). pylon-db derives table names from
+      // `snakeCase(Ctor.name)`, so a mangled name would point at a phantom table.
+      keepNames: true,
       sourcemap: 'inline',
       packages: 'external',
       plugins: [

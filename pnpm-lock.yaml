@@ -171,6 +171,9 @@ importers:
       '@getcronit/pylon-query':
         specifier: workspace:*
         version: link:../packages/pylon-query
+      '@getcronit/pylon-queues':
+        specifier: workspace:*
+        version: link:../packages/pylon-queues
       '@hono/node-server':
         specifier: ^1.12.2
         version: 1.19.9(hono@4.11.9)
@@ -663,6 +666,9 @@ importers:
         specifier: ^5.4.0
         version: 5.11.1
     devDependencies:
+      '@getcronit/pylon':
+        specifier: workspace:*
+        version: link:../pylon
       '@getcronit/pylon-db':
         specifier: workspace:*
         version: link:../pylon-db

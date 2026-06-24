@@ -1,3 +1,9 @@
+// Side-effect: register the `app.model()` / `app.models()` augmentation with core's
+// extension bus. No-op until core (`@getcronit/pylon`) loads — so importing pylon-db
+// for the CLI/migrations never pulls in core's web runtime. See `app.ts`.
+import './app.js'
+export type {AppModelOptions} from './app.js'
+
 // ── Flat exports ────────────────────────────────────────────────────────────
 // Low-level surface, used internally and by the build bridge. The recommended
 // public API is the `models` / `db` / `migrations` namespaces below.
@@ -24,6 +30,7 @@ export {
   hasMany,
   manyToMany,
   type ModelOptions,
+  type ModelConfig,
   type SearchOptions,
   type FieldOptions,
   type NumericOptions,
@@ -71,7 +78,9 @@ export {
   filter,
   type AbilitiesFn,
   type AbilityRule,
-  type AbilityRuleResult
+  type AbilityRuleResult,
+  type ModelAbilitiesFn,
+  type ModelAbilityRule
 } from './abilities.js'
 export {matchWhere, AbilityMatchError} from './matcher.js'
 export {

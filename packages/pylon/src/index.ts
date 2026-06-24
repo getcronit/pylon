@@ -20,7 +20,7 @@ export {getEnv} from './get-env.js'
 // The frontend pages battery (usePages + the runtime) lives in @getcronit/pylon-pages.
 export {getResolveInfo} from './resolve-info.js'
 export {pylonApp as app, Pylon}
-export type {Gate, Resolvers} from './app/index.js'
+export type {Gate, Resolvers, PylonOptions} from './app/index.js'
 
 import {app as pylonApp, Pylon} from './app/index.js'
 

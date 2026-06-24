@@ -1,4 +1,5 @@
 import {type Connection, createManager, ModelCtor, readPolicyDenies} from './manager.js'
+import {registerModelAbilities, type ModelAbilitiesFn} from './abilities.js'
 import {ForbiddenError} from './features.js'
 import type {QueryConfig} from './query-schema.js'
 import {
@@ -655,6 +656,34 @@ export interface TrigramOptions {
   columns: string[]
 }
 
+/** A model's column property names — the surface `ModelConfig` type-checks against. */
+type ColumnKey<T> = Extract<keyof T, string>
+
+interface ModelSearchConfig<T> {
+  columns: ColumnKey<T>[]
+  language?: string
+  name?: string
+}
+
+/**
+ * Typed model configuration, declared as `static config = {...} satisfies
+ * ModelConfig<T>`. Same shape as the `@model()` decorator options, but `tenant`,
+ * `indexes`, `search`, and `trigram` reference the model's OWN fields — so a mistyped
+ * column name is a compile error, not a silent miss. Decorator args still work and
+ * take precedence, so the two forms compose. (`app` is set by the binding —
+ * `@app.model()` / `models.app(name)` — not here.)
+ */
+export interface ModelConfig<T> {
+  table?: string
+  abstract?: boolean
+  secure?: boolean
+  tenant?: ColumnKey<T>
+  indexes?: Array<{columns: ColumnKey<T>[]; unique?: boolean}>
+  search?: ModelSearchConfig<T> | ModelSearchConfig<T>[]
+  trigram?: {columns: ColumnKey<T>[]}
+  query?: QueryConfig
+}
+
 // Mirror the runtime validator's type buckets (validation.ts) so a DB CHECK and
 // the JS rule agree on what `min`/`max` mean: numeric value bounds vs string
 // length bounds.
@@ -752,6 +781,11 @@ function buildColumn(key: string, b: FieldBuilder): ColumnDefinition {
 
 export function model(options: ModelOptions = {}): ClassDecorator {
   return ((Ctor: any) => {
+    // `static config satisfies ModelConfig<T>` is the typed, model-aware config form.
+    // Decorator args spread last, so they override it — the two forms compose.
+    const staticConfig = (Ctor as {config?: ModelOptions}).config
+    if (staticConfig) options = {...staticConfig, ...options}
+
     // An explicit `table` wins verbatim. Otherwise the name is snake_case of the
     // class, namespaced by the app when one is set (`models.app('blog')` →
     // `blog_author`) so each app owns its own table prefix by default.
@@ -1028,6 +1062,18 @@ export function model(options: ModelOptions = {}): ClassDecorator {
       trigram: options.trigram,
       query: options.query
     })
+
+    // 4b. Co-located resource policy: a `static abilities(p, can, cannot)` declares
+    //     THIS model's own rules (subject implicit), wired into the resource-authz
+    //     machinery — no global `defineAbilities`, no `{subjects}` footgun. Skipped
+    //     for abstract models (no table to scope). Registered after finalizeModel so
+    //     the model definition exists when the policy is wired.
+    if (!isAbstract) {
+      const abilitiesFn = (Wrapped as {abilities?: unknown}).abilities
+      if (typeof abilitiesFn === 'function') {
+        registerModelAbilities(Wrapped as ModelCtor<any>, abilitiesFn as ModelAbilitiesFn)
+      }
+    }
 
     // 5. Default manager (a custom `static objects = manager(...)` wins).
     if (

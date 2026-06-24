@@ -32,9 +32,13 @@
     "ioredis": "^5.4.0"
   },
   "peerDependencies": {
+    "@getcronit/pylon": "workspace:*",
     "@getcronit/pylon-db": "workspace:*"
   },
   "peerDependenciesMeta": {
+    "@getcronit/pylon": {
+      "optional": true
+    },
     "@getcronit/pylon-db": {
       "optional": true
     }
@@ -43,6 +47,7 @@
     "node": ">=18.0.0"
   },
   "devDependencies": {
+    "@getcronit/pylon": "workspace:*",
     "@getcronit/pylon-db": "workspace:*",
     "@types/node": "^20.0.0",
     "esbuild": "^0.23.1",

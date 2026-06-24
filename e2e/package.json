@@ -12,6 +12,7 @@
     "@getcronit/pylon-ir": "workspace:*",
     "@getcronit/pylon-auth": "workspace:*",
     "@getcronit/pylon-db": "workspace:*",
+    "@getcronit/pylon-queues": "workspace:*",
     "@getcronit/pylon-pages": "workspace:*",
     "@getcronit/pylon-query": "workspace:*",
     "@hono/node-server": "^1.12.2",

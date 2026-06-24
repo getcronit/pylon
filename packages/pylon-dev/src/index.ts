@@ -16,6 +16,7 @@ import {
   sessionId
 } from './analytics'
 import {build} from './builder'
+import {appModelToDDL, appModelToSDL, inspectApp} from './inspect'
 import {buildClient} from './builder/build-client'
 import {startDevReloadServer} from './builder/dev-reload-server'
 import {runDbCommand} from './db'
@@ -63,6 +64,25 @@ program
       })
     } finally {
       await ctx.dispose().catch(() => {})
+    }
+  })
+
+program
+  .command('inspect')
+  .description('Serialize the app model (schema + entities + queues + authz)')
+  .option('-m, --models <path>', 'Entry that exports the app', './src/index.ts')
+  .option('--json', 'Emit the full AppModel as JSON (default)')
+  .option('--sdl', 'Emit the GraphQL schema (SDL)')
+  .option('--ddl', 'Emit the Postgres DDL')
+  .action(async (options: {models: string; json?: boolean; sdl?: boolean; ddl?: boolean}) => {
+    const model = await inspectApp(process.cwd(), options.models)
+    if (options.sdl) {
+      process.stdout.write(appModelToSDL(model) + '\n')
+    } else if (options.ddl) {
+      process.stdout.write(appModelToDDL(model) + '\n')
+    } else {
+      // Default + explicit --json: machine-readable AppModel on stdout.
+      process.stdout.write(JSON.stringify(model, null, 2) + '\n')
     }
   })
 

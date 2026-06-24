@@ -3,6 +3,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import {buildSchema, validateSchema} from 'graphql'
 import {updateFileIfChanged} from '../../update-file-if-changed'
+import {discoverRegistrationModules, importStatements} from '../../discover'
 
 /**
  * Pylon must NEVER emit an invalid schema. Validate the generated SDL exactly the
@@ -107,10 +108,24 @@ export const injectCodePlugin = ({
           'const __pylonApp = '
         )
 
+        // Load EVERY model/queue module under src — not only the ones the entry
+        // imports — so the running app's registry matches the build IR (a decorated
+        // class can't be in the schema but missing at runtime). esbuild dedupes the
+        // overlap with the entry's own imports.
+        const entryDir = path.dirname(args.path)
+        let extraImports = ''
+        try {
+          const discovered = await discoverRegistrationModules(entryDir, args.path)
+          extraImports = importStatements(discovered, entryDir)
+        } catch {
+          // Discovery is best-effort; never fail the build over it.
+        }
+
         return {
           loader: 'ts',
           contents:
             `import {executeConfig as __pylonExecuteConfig, handler as __pylonHandler} from "@getcronit/pylon"
+${extraImports}
 
             // config.js is always emitted (empty {} when there's no pylon.config),
             // so a failure here means the config EXISTS but threw at load — abort

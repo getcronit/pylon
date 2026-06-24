@@ -17,6 +17,7 @@
 import {promises as fs} from 'node:fs'
 import path from 'node:path'
 import {prepareModelSource} from './builder/prepare-model-source.js'
+import {discoverRegistrationModules, importStatements} from './builder/discover.js'
 import {pathToFileURL} from 'node:url'
 import esbuild from 'esbuild'
 import type {PhysicalSchema, PylonIR} from '@getcronit/pylon-ir'
@@ -91,6 +92,27 @@ export interface ProjectOrm {
   /** Create tables for all models directly (no migration) — `db push`. */
   syncSchema(): Promise<void>
 
+  /** Every registered model (for `pylon inspect`'s authz/persistence harvest). */
+  allModels?(): Array<{
+    ctor: {name: string}
+    tableName: string
+    abstract: boolean
+    app?: string
+    tenantColumn?: string
+    secure?: boolean
+  }>
+
+  /**
+   * Queues registered during the load (re-exported from `@getcronit/pylon-queues`
+   * IFF the project resolves it). Read from the loaded module's OWN instance so it
+   * reflects what the project's `@queue()` decorators registered — a separate import
+   * would be a different singleton under pnpm's isolated node_modules.
+   */
+  __pylonQueues?(): Array<{
+    name: string
+    describe?(): {name: string; attempts?: number; concurrency?: number; hasSchema: boolean}
+  }>
+
   // ── Apps / migration groups (optional) ──────────────────────────────────────
   /** Migration groups DERIVED from the registry's `models.app(name)` tags. */
   appGroups?(): GroupLike[]
@@ -139,17 +161,37 @@ export async function loadProjectOrm(
   // registers models without starting a server. Imports inside the stripped
   // source resolve relative to the entry's own directory.
   const entryAbs = path.resolve(cwd, modelsEntry)
-  const stripped = prepareModelSource(
-    await fs.readFile(entryAbs, 'utf8'),
-    path.basename(entryAbs)
+  const entrySource = await fs.readFile(entryAbs, 'utf8')
+  const stripped = prepareModelSource(entrySource, path.basename(entryAbs))
+
+  // Load EVERY model/queue module under the source root — not just the ones the
+  // entry happens to import — so a decorated class can't be silently dropped from
+  // the IR/migrations. Imported raw (they're pure registrations; only the entry has
+  // serve side effects, which `stripped` removed). esbuild dedupes the overlap.
+  const entryDir = path.dirname(entryAbs)
+  const discovered = await discoverRegistrationModules(entryDir, entryAbs)
+  const extraImports = importStatements(discovered, entryDir)
+
+  // If the project uses pylon-queues, re-export its registry from THIS bundle so
+  // `inspect` reads the same instance the queue decorators registered into (pnpm
+  // isolates package instances, so a separate import would see an empty registry).
+  // Detect by source (content) — robust regardless of the package's export conditions.
+  const discoveredSources = await Promise.all(
+    discovered.map(f => fs.readFile(f, 'utf8').catch(() => ''))
   )
+  const usesQueues = [entrySource, ...discoveredSources].some(s =>
+    s.includes('@getcronit/pylon-queues')
+  )
+  const queuesReexport = usesQueues
+    ? `export {registeredQueues as __pylonQueues} from '@getcronit/pylon-queues'\n`
+    : ''
 
   // Unique temp name per call so a watch-mode re-import re-runs the models
   // (a fixed name would be cached by the ESM loader → stale registry).
   const tmp = path.join(cwd, `.pylon-orm-entry.${process.pid}.${counter++}.mjs`)
   await esbuild.build({
     stdin: {
-      contents: `${stripped}\nexport * from '@getcronit/pylon-db'\n`,
+      contents: `${extraImports}${stripped}\nexport * from '@getcronit/pylon-db'\n${queuesReexport}`,
       resolveDir: path.dirname(entryAbs),
       loader: 'ts',
       sourcefile: 'pylon-orm-entry.ts'

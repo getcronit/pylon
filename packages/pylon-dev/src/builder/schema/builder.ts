@@ -220,14 +220,18 @@ export class SchemaBuilder {
       Subscription: subscriptionType
     })
 
-    // Default path (no contribution) is byte-for-byte unchanged. With an
-    // authoritative contribution we render the schema from the merged IR.
+    // The IR is ALWAYS produced (it's the projection boundary). With an authoritative
+    // ORM contribution it's merged (entity types win on overlap) and the SDL is
+    // rendered from it; without one the default SDL path stays byte-for-byte unchanged
+    // (`parser.toString()`), but `ir` is still returned so `pylon inspect` can serialize
+    // the model whether or not the project uses the ORM.
+    const base = parser.toIR()
     const ir = options.contributeIR
-      ? pruneUnreferencedEnums(mergeIR(parser.toIR(), options.contributeIR))
-      : undefined
+      ? pruneUnreferencedEnums(mergeIR(base, options.contributeIR))
+      : base
 
     return {
-      typeDefs: ir ? toSDL(ir) : parser.toString(),
+      typeDefs: options.contributeIR ? toSDL(ir) : parser.toString(),
       schema: parser.getSchema(),
       resolvers: parser.getResolvers(),
       ir

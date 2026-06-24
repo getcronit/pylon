@@ -63,6 +63,21 @@ export class QueueDefinition<T, R = void> {
     private readonly options: QueueOptions<T> = {}
   ) {}
 
+  /** Serializable metadata for `pylon inspect` (no Redis, no payload). */
+  describe(): {
+    name: string
+    attempts?: number
+    concurrency?: number
+    hasSchema: boolean
+  } {
+    return {
+      name: this.name,
+      attempts: this.options.attempts,
+      concurrency: this.options.concurrency,
+      hasSchema: Boolean(this.options.schema)
+    }
+  }
+
   /**
    * The QueueEvents stream for this queue (lazy — needs its OWN blocking Redis
    * connection, so it's duplicated off the shared one). Only `dispatch`'s
@@ -232,6 +247,15 @@ export function cron(
   q.process(handler)
   crons.push({queue: q, pattern})
   return q
+}
+
+/**
+ * Schedule an ALREADY-defined queue as a repeatable cron. Like `cron()` but for a
+ * queue whose handler is already registered (the class-queue path). Deferred to
+ * `startWorkers()` so registration never opens a Redis connection.
+ */
+export function registerCron(queue: QueueDefinition<void, void>, pattern: string): void {
+  crons.push({queue, pattern})
 }
 
 /**
