@@ -73,10 +73,13 @@ export async function inspectApp(
     }))
     .sort((a, b) => a.model.localeCompare(b.model))
 
-  // Queues come from the LOADED project's app — `queuesOf(app)` read on its OWN
-  // pylon-queues instance (re-exported by the bundle), so we see exactly what the app's
-  // `queues: [...]` registered. Empty when the project doesn't use queues.
-  const queues: QueueInfo[] = (orm.queuesOf?.(orm.__pylonEntry) ?? [])
+  // Queues come from the project's OWN pylon-queues instance (re-exported by the
+  // bundle, so it's the same singleton the constructor registered into). We read the
+  // GLOBAL registry (`registeredQueues()`), the queue analogue of `allModels()`,
+  // rather than `queuesOf(entry)` — a COMPOSED project registers its queues on child
+  // apps, not the composed root entry, so an entry-scoped read would miss them all.
+  // Empty when the project doesn't use queues.
+  const queues: QueueInfo[] = (orm.registeredQueues?.() ?? [])
     .map(d => (d.describe ? d.describe() : {name: d.name, hasSchema: false}))
     .sort((a, b) => a.name.localeCompare(b.name))
 

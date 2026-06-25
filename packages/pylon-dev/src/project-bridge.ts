@@ -18,7 +18,6 @@
  */
 import {promises as fs} from 'node:fs'
 import path from 'node:path'
-import {createRequire} from 'node:module'
 import {prepareModelSource} from './builder/prepare-model-source.js'
 import {pathToFileURL} from 'node:url'
 import esbuild from 'esbuild'
@@ -120,6 +119,16 @@ export interface ProjectApp {
     name: string
     describe?(): {name: string; attempts?: number; concurrency?: number; hasSchema: boolean}
   }>
+  /**
+   * Every registered queue across ALL of the project's apps (the global pylon-queues
+   * registry) — the queue analogue of `allModels()`. `pylon inspect` reads this so a
+   * COMPOSED project, whose queues live on child apps and not the composed root entry,
+   * still reports every queue. Absent if the project has no queues.
+   */
+  registeredQueues?(): Array<{
+    name: string
+    describe?(): {name: string; attempts?: number; concurrency?: number; hasSchema: boolean}
+  }>
 
   // ── Apps / migration groups (optional) ──────────────────────────────────────
   /** Migration groups DERIVED from the registry's `models.app(name)` tags. */
@@ -180,21 +189,28 @@ export async function loadProjectApp(
   // If the project uses pylon-queues, re-export its registry from THIS bundle so
   // `inspect` reads the same instance the constructor registered into (pnpm isolates
   // package instances, so a separate import would see an empty registry). Detect by the
-  // entry importing it (the common case), with a package-resolve fallback for an entry
-  // that only imports it transitively. Guard either way — re-exporting an absent package
-  // would fail the whole IR load. (Resolving the package's MAIN can fail on its `exports`
-  // map, so probe `package.json`.)
+  // entry importing it (the common case), with a manifest fallback for an entry that
+  // imports it only transitively (a composed app does, the root entry doesn't). Guard
+  // either way — re-exporting an absent package would fail the whole IR load. Read the
+  // project's `package.json` rather than `require.resolve` — the package is ESM-only and
+  // its `exports` map blocks both a bare and a `package.json`-subpath CJS resolve, so a
+  // resolve probe is a false negative.
   let usesQueues = entrySource.includes('@getcronit/pylon-queues')
   if (!usesQueues) {
     try {
-      createRequire(path.join(cwd, 'noop.js')).resolve('@getcronit/pylon-queues/package.json')
-      usesQueues = true
+      const manifest = JSON.parse(await fs.readFile(path.join(cwd, 'package.json'), 'utf8'))
+      const deps = {
+        ...manifest.dependencies,
+        ...manifest.devDependencies,
+        ...manifest.peerDependencies
+      }
+      usesQueues = Boolean(deps['@getcronit/pylon-queues'])
     } catch {
-      /* project doesn't depend on pylon-queues */
+      /* no manifest / not a dependency */
     }
   }
   const queuesReexport = usesQueues
-    ? `export {queuesOf} from '@getcronit/pylon-queues'\n`
+    ? `export {queuesOf, registeredQueues} from '@getcronit/pylon-queues'\n`
     : ''
 
   // Unique temp name per call so a watch-mode re-import re-runs the models
