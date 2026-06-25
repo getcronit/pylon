@@ -55,7 +55,14 @@ function assignDefined<T extends object>(instance: T, values: Partial<T>): void 
 
 export function hydrate<T extends object>(ctor: ModelCtor<T>, row: any): T {
   const def = getModelDefinitionOrThrow(ctor)
-  const instance = new ctor()
+  // Instantiate the REGISTERED class, not the passed-in `ctor`. They differ when a
+  // project is split across esbuild bundles (e.g. a runtime-config/middleware bundle):
+  // each bundle inlines its own copy of the model class, but only the copy whose app was
+  // constructed is FINALIZED — i.e. has the field-storage accessors installed. A
+  // duplicate copy resolves (by name) to the same def, but `new copy()` yields a BLANK
+  // object because assignments have nowhere to land. `def.ctor` is always the finalized
+  // class, so it hydrates correctly. (Same class in the common single-bundle case.)
+  const instance = new (def.ctor as ModelCtor<T>)()
   for (const col of def.columns) {
     if (col.columnName in row) {
       ;(instance as any)[col.propertyKey] = row[col.columnName]
@@ -1014,7 +1021,9 @@ export class Manager<T extends object> {
   }
 
   async create(values: Partial<T>): Promise<T> {
-    const instance = new this.ctor()
+    // Build the REGISTERED (finalized) class — see `hydrate`; a duplicate bundle copy is
+    // unfinalized and would produce a blank instance.
+    const instance = new (getModelDefinitionOrThrow(this.ctor).ctor as ModelCtor<T>)()
     assignDefined(instance, values)
     await saveInstance(instance as object)
     return instance
@@ -1279,7 +1288,8 @@ export async function createMany<T extends object>(
   const model = ctor as Function
 
   const instances = values.map(v => {
-    const inst = new ctor()
+    // Finalized class — see `hydrate` (resilient to duplicate bundle copies).
+    const inst = new (def.ctor as typeof ctor)()
     assignDefined(inst, v)
     applyCreateDefaults(def, inst as any)
     const issues = validateInstance(def, inst as object)

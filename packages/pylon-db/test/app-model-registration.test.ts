@@ -8,8 +8,9 @@
  */
 import {describe, it, expect} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
-import {models, db, toIR, getModelDefinitionOrThrow} from '../src/index'
+import {models, db, toIR, getModelDefinition, getModelDefinitionOrThrow} from '../src/index'
 import {modelsOf} from '../src/app'
+import {hydrate} from '../src/manager'
 import type {Relation} from '../src/index'
 
 // Plain models — would normally live in models.ts, importing only pylon-db.
@@ -70,5 +71,54 @@ describe('new Pylon({models}) — decorator-free registration', () => {
     expect(Object.keys(ir.entities)).toEqual(expect.arrayContaining(['Author', 'Book']))
     expect(ir.entities.Author.table).toBe('blog_author')
     expect(ir.entities.Book.table).toBe('blog_book')
+  })
+})
+
+describe('cross-bundle lookup — duplicate class copies resolve by name', () => {
+  // The framework can split a project into several esbuild graphs (server bundle +
+  // runtime-config bundle hosting auth middleware). Each inlines its OWN copy of a model
+  // class, but pylon-db is external so the registry is shared and keyed by class IDENTITY.
+  // Only the graph that CONSTRUCTS the app registers its copy; a copy from another graph
+  // (e.g. the one a config-bundle middleware queries) misses on identity. It must still
+  // resolve — by name — to the real definition, the way the old class-def-time decorator
+  // registered every graph's copy for free.
+  it('an unregistered duplicate copy (esbuild `_Author` name) resolves to the real def', () => {
+    // A DISTINCT class object that was never registered, carrying esbuild's un-normalized
+    // self-reference name `_Author`.
+    const AuthorCopy = class extends models.Model {
+      id = models.ID()
+      name = models.Text({min: 2})
+    }
+    Object.defineProperty(AuthorCopy, 'name', {value: '_Author', configurable: true})
+
+    expect(AuthorCopy).not.toBe(Author) // genuinely a different class object
+    const def = getModelDefinitionOrThrow(AuthorCopy)
+    expect(def).toBe(getModelDefinitionOrThrow(Author)) // the REAL, app-bound definition
+    expect(def.tableName).toBe('blog_author')
+    expect(getModelDefinition(AuthorCopy)).toBe(def) // aliased → later lookups are direct hits
+  })
+
+  it('still throws when no same-named model is registered (a real "forgot to register")', () => {
+    const Ghost = class extends models.Model {
+      id = models.ID()
+    }
+    Object.defineProperty(Ghost, 'name', {value: 'Ghost', configurable: true})
+    expect(() => getModelDefinitionOrThrow(Ghost)).toThrow(/No model definition for "Ghost"/)
+  })
+
+  it('hydrates a duplicate copy via the FINALIZED class — populated, not a blank `_Author {}`', () => {
+    // The duplicate copy is unfinalized: `new copy()` has no field-storage accessors, so
+    // assignments vanish and you get an empty instance. `hydrate` must build `def.ctor`
+    // (the registered, finalized class) instead — the bug behind a fetched-then-empty row.
+    const AuthorCopy = class extends models.Model {
+      id = models.ID()
+      name = models.Text({min: 2})
+    }
+    Object.defineProperty(AuthorCopy, 'name', {value: '_Author', configurable: true})
+
+    const inst: any = hydrate(AuthorCopy as any, {id: 'a1', name: 'Ada'})
+    expect(inst).toBeInstanceOf(Author) // the REGISTERED class, not the blank copy
+    expect(inst.id).toBe('a1')
+    expect(inst.name).toBe('Ada') // values actually landed (would be undefined on a copy)
   })
 })

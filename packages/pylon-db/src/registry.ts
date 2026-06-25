@@ -355,17 +355,50 @@ export function resolveColumnSqlType(
   return target?.primaryKey?.sqlType ?? col.sqlType
 }
 
+/**
+ * Strip esbuild's self-reference inner-name underscore so a model resolves by a stable
+ * name across bundles. A self-referential static (`static objects = manager(Foo)`)
+ * compiles, under `useDefineForClassFields:false`, to `var Foo = class _Foo {…}`, so one
+ * graph may see `_Foo` and another `Foo`. (An intentional `_Foo` mangles to `__Foo`, so
+ * stripping exactly ONE leading underscore round-trips it.)
+ */
+function normalizedCtorName(ctor: Function): string {
+  const n = (ctor as {name?: string}).name ?? ''
+  return /^_[A-Za-z]/.test(n) ? n.slice(1) : n
+}
+
 export function getModelDefinition(ctor: Function): ModelDefinition | undefined {
-  return models.get(ctor)
+  const direct = models.get(ctor)
+  if (direct) return direct
+
+  // Cross-bundle fallback. The framework can split a project into several esbuild graphs
+  // (e.g. the server bundle + the runtime-config bundle that hosts auth middleware), each
+  // carrying its OWN copy of a model class. pylon-db is external, so the registry is shared
+  // — but it's keyed by class IDENTITY, so a class copy from a graph that never constructed
+  // its app misses. Resolve by (underscore-normalized) name: a model's name is unique
+  // project-wide (it IS the GraphQL type name, which the SDL already requires to be unique),
+  // so the match is unambiguous and carries the right binding (table prefix, tenant,
+  // columns). Alias the duplicate copy → the same definition so later lookups are O(1).
+  // This restores what the old class-def-time decorator gave for free: every graph that
+  // imported the class registered its own copy.
+  const name = normalizedCtorName(ctor)
+  if (!name) return undefined
+  for (const def of models.values()) {
+    if (normalizedCtorName(def.ctor) === name) {
+      models.set(ctor, def)
+      return def
+    }
+  }
+  return undefined
 }
 
 export function getModelDefinitionOrThrow(ctor: Function): ModelDefinition {
-  const def = models.get(ctor)
+  const def = getModelDefinition(ctor)
   if (!def) {
+    const name = normalizedCtorName(ctor) || (ctor as any).name
     throw new Error(
-      `No model definition for "${
-        (ctor as any).name
-      }". Did you forget the @model() decorator?`
+      `No model definition for "${name}". Register it on an app — ` +
+        `\`new Pylon({db: {models: [${name || 'Model'}]}})\`.`
     )
   }
   return def
