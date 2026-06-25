@@ -22,6 +22,8 @@
  * Under the hood each class is registered as a normal `QueueDefinition`, so the
  * worker runner, outbox, and `startWorkers()` pick it up unchanged.
  */
+import type {JobsOptions} from 'bullmq'
+
 import {
   defineQueue,
   registerCron,
@@ -152,12 +154,16 @@ export function getQueueDefinition(Ctor: Function): QueueDefinition<any, any> {
 }
 
 export interface JobManager<Payload, Result> {
-  /** Enqueue a job (validated; outbox-routed inside a pylon-db transaction). */
-  add(data: Payload): Promise<void>
+  /**
+   * Enqueue a job (validated; outbox-routed inside a pylon-db transaction).
+   * `options.jobId` dedupes — re-adding the same id is a no-op while that job is
+   * still queued, the idempotency a re-polling producer (cron) relies on.
+   */
+  add(data: Payload, options?: JobsOptions): Promise<void>
   /** Enqueue after a delay (ms). */
-  addDelayed(data: Payload, delayMs: number): Promise<void>
+  addDelayed(data: Payload, delayMs: number, options?: JobsOptions): Promise<void>
   /** Enqueue and await the processor's typed result (needs a running worker). */
-  dispatch(data: Payload): Promise<Result>
+  dispatch(data: Payload, options?: JobsOptions): Promise<Result>
 }
 
 /**
@@ -169,8 +175,9 @@ export function manager<Q extends Queue<any, any>>(
   Ctor: new () => Q
 ): JobManager<PayloadOf<Q>, ResultOf<Q>> {
   return {
-    add: data => getQueueDefinition(Ctor).add(data),
-    addDelayed: (data, delayMs) => getQueueDefinition(Ctor).addDelayed(data, delayMs),
-    dispatch: data => getQueueDefinition(Ctor).dispatch(data)
+    add: (data, options) => getQueueDefinition(Ctor).add(data, options),
+    addDelayed: (data, delayMs, options) =>
+      getQueueDefinition(Ctor).addDelayed(data, delayMs, options),
+    dispatch: (data, options) => getQueueDefinition(Ctor).dispatch(data, options)
   }
 }
