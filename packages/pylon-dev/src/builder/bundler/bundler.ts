@@ -6,7 +6,7 @@ import esbuildPluginTsc from 'esbuild-plugin-tsc'
 import fs from 'fs/promises'
 import path from 'path'
 import {updateFileIfChanged} from '../update-file-if-changed'
-import {buildConfigFile} from './build-config'
+import {buildConfigFile, writeConfigEntry} from './build-config'
 import {InjectCodePluginOptions, injectCodePlugin} from './plugins/inject-code-plugin'
 import {notifyPlugin} from './plugins/notify-plugin'
 
@@ -46,9 +46,13 @@ export class Bundler {
   }
 
   private async initBuildPlugins() {
-    const configPath = path.join(process.cwd(), this.outputDir, 'config.js')
+    // Build-time ONLY: a standalone config bundle whose sole job is to expose
+    // `config.plugins`, so the page build contexts can be set up before the server
+    // build runs. The RUNTIME `config.js` is emitted by the SPLIT server build (so the
+    // model layer is shared, not duplicated) — this artifact is a separate path and is
+    // never loaded at runtime.
+    const configPath = path.join(process.cwd(), this.outputDir, '.config.plugins.mjs')
 
-    // Config now lives in a standalone `pylon.config.ts` (loaded by direct bundle).
     await buildConfigFile(process.cwd(), configPath)
 
     // `config.js` is ALWAYS emitted by buildConfigFile (an empty `{}` when there's
@@ -79,6 +83,14 @@ export class Bundler {
 
     await fs.mkdir(dir, {recursive: true})
 
+    // The RUNTIME config entry, built as a SECOND entry of the split context below. With
+    // `splitting:true`, the model layer it imports (via auth middleware → models) lands in
+    // a SHARED chunk that BOTH `index.js` and `config.js` import — one class object at
+    // runtime — instead of each bundle inlining its own copy. (`index.js` loads this
+    // `config.js` via the injected `await import('./config.js')`.)
+    const configEntry = path.join(dir, '.pylon-config-entry.ts')
+    await writeConfigEntry(process.cwd(), configEntry)
+
     // The latest server-build result (schema-changed etc.), captured from the
     // notify plugin's onEnd and returned by buildServer().
     let lastServerBuild: ServerBuildResult | undefined
@@ -104,9 +116,13 @@ export class Bundler {
       platform: 'node',
       logLevel: 'silent',
       metafile: true,
-      entryPoints: [inputPath],
+      entryPoints: {index: inputPath, config: configEntry},
       outdir: dir,
       bundle: true,
+      // Two entries (the app + the runtime config) sharing one module graph: the model
+      // layer they both import is hoisted into a shared chunk, so there's ONE finalized
+      // class object per model instead of a duplicate inlined into each bundle.
+      splitting: true,
       format: 'esm',
       // Preserve function/class `.name` even when esbuild renames a binding to
       // avoid an identifier collision (e.g. two `Notification` classes → one
