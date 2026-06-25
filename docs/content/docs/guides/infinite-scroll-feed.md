@@ -22,7 +22,6 @@ Define the model, then expose a Relay-style connection field by returning
 import {Pylon} from '@getcronit/pylon'
 import {db, models} from '@getcronit/pylon-db'
 
-@models.model()
 export class Post extends models.Model {
   static objects = db.manager(Post)
   id = models.ID()
@@ -31,6 +30,7 @@ export class Post extends models.Model {
 }
 
 export default new Pylon({
+  db: {models: [Post]},
   graphql: {
     Query: {
       // `.paginate()` returns a Relay connection; the field's args drive the window

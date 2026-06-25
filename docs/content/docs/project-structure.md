@@ -39,7 +39,7 @@ my-app/
 The one file Pylon's compiler reads. It has exactly one default export:
 
 ```ts title="src/index.ts"
-export default new Pylon({graphql, gate?, basePath?})
+export default new Pylon({graphql, db?, queues?, gate?, basePath?})
 ```
 
 The compiler introspects the `.graphql` property to derive the schema; at runtime
@@ -92,8 +92,9 @@ build and should be git-ignored — never edit it by hand.
 
 - **One entry, one default export.** The compiler reads `src/index.ts`'s default
   export. Keep it the composition root.
-- **Models register on import.** Importing a file that defines `@model()` classes
-  registers them — keep your models reachable from the entry.
+- **Models register on construction.** A model is a plain class listed in an
+  app's `db.models` — constructing the `Pylon` (or any app it composes) registers
+  them, so keep your apps reachable from the entry's default export.
 - **`$`-prefixed members are private.** A field or method whose name starts with
   `$` (like `$save`) persists and runs but is hidden from the generated GraphQL
   schema.

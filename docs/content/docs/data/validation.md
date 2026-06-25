@@ -17,10 +17,10 @@ and non-ORM writers. **The check is declared once and enforced in two places.**
 Every field builder accepts the validation options below. They compose — a field
 can have several:
 
-```ts title="src/models.ts"
+```ts title="src/index.ts"
+import {Pylon} from '@getcronit/pylon'
 import {Model, manager, id, text, int} from '@getcronit/pylon-db'
 
-@model()
 class User extends Model {
   static objects = manager(User)
 
@@ -31,6 +31,8 @@ class User extends Model {
   bio = text({nullable: true, max: 280, validate: v =>
     String(v).includes('http') ? 'No links in bio' : true})
 }
+
+export default new Pylon({db: {models: [User]}})
 ```
 
 | Option | Rule |
@@ -51,7 +53,6 @@ The ORM never imports the validation library — it reads the standard
 ```ts
 import {z} from 'zod'
 
-@model()
 class Product extends Model {
   static objects = manager(Product)
   id = id()
@@ -113,7 +114,6 @@ column `CHECK` — the database backs up the same rule:
 
 :::generates
 ```ts title="You write"
-@model()
 class User extends Model {
   age = int({min: 0, max: 130})
 }

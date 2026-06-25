@@ -30,9 +30,8 @@ A model is a TypeScript class. It becomes a database table and a GraphQL type at
 once — there is no separate schema file to keep in sync.
 
 ```ts title="src/models.ts"
-import {Model, manager, model, id, text, boolean, createdAt} from '@getcronit/pylon-db'
+import {Model, manager, id, text, boolean, createdAt} from '@getcronit/pylon-db'
 
-@model()
 export class Task extends Model {
   static objects = manager(Task)
 
@@ -43,9 +42,10 @@ export class Task extends Model {
 }
 ```
 
+The model becomes live by being listed in your app's `db.models` (next step).
+
 :::generates
 ```ts title="You write"
-@model()
 class Task extends Model {
   id = id()
   title = text({min: 1, max: 200})
@@ -76,6 +76,7 @@ import {Pylon} from '@getcronit/pylon'
 import {Task} from './models.js'
 
 export default new Pylon({
+  db: {models: [Task]},
   graphql: {
     Query: {
       tasks: (): Promise<Task[]> => Task.objects.orderBy('-createdAt').all(),

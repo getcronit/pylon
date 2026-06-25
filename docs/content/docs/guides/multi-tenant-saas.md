@@ -20,9 +20,9 @@ Four pieces compose:
   belongs to.
 - **A bare `useDatabase()`** derives the tenant from that `Principal`, so every
   query is automatically scoped.
-- **`new Pylon({name, models: {tenant, secure}})`** declares the tenant column and
-  turns on deny-by-default authorization for a feature's models.
-- **`models.abilities`** (and per-model `static abilities`) adds row-level rules;
+- **`new Pylon({name, db: {models, tenant, secure}})`** declares the tenant column
+  and turns on deny-by-default authorization for a feature's models.
+- **`db.abilities`** (and per-model `static abilities`) adds row-level rules;
   **`gate`** adds capability checks at the app boundary.
 
 Define each feature as its own `Pylon`, then `compose` them at the root.
@@ -48,28 +48,27 @@ export const headerAuth: IdentityProvider = c => {
 
 ## 2. A tenant-scoped, secure app
 
-`models.app('projects', {tenant: 'orgId', secure: true})` declares two things:
-the `orgId` column carries the tenant, and `secure: true` makes the app
-deny-by-default — any action without a matching `can(...)` rule is rejected.
+The app's `db: {tenant: 'orgId', secure: true}` declares two things: the `orgId`
+column carries the tenant, and `secure: true` makes the app deny-by-default — any
+action without a matching `can(...)` rule is rejected.
 
 ```ts title="apps/projects.ts"
 import {Pylon} from '@getcronit/pylon'
 import {db, models, gate} from '@getcronit/pylon-db'
 import {hasRole} from '@getcronit/pylon-auth'
 
-const projects = models.app('projects', {tenant: 'orgId', secure: true})
-
-@projects.model() // → table "projects_task"
-export class Task extends projects.Model {
+export class Task extends models.Model {
   static objects = db.manager(Task)
-  id = projects.ID()
-  orgId = projects.Text()   // tenant column — stamped automatically
-  ownerId = projects.Text() // stamped by an ability (below)
-  title = projects.Text()
-  done = projects.Boolean({default: false})
+  id = models.ID()
+  orgId = models.Text()   // tenant column — stamped automatically
+  ownerId = models.Text() // stamped by an ability (below)
+  title = models.Text()
+  done = models.Boolean({default: false})
 }
 
 export const projectsApp = new Pylon({
+  name: 'projects', // → table "projects_task" + its own migration group
+  db: {models: [Task], tenant: 'orgId', secure: true},
   // capability gate at the app boundary: must be a signed-in member
   gate: gate({authorize: p => hasRole(p, 'member', 'admin')}),
   graphql: {
@@ -92,7 +91,7 @@ ambient tenant — both happen in the data layer.
 
 Abilities add resource authz on top of tenant scoping: who can read or write
 which rows, and which server-owned fields get stamped on create. Declare them on
-the app via the constructor's `models.abilities` config — the cross-cutting,
+the app via the constructor's `db.abilities` config — the cross-cutting,
 IR-harvestable form that can name any of the app's models:
 
 ```ts title="apps/projects.ts"
@@ -101,7 +100,8 @@ import {hasRole} from '@getcronit/pylon-auth'
 
 const projectsApp = new Pylon({
   name: 'projects',
-  models: {
+  db: {
+    models: [Task],
     tenant: 'orgId',
     secure: true,
     abilities(principal, can) {
@@ -189,13 +189,17 @@ gate resolvers with `requireFeature`; the active feature set comes from the boun
 identity automatically.
 
 ```ts title="apps/billing.ts"
-import {defineFeatures, requireFeature, models, gate} from '@getcronit/pylon-db'
+import {Pylon} from '@getcronit/pylon'
+import {defineFeatures, requireFeature, gate} from '@getcronit/pylon-db'
 import {hasRole} from '@getcronit/pylon-auth'
+import {Invoice} from './billing-models'
 
 const FEATURES = defineFeatures(['billing'] as const)
-const billing = models.app('billing', {tenant: 'orgId', feature: FEATURES.billing})
 
 export const billingApp = new Pylon({
+  name: 'billing',
+  db: {models: [Invoice], tenant: 'orgId'},
+  // the feature lives on the gate — required for the tenant before any resolver runs
   gate: gate({authorize: p => hasRole(p, 'admin'), feature: FEATURES.billing}),
   graphql: {
     Query: {

@@ -81,22 +81,23 @@ pylon db check   # non-zero exit if a migration is missing
 ## Apps mode
 
 When you split your backend into [apps](/docs/apps/overview), each app is its own
-migration group. `models.app(name)` tags every model in that app, and `pylon db`
+migration group. A **named** `Pylon` tags every model it owns, and `pylon db`
 derives the groups and orders them by their dependencies (inferred from
 cross-app foreign keys, plus any explicit `dependsOn`). Each group keeps its own
 ledger.
 
-```ts title="src/apps/blog/models.ts"
+```ts title="src/apps/blog/index.ts"
+import {Pylon} from '@getcronit/pylon'
 import {models, db} from '@getcronit/pylon-db'
 
-const blog = models.app('blog')
-
-@blog.model()
-export class Post extends blog.Model {
+export class Post extends models.Model {
   static objects = db.manager(Post)
-  id = blog.ID()
-  title = blog.Text()
+  id = models.ID()
+  title = models.Text()
 }
+
+// the app's name is the migration group (and prefixes the table → blog_post)
+export const blog = new Pylon({name: 'blog', db: {models: [Post]}})
 ```
 
 Run a command across every app, or scope `diff` to one with `--app`:

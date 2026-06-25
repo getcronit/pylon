@@ -17,23 +17,24 @@ possible — the scope is applied below your resolver, where it can't be skipped
 Set the tenant property on the app (covers every model in it) or on a single
 model:
 
-```ts title="src/apps/crm/models.ts"
+```ts title="src/apps/crm/index.ts"
+import {Pylon} from '@getcronit/pylon'
 import {models, db} from '@getcronit/pylon-db'
 
-// every model in this app is tenant-scoped on `orgId`
-const crm = models.app('crm', {tenant: 'orgId'})
-
-@crm.model()
-export class Contact extends crm.Model {
+export class Contact extends models.Model {
   static objects = db.manager(Contact)
-  id = crm.ID()
-  orgId = crm.Text()   // the tenant column
-  name = crm.Text()
-  email = crm.Text()
+  id = models.ID()
+  orgId = models.Text()   // the tenant column
+  name = models.Text()
+  email = models.Text()
 }
+
+// every model in this app is tenant-scoped on `orgId`
+export const crm = new Pylon({name: 'crm', db: {models: [Contact], tenant: 'orgId'}})
 ```
 
-The equivalent on a standalone model is `@model({tenant: 'orgId'})`.
+To scope a single model instead of the whole app, set the tenant in its
+`static config`: `static config = {tenant: 'orgId'} satisfies ModelConfig<Contact>`.
 
 ## How scoping applies
 

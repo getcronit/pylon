@@ -80,9 +80,8 @@ back a database table *and* a GraphQL type:
 
 ```ts title="src/index.ts"
 import {Pylon} from '@getcronit/pylon'
-import {model, Model, manager, id, text} from '@getcronit/pylon-db'
+import {Model, manager, id, text} from '@getcronit/pylon-db'
 
-@model()
 class User extends Model {
   static objects = manager(User)
   id = id()
@@ -91,6 +90,7 @@ class User extends Model {
 }
 
 export default new Pylon({
+  db: {models: [User]},
   graphql: {
     Query: {
       users: (): Promise<User[]> => User.objects.all()

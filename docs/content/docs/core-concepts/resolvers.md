@@ -64,7 +64,6 @@ exactly. Async resolvers are first-class — return a `Promise` and Pylon awaits
 import {Pylon} from '@getcronit/pylon'
 import {models, db} from '@getcronit/pylon-db'
 
-@models.model()
 export class Author extends models.Model {
   static objects = db.manager(Author)
   id = models.ID()
@@ -72,6 +71,7 @@ export class Author extends models.Model {
 }
 
 export default new Pylon({
+  db: {models: [Author]},
   graphql: {
     Query: {
       authors: (): Promise<Author[]> => Author.objects.all()

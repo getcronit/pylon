@@ -15,11 +15,11 @@ sync. One class drives the table, the migrations, the query API, and the schema.
 
 | Prisma | Pylon ORM |
 | --- | --- |
-| `schema.prisma` model | a `@model()` TypeScript class |
+| `schema.prisma` model | a `Model` TypeScript class, listed in `db.models` |
 | `String` / `Int` / `Boolean` field | `text()` / `int()` / `boolean()` builders |
 | `@id @default(autoincrement())` | `id()` |
 | `@unique` | `text({unique: true})` |
-| `@@index([a, b])` | `@model({indexes: [{columns: ['a', 'b']}]})` |
+| `@@index([a, b])` | `static config = {indexes: [{columns: ['a', 'b']}]} satisfies ModelConfig<T>` |
 | `@relation(fields, references)` | `foreignKey(() => Other)` |
 | reverse relation (`Post[]`) | `hasMany(() => Post)` |
 | implicit m-n (`Tag[]` ↔ `Post[]`) | `manyToMany(() => Tag)` |
@@ -50,10 +50,9 @@ model Post {
 ```
 
 ```ts title="src/models.ts"
-import {Model, manager, model, id, text, boolean, createdAt, foreignKey} from '@getcronit/pylon-db'
+import {Model, manager, id, text, boolean, createdAt, foreignKey} from '@getcronit/pylon-db'
 import type {Relation} from '@getcronit/pylon-db'
 
-@model()
 export class Post extends Model {
   static objects = manager(Post)
 
@@ -118,6 +117,7 @@ import {Pylon} from '@getcronit/pylon'
 import {Post} from './models.js'
 
 export default new Pylon({
+  db: {models: [Post]},
   graphql: {
     Query: {
       // returns Post instances — the GraphQL `Post` type is derived from the class

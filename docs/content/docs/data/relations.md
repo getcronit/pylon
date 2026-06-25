@@ -17,11 +17,11 @@ relation can't leak a row a direct query would have hidden.
 A `foreignKey` adds the FK scalar column on the child model. Pair it with a
 `Relation<T>` accessor to load the parent:
 
-```ts title="src/models.ts"
+```ts title="src/index.ts"
+import {Pylon} from '@getcronit/pylon'
 import {Model, manager, id, text, foreignKey, hasMany} from '@getcronit/pylon-db'
 import type {Relation} from '@getcronit/pylon-db'
 
-@model()
 class Author extends Model {
   static objects = manager(Author)
   id = id()
@@ -29,7 +29,6 @@ class Author extends Model {
   posts = hasMany(() => Post, {foreignKey: 'authorId'})
 }
 
-@model()
 class Post extends Model {
   static objects = manager(Post)
   id = id()
@@ -37,6 +36,9 @@ class Post extends Model {
   authorId = foreignKey(() => Author)
   declare author: Relation<Author>
 }
+
+// Related models are registered together in the app's db.models.
+export default new Pylon({db: {models: [Author, Post]}})
 ```
 
 The accessor resolves to the related row (or `null`), batched across the request:
@@ -86,7 +88,6 @@ profile = hasOne(() => Profile, {foreignKey: 'userId'})
 Declare `manyToMany` on both sides. Pylon manages the join table for you:
 
 ```ts
-@model()
 class Post extends Model {
   static objects = manager(Post)
   id = id()
@@ -94,7 +95,6 @@ class Post extends Model {
   tags = manyToMany(() => Tag)
 }
 
-@model()
 class Tag extends Model {
   static objects = manager(Tag)
   id = id()

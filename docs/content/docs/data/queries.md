@@ -118,7 +118,7 @@ free-text match across the searchable columns.
 ## Full-text search
 
 `.search(text, opts?)` runs a Postgres full-text query against the `tsvector`
-column declared by [`@model({search})`](/docs/data/models#full-text-search). Pass
+column declared by [`static config`'s `search`](/docs/data/models#full-text-search). Pass
 `{rank: true}` to order by relevance:
 
 ```ts

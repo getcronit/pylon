@@ -24,17 +24,17 @@ out by a separate worker process — the compile-time type is gone by then, so t
 schema is what guards the boundary:
 
 ```ts title="src/queues.ts"
-import {Pylon} from '@getcronit/pylon'
-import {Queue, enqueuer} from '@getcronit/pylon-queues'
+import {Queue, manager, type QueueConfig} from '@getcronit/pylon-queues'
 import {z} from 'zod'
 
-const app = new Pylon({name: 'app'})
-
-@app.queue({attempts: 3, backoff: {type: 'exponential', delay: 1000}})
-class SendWelcome extends Queue.input(
+export class SendWelcome extends Queue.input(
   z.object({userId: z.string(), email: z.string().email()})
 ) {
-  static jobs = enqueuer(SendWelcome)
+  static config = {
+    attempts: 3,
+    backoff: {type: 'exponential', delay: 1000}
+  } satisfies QueueConfig<SendWelcome>
+  static jobs = manager(SendWelcome)
 
   async process({data, job, log}) {
     await log(`attempt ${job.attemptsMade + 1} → ${data.email}`)
@@ -49,8 +49,9 @@ class SendWelcome extends Queue.input(
 
 `attempts` and `backoff` make the email survive a flaky mail provider — three
 tries with exponential backoff before the job is failed. Defining `process` only
-declares the handler; workers consume it separately. `enqueuer(SendWelcome)`
-exposes the typed enqueue manager on `SendWelcome.jobs`.
+declares the handler; workers consume it separately. `manager(SendWelcome)`
+exposes the typed enqueue manager on `SendWelcome.jobs`. Register the class on
+your app by passing it to `queues` on the `Pylon` constructor (below).
 
 ## 2. Enqueue from a signal — transactionally
 
@@ -79,8 +80,12 @@ consequence of the commit, not a separate step the resolver has to remember:
 ```ts title="src/index.ts"
 import {Pylon} from '@getcronit/pylon'
 import {User} from './models'
+import {SendWelcome} from './queues'
+import './signals' // side-effect: connects the postSave receiver
 
 export default new Pylon({
+  db: {models: [User]},
+  queues: [SendWelcome],
   graphql: {
     Mutation: {
       signUp: async (email: string, name: string) => {

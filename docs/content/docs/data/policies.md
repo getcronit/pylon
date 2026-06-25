@@ -24,9 +24,6 @@ argument to keep in sync and no global registration to remember:
 import {Pylon} from '@getcronit/pylon'
 import {Model, manager, id, text, boolean, foreignKey} from '@getcronit/pylon-db'
 
-const blog = new Pylon({name: 'blog', models: {secure: true}})
-
-@blog.model()
 class Post extends Model {
   static objects = manager(Post)
 
@@ -44,6 +41,8 @@ class Post extends Model {
     if (p) can('create').stamp(post => { post.authorId = p.id })
   }
 }
+
+export const blog = new Pylon({name: 'blog', db: {models: [Post], secure: true}})
 ```
 
 - `can(action, condition?)` grants the action on **this model**, scoped by an
@@ -57,11 +56,11 @@ Because the rules live next to the fields they reference, column names stay in
 step with the schema, and a model's policy travels with the model when you lift
 its [app](/docs/apps/overview) into another deployment.
 
-## Cross-cutting rules — `models.abilities`
+## Cross-cutting rules — `db.abilities`
 
 Some rules span multiple models or grant across the board — like giving an admin
 everything. Those don't belong on a single model, so declare them on the app via
-the constructor's **`models.abilities`** config. It receives the `principal`, a
+the constructor's **`db.abilities`** config. It receives the `principal`, a
 `can` builder, and a `cannot` builder, and names the **subject explicitly**:
 
 ```ts title="src/apps/tasks/index.ts"
@@ -71,7 +70,8 @@ import {Task} from './models'
 
 const tasks = new Pylon({
   name: 'tasks',
-  models: {
+  db: {
+    models: [Task],
     tenant: 'orgId',
     abilities(principal, can, cannot) {
       // role-based: admins can do anything, across every model
@@ -100,10 +100,10 @@ const tasks = new Pylon({
 - `can('create', Model).stamp(fn)` grants create and mutates the new instance
   before insert — the place to stamp ownership or tenant from the principal.
 
-The `models` config accepts `tenant`, `secure`, `dependsOn`, `policy`, and
-`abilities`. Per-model `static abilities` and app-level `models.abilities`
+The `db` config accepts `models`, `tenant`, `secure`, `dependsOn`, `policy`, and
+`abilities`. Per-model `static abilities` and app-level `db.abilities`
 compose: both sets of grants apply, so use `static abilities` for a model's own
-rules and `models.abilities` for the cross-cutting ones. Because `abilities`
+rules and `db.abilities` for the cross-cutting ones. Because `abilities`
 lives on the `Pylon` constructor, the compiler harvests it into the IR alongside
 the rest of the app.
 
@@ -168,15 +168,11 @@ marking the model, or the whole app, `secure`. Then any action without a matchin
 rule is denied, so forgetting a rule fails closed:
 
 ```ts
-// the whole app, via the models config
-const projects = new Pylon({name: 'projects', models: {tenant: 'orgId', secure: true}})
+// the whole app, via the db config
+const projects = new Pylon({name: 'projects', db: {models: [Project], tenant: 'orgId', secure: true}})
 
 // or one model, via static config
 static config = {secure: true} satisfies ModelConfig<Project>
-
-// the older forms still work
-const legacy = models.app('projects', {tenant: 'orgId', secure: true}) // string scoping
-// or on one model: @model({secure: true})
 ```
 
 ## The low-level seam: `db.definePolicy`
@@ -246,21 +242,6 @@ import {Model, manager, id, text, boolean, gate} from '@getcronit/pylon-db'
 import {hasRole} from '@getcronit/pylon-auth'
 import {Pylon} from '@getcronit/pylon'
 
-export const crm = new Pylon({
-  name: 'crm',
-  models: {
-    tenant: 'orgId',
-    secure: true,
-    // cross-cutting rule, harvested into the IR with the rest of the app
-    abilities(p, can) {
-      if (hasRole(p, 'admin')) can('manage', 'all')
-    }
-  },
-  graphql: {Query: {contacts: () => Contact.objects.orderBy('name').all()}},
-  gate: gate({authorize: p => hasRole(p, 'crm')})
-})
-
-@crm.model()
 export class Contact extends Model {
   static objects = manager(Contact)
   id = id()
@@ -278,6 +259,21 @@ export class Contact extends Model {
     })
   }
 }
+
+export const crm = new Pylon({
+  name: 'crm',
+  db: {
+    models: [Contact],
+    tenant: 'orgId',
+    secure: true,
+    // cross-cutting rule, harvested into the IR with the rest of the app
+    abilities(p, can) {
+      if (hasRole(p, 'admin')) can('manage', 'all')
+    }
+  },
+  graphql: {Query: {contacts: () => Contact.objects.orderBy('name').all()}},
+  gate: gate({authorize: p => hasRole(p, 'crm')})
+})
 ```
 
 `secure: true` means a `Contact` action with no `can(...)` is denied; the

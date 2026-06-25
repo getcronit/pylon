@@ -14,14 +14,15 @@ class is the schema.
 
 ## One class, three jobs
 
-A model is a class that extends `Model`, is decorated with `@model()`, and
-exposes a `static objects` manager. Each field is declared by calling a builder,
-whose return type is the field's value type — so your instances are fully typed.
+A model is a class that extends `Model` and exposes a `static objects` manager;
+you register it on a [`Pylon`](/docs/apps/overview) via the `db.models`
+constructor option. Each field is declared by calling a builder, whose return
+type is the field's value type — so your instances are fully typed.
 
-```ts title="src/models.ts"
-import {Model, manager, model, id, text, boolean} from '@getcronit/pylon-db'
+```ts title="src/index.ts"
+import {Pylon} from '@getcronit/pylon'
+import {Model, manager, id, text, boolean} from '@getcronit/pylon-db'
 
-@model()
 class User extends Model {
   static objects = manager(User)
 
@@ -30,19 +31,22 @@ class User extends Model {
   name = text()
   isActive = boolean({default: true})
 }
+
+export default new Pylon({db: {models: [User]}})
 ```
 
 That one class becomes a table and a GraphQL type:
 
 :::generates
 ```ts title="You write"
-@model()
 class User extends Model {
   id = id()
   email = text({unique: true})
   name = text()
   isActive = boolean({default: true})
 }
+
+export default new Pylon({db: {models: [User]}})
 ```
 
 ```graphql title="Pylon generates"
@@ -65,6 +69,7 @@ import {Pylon} from '@getcronit/pylon'
 import {User} from './models'
 
 export default new Pylon({
+  db: {models: [User]},
   graphql: {
     Query: {
       users: () => User.objects.orderBy('name').all(),
@@ -99,7 +104,7 @@ principal from your identity provider.
 ## The rest of this section
 
 - [Models & Fields](/docs/data/models) — every field builder, column option, and
-  `@model()` setting, including composite indexes and full-text search.
+  `static config` setting, including composite indexes and full-text search.
 - [Relations](/docs/data/relations) — foreign keys, one-to-many, and
   many-to-many, with batched, N+1-free loading.
 - [Querying](/docs/data/queries) — the `Manager` / `QuerySet` API: filters,

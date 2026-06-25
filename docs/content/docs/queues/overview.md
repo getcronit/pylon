@@ -16,19 +16,17 @@ database transaction that created it commits.
 ## Define a queue
 
 A queue is a class. Subclass `Queue`, type its payload, and write a `process`
-handler — the same shape as a model's `process`/`objects` pairing. Decorate it
-with `@app.queue()` to bind it to your app, and expose a typed enqueue manager on
-a static, exactly as a model exposes `static objects = manager(X)`:
+handler — the same shape as a model's `process`/`objects` pairing. Put per-queue
+options in a `static config`, expose a typed enqueue manager on a static (exactly
+as a model exposes `static objects = manager(X)`), then register the class on your
+app by passing it to `queues` on the `Pylon` constructor:
 
 ```ts title="src/queues.ts"
-import {Pylon} from '@getcronit/pylon'
-import {Queue, enqueuer} from '@getcronit/pylon-queues'
+import {Queue, manager, type QueueConfig} from '@getcronit/pylon-queues'
 
-const blog = new Pylon({name: 'blog'})
-
-@blog.queue({attempts: 3})
-class SendWelcome extends Queue<{userId: string}> {
-  static jobs = enqueuer(SendWelcome)
+export class SendWelcome extends Queue<{userId: string}> {
+  static config = {attempts: 3} satisfies QueueConfig<SendWelcome>
+  static jobs = manager(SendWelcome)
 
   async process({data}) {
     // data.userId is typed
@@ -36,17 +34,23 @@ class SendWelcome extends Queue<{userId: string}> {
 }
 ```
 
-Importing `@getcronit/pylon-queues` is what enables the `@app.queue()` decorator.
-The decorator namespaces the queue name by the app — kebab-casing the class name,
-so `SendWelcome` on `blog` becomes `blog:send-welcome` — and tracks it for that
-app. A free `queue()` decorator exists too, with no app namespacing.
+```ts title="src/index.ts"
+import {Pylon} from '@getcronit/pylon'
+import {SendWelcome} from './queues'
 
-`enqueuer(QueueClass)` returns the typed enqueue manager. Assign it to a static
-(`static jobs = enqueuer(SendWelcome)`) for the same reason a model needs
+export default new Pylon({name: 'blog', queues: [SendWelcome]})
+```
+
+Registering a queue on a named app namespaces the queue name by the app —
+kebab-casing the class name, so `SendWelcome` on `blog` becomes
+`blog:send-welcome`. An un-named app leaves the queue name unprefixed.
+
+`manager(QueueClass)` returns the typed enqueue manager. Assign it to a static
+(`static jobs = manager(SendWelcome)`) for the same reason a model needs
 `static objects = manager(X)`: TypeScript can't infer an inherited static, so you
 re-state the binding once.
 
-`QueueClassOptions`:
+`QueueConfig`:
 
 | Option | Meaning |
 |---|---|
@@ -67,11 +71,11 @@ runtime**:
 
 ```ts title="src/queues.ts"
 import {z} from 'zod'
-import {Queue, enqueuer} from '@getcronit/pylon-queues'
+import {Queue, manager, type QueueConfig} from '@getcronit/pylon-queues'
 
-@blog.queue({attempts: 3})
-class SendWelcome extends Queue.input(z.object({userId: z.string()})) {
-  static jobs = enqueuer(SendWelcome)
+export class SendWelcome extends Queue.input(z.object({userId: z.string()})) {
+  static config = {attempts: 3} satisfies QueueConfig<SendWelcome>
+  static jobs = manager(SendWelcome)
 
   async process({data}) {
     // data: {userId: string}, already validated
@@ -103,11 +107,11 @@ declares the handler — workers start consuming separately, in the `pylon worke
 process:
 
 ```ts title="src/queues.ts"
-@blog.queue({attempts: 3})
-class SendEmail extends Queue.input(
+export class SendEmail extends Queue.input(
   z.object({to: z.string().email(), subject: z.string()})
 ) {
-  static jobs = enqueuer(SendEmail)
+  static config = {attempts: 3} satisfies QueueConfig<SendEmail>
+  static jobs = manager(SendEmail)
 
   async process({data, job, log}) {
     await log(`attempt ${job.attemptsMade + 1} → ${data.to}`)
@@ -156,8 +160,8 @@ Schedule repeatable work with a cron pattern via the `cron` option — no payloa
 needed:
 
 ```ts title="src/queues.ts"
-@blog.queue({cron: '0 * * * *'})
-class Heartbeat extends Queue {
+export class Heartbeat extends Queue {
+  static config = {cron: '0 * * * *'} satisfies QueueConfig<Heartbeat>
   async process() {
     await pingMonitoring()
   }

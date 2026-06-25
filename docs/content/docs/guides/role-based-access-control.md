@@ -104,7 +104,7 @@ import {Pylon} from '@getcronit/pylon'
 import {admin} from './apps/admin'
 import {blog} from './apps/blog'
 
-export default Pylon.compose(admin, blog)
+export default new Pylon().compose(admin, blog)
 ```
 
 A non-admin hitting any `admin` field gets a `ForbiddenError`. A failing gate is
@@ -121,9 +121,7 @@ Forget a `WHERE` clause in a resolver and the rule still applies.
 
 ```ts title="src/apps/blog/models.ts"
 import {Model, manager, id, text} from '@getcronit/pylon-db'
-import {blog} from './index'
 
-@blog.model()
 export class Post extends Model {
   static objects = manager(Post)
   id = id()
@@ -142,17 +140,22 @@ export class Post extends Model {
 }
 ```
 
+The model is a plain class — no decorator, no import of the app — so there's no
+circular dependency between the model file and the app that registers it.
+
 Cross-cutting rules — ones that span models or grant across the board, like
 giving an admin everything — go on the app via the constructor's
-`models.abilities` config, where the subject is named explicitly:
+`db.abilities` config, where the subject is named explicitly:
 
 ```ts title="src/apps/blog/index.ts"
 import {Pylon} from '@getcronit/pylon'
 import {hasRole} from '@getcronit/pylon-auth'
+import {Post} from './models'
 
 export const blog = new Pylon({
   name: 'blog',
-  models: {
+  db: {
+    models: [Post],
     // admins do anything, across every model in the app
     abilities(p, can) {
       if (hasRole(p, 'admin')) can('manage', 'all')
@@ -169,6 +172,7 @@ import {Pylon} from '@getcronit/pylon'
 import {Post} from './models'
 
 export default new Pylon({
+  db: {models: [Post]},
   graphql: {
     Query: {
       // returns only the caller's posts (admins see all)
