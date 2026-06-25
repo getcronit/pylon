@@ -9,7 +9,9 @@ import os from 'node:os'
 import path from 'node:path'
 import {applyChanges, diffSchema} from '@getcronit/pylon-ir'
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
+  type ModelConfig,
   array,
   boolean,
   connect,
@@ -21,28 +23,29 @@ import {
   manager,
   MigrationRunner,
   Model,
-  model,
   setDefaultDatabase,
   syncSchema,
   text
 } from '../../src/index'
 
-@model({table: 'ip_author'})
 class IpAuthor extends Model {
+  static config = {table: 'ip_author'} satisfies ModelConfig<IpAuthor>
   static objects = manager(IpAuthor)
   id = id()
   email = text({unique: true})
   active = boolean({default: true})
   tags = array(text())
 }
+new Pylon({db: {models: [IpAuthor]}})
 
-@model({table: 'ip_book'})
 class IpBook extends Model {
+  static config = {table: 'ip_book'} satisfies ModelConfig<IpBook>
   static objects = manager(IpBook)
   id = id()
   title = text()
   authorId = foreignKey(() => IpAuthor)
 }
+new Pylon({db: {models: [IpBook]}})
 
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'

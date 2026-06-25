@@ -1,19 +1,24 @@
 import {describe, expect, it} from 'vitest'
-import {getModelDefinitionOrThrow, id, int, model, Model, text, toIR} from '../src/index'
+import {Pylon} from '@getcronit/pylon'
+import {getModelDefinitionOrThrow, id, int, Model, text, toIR, type ModelConfig} from '../src/index'
 
-@model({
-  table: 'membership',
-  indexes: [
-    {columns: ['orgId', 'userId'], unique: true}, // composite unique
-    {columns: ['userId']} // single via the model API, default name
-  ]
-})
+// Per-model options (table, indexes, search, …) live in `static config`, typed against
+// the model's own fields via `satisfies ModelConfig<T>` (the index columns are checked).
 class Membership extends Model {
+  static config = {
+    table: 'membership',
+    indexes: [
+      {columns: ['orgId', 'userId'], unique: true}, // composite unique
+      {columns: ['userId']} // single via the model API, default name
+    ]
+  } satisfies ModelConfig<Membership>
   id = id()
   orgId = int({column: 'org_id'})
   userId = int({column: 'user_id'})
   role = text({index: true}) // single-column via field option
 }
+
+new Pylon({db: {models: [Membership]}})
 
 describe('composite / multi-column indexes (model `indexes` option)', () => {
   const ir = toIR([getModelDefinitionOrThrow(Membership)])

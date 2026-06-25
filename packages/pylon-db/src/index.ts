@@ -3,13 +3,15 @@
 // for the CLI/migrations never pulls in core's web runtime. See `app.ts`.
 import './app.js'
 export type {AppModelOptions} from './app.js'
+// The model classes an app owns (registered via `new Pylon({db: {models}})`), walking
+// composed children — the IR-harvest seam the build/inspect tooling reads.
+export {modelsOf} from './app.js'
 
 // ── Flat exports ────────────────────────────────────────────────────────────
 // Low-level surface, used internally and by the build bridge. The recommended
 // public API is the `models` / `db` / `migrations` namespaces below.
 export {Model} from './model.js'
 export {
-  model,
   id,
   uuid,
   text,
@@ -70,8 +72,9 @@ export {useDatabase, type UseDatabaseOptions} from './plugin.js'
 export {gate, type GateOptions} from './gate.js'
 // Resource-tier authz (row/instance/field), enforced inside the ORM. Capability
 // authz (authorize-predicate/requireRole/hasRole) lives in pylon-auth.
+// `defineAbilities` is INTERNAL — author rules via a model's `static abilities`
+// (own rules) or the app's `db: {abilities}` (cross-entity); both wire it under the hood.
 export {
-  defineAbilities,
   authorize,
   can,
   cannot,
@@ -262,7 +265,6 @@ import {gateResolvers} from './features.js'
  */
 const modelBuilders = {
   Model: ModelClass,
-  model: fields.model,
   ID: fields.id,
   UUID: fields.uuid,
   Text: fields.text,
@@ -289,62 +291,14 @@ const modelBuilders = {
   uuidv4: uuidv4Fn
 }
 
+/**
+ * The model-authoring namespace: the `Model` base + capitalized field/relation
+ * builders. Author a plain `class Post extends models.Model {…}` and register it on an
+ * app — `new Pylon({name, db: {models: [Post]}})` — which names + groups it. There is no
+ * decorator and no `models.app()` factory.
+ */
 export const models = {
-  ...modelBuilders,
-  /**
-   * Scope models to an app (a named migration group). Every class decorated with
-   * the returned `model()` is tagged `app=name` in the registry, so `pylon db`
-   * groups migrations by it and infers cross-app order from FKs. Use one per app
-   * folder's index:
-   *
-   * ```ts
-   * const blog = models.app('blog')
-   * @blog.model() class Author extends blog.Model { id = blog.ID() }
-   * ```
-   *
-   * `dependsOn` adds explicit app deps on top of the FK-inferred ones.
-   */
-  app(
-    name: string,
-    options: {
-      dependsOn?: string[]
-      tenant?: string
-      feature?: string
-      /** Deny-by-default for every model in this app (per-model `{secure}` overrides). */
-      secure?: boolean
-      /** App-wide DEFAULT policy: the fallback rule for any model/action a
-       *  per-model `definePolicy` doesn't cover (e.g. "authenticated org member"). */
-      policy?: policyApi.AppPolicy
-    } = {}
-  ) {
-    recordApp(name, options)
-    if (options.policy) policyApi.defineAppPolicy(name, options.policy)
-    else if (options.secure) {
-      // A secure app with no policy fails CLOSED — every read/write with no
-      // per-model `definePolicy` is denied (→ silently empty results). The usual
-      // cause is `policy:` evaluating to `undefined` from an import cycle (the
-      // policy was defined in a module that imports this app). Warn loudly.
-      console.warn(
-        `[pylon-db] models.app("${name}", {secure: true}) has no \`policy\` — ` +
-          `all reads/writes without a per-model definePolicy will be DENIED. If you ` +
-          `passed a \`policy\`, it likely resolved to undefined via an import cycle; ` +
-          `move it to a module that does not import this app.`
-      )
-    }
-    return {
-      ...modelBuilders,
-      model: (opts: fields.ModelOptions = {}) =>
-        fields.model({
-          ...opts,
-          app: name,
-          tenant: opts.tenant ?? options.tenant,
-          secure: opts.secure ?? options.secure
-        }),
-      /** Gate this app's resolver fragment behind its feature (no-op if no feature). */
-      gate: <R extends Record<string, (...args: any[]) => any>>(resolvers: R): R =>
-        options.feature ? gateResolvers(options.feature, resolvers) : resolvers
-    }
-  }
+  ...modelBuilders
 } as const
 
 /** Connection + query API. */

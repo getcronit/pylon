@@ -4,18 +4,18 @@ import {Pylon} from '@getcronit/pylon'
 import {getPrincipal, hasRole} from '@getcronit/pylon-auth'
 import {db, gate, models} from '@getcronit/pylon-db'
 
-const shop_ = models.app('shop', {tenant: 'orgId'}) // reads auto-scoped by orgId
-
-@shop_.model() // → shop_product
-export class Product extends shop_.Model {
+// Decorator-free: a plain model class; the app names it (table prefix) + sets `tenant`.
+export class Product extends models.Model {
   static objects = db.manager(Product)
-  id = shop_.ID()
-  orgId = shop_.Text()
-  name = shop_.Text()
-  price = shop_.Int()
+  id = models.ID()
+  orgId = models.Text()
+  name = models.Text()
+  price = models.Int()
 }
 
 export const shop = new Pylon({
+  name: 'shop', // → table shop_product
+  db: {models: [Product], tenant: 'orgId'}, // reads auto-scoped by orgId
   graphql: {
     Query: {
       // tenant auto-scoped: returns only the caller's org's products

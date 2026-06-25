@@ -1,8 +1,7 @@
 // A realistic ORM-backed Pylon entry: models + a resolver returning one.
 import {Pylon} from '@getcronit/pylon'
-import {Model, model, id, text, boolean} from '@getcronit/pylon-db'
+import {Model, id, text, boolean} from '@getcronit/pylon-db'
 
-@model()
 export class Product extends Model {
   id = id()
   name = text({unique: true})
@@ -14,6 +13,7 @@ export class Product extends Model {
 }
 
 export default new Pylon({
+  db: {models: [Product]},
   graphql: {
     Query: {
       product: (): Product => ({}) as Product

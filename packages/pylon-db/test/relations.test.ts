@@ -1,30 +1,30 @@
 import {describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
   Model,
   foreignKey,
   getModelDefinitionOrThrow,
   hasMany,
   id,
-  model,
   text,
   type Relation,
   type RelatedManager
 } from '../src/index'
 
-@model()
 class Author extends Model {
   id = id()
   name = text()
   books = hasMany(() => Book, {foreignKey: 'authorId'})
 }
 
-@model()
 class Book extends Model {
   id = id()
   title = text()
   authorId = foreignKey(() => Author)
   declare author: Relation<Author>
 }
+
+new Pylon({db: {models: [Author, Book]}})
 
 describe('relations registry', () => {
   const bookDef = getModelDefinitionOrThrow(Book)

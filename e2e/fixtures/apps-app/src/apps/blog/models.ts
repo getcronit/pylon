@@ -1,17 +1,16 @@
 // blog app — models + the app scope. Kept separate from index.ts so signals.ts
 // can import the model classes without a circular import (the classes must exist
 // at `signals.connect(Model, …)` time).
+import {Pylon} from '@getcronit/pylon'
 import {models, db} from '@getcronit/pylon-db'
 import type {Relation} from '@getcronit/pylon-db'
 
-export const blog = models.app('blog')
-
-@blog.model() // → table "blog_author"
-export class Author extends blog.Model {
+// Decorator-free plain models; the app (below) names them (→ blog_*) + groups migrations.
+export class Author extends models.Model {
   static objects = db.manager(Author)
-  id = blog.ID()
-  name = blog.Text({min: 2})
-  articles = blog.HasMany(() => Article, {foreignKey: 'authorId'})
+  id = models.ID()
+  name = models.Text({min: 2})
+  articles = models.HasMany(() => Article, {foreignKey: 'authorId'})
 
   // computed field — a plain method; its return type IS the GraphQL type.
   displayName(): string {
@@ -19,19 +18,21 @@ export class Author extends blog.Model {
   }
 }
 
-@blog.model() // → table "blog_article"
-export class Article extends blog.Model {
+export class Article extends models.Model {
   static objects = db.manager(Article)
-  id = blog.ID()
-  title = blog.Text()
-  authorId = blog.ForeignKey(() => Author)
+  id = models.ID()
+  title = models.Text()
+  authorId = models.ForeignKey(() => Author)
   declare author: Relation<Author>
 }
 
-@blog.model() // → table "blog_activity" — written by a signal (audit)
-export class Activity extends blog.Model {
+export class Activity extends models.Model {
   static objects = db.manager(Activity)
-  id = blog.ID()
-  action = blog.Text()
-  target = blog.Text()
+  id = models.ID()
+  action = models.Text()
+  target = models.Text()
 }
+
+// The blog app: registers its models, names them (→ blog_author/blog_article/blog_activity),
+// and forms the 'blog' migration group. Not served itself — the host composes the schema.
+export const blog = new Pylon({name: 'blog', db: {models: [Author, Article, Activity]}})

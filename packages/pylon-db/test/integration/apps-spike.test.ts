@@ -18,8 +18,10 @@ import os from 'node:os'
 import path from 'node:path'
 import {pathToFileURL} from 'node:url'
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {mergeIR} from '@getcronit/pylon-ir'
 import {
+  type ModelConfig,
   Model,
   connect,
   Database,
@@ -27,7 +29,6 @@ import {
   getModelDefinitionOrThrow,
   id,
   manager,
-  model,
   setDefaultDatabase,
   text,
   toIR,
@@ -38,22 +39,24 @@ import {
 } from '../../src/index'
 
 // ── app: auth ────────────────────────────────────────────────────────────────
-@model({table: 'app_user'})
 class User extends Model {
+  static config = {table: 'app_user'} satisfies ModelConfig<User>
   static objects = manager(User)
   id = id()
   email = text()
 }
+new Pylon({db: {models: [User]}})
 
 // ── app: blog (depends on auth) ──────────────────────────────────────────────
-@model({table: 'app_post'})
 class Post extends Model {
+  static config = {table: 'app_post'} satisfies ModelConfig<Post>
   static objects = manager(Post)
   id = id()
   title = text()
   authorId = foreignKey(() => User)
   declare author: Relation<User>
 }
+new Pylon({db: {models: [Post]}})
 
 const authDefs = () => [getModelDefinitionOrThrow(User)]
 const blogDefs = () => [getModelDefinitionOrThrow(Post)]

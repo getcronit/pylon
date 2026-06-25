@@ -6,13 +6,14 @@
  */
 import {sql} from 'kysely'
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
+  type ModelConfig,
   connect,
   Database,
   id,
   manager,
   Model,
-  model,
   setDefaultDatabase,
   syncSchema,
   text
@@ -20,13 +21,14 @@ import {
 import {entityFromDefinition} from '../../src/ir'
 import {getModelDefinitionOrThrow} from '../../src/registry'
 
-@model({table: 'trgm_item', trigram: {columns: ['sku', 'barcode']}})
 class TrgmItem extends Model {
+  static config = {table: 'trgm_item', trigram: {columns: ['sku', 'barcode']}} satisfies ModelConfig<TrgmItem>
   static objects = manager(TrgmItem)
   id = id()
   sku = text({nullable: true})
   barcode = text({nullable: true})
 }
+new Pylon({db: {models: [TrgmItem]}})
 
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'

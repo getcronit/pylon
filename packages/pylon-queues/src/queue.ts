@@ -94,7 +94,7 @@ export class QueueDefinition<T, R = void> {
 
   /**
    * The BullMQ queue, constructed LAZILY on first use. Merely *defining* a queue
-   * (which happens whenever the app is imported — incl. the build/orm-bridge and
+   * (which happens whenever the app is imported — incl. the build/project-bridge and
    * tests) must NOT open a Redis connection: an eager connection keeps those
    * short-lived processes from exiting. Only `.add()` (enqueue) and the worker
    * touch it.

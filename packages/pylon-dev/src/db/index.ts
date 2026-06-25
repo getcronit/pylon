@@ -13,7 +13,7 @@ import path from 'node:path'
 import {pathToFileURL} from 'node:url'
 import esbuild from 'esbuild'
 import {isDestructive, type SchemaChange} from '@getcronit/pylon-ir'
-import {loadProjectOrm} from '../orm-bridge.js'
+import {loadProjectApp} from '../project-bridge.js'
 
 let migrationCounter = 0
 
@@ -137,7 +137,7 @@ export async function runDbCommand(
   const modelsEntry = path.resolve(cwd, options.models ?? './src/index.ts')
   const dir = path.resolve(cwd, options.dir ?? './migrations')
 
-  const orm = await loadProjectOrm(cwd, modelsEntry)
+  const orm = await loadProjectApp(cwd, modelsEntry)
   const runner = new orm.MigrationRunner({dir})
   const loadMigrationFile = createMigrationLoader(cwd)
 

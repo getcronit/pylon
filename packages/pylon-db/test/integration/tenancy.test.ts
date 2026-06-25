@@ -17,18 +17,19 @@ import {
   setDefaultDatabase,
   syncSchema
 } from '../../src/index'
+import {Pylon} from '@getcronit/pylon'
 
 const FEATURES = defineFeatures(['shop', 'billing'] as const)
 
-const shop = models.app('shop', {tenant: 'orgId', feature: FEATURES.shop})
-
-@shop.model() // → table "shop_widget", tenant-scoped on orgId
-class Widget extends shop.Model {
+class Widget extends models.Model {
   static objects = manager(Widget)
-  id = shop.ID()
-  orgId = shop.Text()
-  name = shop.Text()
+  id = models.ID()
+  orgId = models.Text()
+  name = models.Text()
 }
+// App 'shop': tenant-scoped on orgId (→ shop_widget). Feature gating is exercised via
+// the standalone requireFeature/gateResolvers below (not an app constructor option).
+new Pylon({name: 'shop', db: {models: [Widget], tenant: 'orgId'}})
 
 const def = getModelDefinitionOrThrow(Widget)
 const connectionString =
@@ -53,8 +54,8 @@ describe('tenancy + features (registry, no DB)', () => {
     })
   })
 
-  it('gate wraps resolvers to check the feature (same shape, identity-typed)', async () => {
-    const gated = shop.gate({list: () => 'ok'})
+  it('gateResolvers wraps resolvers to check the feature (same shape, identity-typed)', async () => {
+    const gated = gateResolvers(FEATURES.shop, {list: () => 'ok'})
     await runWithAppContext({features: []}, async () => {
       expect(() => gated.list()).toThrow(FeatureDisabledError)
     })

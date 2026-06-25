@@ -6,15 +6,16 @@
  * with a hash suffix so each stays ≤63 and distinct.
  */
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {joinTableName, pgIdent} from '@getcronit/pylon-ir'
 import {
+  type ModelConfig,
   connect,
   Database,
   id,
   manager,
   manyToMany,
   Model,
-  model,
   setDefaultDatabase,
   syncSchema,
   text
@@ -24,21 +25,23 @@ import {
 const A_TABLE = 'tbl_org_membership_invitation_audit_records_alpha'
 const O_TABLE = 'tbl_org_membership_invitation_audit_records_omega'
 
-@model({table: A_TABLE})
 class LongAlpha extends Model {
+  static config = {table: A_TABLE} satisfies ModelConfig<LongAlpha>
   static objects = manager(LongAlpha)
   id = id()
   name = text()
   omegas = manyToMany(() => LongOmega)
 }
+new Pylon({db: {models: [LongAlpha]}})
 
-@model({table: O_TABLE})
 class LongOmega extends Model {
+  static config = {table: O_TABLE} satisfies ModelConfig<LongOmega>
   static objects = manager(LongOmega)
   id = id()
   name = text()
   alphas = manyToMany(() => LongAlpha)
 }
+new Pylon({db: {models: [LongOmega]}})
 
 const JOIN = joinTableName(A_TABLE, O_TABLE)
 const connectionString =

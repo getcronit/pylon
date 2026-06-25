@@ -3,13 +3,14 @@
  * from text columns) + `.search()` (websearch_to_tsquery). Postgres-only.
  */
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
+  type ModelConfig,
   connect,
   Database,
   id,
   manager,
   Model,
-  model,
   setDefaultDatabase,
   syncSchema,
   text
@@ -17,13 +18,14 @@ import {
 import {entityFromDefinition} from '../../src/ir'
 import {getModelDefinitionOrThrow} from '../../src/registry'
 
-@model({table: 'fts_doc', search: {columns: ['title', 'body'], language: 'english'}})
 class FtsDoc extends Model {
+  static config = {table: 'fts_doc', search: {columns: ['title', 'body'], language: 'english'}} satisfies ModelConfig<FtsDoc>
   static objects = manager(FtsDoc)
   id = id()
   title = text()
   body = text()
 }
+new Pylon({db: {models: [FtsDoc]}})
 
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'
@@ -114,19 +116,20 @@ describe.skipIf(!runDb)('full-text search (Postgres)', () => {
   })
 })
 
-@model({
+class FtsMulti extends Model {
+  static config = {
   table: 'fts_multi',
   search: [
     {name: 'titleFts', columns: ['title']},
     {name: 'bodyFts', columns: ['body']}
   ]
-})
-class FtsMulti extends Model {
+} satisfies ModelConfig<FtsMulti>
   static objects = manager(FtsMulti)
   id = id()
   title = text()
   body = text()
 }
+new Pylon({db: {models: [FtsMulti]}})
 
 describe.skipIf(!runDb)('multiple search sets (Postgres)', () => {
   let db: Database

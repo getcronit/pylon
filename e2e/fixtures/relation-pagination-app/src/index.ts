@@ -5,7 +5,6 @@
 import {Pylon} from '@getcronit/pylon'
 import {db, models, type Relation} from '@getcronit/pylon-db'
 
-@models.model()
 export class Author extends models.Model {
   static objects = db.manager(Author)
   id = models.ID()
@@ -16,7 +15,6 @@ export class Author extends models.Model {
   drafts = models.HasMany(() => Post, {foreignKey: 'authorId'})
 }
 
-@models.model()
 export class Post extends models.Model {
   static objects = db.manager(Post)
   id = models.ID()
@@ -27,7 +25,6 @@ export class Post extends models.Model {
   tags = models.ManyToMany(() => Tag, {paginate: true})
 }
 
-@models.model()
 export class Tag extends models.Model {
   static objects = db.manager(Tag)
   id = models.ID()
@@ -36,6 +33,7 @@ export class Tag extends models.Model {
 }
 
 export default new Pylon({
+  db: {models: [Author, Post, Tag]},
   graphql: {
     Query: {
       author: (id: number): Promise<Author> => Author.objects.get({id})

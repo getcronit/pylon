@@ -1,6 +1,18 @@
 import {deleteInstance, Manager, saveInstance} from './manager.js'
+import {modelHandler} from './fields.js'
 
 export class Model {
+  /**
+   * Every model is constructed as a Proxy: the `defineProperty`/`set` traps swallow the
+   * field-init builders (`id = id()`) and route column reads/writes through a per-instance
+   * store — no `Wrapped` subclass, same class identity. The model's schema is harvested
+   * once at registration (`new Pylon({db: {models: […]}})` → finalizeProxyModel). See
+   * fields.ts for the handler.
+   */
+  constructor() {
+    return new Proxy(this, modelHandler)
+  }
+
   /**
    * The model's manager — the single entry point for queries (Django-style):
    *

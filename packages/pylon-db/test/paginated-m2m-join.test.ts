@@ -1,6 +1,7 @@
 import {makeMigration} from '@getcronit/pylon-ir'
 import {describe, expect, it} from 'vitest'
-import {Model, id, manyToMany, model, text} from '../src/index'
+import {Pylon} from '@getcronit/pylon'
+import {Model, id, manyToMany, text} from '../src/index'
 import {toIR} from '../src/ir'
 
 // Regression: a PAGINATED many-to-many must still synthesize its join table in
@@ -10,18 +11,18 @@ import {toIR} from '../src/ir'
 // desired schema — otherwise `db diff` sees the live join table as orphaned and
 // emits `dropTable`, destroying the association rows. The fix keeps the relation
 // in the IR with `exposed:false` (in for migrations, out of the GraphQL API).
-@model()
 class Collection extends Model {
   id = id()
   name = text()
   articles = manyToMany(() => Article, {paginate: true})
 }
 
-@model()
 class Article extends Model {
   id = id()
   title = text()
 }
+
+new Pylon({db: {models: [Collection, Article]}})
 
 describe('paginated many-to-many join table', () => {
   const ir = toIR()

@@ -6,27 +6,27 @@
  */
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
 import {joinTableName} from '@getcronit/pylon-ir'
-import {connect, Database, db, models, setDefaultDatabase, syncSchema} from '../../src/index'
+import {Pylon} from '@getcronit/pylon'
+import {connect, Database, db, models, setDefaultDatabase, syncSchema, type ModelConfig} from '../../src/index'
 import {appGroups} from '../../src/migration-groups'
 
-const docs = models.app('midocs')
-const tagging = models.app('mitags')
-
-@docs.model({table: 'mi_doc'})
-class MDoc extends docs.Model {
+class MDoc extends models.Model {
+  static config = {table: 'mi_doc'} satisfies ModelConfig<MDoc>
   static objects = db.manager(MDoc)
-  id = docs.ID()
-  title = docs.Text()
-  tags = docs.ManyToMany(() => MTag) // canonical owner — synthesizes the join
+  id = models.ID()
+  title = models.Text()
+  tags = models.ManyToMany(() => MTag) // canonical owner — synthesizes the join
 }
+new Pylon({name: 'midocs', db: {models: [MDoc]}})
 
-@tagging.model({table: 'mi_tag'})
-class MTag extends tagging.Model {
+class MTag extends models.Model {
+  static config = {table: 'mi_tag'} satisfies ModelConfig<MTag>
   static objects = db.manager(MTag)
-  id = tagging.ID()
-  label = tagging.Text()
-  documents = tagging.ManyToMany(() => MDoc, {inverse: true}) // accessor only
+  id = models.ID()
+  label = models.Text()
+  documents = models.ManyToMany(() => MDoc, {inverse: true}) // accessor only
 }
+new Pylon({name: 'mitags', db: {models: [MTag]}})
 
 const JOIN = joinTableName('mi_doc', 'mi_tag')
 const connectionString =

@@ -1,4 +1,5 @@
 import {describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
   Model,
   boolean,
@@ -8,8 +9,8 @@ import {
   hasMany,
   id,
   int,
-  model,
   numeric,
+  type ModelConfig,
   type Relation,
   text,
   timestamp
@@ -20,7 +21,6 @@ import {parseSearchQuery} from '../src/query-parser'
 // search + equality), numeric/int (number coercion + comparators), boolean,
 // enum (raw, never coerced), timestamp (Date coercion), a custom column name,
 // and a hidden ($-prefixed) column that must stay out of the default search.
-@model()
 class Product extends Model {
   id = id() // bigint — not textual
   title = text() // textual
@@ -34,15 +34,14 @@ class Product extends Model {
 }
 
 // One textual column → default search returns a bare predicate (no OR wrapper).
-@model()
 class Tag extends Model {
   id = id()
   label = text()
 }
 
 // A model WITH a full-text index → default search routes through the tsvector.
-@model({search: {columns: ['title', 'body']}})
 class Doc extends Model {
+  static config = {search: {columns: ['title', 'body']}} satisfies ModelConfig<Doc>
   id = id()
   title = text()
   body = text()
@@ -51,8 +50,8 @@ class Doc extends Model {
 // A trigram model → default search ORs index-backed ILIKE substring over ONLY
 // the declared columns (names/identifiers FTS tokenizes poorly), not every text
 // column. `notes` is textual but excluded because it isn't in the trigram set.
-@model({trigram: {columns: ['email', 'phone']}})
 class Lead extends Model {
+  static config = {trigram: {columns: ['email', 'phone']}} satisfies ModelConfig<Lead>
   id = id()
   email = text()
   phone = text()
@@ -60,8 +59,11 @@ class Lead extends Model {
 }
 
 // A mixed model → FTS (prose `bio`) OR trigram (`handle`), OR-ed in one bare term.
-@model({search: {columns: ['bio']}, trigram: {columns: ['handle']}})
 class Author extends Model {
+  static config = {
+    search: {columns: ['bio']},
+    trigram: {columns: ['handle']}
+  } satisfies ModelConfig<Author>
   id = id()
   handle = text()
   bio = text()
@@ -69,13 +71,11 @@ class Author extends Model {
 
 // Relation models for the phase-2 path tests: Prod —belongsTo→ Brand, and
 // Prod —hasMany→ Variant (a to-many hop → `{some: …}`).
-@model()
 class Brand extends Model {
   id = id()
   name = text()
   country = text()
 }
-@model()
 class Variant extends Model {
   id = id()
   sku = text()
@@ -83,7 +83,6 @@ class Variant extends Model {
   productId = foreignKey(() => Prod)
   declare product: Relation<Prod>
 }
-@model()
 class Prod extends Model {
   id = id()
   title = text()
@@ -94,22 +93,24 @@ class Prod extends Model {
 
 // Phase-3 config: an alias (`brandName` → `brand.name`), a virtual derived field
 // (`cheap` → a price predicate), and a curated public allowlist.
-@model({
-  query: {
-    fields: {
-      brandName: {path: 'brand.name'},
-      cheap: {toWhere: (_op, v) => (v === 'true' ? {price: {lt: 10}} : {price: {gte: 10}})}
-    },
-    public: ['title', 'cheap']
-  }
-})
 class Catalog extends Model {
+  static config = {
+    query: {
+      fields: {
+        brandName: {path: 'brand.name'},
+        cheap: {toWhere: (_op: any, v: any) => (v === 'true' ? {price: {lt: 10}} : {price: {gte: 10}})}
+      },
+      public: ['title', 'cheap']
+    }
+  } satisfies ModelConfig<Catalog>
   id = id()
   title = text()
   price = numeric({precision: 10, scale: 2})
   brandId = foreignKey(() => Brand)
   declare brand: Relation<Brand>
 }
+
+new Pylon({db: {models: [Product, Tag, Doc, Lead, Author, Brand, Variant, Prod, Catalog]}})
 
 const productDef = getModelDefinitionOrThrow(Product)
 const tagDef = getModelDefinitionOrThrow(Tag)

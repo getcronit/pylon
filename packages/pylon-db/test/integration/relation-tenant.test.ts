@@ -7,7 +7,9 @@
  * let traversal cross the tenant boundary.
  */
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
+  type ModelConfig,
   connect,
   Database,
   foreignKey,
@@ -15,7 +17,6 @@ import {
   id,
   manager,
   Model,
-  model,
   type Relation,
   setDefaultDatabase,
   syncSchema,
@@ -23,16 +24,17 @@ import {
 } from '../../src/index'
 import {runAsSystem, runWithAppContext} from '../../src/app-context'
 
-@model({table: 'rt_org'}) // tenant ROOT — no tenant column, never tenant-scoped
 class Org extends Model {
+  static config = {table: 'rt_org'} satisfies ModelConfig<Org>
   static objects = manager(Org)
   id = id()
   name = text()
   docs = hasMany(() => Doc, {foreignKey: 'orgId'})
 }
+new Pylon({db: {models: [Org]}})
 
-@model({table: 'rt_doc', tenant: 'orgId'}) // tenant-scoped on orgId
 class Doc extends Model {
+  static config = {table: 'rt_doc', tenant: 'orgId'} satisfies ModelConfig<Doc>
   static objects = manager(Doc)
   id = id()
   title = text()
@@ -41,6 +43,7 @@ class Doc extends Model {
   parentId = foreignKey(() => Doc, {nullable: true}) // self-ref, tenant-scoped target
   declare parent: Relation<Doc>
 }
+new Pylon({db: {models: [Doc]}})
 
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'

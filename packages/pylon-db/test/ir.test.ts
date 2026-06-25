@@ -1,10 +1,10 @@
 import {toDDL, toSDL, tableSpecOf} from '@getcronit/pylon-ir'
 import {describe, expect, it} from 'vitest'
-import {Model, boolean, foreignKey, hasMany, id, model, text, timestamp} from '../src/index'
+import {Pylon} from '@getcronit/pylon'
+import {Model, boolean, foreignKey, hasMany, id, text, timestamp} from '../src/index'
 import {toIR} from '../src/ir'
 import type {Relation} from '../src/relations'
 
-@model()
 class User extends Model {
   id = id()
   email = text({unique: true})
@@ -14,7 +14,6 @@ class User extends Model {
   $passwordHash = text({nullable: true})
 }
 
-@model()
 class Post extends Model {
   id = id()
   title = text()
@@ -22,7 +21,6 @@ class Post extends Model {
   declare author: Relation<User>
 }
 
-@model()
 class Doc extends Model {
   id = id()
   // A hidden FK (internal back-reference): both the scalar id and the derived
@@ -30,6 +28,8 @@ class Doc extends Model {
   ownerId = foreignKey(() => User, {nullable: true, hidden: true})
   declare owner: Relation<User>
 }
+
+new Pylon({db: {models: [User, Post, Doc]}})
 
 describe('toIR — ORM registry → Pylon IR', () => {
   const full = toIR()

@@ -4,13 +4,14 @@
  * allowlist gates the public surface. Postgres-only.
  */
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
+  type ModelConfig,
   connect,
   Database,
   id,
   manager,
   Model,
-  model,
   numeric,
   QueryParseError,
   setDefaultDatabase,
@@ -18,7 +19,8 @@ import {
   text
 } from '../../src/index'
 
-@model({
+class QvItem extends Model {
+  static config = {
   table: 'qv_item',
   query: {
     fields: {
@@ -26,13 +28,13 @@ import {
     },
     public: ['title', 'cheap']
   }
-})
-class QvItem extends Model {
+} satisfies ModelConfig<QvItem>
   static objects = manager(QvItem)
   id = id()
   title = text()
   price = numeric({precision: 10, scale: 2})
 }
+new Pylon({db: {models: [QvItem]}})
 
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'

@@ -12,7 +12,7 @@
  */
 import path from 'node:path'
 import {toDDL, tableSpecOf, toSDL, type PylonIR} from '@getcronit/pylon-ir'
-import {loadProjectOrm} from './orm-bridge.js'
+import {loadProjectApp} from './project-bridge.js'
 import {SchemaBuilder} from './builder/schema/builder.js'
 
 /** Per-model authorization + persistence shape (Tier 2). Rule bodies stay runtime. */
@@ -51,9 +51,9 @@ export async function inspectApp(
   cwd: string,
   modelsEntry = './src/index.ts'
 ): Promise<AppModel> {
-  // Loading the project runs every model + queue decorator (discovery loads them all),
+  // Loading the project constructs its app (`new Pylon({db: {models}, queues})`),
   // populating the ORM + queue registries we read below.
-  const orm = await loadProjectOrm(cwd, modelsEntry)
+  const orm = await loadProjectApp(cwd, modelsEntry)
 
   const ormIR = typeof orm.toIR === 'function' ? orm.toIR() : undefined
   const contributeIR =
@@ -73,10 +73,10 @@ export async function inspectApp(
     }))
     .sort((a, b) => a.model.localeCompare(b.model))
 
-  // Queues come from the LOADED project's own pylon-queues instance (re-exported by
-  // the bundle as `__pylonQueues`), so we see exactly what its `@queue()` decorators
-  // registered. `undefined` when the project doesn't use queues.
-  const queues: QueueInfo[] = (orm.__pylonQueues?.() ?? [])
+  // Queues come from the LOADED project's app — `queuesOf(app)` read on its OWN
+  // pylon-queues instance (re-exported by the bundle), so we see exactly what the app's
+  // `queues: [...]` registered. Empty when the project doesn't use queues.
+  const queues: QueueInfo[] = (orm.queuesOf?.(orm.__pylonEntry) ?? [])
     .map(d => (d.describe ? d.describe() : {name: d.name, hasSchema: false}))
     .sort((a, b) => a.name.localeCompare(b.name))
 

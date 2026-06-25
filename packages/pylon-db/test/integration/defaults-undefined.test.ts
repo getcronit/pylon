@@ -7,7 +7,9 @@
  *  - literal default (`{default: 'x'}`)         → set on construction + DB default
  */
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
+  type ModelConfig,
   connect,
   createdAt,
   createId,
@@ -15,15 +17,14 @@ import {
   id,
   manager,
   Model,
-  model,
   setDefaultDatabase,
   signals,
   syncSchema,
   text
 } from '../../src/index'
 
-@model({table: 'dflt_widget'})
 class Widget extends Model {
+  static config = {table: 'dflt_widget'} satisfies ModelConfig<Widget>
   static objects = manager(Widget)
   id = id()
   code = text({default: createId}) // function default → client-side defaultFn
@@ -31,6 +32,7 @@ class Widget extends Model {
   label = text({nullable: true, default: 'lbl'}) // nullable WITH a default
   createdAt = createdAt() // function default (new Date)
 }
+new Pylon({db: {models: [Widget]}})
 
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'

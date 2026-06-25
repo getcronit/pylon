@@ -1,30 +1,33 @@
 /**
- * The ORM model-loading bridge, shared by `pylon db` and `pylon build`.
+ * The project-loading bridge, shared by `pylon db`, `pylon build`, and `pylon inspect`.
  *
- * The ORM's IR/registry only exists after the `@model()` decorators run, so any
- * consumer that needs it must EXECUTE the user's models — in the project's
- * module context, so the decorators populate the same `@getcronit/pylon-db`
- * instance we then read.
+ * A project's app — its models, queues, and the migration/IR API the CLI drives — only
+ * exists after the registration code RUNS, so any consumer must EXECUTE the user's entry,
+ * in the project's own module context, so constructing `export default new Pylon({db:
+ * {models}, queues})` (and every app it composes) registers into the SAME
+ * `@getcronit/pylon-db` / `@getcronit/pylon-queues` instances we then read.
  *
  * Critically, we do NOT import the entry as-is: that would run its top-level
- * `serve(app)` / `Deno.serve(...)` and start a server during the build. Instead
- * we load a side-effect-stripped view of the entry (declarations + imports, no
- * serve, no default export) and re-export the project's pylon-orm. One native
- * ESM import yields a populated registry plus the API, from a single instance —
- * and no server starts. Runtime-agnostic, since every runtime's entrypoint form
- * is among the dropped statements.
+ * `serve(app)` / `Deno.serve(...)` and start a server. Instead we load a side-effect-
+ * stripped view of the entry — `prepareModelSource` keeps declarations + imports, drops
+ * `serve()`, and re-binds `export default <app>` to an exported `__pylonEntry` — and
+ * re-export the project's pylon-db API (`export * from …`) plus, when present, the
+ * project's `queuesOf`. One native ESM import yields the constructed app, its models
+ * (`modelsOf(__pylonEntry)`) and queues (`queuesOf(__pylonEntry)`), and the API — from a
+ * single instance, no server. Runtime-agnostic (every entrypoint form is dropped).
  */
 import {promises as fs} from 'node:fs'
 import path from 'node:path'
+import {createRequire} from 'node:module'
 import {prepareModelSource} from './builder/prepare-model-source.js'
-import {discoverRegistrationModules, importStatements} from './builder/discover.js'
 import {pathToFileURL} from 'node:url'
 import esbuild from 'esbuild'
 import type {PhysicalSchema, PylonIR} from '@getcronit/pylon-ir'
 
-/** The slice of `@getcronit/pylon-db` the dev tooling drives. Typed locally so
- *  pylon-dev needn't take a runtime dependency on the ORM. */
-export interface ProjectOrm {
+/** The loaded project's surface the dev tooling drives: the constructed app
+ *  (`__pylonEntry` + `modelsOf`/`queuesOf`) plus the pylon-db migration/IR API. Typed
+ *  locally so pylon-dev needn't take a runtime dependency on the ORM or queues. */
+export interface ProjectApp {
   toIR(): PylonIR
   MigrationRunner: new (opts: {dir: string}) => {
     status(
@@ -102,13 +105,18 @@ export interface ProjectOrm {
     secure?: boolean
   }>
 
+  /** The project's default-exported app instance (`export default new Pylon(...)`),
+   *  re-bound by `prepareModelSource` to a named export so the loader can read it. */
+  __pylonEntry?: unknown
+  /** The model classes the app owns (walks composed children). */
+  modelsOf?(app: unknown): Array<new () => unknown>
   /**
-   * Queues registered during the load (re-exported from `@getcronit/pylon-queues`
-   * IFF the project resolves it). Read from the loaded module's OWN instance so it
-   * reflects what the project's `@queue()` decorators registered — a separate import
-   * would be a different singleton under pnpm's isolated node_modules.
+   * The queue classes the app owns, read from the LOADED project's OWN pylon-queues
+   * instance (re-exported by the bundle IFF the project uses queues) so it reflects what
+   * the app's `queues: [...]` registered — a separate import would be a different
+   * singleton under pnpm's isolated node_modules. Absent if the project has no queues.
    */
-  __pylonQueues?(): Array<{
+  queuesOf?(app: unknown): Array<{
     name: string
     describe?(): {name: string; attempts?: number; concurrency?: number; hasSchema: boolean}
   }>
@@ -153,10 +161,10 @@ export interface GroupLike {
 
 let counter = 0
 
-export async function loadProjectOrm(
+export async function loadProjectApp(
   cwd: string,
   modelsEntry: string
-): Promise<ProjectOrm> {
+): Promise<ProjectApp> {
   // Strip the entry's side effects (serve etc.) before loading, so executing it
   // registers models without starting a server. Imports inside the stripped
   // source resolve relative to the entry's own directory.
@@ -164,26 +172,29 @@ export async function loadProjectOrm(
   const entrySource = await fs.readFile(entryAbs, 'utf8')
   const stripped = prepareModelSource(entrySource, path.basename(entryAbs))
 
-  // Load EVERY model/queue module under the source root — not just the ones the
-  // entry happens to import — so a decorated class can't be silently dropped from
-  // the IR/migrations. Imported raw (they're pure registrations; only the entry has
-  // serve side effects, which `stripped` removed). esbuild dedupes the overlap.
-  const entryDir = path.dirname(entryAbs)
-  const discovered = await discoverRegistrationModules(entryDir, entryAbs)
-  const extraImports = importStatements(discovered, entryDir)
-
+  // Constructor-only registration: importing the (stripped) entry constructs
+  // `export default new Pylon({db: {models}, queues})` — and every app it composes —
+  // which registers all models/queues into the registry. The entry's import graph
+  // reaches every registered class, so there's no whole-tree discovery to do.
+  //
   // If the project uses pylon-queues, re-export its registry from THIS bundle so
-  // `inspect` reads the same instance the queue decorators registered into (pnpm
-  // isolates package instances, so a separate import would see an empty registry).
-  // Detect by source (content) — robust regardless of the package's export conditions.
-  const discoveredSources = await Promise.all(
-    discovered.map(f => fs.readFile(f, 'utf8').catch(() => ''))
-  )
-  const usesQueues = [entrySource, ...discoveredSources].some(s =>
-    s.includes('@getcronit/pylon-queues')
-  )
+  // `inspect` reads the same instance the constructor registered into (pnpm isolates
+  // package instances, so a separate import would see an empty registry). Detect by the
+  // entry importing it (the common case), with a package-resolve fallback for an entry
+  // that only imports it transitively. Guard either way — re-exporting an absent package
+  // would fail the whole IR load. (Resolving the package's MAIN can fail on its `exports`
+  // map, so probe `package.json`.)
+  let usesQueues = entrySource.includes('@getcronit/pylon-queues')
+  if (!usesQueues) {
+    try {
+      createRequire(path.join(cwd, 'noop.js')).resolve('@getcronit/pylon-queues/package.json')
+      usesQueues = true
+    } catch {
+      /* project doesn't depend on pylon-queues */
+    }
+  }
   const queuesReexport = usesQueues
-    ? `export {registeredQueues as __pylonQueues} from '@getcronit/pylon-queues'\n`
+    ? `export {queuesOf} from '@getcronit/pylon-queues'\n`
     : ''
 
   // Unique temp name per call so a watch-mode re-import re-runs the models
@@ -191,7 +202,7 @@ export async function loadProjectOrm(
   const tmp = path.join(cwd, `.pylon-orm-entry.${process.pid}.${counter++}.mjs`)
   await esbuild.build({
     stdin: {
-      contents: `${extraImports}${stripped}\nexport * from '@getcronit/pylon-db'\n${queuesReexport}`,
+      contents: `${stripped}\nexport * from '@getcronit/pylon-db'\n${queuesReexport}`,
       resolveDir: path.dirname(entryAbs),
       loader: 'ts',
       sourcefile: 'pylon-orm-entry.ts'
@@ -211,7 +222,7 @@ export async function loadProjectOrm(
   })
 
   try {
-    return (await import(/* @vite-ignore */ pathToFileURL(tmp).href)) as unknown as ProjectOrm
+    return (await import(/* @vite-ignore */ pathToFileURL(tmp).href)) as unknown as ProjectApp
   } finally {
     await fs.rm(tmp, {force: true})
   }
@@ -222,12 +233,12 @@ export async function loadProjectOrm(
  * doesn't use the ORM (pylon-orm not resolvable, no models, or load failure).
  * Used by `pylon build` to feed `SchemaBuilder.build({contributeIR})`.
  */
-export async function loadOrmContribution(
+export async function loadAppContribution(
   cwd: string,
   modelsEntry: string
 ): Promise<PylonIR | undefined> {
   try {
-    const orm = await loadProjectOrm(cwd, modelsEntry)
+    const orm = await loadProjectApp(cwd, modelsEntry)
     if (typeof orm.toIR !== 'function') return undefined
     const ir = orm.toIR()
     return Object.keys(ir.entities).length > 0 ? ir : undefined

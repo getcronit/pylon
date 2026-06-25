@@ -3,13 +3,14 @@
  * `created` flag, and an audit-row receiver writing inside the same transaction.
  */
 import {afterAll, afterEach, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
+  type ModelConfig,
   connect,
   Database,
   getModelDefinitionOrThrow,
   id,
   manager,
-  model,
   Model,
   setDefaultDatabase,
   signals,
@@ -18,20 +19,22 @@ import {
   type SaveSignalPayload
 } from '../../src/index'
 
-@model({table: 'sig_widget'})
 class Widget extends Model {
+  static config = {table: 'sig_widget'} satisfies ModelConfig<Widget>
   static objects = manager(Widget)
   id = id()
   name = text()
 }
+new Pylon({db: {models: [Widget]}})
 
-@model({table: 'sig_audit'})
 class Audit extends Model {
+  static config = {table: 'sig_audit'} satisfies ModelConfig<Audit>
   static objects = manager(Audit)
   id = id()
   action = text()
   target = text()
 }
+new Pylon({db: {models: [Audit]}})
 
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'

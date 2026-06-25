@@ -1,18 +1,17 @@
 import {describe, expect, it} from 'vitest'
 import {z} from 'zod'
+import {Pylon} from '@getcronit/pylon'
 import {
   Model,
   getModelDefinitionOrThrow,
   id,
   json,
-  model,
   text,
   validateInstance,
   validateWithSchema,
   type FieldSchema
 } from '../src/index'
 
-@model()
 class Profile extends Model {
   id = id()
   // Standard Schema (Zod) on a field — richer than the built-in email rule.
@@ -22,6 +21,7 @@ class Profile extends Model {
   // Schema on a JSON column — nested issue paths dot under the field.
   address = json({schema: z.object({zip: z.string().min(5)})})
 }
+new Pylon({db: {models: [Profile]}})
 const def = getModelDefinitionOrThrow(Profile)
 
 describe('Standard Schema field adapter (Zod)', () => {

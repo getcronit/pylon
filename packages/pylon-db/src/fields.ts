@@ -13,6 +13,7 @@ import {
 import {
   ColumnDefinition,
   finalizeModel,
+  getModelDefinition,
   getModelDefinitionOrThrow,
   ModelIndex,
   OnDelete,
@@ -100,39 +101,10 @@ class RelationBuilder {
 }
 
 /**
- * Per-instance backing store for column values, behind the accessors installed
- * by `@model`. Held under a non-enumerable Symbol so it never leaks into a
- * spread / `JSON.stringify` of the instance.
+ * Per-instance backing store for column values, behind the proxy's column traps.
+ * Held under a non-enumerable Symbol so it never leaks into a spread / `JSON.stringify`.
  */
 const COLUMN_STORE = Symbol('pylon.columns')
-
-/**
- * An OWN, enumerable accessor descriptor for a column property. The getter/setter
- * are shared across instances (cached by column name — no per-instance closures).
- * The setter IGNORES `undefined` so `inst.col = undefined` is a true no-op (keeps
- * the current value), matching Prisma's "field not provided" semantics. `null` is
- * a real value and IS stored. Enumerable + own ⇒ spread / `Object.keys` /
- * `JSON.stringify` still see the value (it's read through the getter).
- */
-const columnAccessors = new Map<string, PropertyDescriptor>()
-function columnAccessor(key: string): PropertyDescriptor {
-  let descriptor = columnAccessors.get(key)
-  if (!descriptor) {
-    descriptor = {
-      enumerable: true,
-      configurable: true,
-      get(this: any) {
-        return this[COLUMN_STORE]?.[key]
-      },
-      set(this: any, value: unknown) {
-        if (value === undefined) return // no-op: "not provided" keeps the current value
-        this[COLUMN_STORE][key] = value
-      }
-    }
-    columnAccessors.set(key, descriptor)
-  }
-  return descriptor
-}
 
 function field(
   sqlType: SqlType,
@@ -681,7 +653,7 @@ export interface ModelConfig<T> {
   indexes?: Array<{columns: ColumnKey<T>[]; unique?: boolean}>
   search?: ModelSearchConfig<T> | ModelSearchConfig<T>[]
   trigram?: {columns: ColumnKey<T>[]}
-  query?: QueryConfig
+  query?: QueryConfig<T>
 }
 
 // Mirror the runtime validator's type buckets (validation.ts) so a DB CHECK and
@@ -779,315 +751,407 @@ function buildColumn(key: string, b: FieldBuilder): ColumnDefinition {
   }
 }
 
-export function model(options: ModelOptions = {}): ClassDecorator {
-  return ((Ctor: any) => {
-    // `static config satisfies ModelConfig<T>` is the typed, model-aware config form.
-    // Decorator args spread last, so they override it — the two forms compose.
-    const staticConfig = (Ctor as {config?: ModelOptions}).config
-    if (staticConfig) options = {...staticConfig, ...options}
-
-    // An explicit `table` wins verbatim. Otherwise the name is snake_case of the
-    // class, namespaced by the app when one is set (`models.app('blog')` →
-    // `blog_author`) so each app owns its own table prefix by default.
-    const base = snakeCase(Ctor.name)
-    const tableName =
-      options.table ?? (options.app ? `${snakeCase(options.app)}_${base}` : base)
-    const isAbstract = options.abstract ?? false
-
-    // 1. Harvest this class's OWN fields by probing a raw instance. Inherited
-    //    fields were already cleaned to real values by parent wrappers, so only
-    //    own builders surface as descriptors here.
-    const probe = new Ctor()
-    const relations: RelationDefinition[] = []
-
-    for (const [key, value] of Object.entries(probe)) {
-      if (value instanceof FieldBuilder) {
-        registerColumn(Ctor, buildColumn(key, value))
-      } else if (value instanceof RelationBuilder) {
-        if (value.kind === 'belongsTo') {
-          const fkProperty = key
-          const fkColumn = value.options.column ?? snakeCase(fkProperty)
-          // The FK is a normal scalar column (filterable, hydrated like any other).
-          registerColumn(Ctor, {
-            propertyKey: fkProperty,
-            columnName: fkColumn,
-            // Without an explicit `{type}`, the FK type follows the target's PK
-            // (resolved lazily — see resolveColumnSqlType). `bigint` is only a
-            // fallback for when the target/PK can't be resolved.
-            sqlType: value.options.type ?? 'bigint',
-            fkInferType: value.options.type === undefined,
-            primaryKey: false,
-            autoIncrement: false,
-            unique: value.options.unique ?? false,
-            nullable: value.options.nullable ?? false,
-            hidden: value.options.hidden ?? false,
-            default: undefined,
-            defaultSql: undefined
-          })
-          const accessor =
-            value.options.accessor ??
-            (fkProperty.endsWith('Id')
-              ? fkProperty.slice(0, -2)
-              : `${fkProperty}Ref`)
-          const rel: RelationDefinition = {
-            kind: 'belongsTo',
-            propertyKey: accessor,
-            target: value.target,
-            nullable: value.options.nullable ?? false,
-            fkProperty,
-            fkColumn,
-            onDelete: value.options.onDelete
-          }
-          registerRelation(Ctor, rel)
-          relations.push(rel)
-        } else if (value.kind === 'manyToMany') {
-          const rel: RelationDefinition = {
-            kind: 'manyToMany',
-            propertyKey: key,
-            target: value.target,
-            nullable: true,
-            through: value.options.through,
-            sourceColumn: value.options.sourceColumn,
-            targetColumn: value.options.targetColumn,
-            inverse: value.options.inverse,
-            paginate: value.options.paginate
-          }
-          registerRelation(Ctor, rel)
-          relations.push(rel)
-        } else if (value.kind === 'hasOne') {
-          const rel: RelationDefinition = {
-            kind: 'hasOne',
-            propertyKey: key,
-            target: value.target,
-            nullable: true,
-            targetForeignKey: value.options.foreignKey
-          }
-          registerRelation(Ctor, rel)
-          relations.push(rel)
-        } else {
-          const rel: RelationDefinition = {
-            kind: 'hasMany',
-            propertyKey: key,
-            target: value.target,
-            nullable: true,
-            targetForeignKey: value.options.foreignKey,
-            paginate: value.options.paginate
-          }
-          registerRelation(Ctor, rel)
-          relations.push(rel)
-        }
-      }
+/**
+ * Register the column/relation a single field initializer declares, into the pending
+ * registry for `Ctor`. Returns the RelationDefinition (so the caller can install its
+ * accessor) or `undefined` for a plain scalar column. Shared by the `@model` decorator
+ * (probe-iteration over own props) and the decorator-free `app.model(...)` path
+ * (proxy trap-capture) — both feed the SAME registry, so the IR is identical.
+ */
+function harvestMember(
+  Ctor: Function,
+  key: string,
+  value: unknown
+): RelationDefinition | undefined {
+  if (value instanceof FieldBuilder) {
+    registerColumn(Ctor, buildColumn(key, value))
+    return undefined
+  }
+  if (!(value instanceof RelationBuilder)) return undefined
+  if (value.kind === 'belongsTo') {
+    const fkProperty = key
+    const fkColumn = value.options.column ?? snakeCase(fkProperty)
+    // The FK is a normal scalar column (filterable, hydrated like any other).
+    registerColumn(Ctor, {
+      propertyKey: fkProperty,
+      columnName: fkColumn,
+      sqlType: value.options.type ?? 'bigint',
+      fkInferType: value.options.type === undefined,
+      primaryKey: false,
+      autoIncrement: false,
+      unique: value.options.unique ?? false,
+      nullable: value.options.nullable ?? false,
+      hidden: value.options.hidden ?? false,
+      default: undefined,
+      defaultSql: undefined
+    })
+    const accessor =
+      value.options.accessor ??
+      (fkProperty.endsWith('Id') ? fkProperty.slice(0, -2) : `${fkProperty}Ref`)
+    const rel: RelationDefinition = {
+      kind: 'belongsTo',
+      propertyKey: accessor,
+      target: value.target,
+      nullable: value.options.nullable ?? false,
+      fkProperty,
+      fkColumn,
+      onDelete: value.options.onDelete
     }
-
-    // 2. Wrapper subclass: every real construction runs the field initializers
-    //    (producing builder descriptors) and we immediately replace them. Column
-    //    props (scalar fields + belongsTo FK scalars) become OWN, enumerable
-    //    accessors backed by a per-instance store, whose setter ignores
-    //    `undefined` (so `inst.x = undefined` is a no-op, never corrupting a
-    //    value). hasMany/m2m descriptors are dropped so the prototype getter
-    //    (installed below) shows through.
-    const Wrapped = class extends Ctor {
-      constructor(...args: any[]) {
-        super(...args)
-        // Per-instance backing store (non-enumerable). Guarded so a subclass
-        // wrapper doesn't reset the store a parent wrapper already populated.
-        if (!Object.prototype.hasOwnProperty.call(this, COLUMN_STORE)) {
-          Object.defineProperty(this, COLUMN_STORE, {
-            value: {} as Record<string, unknown>,
-            enumerable: false,
-            writable: true,
-            configurable: true
-          })
-        }
-        const store = (this as any)[COLUMN_STORE] as Record<string, unknown>
-        for (const k of Object.keys(this as object)) {
-          const v = (this as any)[k]
-          const isColumn =
-            v instanceof FieldBuilder ||
-            (v instanceof RelationBuilder && v.kind === 'belongsTo') // FK scalar column
-          if (isColumn) {
-            delete (this as any)[k]
-            Object.defineProperty(this, k, columnAccessor(k))
-            if (v instanceof FieldBuilder) {
-              // A literal default is applied at construction; a function default
-              // (cuid/uuid) is resolved at insert time in saveInstance.
-              const d = v.options.default
-              if ('default' in v.options && typeof d !== 'function') store[k] = d
-            }
-          } else if (v instanceof RelationBuilder) {
-            delete (this as any)[k] // hasMany / manyToMany → prototype accessor
-          }
-        }
-      }
+    registerRelation(Ctor, rel)
+    return rel
+  }
+  if (value.kind === 'manyToMany') {
+    const rel: RelationDefinition = {
+      kind: 'manyToMany',
+      propertyKey: key,
+      target: value.target,
+      nullable: true,
+      through: value.options.through,
+      sourceColumn: value.options.sourceColumn,
+      targetColumn: value.options.targetColumn,
+      inverse: value.options.inverse,
+      paginate: value.options.paginate
     }
-    // The anonymous class expression is named "Wrapped"; restore the original
-    // so table names, relation targets and GraphQL type names stay correct.
-    Object.defineProperty(Wrapped, 'name', {value: Ctor.name})
+    registerRelation(Ctor, rel)
+    return rel
+  }
+  if (value.kind === 'hasOne') {
+    const rel: RelationDefinition = {
+      kind: 'hasOne',
+      propertyKey: key,
+      target: value.target,
+      nullable: true,
+      targetForeignKey: value.options.foreignKey
+    }
+    registerRelation(Ctor, rel)
+    return rel
+  }
+  const rel: RelationDefinition = {
+    kind: 'hasMany',
+    propertyKey: key,
+    target: value.target,
+    nullable: true,
+    targetForeignKey: value.options.foreignKey,
+    paginate: value.options.paginate
+  }
+  registerRelation(Ctor, rel)
+  return rel
+}
 
-    // 3. Install relation accessors on the wrapper prototype.
-    for (const rel of relations) {
-      if (rel.kind === 'belongsTo') {
-        const {fkProperty, target} = rel
-        Object.defineProperty(Wrapped.prototype, rel.propertyKey, {
-          configurable: true,
-          enumerable: false,
-          get(this: any) {
-            const fk = this[fkProperty!]
-            if (fk === null || fk === undefined) return Promise.resolve(null)
-            const targetCtor = target() as ModelCtor<any>
-            return loadBelongsTo(targetCtor, fk).then(row => {
-              if (row !== null) return row
-              // The FK is set but the target row didn't resolve. For a NULLABLE
-              // relation, null is a valid answer. For a NON-NULL relation this would
-              // otherwise surface as GraphQL's opaque "Cannot return null for
-              // non-nullable field <T>.<rel>" — so raise a precise error instead.
-              // The usual cause is the target's READ policy denying the traversal
-              // (a no-principal/cross-tenant read) → ForbiddenError; otherwise it's
-              // a dangling foreign key.
-              const srcDef = getModelDefinitionOrThrow(this.constructor)
-              const fkNullable =
-                srcDef.columns.find(c => c.propertyKey === fkProperty)?.nullable ??
-                false
-              if (fkNullable) return null
-              const targetDef = getModelDefinitionOrThrow(targetCtor)
-              if (readPolicyDenies(targetDef)) {
-                throw new ForbiddenError(
-                  `Not authorized to read "${targetDef.tableName}" through relation ` +
-                    `"${rel.propertyKey}".`
-                )
-              }
-              throw new Error(
-                `Relation "${rel.propertyKey}" references ${targetDef.tableName} ` +
-                  `"${String(fk)}", but no such row resolved (dangling foreign key, ` +
-                  `row-level policy, or a different tenant).`
-              )
-            })
-          }
-        })
-      } else if (rel.kind === 'hasOne') {
-        // Inverse 1:1 — resolve the single child whose FK points at this row's PK
-        // (batched like hasMany, takes the first). Returns Promise<T | null>.
-        const {target, targetForeignKey} = rel
-        Object.defineProperty(Wrapped.prototype, rel.propertyKey, {
-          configurable: true,
-          enumerable: false,
-          get(this: any) {
-            const def = getModelDefinitionOrThrow(this.constructor)
-            const pkProperty = def.primaryKey?.propertyKey
-            if (!pkProperty) {
-              throw new Error(
-                `Cannot resolve hasOne "${rel.propertyKey}": "${def.tableName}" has no primary key.`
-              )
-            }
-            const targetCtor = target() as ModelCtor<any>
+/**
+ * Install the lazy relation accessors (belongsTo/hasOne/hasMany/manyToMany) on a
+ * prototype. Extracted from the `@model` decorator so both paths share it: the
+ * decorator installs on its `Wrapped.prototype`; the decorator-free path installs on
+ * the user class's own prototype (proxy instances reach it because the trap never lets
+ * the relation builder become an own prop that would shadow it).
+ */
+function installRelationAccessors(proto: any, relations: RelationDefinition[]): void {
+  for (const rel of relations) {
+    if (rel.kind === 'belongsTo') {
+      const {fkProperty, target} = rel
+      Object.defineProperty(proto, rel.propertyKey, {
+        configurable: true,
+        enumerable: false,
+        get(this: any) {
+          const fk = this[fkProperty!]
+          if (fk === null || fk === undefined) return Promise.resolve(null)
+          const targetCtor = target() as ModelCtor<any>
+          return loadBelongsTo(targetCtor, fk).then(row => {
+            if (row !== null) return row
+            // The FK is set but the target row didn't resolve. For a NULLABLE
+            // relation, null is a valid answer. For a NON-NULL relation this would
+            // otherwise surface as GraphQL's opaque "Cannot return null for
+            // non-nullable field <T>.<rel>" — so raise a precise error instead.
+            // The usual cause is the target's READ policy denying the traversal
+            // (a no-principal/cross-tenant read) → ForbiddenError; otherwise it's
+            // a dangling foreign key.
+            const srcDef = getModelDefinitionOrThrow(this.constructor)
+            const fkNullable =
+              srcDef.columns.find(c => c.propertyKey === fkProperty)?.nullable ??
+              false
+            if (fkNullable) return null
             const targetDef = getModelDefinitionOrThrow(targetCtor)
-            const fkColumn =
-              targetDef.columns.find(c => c.propertyKey === targetForeignKey)?.columnName ??
-              targetForeignKey!
-            return loadHasOne(targetCtor, fkColumn, this[pkProperty])
-          },
-          set() {
-            /* no-op: relation is a computed accessor, not stored state */
-          }
-        })
-      } else if (rel.kind === 'manyToMany') {
-        const {target, through, sourceColumn, targetColumn, paginate} = rel
-        const makeManager = (self: any): ManyToManyManager<any> => {
-          const def = getModelDefinitionOrThrow(self.constructor)
+            if (readPolicyDenies(targetDef)) {
+              throw new ForbiddenError(
+                `Not authorized to read "${targetDef.tableName}" through relation ` +
+                  `"${rel.propertyKey}".`
+              )
+            }
+            throw new Error(
+              `Relation "${rel.propertyKey}" references ${targetDef.tableName} ` +
+                `"${String(fk)}", but no such row resolved (dangling foreign key, ` +
+                `row-level policy, or a different tenant).`
+            )
+          })
+        }
+      })
+    } else if (rel.kind === 'hasOne') {
+      // Inverse 1:1 — resolve the single child whose FK points at this row's PK
+      // (batched like hasMany, takes the first). Returns Promise<T | null>.
+      const {target, targetForeignKey} = rel
+      Object.defineProperty(proto, rel.propertyKey, {
+        configurable: true,
+        enumerable: false,
+        get(this: any) {
+          const def = getModelDefinitionOrThrow(this.constructor)
           const pkProperty = def.primaryKey?.propertyKey
           if (!pkProperty) {
             throw new Error(
-              `Cannot resolve manyToMany "${rel.propertyKey}": "${def.tableName}" has no primary key.`
+              `Cannot resolve hasOne "${rel.propertyKey}": "${def.tableName}" has no primary key.`
             )
           }
-          return new ManyToManyManager(
-            self.constructor as ModelCtor<any>,
-            target() as ModelCtor<any>,
-            self[pkProperty],
-            {through, sourceColumn, targetColumn}
+          const targetCtor = target() as ModelCtor<any>
+          const targetDef = getModelDefinitionOrThrow(targetCtor)
+          const fkColumn =
+            targetDef.columns.find(c => c.propertyKey === targetForeignKey)?.columnName ??
+            targetForeignKey!
+          return loadHasOne(targetCtor, fkColumn, this[pkProperty])
+        },
+        set() {
+          /* no-op: relation is a computed accessor, not stored state */
+        }
+      })
+    } else if (rel.kind === 'manyToMany') {
+      const {target, through, sourceColumn, targetColumn, paginate} = rel
+      const makeManager = (self: any): ManyToManyManager<any> => {
+        const def = getModelDefinitionOrThrow(self.constructor)
+        const pkProperty = def.primaryKey?.propertyKey
+        if (!pkProperty) {
+          throw new Error(
+            `Cannot resolve manyToMany "${rel.propertyKey}": "${def.tableName}" has no primary key.`
           )
         }
-        // Paginated → a getter returning a callable manager (Relay args →
-        // Connection when called; `.add()/.all()/await` still reach the manager).
-        // Plain → a getter returning the (thenable, list-shaped) manager.
-        Object.defineProperty(Wrapped.prototype, rel.propertyKey, {
-          configurable: true,
-          enumerable: false,
-          get(this: any) {
-            const mgr = makeManager(this)
-            return paginate ? asPaginated(mgr) : mgr
-          },
-          set() {
-            /* no-op: relation is a computed accessor, not stored state */
-          }
-        })
-      } else {
-        const {target, targetForeignKey, paginate} = rel
-        const makeManager = (self: any): RelatedManager<any> => {
-          const def = getModelDefinitionOrThrow(self.constructor)
-          const pkProperty = def.primaryKey?.propertyKey
-          if (!pkProperty) {
-            throw new Error(
-              `Cannot resolve hasMany "${rel.propertyKey}": "${def.tableName}" has no primary key.`
-            )
-          }
-          return new RelatedManager(target() as ModelCtor<any>, targetForeignKey!, self[pkProperty])
-        }
-        Object.defineProperty(Wrapped.prototype, rel.propertyKey, {
-          configurable: true,
-          enumerable: false,
-          get(this: any) {
-            const mgr = makeManager(this)
-            // Pass the target def so `asPaginated` can parse the `query` arg.
-            return paginate ? asPaginated(mgr, getModelDefinitionOrThrow(target() as ModelCtor<any>)) : mgr
-          },
-          // Swallow the field-initializer write: `posts = hasMany(...)` runs in
-          // the constructor and would otherwise throw ("has only a getter").
-          set() {
-            /* no-op: relation is a computed accessor, not stored state */
-          }
-        })
+        return new ManyToManyManager(
+          self.constructor as ModelCtor<any>,
+          target() as ModelCtor<any>,
+          self[pkProperty],
+          {through, sourceColumn, targetColumn}
+        )
       }
-    }
-
-    // 4. Finalize: merge columns/relations inherited via the prototype chain.
-    finalizeModel(Wrapped, {
-      tableName,
-      abstract: isAbstract,
-      app: options.app,
-      indexes: options.indexes,
-      tenant: options.tenant,
-      secure: options.secure,
-      search: options.search,
-      trigram: options.trigram,
-      query: options.query
-    })
-
-    // 4b. Co-located resource policy: a `static abilities(p, can, cannot)` declares
-    //     THIS model's own rules (subject implicit), wired into the resource-authz
-    //     machinery — no global `defineAbilities`, no `{subjects}` footgun. Skipped
-    //     for abstract models (no table to scope). Registered after finalizeModel so
-    //     the model definition exists when the policy is wired.
-    if (!isAbstract) {
-      const abilitiesFn = (Wrapped as {abilities?: unknown}).abilities
-      if (typeof abilitiesFn === 'function') {
-        registerModelAbilities(Wrapped as ModelCtor<any>, abilitiesFn as ModelAbilitiesFn)
-      }
-    }
-
-    // 5. Default manager (a custom `static objects = manager(...)` wins).
-    if (
-      !isAbstract &&
-      !Object.prototype.hasOwnProperty.call(Wrapped, 'objects')
-    ) {
-      Object.defineProperty(Wrapped, 'objects', {
-        value: createManager(Wrapped as any),
-        writable: false,
+      // Paginated → a getter returning a callable manager (Relay args →
+      // Connection when called; `.add()/.all()/await` still reach the manager).
+      // Plain → a getter returning the (thenable, list-shaped) manager.
+      Object.defineProperty(proto, rel.propertyKey, {
+        configurable: true,
         enumerable: false,
-        configurable: true
+        get(this: any) {
+          const mgr = makeManager(this)
+          return paginate ? asPaginated(mgr) : mgr
+        },
+        set() {
+          /* no-op: relation is a computed accessor, not stored state */
+        }
+      })
+    } else {
+      const {target, targetForeignKey, paginate} = rel
+      const makeManager = (self: any): RelatedManager<any> => {
+        const def = getModelDefinitionOrThrow(self.constructor)
+        const pkProperty = def.primaryKey?.propertyKey
+        if (!pkProperty) {
+          throw new Error(
+            `Cannot resolve hasMany "${rel.propertyKey}": "${def.tableName}" has no primary key.`
+          )
+        }
+        return new RelatedManager(target() as ModelCtor<any>, targetForeignKey!, self[pkProperty])
+      }
+      Object.defineProperty(proto, rel.propertyKey, {
+        configurable: true,
+        enumerable: false,
+        get(this: any) {
+          const mgr = makeManager(this)
+          // Pass the target def so `asPaginated` can parse the `query` arg.
+          return paginate ? asPaginated(mgr, getModelDefinitionOrThrow(target() as ModelCtor<any>)) : mgr
+        },
+        // Swallow the field-initializer write: `posts = hasMany(...)` runs in
+        // the constructor and would otherwise throw ("has only a getter").
+        set() {
+          /* no-op: relation is a computed accessor, not stored state */
+        }
       })
     }
-
-    return Wrapped
-  }) as ClassDecorator
+  }
 }
+
+// ── Proxy model path ─────────────────────────────────────────────────────────
+// The `Model` base returns `new Proxy(this, modelHandler)` for EVERY model. Field-init
+// `[[Define]]`/`[[Set]]` of builders is swallowed by the traps and harvested to the
+// registry, so a plain `class Post extends Model { id = id() }` needs no `Wrapped`
+// subclass and no binding replacement. Columns read/write the per-instance COLUMN_STORE;
+// relation accessors live on the class prototype (installed by `finalizeProxyModel`) and
+// show through because the trap never lets the relation builder become an own prop.
+
+function proxyStore(t: any): Record<string, unknown> {
+  let s = t[COLUMN_STORE] as Record<string, unknown> | undefined
+  if (!s) {
+    s = {}
+    Object.defineProperty(t, COLUMN_STORE, {
+      value: s,
+      enumerable: false,
+      writable: true,
+      configurable: true
+    })
+  }
+  return s
+}
+
+const isProxyColumn = (ctor: Function, k: PropertyKey): boolean =>
+  typeof k === 'string' &&
+  !!getModelDefinition(ctor)?.columns.some(c => c.propertyKey === k)
+
+/**
+ * Swallow a field-initializer builder → harvest schema (idempotent, only until the
+ * model is finalized) + seed a literal default. MUST run in BOTH `set` and
+ * `defineProperty` (class fields may compile to assignment, not `[[Define]]`), and
+ * BEFORE the is-column store-write — else a re-run initializer would store the BUILDER
+ * as the column value (DD §6.7). Returns true when the value was a builder (swallow).
+ */
+function captureBuilder(t: any, k: PropertyKey, v: unknown): boolean {
+  if (typeof k !== 'string') return false
+  if (!(v instanceof FieldBuilder) && !(v instanceof RelationBuilder)) return false
+  const ctor = t.constructor as Function
+  if (!getModelDefinition(ctor)) harvestMember(ctor, k, v) // harvest until finalized
+  if (
+    v instanceof FieldBuilder &&
+    'default' in v.options &&
+    typeof v.options.default !== 'function'
+  ) {
+    proxyStore(t)[k] = v.options.default
+  }
+  return true
+}
+
+export const modelHandler: ProxyHandler<any> = {
+  defineProperty(t, k, desc) {
+    if ('value' in desc && captureBuilder(t, k, (desc as PropertyDescriptor).value)) return true
+    return Reflect.defineProperty(t, k, desc)
+  },
+  get(t, k, r) {
+    if (isProxyColumn(t.constructor, k)) return proxyStore(t)[k as string]
+    return Reflect.get(t, k, r) // relation accessors (prototype), methods, symbols
+  },
+  set(t, k, v, r) {
+    if (captureBuilder(t, k, v)) return true // builder swallow takes precedence
+    if (isProxyColumn(t.constructor, k)) {
+      if (v !== undefined) proxyStore(t)[k as string] = v // ignore undefined ("not provided")
+      return true
+    }
+    return Reflect.set(t, k, v, r)
+  },
+  has(t, k) {
+    return isProxyColumn(t.constructor, k) || Reflect.has(t, k)
+  },
+  ownKeys(t) {
+    const cols =
+      getModelDefinition(t.constructor)
+        ?.columns.filter(c => !c.hidden)
+        .map(c => c.propertyKey) ?? []
+    const real = Reflect.ownKeys(t).filter(x => typeof x === 'string' && !cols.includes(x))
+    return [...cols, ...real]
+  },
+  getOwnPropertyDescriptor(t, k) {
+    if (isProxyColumn(t.constructor, k))
+      return {value: proxyStore(t)[k as string], writable: true, enumerable: true, configurable: true}
+    return Reflect.getOwnPropertyDescriptor(t, k)
+  },
+  deleteProperty(t, k) {
+    if (isProxyColumn(t.constructor, k)) {
+      delete proxyStore(t)[k as string]
+      return true
+    }
+    return Reflect.deleteProperty(t, k)
+  }
+}
+
+/**
+ * Finalize a plain (undecorated) model registered via `app.model(...)`: flag it for
+ * proxy construction, probe once to harvest its columns/relations through the traps,
+ * `finalizeModel`, install relation accessors on its OWN prototype, wire co-located
+ * `static abilities`, and assign a default manager. The structural twin of the `@model`
+ * decorator — minus the binding replacement (no `Wrapped`; same class identity).
+ */
+export function finalizeProxyModel(Ctor: Function, options: ModelOptions = {}): void {
+  const existing = getModelDefinition(Ctor)
+  if (existing) {
+    // Idempotent for the SAME app (e.g. an HMR re-eval). A DIFFERENT app is a real
+    // error: a model class binds to exactly one definition (one table, one manager),
+    // so it belongs to exactly one app — to use it elsewhere, import the class.
+    if ((existing.app ?? undefined) !== (options.app ?? undefined)) {
+      throw new Error(
+        `[pylon-db] Model "${Ctor.name}" is already registered to app ` +
+          `"${existing.app ?? '(root)'}"; cannot re-register to "${options.app ?? '(root)'}". ` +
+          'A model belongs to one app — import the class to use it from another.'
+      )
+    }
+    return
+  }
+
+  // Merge the model's own `static config` (table/indexes/search/secure/tenant/…) with the
+  // app-level binding the registrar passes (`app`, plus default `tenant`/`secure`). The app
+  // owns `app`; the model's own config WINS for `tenant`/`secure` with the app value as the
+  // fallback — so a passed `secure: undefined` (an app with no `db.secure`) never clobbers a
+  // model's `static config.secure`.
+  const staticConfig = ((Ctor as {config?: ModelOptions}).config ?? {}) as ModelOptions
+  options = {
+    ...staticConfig,
+    ...options,
+    tenant: staticConfig.tenant ?? options.tenant,
+    secure: staticConfig.secure ?? options.secure
+  }
+
+  // A self-referential model (`static objects = manager(Author)`) compiles, under
+  // `useDefineForClassFields:false` (required for the decorator path), to
+  // `var Author = class _Author {…}` — so `Ctor.name` is the esbuild inner name
+  // `_Author`. Strip that single leading underscore so the table/entity/GraphQL names
+  // stay clean and match the TS type the compiler emits. (An intentional `_Foo` would
+  // be mangled to `__Foo`, so stripping ONE underscore round-trips it correctly.)
+  if (/^_[A-Za-z]/.test(Ctor.name)) {
+    try {
+      Object.defineProperty(Ctor, 'name', {value: Ctor.name.slice(1), configurable: true})
+    } catch {
+      /* name not configurable (frozen) — fall through with the mangled name */
+    }
+  }
+
+  // Table name: an explicit `static config.table` wins; otherwise snake_case of the
+  // class, prefixed by the app NAME when one is set (`blog` → `blog_post`, Django-style)
+  // so composing multiple named apps can't collide on a shared table. An UNNAMED (root)
+  // app doesn't prefix — the single-app common case keeps clean table names.
+  const base = snakeCase(Ctor.name)
+  const tableName =
+    options.table ?? (options.app ? `${snakeCase(options.app)}_${base}` : base)
+  const isAbstract = options.abstract ?? false
+
+  new (Ctor as any)() // probe: field initializers run under the proxy → traps harvest
+
+  finalizeModel(Ctor, {
+    tableName,
+    abstract: isAbstract,
+    app: options.app,
+    indexes: options.indexes,
+    tenant: options.tenant,
+    secure: options.secure,
+    search: options.search,
+    trigram: options.trigram,
+    query: options.query
+  })
+
+  const def = getModelDefinitionOrThrow(Ctor)
+  installRelationAccessors(Ctor.prototype, def.relations)
+
+  if (!isAbstract) {
+    const abilitiesFn = (Ctor as {abilities?: unknown}).abilities
+    if (typeof abilitiesFn === 'function') {
+      registerModelAbilities(Ctor as ModelCtor<any>, abilitiesFn as ModelAbilitiesFn)
+    }
+  }
+
+  if (!isAbstract && !Object.prototype.hasOwnProperty.call(Ctor, 'objects')) {
+    Object.defineProperty(Ctor, 'objects', {
+      value: createManager(Ctor as any),
+      writable: false,
+      enumerable: false,
+      configurable: true
+    })
+  }
+}
+

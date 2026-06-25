@@ -1,4 +1,5 @@
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
   Model,
   connect,
@@ -7,22 +8,20 @@ import {
   hasMany,
   id,
   manager,
-  model,
   setDefaultDatabase,
   syncSchema,
   text,
   type Relation
 } from '../../src/index'
 
-@model()
 class Author extends Model {
   static objects = manager(Author)
   id = id()
   name = text()
   posts = hasMany(() => Post, {foreignKey: 'authorId'})
 }
+new Pylon({db: {models: [Author]}})
 
-@model()
 class Post extends Model {
   static objects = manager(Post)
   id = id()
@@ -30,6 +29,7 @@ class Post extends Model {
   authorId = foreignKey(() => Author)
   declare author: Relation<Author>
 }
+new Pylon({db: {models: [Post]}})
 
 const connectionString =
   process.env.DATABASE_URL ??

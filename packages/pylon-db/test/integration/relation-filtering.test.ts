@@ -6,7 +6,9 @@
  *  - pagination/count stay correct (EXISTS, not a JOIN → no row duplication)
  */
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
+  type ModelConfig,
   boolean,
   connect,
   Database,
@@ -16,7 +18,6 @@ import {
   manager,
   manyToMany,
   Model,
-  model,
   type Relation,
   setDefaultDatabase,
   syncSchema,
@@ -24,17 +25,18 @@ import {
   type WhereInput
 } from '../../src/index'
 
-@model({table: 'rf_author'})
 class Author extends Model {
+  static config = {table: 'rf_author'} satisfies ModelConfig<Author>
   static objects = manager(Author)
   id = id()
   name = text()
   active = boolean()
   articles = hasMany(() => Article, {foreignKey: 'authorId'})
 }
+new Pylon({db: {models: [Author]}})
 
-@model({table: 'rf_article'})
 class Article extends Model {
+  static config = {table: 'rf_article'} satisfies ModelConfig<Article>
   static objects = manager(Article)
   id = id()
   title = text()
@@ -43,14 +45,16 @@ class Article extends Model {
   declare author: Relation<Author>
   tags = manyToMany(() => Tag)
 }
+new Pylon({db: {models: [Article]}})
 
-@model({table: 'rf_tag'})
 class Tag extends Model {
+  static config = {table: 'rf_tag'} satisfies ModelConfig<Tag>
   static objects = manager(Tag)
   id = id()
   label = text()
   articles = manyToMany(() => Article)
 }
+new Pylon({db: {models: [Tag]}})
 
 const JOIN = 'rf_article_rf_tag'
 const connectionString =

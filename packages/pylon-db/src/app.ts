@@ -16,14 +16,25 @@
  * (the extension bus in core's `app/index.ts`), so `@getcronit/pylon` stays an
  * OPTIONAL peer. The `declare module` below supplies the types (a type-only import).
  */
-import type {Resolvers, PylonOptions, Pylon as PylonClass} from '@getcronit/pylon'
-import {model as modelDecorator, type ModelOptions} from './fields.js'
+import type {Resolvers, PylonOptions} from '@getcronit/pylon'
+import {finalizeProxyModel} from './fields.js'
 import {recordApp} from './registry.js'
 import {defineAppPolicy, type AppPolicy} from './policies.js'
 import {defineAbilities, type AbilitiesFn} from './abilities.js'
 
-/** App-level ORM config — the constructor `models` option: `new Pylon({name, models})`. */
+/**
+ * The app's database aspect — the single `db` constructor option (pylon-db owns one key):
+ * `new Pylon({name, db: {models: [Post, Comment], tenant, secure, policy}})`. The model
+ * classes and the tenant/secure/policy that govern them live together.
+ */
 export interface AppModelOptions {
+  /**
+   * The decorator-free model classes this app owns. Each plain `class Post extends Model {…}`
+   * is finalized (proxy path), tagged to this app (a NAMED app prefixes the table + forms a
+   * migration group), and recorded internally (read via `modelsOf(app)`). The single
+   * registration surface.
+   */
+  models?: Array<new () => any>
   /** Property name of the tenant FK; every model in the app auto-scopes by it. */
   tenant?: string
   /** Deny-by-default for the app's models (a per-model `{secure}` still overrides). */
@@ -42,13 +53,9 @@ export interface AppModelOptions {
 }
 
 declare module '@getcronit/pylon' {
-  interface Pylon<G extends Resolvers = {}> {
-    /** App-bound model decorator — tags the model to THIS app's migration group. */
-    model(options?: ModelOptions): ClassDecorator
-  }
   interface PylonOptions<G extends Resolvers = {}> {
-    /** App-level ORM config (tenant/secure/deps/policy/abilities), applied to every `@app.model()`. */
-    models?: AppModelOptions
+    /** The app's database aspect — models + their ORM config. See {@link AppModelOptions}. */
+    db?: AppModelOptions
   }
 }
 
@@ -60,62 +67,72 @@ export function appAbilitiesOf(app: object): AbilitiesFn | undefined {
   return appAbilities.get(app)
 }
 
-function install(Pylon: typeof PylonClass): void {
-  const registered = new WeakSet<object>()
+const registered = new WeakSet<object>()
 
-  const appName = (app: any): string => {
-    const name = app.name ?? app.routePrefix?.replace(/^\/+/, '')
-    if (!name) {
-      throw new Error(
-        '[pylon-db] @app.model() needs the Pylon to have a `name` so migrations can ' +
-          'group it — pass `new Pylon({name: "blog"})`.'
-      )
-    }
-    return name
+/** Private store of the model classes each app owns — read via `modelsOf(app)`. */
+const modelStore = new WeakMap<object, Array<new () => any>>()
+
+/**
+ * The model classes registered on `app` (via `new Pylon({models: […]})`), including
+ * its composed children's — the internal IR-harvest seam (no public `app.models`).
+ */
+export function modelsOf(app: any): Array<new () => any> {
+  const own = modelStore.get(app) ?? []
+  const kids: Array<new () => any> = (app.children ?? []).flatMap((c: any) => modelsOf(c))
+  return [...own, ...kids]
+}
+
+const appName = (app: any): string | undefined =>
+  app.name ?? app.routePrefix?.replace(/^\/+/, '')
+
+/** The app's ORM config — the constructor `db` option (the single home). */
+const config = (app: any): AppModelOptions =>
+  (app.pylonOptions?.db as AppModelOptions | undefined) ?? {}
+
+/** Grouping / policy / cross-cutting abilities for a NAMED app (once). */
+const register = (app: any, name: string): void => {
+  if (registered.has(app)) return
+  registered.add(app)
+  const opts = config(app)
+  recordApp(name, {dependsOn: opts.dependsOn})
+  if (opts.policy) defineAppPolicy(name, opts.policy)
+  else if (opts.secure) {
+    console.warn(
+      `[pylon-db] Pylon "${name}" is secure but has no \`policy\` — every read/write ` +
+        'without a per-model definePolicy will be DENIED.'
+    )
   }
-
-  /** The app's ORM config — the constructor `models` option (the single home). */
-  const config = (app: any): AppModelOptions =>
-    (app.pylonOptions?.models as AppModelOptions | undefined) ?? {}
-
-  const register = (app: any): string => {
-    const name = appName(app)
-    if (registered.has(app)) return name
-    registered.add(app)
-    const opts = config(app)
-    recordApp(name, {dependsOn: opts.dependsOn})
-    if (opts.policy) defineAppPolicy(name, opts.policy)
-    else if (opts.secure) {
-      console.warn(
-        `[pylon-db] Pylon "${name}" is secure but has no \`policy\` — every read/write ` +
-          'without a per-model definePolicy will be DENIED.'
-      )
-    }
-    if (opts.abilities) {
-      appAbilities.set(app, opts.abilities) // synchronous: harvestable immediately
-      // Defer the rule wiring to a microtask so it runs AFTER every `@app.model()`
-      // in the module graph has registered — otherwise a cross-cutting rule that
-      // governs a model decorated later wouldn't get its row policy wired.
-      queueMicrotask(() => defineAbilities(opts.abilities!))
-    }
-    return name
-  }
-
-  Pylon.prototype.model = function (options: ModelOptions = {}) {
-    const name = register(this)
-    const opts = config(this)
-    return modelDecorator({
-      ...options,
-      app: name,
-      tenant: options.tenant ?? opts.tenant,
-      secure: options.secure ?? opts.secure
-    })
+  if (opts.abilities) {
+    appAbilities.set(app, opts.abilities) // synchronous: harvestable immediately
+    // Defer rule wiring to a microtask so it runs AFTER every model in the graph
+    // is registered — else a cross-cutting rule over a later model wouldn't wire.
+    queueMicrotask(() => defineAbilities(opts.abilities!))
   }
 }
 
-// Register with core's extension bus (no runtime core import). Apply now if core is
-// already loaded; otherwise core applies us when it loads.
+/**
+ * Construction-time processor for `new Pylon({db: {models: [Post, …]}})` — the only model
+ * registration path. A NAMED app prefixes tables + forms a migration group; an UNNAMED root
+ * app keeps bare names + the default group. Each model is finalized (proxy path) and recorded
+ * in the private `modelStore`.
+ */
+function processModels(app: any): void {
+  const opts = config(app)
+  const models = opts.models
+  if (!models?.length) return
+  const name = appName(app)
+  if (name) register(app, name)
+  const store = modelStore.get(app) ?? []
+  for (const Ctor of models) {
+    finalizeProxyModel(Ctor, {app: name, tenant: opts.tenant, secure: opts.secure})
+    store.push(Ctor)
+  }
+  modelStore.set(app, store)
+}
+
+// Register the construct hook on core's extension bus (no runtime core import). There is
+// no prototype patch any more — model registration is the `db.models` constructor option.
 const EXT = Symbol.for('@getcronit/pylon.extend')
-const bus = ((globalThis as any)[EXT] ??= {fns: [], Pylon: undefined})
-if (bus.Pylon) install(bus.Pylon)
-else bus.fns.push(install)
+const bus = ((globalThis as any)[EXT] ??= {fns: [], constructHooks: [], Pylon: undefined})
+bus.constructHooks ??= []
+bus.constructHooks.push(processModels)

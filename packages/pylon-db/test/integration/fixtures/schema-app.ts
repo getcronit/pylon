@@ -5,7 +5,8 @@
  * integration test asserts on the emitted SDL, exercising the ACTUAL ORM types
  * against the ACTUAL schema introspection (no mirrored predicates).
  */
-import {Model, model, id, text, boolean, createdAt, foreignKey, hasMany, manyToMany, enumOf} from '../../../src/index.js'
+import {Pylon} from '@getcronit/pylon'
+import {Model, id, text, boolean, createdAt, foreignKey, hasMany, manyToMany, enumOf} from '../../../src/index.js'
 import type {Relation} from '../../../src/index.js'
 
 // A native TS string enum — usable in backend code (UserRole.ADMIN) and the
@@ -15,7 +16,6 @@ export enum UserRole {
   USER = 'USER'
 }
 
-@model()
 export class User extends Model {
   id = id()
   email = text({unique: true})
@@ -28,7 +28,6 @@ export class User extends Model {
   $passwordHash = text({nullable: true})
 }
 
-@model()
 export class Post extends Model {
   id = id()
   title = text()
@@ -38,12 +37,14 @@ export class Post extends Model {
   tags = manyToMany(() => Tag)
 }
 
-@model()
 export class Tag extends Model {
   id = id()
   label = text()
   posts = manyToMany(() => Post)
 }
+
+// Register the models (the default export stays a plain resolver object for SchemaBuilder).
+new Pylon({db: {models: [User, Post, Tag]}})
 
 // Repro for #43: a resolver returning a NULLABLE reference to a decorated ORM
 // model — both directly (Query.maybeUser) and nested in a payload object

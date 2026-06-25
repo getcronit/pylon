@@ -1,6 +1,6 @@
 /**
  * Build-pipeline INTEGRATION test: drives the `build()` function in-process
- * (Bundler + loadOrmContribution executing the models + SchemaBuilder.build
+ * (Bundler + loadAppContribution executing the models + SchemaBuilder.build
  * ({contributeIR}) + the inject-code plugin writing `.pylon/`) against a real
  * ORM-backed entry, and asserts on the emitted `.pylon/schema.graphql`.
  *

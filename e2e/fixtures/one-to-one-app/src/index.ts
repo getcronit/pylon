@@ -3,7 +3,6 @@
 import {Pylon} from '@getcronit/pylon'
 import {db, models, type Relation} from '@getcronit/pylon-db'
 
-@models.model()
 export class User extends models.Model {
   static objects = db.manager(User)
   id = models.ID()
@@ -11,7 +10,6 @@ export class User extends models.Model {
   account = models.HasOne(() => Account, {foreignKey: 'userId'})   // inverse → Account (nullable)
 }
 
-@models.model()
 export class Account extends models.Model {
   static objects = db.manager(Account)
   id = models.ID()
@@ -21,6 +19,7 @@ export class Account extends models.Model {
 }
 
 export default new Pylon({
+  db: {models: [User, Account]},
   graphql: {
     Query: {
       users: (): Promise<User[]> => User.objects.all(),

@@ -3,13 +3,14 @@
  * `@updatedAt`) auto-stamped on every write.
  */
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
+  type ModelConfig,
   connect,
   Database,
   id,
   manager,
   Model,
-  model,
   numeric,
   setDefaultDatabase,
   syncSchema,
@@ -18,8 +19,8 @@ import {
   updatedAt
 } from '../../src/index'
 
-@model({table: 'num_inv'})
 class NumInv extends Model {
+  static config = {table: 'num_inv'} satisfies ModelConfig<NumInv>
   static objects = manager(NumInv)
   id = id()
   label = text()
@@ -28,6 +29,7 @@ class NumInv extends Model {
   createdAt = timestamp({defaultSql: 'now()'})
   updatedAt = updatedAt()
 }
+new Pylon({db: {models: [NumInv]}})
 
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'

@@ -37,16 +37,15 @@ export function prepareModelSource(source: string, fileName = 'entry.ts'): strin
   )
 
   // The entry default-exports the app (`export default new Pylon(...)`). That
-  // expression references the modules that REGISTER the models (e.g. an app whose
-  // import runs `@model()` decorators). Dropping it outright would orphan — and
-  // then prune — those imports, so no models would load. Instead, rewrite it to a
-  // `const` binding: the references survive (imports kept → their side effects
-  // run), and constructing the app is harmless (no serve() lives here anymore).
+  // expression references the modules that REGISTER the models, and constructing it
+  // is what runs the registration. Rewrite it to an EXPORTED `const __pylonEntry` so
+  // the loader can read the app instance (`modelsOf`/`queuesOf`), the imports survive
+  // (their side effects run), and no serve() lives here to start a server.
   const kept = sf.statements
     .map(s => {
       if (ts.isExportAssignment(s) && !s.isExportEquals) {
         return ts.factory.createVariableStatement(
-          undefined,
+          [ts.factory.createModifier(ts.SyntaxKind.ExportKeyword)],
           ts.factory.createVariableDeclarationList(
             [
               ts.factory.createVariableDeclaration(

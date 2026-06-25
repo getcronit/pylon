@@ -3,32 +3,35 @@
  * `@default(uuid())` ported as function defaults resolved at insert.
  */
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
+  type ModelConfig,
   connect,
   createId,
   Database,
   manager,
   Model,
-  model,
   setDefaultDatabase,
   syncSchema,
   text,
   uuidv4
 } from '../../src/index'
 
-@model({table: 'cid_doc'})
 class CidDoc extends Model {
+  static config = {table: 'cid_doc'} satisfies ModelConfig<CidDoc>
   static objects = manager(CidDoc)
   id = text({primaryKey: true, default: createId})
   title = text()
 }
+new Pylon({db: {models: [CidDoc]}})
 
-@model({table: 'cid_evt'})
 class CidEvt extends Model {
+  static config = {table: 'cid_evt'} satisfies ModelConfig<CidEvt>
   static objects = manager(CidEvt)
   id = text({primaryKey: true, default: uuidv4})
   name = text()
 }
+new Pylon({db: {models: [CidEvt]}})
 
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'

@@ -9,15 +9,15 @@ import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {describe, expect, it} from 'vitest'
 import {SchemaBuilder} from '../src/builder/schema/builder'
-import {loadOrmContribution} from '../src/orm-bridge'
+import {loadAppContribution} from '../src/project-bridge'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const cwd = path.resolve(dir, 'fixtures/orm-build-app')
 const entry = path.join(cwd, 'index.ts')
 
 describe('Stage 2b — build merges the ORM contribution', () => {
-  it('loadOrmContribution executes models and returns the entity IR', async () => {
-    const ir = await loadOrmContribution(cwd, './index.ts')
+  it('loadAppContribution executes models and returns the entity IR', async () => {
+    const ir = await loadAppContribution(cwd, './index.ts')
     expect(ir).toBeDefined()
     expect(Object.keys(ir!.entities)).toContain('Product')
     const product = ir!.entities.Product
@@ -28,7 +28,7 @@ describe('Stage 2b — build merges the ORM contribution', () => {
   })
 
   it('the built schema reflects ORM intent (id→ID, $-column hidden)', async () => {
-    const contributeIR = await loadOrmContribution(cwd, './index.ts')
+    const contributeIR = await loadAppContribution(cwd, './index.ts')
     const {typeDefs} = new SchemaBuilder(entry).build({contributeIR})
     expect(typeDefs).toMatch(/type Product/)
     expect(typeDefs).toMatch(/id: ID!/) // ORM intent — not the introspected Number
@@ -50,7 +50,7 @@ describe('Stage 2b — build merges the ORM contribution', () => {
     const plain = new SchemaBuilder(entry).build().typeDefs
     expect(plain).toMatch(/internalCode/) // leaked by pure introspection
 
-    const contributeIR = await loadOrmContribution(cwd, './index.ts')
+    const contributeIR = await loadAppContribution(cwd, './index.ts')
     const merged = new SchemaBuilder(entry).build({contributeIR}).typeDefs
     expect(merged).not.toMatch(/internalCode|internal_code/) // hidden by the ORM
   })

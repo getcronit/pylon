@@ -3,14 +3,12 @@ import {Pylon} from '@getcronit/pylon'
 import {models} from '@getcronit/pylon-db'
 import type {Relation} from '@getcronit/pylon-db'
 
-@models.model()
 export class Category extends models.Model {
   id = models.ID()
   name = models.Text({unique: true})
   products = models.HasMany(() => Product, {foreignKey: 'categoryId'})
 }
 
-@models.model()
 export class Product extends models.Model {
   id = models.ID()
   name = models.Text({unique: true})
@@ -22,6 +20,7 @@ export class Product extends models.Model {
 }
 
 export default new Pylon({
+  db: {models: [Category, Product]},
   graphql: {
     Query: {
       product: (): Product => ({}) as Product,

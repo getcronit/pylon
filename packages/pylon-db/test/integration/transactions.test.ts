@@ -6,13 +6,14 @@
  *    freely inside an outer `transaction()` and roll back with it.
  */
 import {afterAll, afterEach, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
+  type ModelConfig,
   connect,
   Database,
   id,
   manager,
   Model,
-  model,
   setDefaultDatabase,
   signals,
   syncSchema,
@@ -20,12 +21,13 @@ import {
   transaction
 } from '../../src/index'
 
-@model({table: 'txn_widget'})
 class Widget extends Model {
+  static config = {table: 'txn_widget'} satisfies ModelConfig<Widget>
   static objects = manager(Widget)
   id = id()
   name = text()
 }
+new Pylon({db: {models: [Widget]}})
 
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'

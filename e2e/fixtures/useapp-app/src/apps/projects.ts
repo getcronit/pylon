@@ -3,38 +3,42 @@
 // capability-gated admin op (inline requireRole), and role-gated routes. No
 // defineApp / .resolvers / useApp — authz primitives only.
 import {Pylon} from '@getcronit/pylon'
-import {getPrincipal, hasRole, requireRole} from '@getcronit/pylon-auth'
-import {authorize, db, defineAbilities, models} from '@getcronit/pylon-db'
+import {getPrincipal, hasRole, requireRole, type Principal} from '@getcronit/pylon-auth'
+import {authorize, db, models} from '@getcronit/pylon-db'
 
-// Tenant-scoped (orgId) + deny-by-default. The ability rules register the per-model
-// row policy; tenant scoping is the floor underneath them.
-const projects_ = models.app('projects', {tenant: 'orgId', secure: true})
-
-@projects_.model() // → projects_task
-export class Task extends projects_.Model {
+// Decorator-free: plain model; the app names it (→ projects_task) + sets tenant/secure.
+// Owner/shared row rules (ABAC) are co-located in `static abilities`.
+export class Task extends models.Model {
   static objects = db.manager(Task)
-  id = projects_.ID()
-  orgId = projects_.Text()
-  ownerId = projects_.Text()
-  shared = projects_.Boolean({default: false})
-  title = projects_.Text()
+  id = models.ID()
+  orgId = models.Text()
+  ownerId = models.Text()
+  shared = models.Boolean({default: false})
+  title = models.Text()
+
+  static abilities(p: Principal | undefined, can: any) {
+    const uid = p?.id ?? '__anon__'
+    can('read', {OR: [{ownerId: uid}, {shared: true}]})
+    can('update', {ownerId: uid})
+    if (p)
+      can('create').stamp((t: Task) => {
+        t.orgId = String(p.tenant)
+        t.ownerId = String(p.id)
+      })
+  }
 }
 
-// RBAC (admin) + ABAC (owner/shared). Task referenced unconditionally so the
-// registration probe governs it; conditions branch on the principal.
-defineAbilities((p, can) => {
-  const uid = p?.id ?? '__anon__'
-  if (hasRole(p, 'admin')) can('manage', 'all')
-  can('read', Task, {OR: [{ownerId: uid}, {shared: true}]})
-  can('update', Task, {ownerId: uid})
-  if (p)
-    can('create', Task).stamp(t => {
-      t.orgId = String(p.tenant)
-      t.ownerId = String(p.id)
-    })
-})
-
 export const projects = new Pylon({
+  name: 'projects',
+  db: {
+    models: [Task],
+    tenant: 'orgId',
+    secure: true,
+    // CROSS-ENTITY rule (admin → anything) → the app's db config.
+    abilities: (p, can) => {
+      if (hasRole(p, 'admin')) can('manage', 'all')
+    }
+  },
   graphql: {
     Query: {
       // ability- + tenant-scoped automatically

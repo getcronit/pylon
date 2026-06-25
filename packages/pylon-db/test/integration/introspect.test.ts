@@ -1,24 +1,26 @@
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {sql} from 'kysely'
 import {
+  type ModelConfig,
   Model,
   connect,
   Database,
   getModelDefinitionOrThrow,
   id,
   introspect,
-  model,
   schemaDrift,
   setDefaultDatabase,
   syncSchema,
   text
 } from '../../src/index'
 
-@model({table: 'drift_widget'})
 class DriftWidget extends Model {
+  static config = {table: 'drift_widget'} satisfies ModelConfig<DriftWidget>
   id = id()
   name = text()
 }
+new Pylon({db: {models: [DriftWidget]}})
 
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'

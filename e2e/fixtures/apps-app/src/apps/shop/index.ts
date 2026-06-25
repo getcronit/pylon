@@ -1,25 +1,26 @@
 // shop app — inits its scope; Purchase has a CROSS-APP FK → blog.Author, so the
 // migration system infers `shop` depends on `blog`.
+import {Pylon} from '@getcronit/pylon'
 import {models, db} from '@getcronit/pylon-db'
 import type {Relation} from '@getcronit/pylon-db'
 import {Author} from '../blog/index.js'
 
-export const shop = models.app('shop')
-
-@shop.model() // → table "shop_product"
-export class Product extends shop.Model {
+// Decorator-free plain models; the app names them (→ shop_*) + groups migrations.
+export class Product extends models.Model {
   static objects = db.manager(Product)
-  id = shop.ID()
-  title = shop.Text()
-  price = shop.Int({min: 0})
+  id = models.ID()
+  title = models.Text()
+  price = models.Int({min: 0})
 }
 
-@shop.model() // → table "shop_purchase"
-export class Purchase extends shop.Model {
+export class Purchase extends models.Model {
   static objects = db.manager(Purchase)
-  id = shop.ID()
-  productId = shop.ForeignKey(() => Product)
-  buyerId = shop.ForeignKey(() => Author) // cross-app FK → blog_author
+  id = models.ID()
+  productId = models.ForeignKey(() => Product)
+  buyerId = models.ForeignKey(() => Author) // cross-app FK → blog_author
   declare product: Relation<Product>
   declare buyer: Relation<Author>
 }
+
+// The shop app — depends on blog (the cross-app FK Purchase.buyerId → blog_author).
+export const shop = new Pylon({name: 'shop', db: {models: [Product, Purchase]}})

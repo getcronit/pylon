@@ -1,12 +1,13 @@
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
+  type ModelConfig,
   connect,
   Database,
   id,
   manager,
   manyToMany,
   Model,
-  model,
   setDefaultDatabase,
   syncSchema,
   text
@@ -14,21 +15,23 @@ import {
 
 // Distinct table names so the suite never collides with other integration
 // files that also register `post`/`tag` in the shared, process-global registry.
-@model({table: 'm2m_post'})
 class M2MPost extends Model {
+  static config = {table: 'm2m_post'} satisfies ModelConfig<M2MPost>
   static objects = manager(M2MPost)
   id = id()
   title = text()
   tags = manyToMany(() => M2MTag)
 }
+new Pylon({db: {models: [M2MPost]}})
 
-@model({table: 'm2m_tag'})
 class M2MTag extends Model {
+  static config = {table: 'm2m_tag'} satisfies ModelConfig<M2MTag>
   static objects = manager(M2MTag)
   id = id()
   label = text()
   posts = manyToMany(() => M2MPost)
 }
+new Pylon({db: {models: [M2MTag]}})
 
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'
@@ -151,8 +154,8 @@ describe.skipIf(!runDb)('Many-to-many (Postgres)', () => {
 
 // A Prisma-style binding: an explicit join table with `A`/`B` columns (what
 // `pylon db baseline` emits for an adopted implicit join table).
-@model({table: 'm2m_px'})
 class M2MPx extends Model {
+  static config = {table: 'm2m_px'} satisfies ModelConfig<M2MPx>
   static objects = manager(M2MPx)
   id = id()
   name = text()
@@ -162,9 +165,10 @@ class M2MPx extends Model {
     targetColumn: 'B'
   })
 }
+new Pylon({db: {models: [M2MPx]}})
 
-@model({table: 'm2m_tx'})
 class M2MTx extends Model {
+  static config = {table: 'm2m_tx'} satisfies ModelConfig<M2MTx>
   static objects = manager(M2MTx)
   id = id()
   label = text()
@@ -174,6 +178,7 @@ class M2MTx extends Model {
     targetColumn: 'A'
   })
 }
+new Pylon({db: {models: [M2MTx]}})
 
 describe.skipIf(!runDb)('Many-to-many with explicit join columns (Postgres)', () => {
   let db: Database

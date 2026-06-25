@@ -3,19 +3,19 @@
 // here match what those migrations build; `snapshot.json` is their captured
 // baseline, so `pylon db status` reports no uncaptured changes.
 import {Pylon} from '@getcronit/pylon'
-import {models, db} from '@getcronit/pylon-db'
+import {models, db, type ModelConfig} from '@getcronit/pylon-db'
 import type {Relation} from '@getcronit/pylon-db'
 
-@models.model({table: 'shop_category'})
 export class ShopCategory extends models.Model {
+  static config = {table: 'shop_category'} satisfies ModelConfig<ShopCategory>
   static objects = db.manager(ShopCategory)
   id = models.ID()
   name = models.Text({unique: true})
   products = models.HasMany(() => ShopProduct, {foreignKey: 'categoryId'})
 }
 
-@models.model({table: 'shop_product'})
 export class ShopProduct extends models.Model {
+  static config = {table: 'shop_product'} satisfies ModelConfig<ShopProduct>
   static objects = db.manager(ShopProduct)
   id = models.ID()
   title = models.Text({index: true})
@@ -24,6 +24,7 @@ export class ShopProduct extends models.Model {
 }
 
 export default new Pylon({
+  db: {models: [ShopCategory, ShopProduct]},
   graphql: {
     Query: {},
     Mutation: {}

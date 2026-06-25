@@ -1,8 +1,8 @@
 import {describe, it, expect} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
   Model,
   manager,
-  model,
   id,
   text,
   can,
@@ -14,7 +14,6 @@ import {getModelDefinition} from '../src/registry'
 
 describe('static config', () => {
   it('applies typed config declared as a static member', () => {
-    @model()
     class Doc extends Model {
       static objects = manager(Doc)
       static config = {
@@ -26,6 +25,7 @@ describe('static config', () => {
       orgId = text()
       slug = text()
     }
+    new Pylon({db: {models: [Doc]}})
 
     const def = getModelDefinition(Doc)!
     expect(def.tableName).toBe('documents')
@@ -33,23 +33,22 @@ describe('static config', () => {
     expect(def.indexes).toHaveLength(1)
   })
 
-  it('decorator args override static config; unset keys still apply', () => {
-    @model({table: 'override_tbl'})
+  it('static config.table overrides the derived (class-name) table', () => {
     class Thing extends Model {
       static objects = manager(Thing)
       static config = {table: 'from_config', secure: true} satisfies ModelConfig<Thing>
       id = id()
     }
+    new Pylon({db: {models: [Thing]}})
 
     const def = getModelDefinition(Thing)!
-    expect(def.tableName).toBe('override_tbl') // decorator wins
-    expect(def.secure).toBe(true) // config still supplies what the decorator omitted
+    expect(def.tableName).toBe('from_config')
+    expect(def.secure).toBe(true)
   })
 })
 
 describe('static abilities', () => {
   it('co-located rules govern the model — no defineAbilities, no {subjects}', () => {
-    @model()
     class Note extends Model {
       static objects = manager(Note)
       id = id()
@@ -61,6 +60,7 @@ describe('static abilities', () => {
         can('update', {ownerId: p?.id})
       }
     }
+    new Pylon({db: {models: [Note]}})
 
     runWithAppContext({principal: {id: 'u1'}}, () => {
       // query scoping: the owner condition is fed into the row policy

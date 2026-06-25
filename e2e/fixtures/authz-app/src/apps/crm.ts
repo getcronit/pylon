@@ -2,36 +2,43 @@
 // with owner/shared row abilities, an instance-authorize update, and a PBAC-gated
 // export op.
 import {Pylon} from '@getcronit/pylon'
-import {hasPermission, hasRole} from '@getcronit/pylon-auth'
-import {authorize, db, defineAbilities, gate, models} from '@getcronit/pylon-db'
+import {hasPermission, hasRole, type Principal} from '@getcronit/pylon-auth'
+import {authorize, db, gate, models} from '@getcronit/pylon-db'
 
-const crm_ = models.app('crm', {tenant: 'orgId', secure: true})
-
-@crm_.model() // → crm_contact
-export class Contact extends crm_.Model {
+// Decorator-free: plain model; the app names it (→ crm_contact) + sets tenant/secure.
+// The model's OWN owner/shared row rules are co-located in `static abilities`.
+export class Contact extends models.Model {
   static objects = db.manager(Contact)
-  id = crm_.ID()
-  orgId = crm_.Text()
-  ownerId = crm_.Text()
-  shared = crm_.Boolean({default: false})
-  name = crm_.Text()
-  email = crm_.Text({nullable: true})
+  id = models.ID()
+  orgId = models.Text()
+  ownerId = models.Text()
+  shared = models.Boolean({default: false})
+  name = models.Text()
+  email = models.Text({nullable: true})
+
+  static abilities(p: Principal | undefined, can: any) {
+    const uid = p?.id ?? '__anon__'
+    can('read', {OR: [{ownerId: uid}, {shared: true}]})
+    can('update', {ownerId: uid})
+    if (p)
+      can('create').stamp((c: Contact) => {
+        c.orgId = String(p.tenant)
+        c.ownerId = String(p.id)
+      })
+  }
 }
 
-// Row abilities (RBAC admin + ABAC owner/shared). Accumulates with billing's.
-defineAbilities((p, can) => {
-  const uid = p?.id ?? '__anon__'
-  if (hasRole(p, 'admin')) can('manage', 'all')
-  can('read', Contact, {OR: [{ownerId: uid}, {shared: true}]})
-  can('update', Contact, {ownerId: uid})
-  if (p)
-    can('create', Contact).stamp(c => {
-      c.orgId = String(p.tenant)
-      c.ownerId = String(p.id)
-    })
-})
-
 export const crm = new Pylon({
+  name: 'crm',
+  db: {
+    models: [Contact],
+    tenant: 'orgId',
+    secure: true,
+    // CROSS-ENTITY rule (admin → anything) → the app's db config.
+    abilities: (p, can) => {
+      if (hasRole(p, 'admin')) can('manage', 'all')
+    }
+  },
   graphql: {
     Query: {
       // ability- + tenant-scoped automatically

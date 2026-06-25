@@ -1,17 +1,16 @@
 import {describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
   Model,
   enumOf,
   getModelDefinitionOrThrow,
   id,
   int,
-  model,
   text,
   validateInstance,
   ValidationError
 } from '../src/index'
 
-@model()
 class Account extends Model {
   id = id()
   email = text({email: true, max: 50})
@@ -21,6 +20,7 @@ class Account extends Model {
   bio = text({nullable: true})
   slug = text({validate: v => /^[a-z-]+$/.test(v as string) || 'must be kebab-case'})
 }
+new Pylon({db: {models: [Account]}})
 const def = getModelDefinitionOrThrow(Account)
 
 describe('validateInstance — structured issues (code + params)', () => {

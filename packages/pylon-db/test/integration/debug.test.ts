@@ -4,26 +4,28 @@
  * decision. Off by default — completely silent.
  */
 import {afterAll, beforeAll, describe, expect, it, vi} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
+  type ModelConfig,
   connect,
   Database,
   id,
   manager,
   Model,
-  model,
   setDefaultDatabase,
   syncSchema,
   text
 } from '../../src/index'
 import {runWithAppContext} from '../../src/app-context'
 
-@model({table: 'dbg_item', tenant: 'orgId'})
 class Item extends Model {
+  static config = {table: 'dbg_item', tenant: 'orgId'} satisfies ModelConfig<Item>
   static objects = manager(Item)
   id = id()
   name = text()
   orgId = text() // tenant column, stamped from the bound tenant on create
 }
+new Pylon({db: {models: [Item]}})
 
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'

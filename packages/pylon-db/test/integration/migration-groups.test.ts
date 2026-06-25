@@ -11,8 +11,10 @@ import os from 'node:os'
 import path from 'node:path'
 import {pathToFileURL} from 'node:url'
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
   appGroups,
+  type ModelConfig,
   connect,
   Database,
   db,
@@ -27,24 +29,23 @@ import {
   type Relation
 } from '../../src/index'
 
-const accounts = models.app('accounts')
-const billing = models.app('billing')
-
-@accounts.model({table: 'app_account'})
-class Account extends accounts.Model {
+class Account extends models.Model {
+  static config = {table: 'app_account'} satisfies ModelConfig<Account>
   static objects = db.manager(Account)
-  id = accounts.ID()
-  email = accounts.Text()
+  id = models.ID()
+  email = models.Text()
 }
+new Pylon({name: 'accounts', db: {models: [Account]}})
 
-@billing.model({table: 'app_invoice'})
-class Invoice extends billing.Model {
+class Invoice extends models.Model {
+  static config = {table: 'app_invoice'} satisfies ModelConfig<Invoice>
   static objects = db.manager(Invoice)
-  id = billing.ID()
-  amount = billing.Text()
-  accountId = billing.ForeignKey(() => Account) // cross-app FK ⇒ billing deps accounts
+  id = models.ID()
+  amount = models.Text()
+  accountId = models.ForeignKey(() => Account) // cross-app FK ⇒ billing deps accounts
   declare account: Relation<Account>
 }
+new Pylon({name: 'billing', db: {models: [Invoice]}})
 
 const load: MigrationLoader = async filePath =>
   (await import(pathToFileURL(filePath).href)).default

@@ -2,27 +2,29 @@
  * Relay-style cursor pagination (.paginate), against a real Postgres.
  */
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
+  type ModelConfig,
   connect,
   Database,
   getModelDefinitionOrThrow,
   id,
   int,
   manager,
-  model,
   Model,
   setDefaultDatabase,
   syncSchema,
   text
 } from '../../src/index'
 
-@model({table: 'page_widget'})
 class Widget extends Model {
+  static config = {table: 'page_widget'} satisfies ModelConfig<Widget>
   static objects = manager(Widget)
   id = id()
   name = text()
   rank = int()
 }
+new Pylon({db: {models: [Widget]}})
 
 const def = getModelDefinitionOrThrow(Widget)
 const connectionString =

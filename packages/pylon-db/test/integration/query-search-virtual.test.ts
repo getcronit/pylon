@@ -4,28 +4,31 @@
  * searchIds() did, expressed as one WhereInput. Postgres-only.
  */
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
+  type ModelConfig,
   connect,
   Database,
   foreignKey,
   id,
   manager,
   Model,
-  model,
   type Relation,
   setDefaultDatabase,
   syncSchema,
   text
 } from '../../src/index'
 
-@model({table: 'xs_author', search: {columns: ['bio']}})
 class XsAuthor extends Model {
+  static config = {table: 'xs_author', search: {columns: ['bio']}} satisfies ModelConfig<XsAuthor>
   static objects = manager(XsAuthor)
   id = id()
   bio = text()
 }
+new Pylon({db: {models: [XsAuthor]}})
 
-@model({
+class XsBook extends Model {
+  static config = {
   table: 'xs_book',
   search: {columns: ['title']},
   query: {
@@ -38,14 +41,14 @@ class XsAuthor extends Model {
       }
     }
   }
-})
-class XsBook extends Model {
+} satisfies ModelConfig<XsBook>
   static objects = manager(XsBook)
   id = id()
   title = text()
   authorId = foreignKey(() => XsAuthor)
   declare author: Relation<XsAuthor>
 }
+new Pylon({db: {models: [XsBook]}})
 
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'

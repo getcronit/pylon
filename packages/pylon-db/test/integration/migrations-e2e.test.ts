@@ -7,6 +7,7 @@
  * search. Proves the generated DDL actually runs, not just that it string-matches.
  */
 import {
+  type ModelConfig,
   diffSchema,
   physicalSchemaOf,
   renderChanges,
@@ -14,6 +15,7 @@ import {
 } from '@getcronit/pylon-ir'
 import {sql} from 'kysely'
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
   array,
   connect,
@@ -25,7 +27,6 @@ import {
   manager,
   manyToMany,
   Model,
-  model,
   numeric,
   setDefaultDatabase,
   text,
@@ -38,20 +39,21 @@ enum MigStatus {
   LIVE = 'LIVE'
 }
 
-@model({table: 'mig_author'})
 class MigAuthor extends Model {
+  static config = {table: 'mig_author'} satisfies ModelConfig<MigAuthor>
   static objects = manager(MigAuthor)
   id = id()
   name = text()
   posts = manyToMany(() => MigPost)
 }
+new Pylon({db: {models: [MigAuthor]}})
 
-@model({
+class MigPost extends Model {
+  static config = {
   table: 'mig_post',
   search: {columns: ['title', 'body'], language: 'english'},
   indexes: [{columns: ['title', 'status']}]
-})
-class MigPost extends Model {
+} satisfies ModelConfig<MigPost>
   static objects = manager(MigPost)
   id = id()
   title = text()
@@ -63,6 +65,7 @@ class MigPost extends Model {
   updatedAt = updatedAt()
   authors = manyToMany(() => MigAuthor)
 }
+new Pylon({db: {models: [MigPost]}})
 
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'

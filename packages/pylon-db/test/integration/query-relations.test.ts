@@ -4,7 +4,9 @@
  * `WhereInput` and actually executes as a join/EXISTS filter. Postgres-only.
  */
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
+  type ModelConfig,
   connect,
   Database,
   foreignKey,
@@ -12,31 +14,32 @@ import {
   id,
   manager,
   Model,
-  model,
   type Relation,
   setDefaultDatabase,
   syncSchema,
   text
 } from '../../src/index'
 
-@model({table: 'qr_brand'})
 class QrBrand extends Model {
+  static config = {table: 'qr_brand'} satisfies ModelConfig<QrBrand>
   static objects = manager(QrBrand)
   id = id()
   name = text()
 }
+new Pylon({db: {models: [QrBrand]}})
 
-@model({table: 'qr_variant'})
 class QrVariant extends Model {
+  static config = {table: 'qr_variant'} satisfies ModelConfig<QrVariant>
   static objects = manager(QrVariant)
   id = id()
   sku = text()
   productId = foreignKey(() => QrProduct)
   declare product: Relation<QrProduct>
 }
+new Pylon({db: {models: [QrVariant]}})
 
-@model({table: 'qr_product'})
 class QrProduct extends Model {
+  static config = {table: 'qr_product'} satisfies ModelConfig<QrProduct>
   static objects = manager(QrProduct)
   id = id()
   title = text()
@@ -44,6 +47,7 @@ class QrProduct extends Model {
   declare brand: Relation<QrBrand>
   variants = hasMany(() => QrVariant, {foreignKey: 'productId'})
 }
+new Pylon({db: {models: [QrProduct]}})
 
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'

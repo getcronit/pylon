@@ -5,7 +5,9 @@
  * `.filter()` (both AND into one WHERE).
  */
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
+  type ModelConfig,
   array,
   boolean,
   connect,
@@ -14,7 +16,6 @@ import {
   id,
   int,
   manager,
-  model,
   Model,
   setDefaultDatabase,
   syncSchema,
@@ -29,8 +30,8 @@ enum Plan {
   ENTERPRISE = 'ENTERPRISE'
 }
 
-@model({table: 'flt_widget', search: {columns: ['name']}})
 class Widget extends Model {
+  static config = {table: 'flt_widget', search: {columns: ['name']}} satisfies ModelConfig<Widget>
   static objects = manager(Widget)
   id = id()
   name = text()
@@ -45,6 +46,7 @@ class Widget extends Model {
     return this.name.toUpperCase()
   }
 }
+new Pylon({db: {models: [Widget]}})
 
 // ── Compile-time contract (no runtime effect) ───────────────────────────────
 // Each @ts-expect-error must fire — tsc reports an *unused* directive otherwise,

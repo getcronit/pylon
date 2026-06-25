@@ -212,6 +212,12 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
       mergeFragment(this.graphql, fragment)
     }
 
+    // Let satellites process construction-time options (e.g. the `models` / `queues`
+    // class lists added by pylon-db / pylon-queues) via the extension bus, now that
+    // `pylonOptions`/`name` are set. Keeps core decoupled — it never reads those keys.
+    const bus = (globalThis as Record<symbol, any>)[Symbol.for('@getcronit/pylon.extend')]
+    if (bus?.constructHooks) for (const hook of bus.constructHooks) hook(this)
+
     // NB: the base request pipeline (compress / sentry / async-context / logger /
     // plugin chain / error mapping) is intentionally NOT installed in the
     // constructor. It's a per-served-ROOT concern, installed once by
@@ -312,8 +318,12 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
   const EXT = Symbol.for('@getcronit/pylon.extend')
   const bus = ((globalThis as any)[EXT] ??= {
     fns: [] as Array<(P: typeof Pylon) => void>,
+    // Per-construction hooks: a satellite pushes one to process its slice of the
+    // constructor options (e.g. the `models`/`queues` lists). Run by every `new Pylon`.
+    constructHooks: [] as Array<(app: Pylon<any>) => void>,
     Pylon: undefined as typeof Pylon | undefined
   })
+  bus.constructHooks ??= [] // a satellite may have created the bus without this field
   bus.Pylon = Pylon
   for (const patch of bus.fns.splice(0)) patch(Pylon)
 }

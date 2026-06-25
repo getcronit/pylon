@@ -6,7 +6,9 @@
  */
 import {physicalSchemaOf} from '@getcronit/pylon-ir'
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
+  type ModelConfig,
   connect,
   createId,
   Database,
@@ -14,7 +16,6 @@ import {
   id,
   manager,
   Model,
-  model,
   setDefaultDatabase,
   syncSchema,
   text,
@@ -23,22 +24,24 @@ import {
   type Relation
 } from '../../src/index'
 
-@model({table: 'fkt_org'})
 class FktOrg extends Model {
+  static config = {table: 'fkt_org'} satisfies ModelConfig<FktOrg>
   static objects = manager(FktOrg)
   id = text({primaryKey: true, default: createId}) // cuid-style text PK
   name = text()
 }
+new Pylon({db: {models: [FktOrg]}})
 
-@model({table: 'fkt_location'})
 class FktLocation extends Model {
+  static config = {table: 'fkt_location'} satisfies ModelConfig<FktLocation>
   static objects = manager(FktLocation)
   id = uuid({primaryKey: true}) // uuid PK
   label = text()
 }
+new Pylon({db: {models: [FktLocation]}})
 
-@model({table: 'fkt_doc'})
 class FktDoc extends Model {
+  static config = {table: 'fkt_doc'} satisfies ModelConfig<FktDoc>
   static objects = manager(FktDoc)
   id = id() // bigint PK
   title = text()
@@ -47,6 +50,7 @@ class FktDoc extends Model {
   locationId = foreignKey(() => FktLocation, {nullable: true}) // → should be uuid
   declare location: Relation<FktLocation>
 }
+new Pylon({db: {models: [FktDoc]}})
 
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'

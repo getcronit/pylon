@@ -39,14 +39,17 @@ export type QueryFieldConfig =
   | {path: string; visibility?: FieldVisibility}
   | {toWhere: QueryFieldToWhere; textual?: boolean; ops?: QueryOp[]; visibility?: FieldVisibility}
 
-/** Per-model query configuration (`@model({query})`). */
-export interface QueryConfig {
+/** Per-model query configuration (`static config.query`). `T` is the model instance type
+ *  (from `satisfies ModelConfig<T>`), so `public` autocompletes the model's own fields
+ *  while still accepting virtual/alias names declared in `fields`. */
+export interface QueryConfig<T = unknown> {
   /** Extra / overriding query fields keyed by public name. */
   fields?: Record<string, QueryFieldConfig>
   /** Public-surface allowlist. When set, ONLY these names are public (a curated
    *  public API); everything else is internal. When unset, own columns are public
-   *  and relations/virtuals are internal. */
-  public?: string[]
+   *  and relations/virtuals are internal. A model field name (autocompleted) or a
+   *  virtual/alias name from `fields` (any string). */
+  public?: Array<Extract<keyof T, string> | (string & {})>
 }
 
 /** One queryable field on a model. `column` is auto-derived; `alias` re-points to

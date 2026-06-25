@@ -1,12 +1,13 @@
 import {makeMigration} from '@getcronit/pylon-ir'
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
+  type ModelConfig,
   Model,
   connect,
   Database,
   foreignKey,
   id,
-  model,
   planMigration,
   applyMigration,
   setDefaultDatabase,
@@ -17,19 +18,21 @@ import type {Relation} from '../../src/relations'
 
 // Unique table names (`mig_*`) so this suite never collides with the other
 // integration tests sharing the same Postgres instance under parallel runs.
-@model({table: 'mig_writer'})
 class MigWriter extends Model {
+  static config = {table: 'mig_writer'} satisfies ModelConfig<MigWriter>
   id = id()
   name = text({unique: true})
 }
+new Pylon({db: {models: [MigWriter]}})
 
-@model({table: 'mig_book'})
 class MigBook extends Model {
+  static config = {table: 'mig_book'} satisfies ModelConfig<MigBook>
   id = id()
   title = text()
   writerId = foreignKey(() => MigWriter)
   declare writer: Relation<MigWriter>
 }
+new Pylon({db: {models: [MigBook]}})
 
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'

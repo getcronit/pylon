@@ -5,6 +5,7 @@
  * `runAsSystem` lifts tenant + policy for trusted code (seeding/crons/audit).
  */
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
   connect,
   Database,
@@ -25,21 +26,25 @@ interface Principal {
 // One default for the whole app: "must be an authenticated (org) member". In a
 // real app `tenant` draws the org boundary; here we just exercise the default.
 const orgMember = ({principal}: {principal: unknown}) => !!principal
-const acc = models.app('polacc', {secure: true, policy: orgMember})
 
-@acc.model() // polacc_doc — inherits the app default (no per-model policy)
-class Doc extends acc.Model {
+// polacc_doc — inherits the app default (no per-model policy)
+class Doc extends models.Model {
   static objects = db.manager(Doc)
-  id = acc.ID()
-  title = acc.Text()
+  id = models.ID()
+  title = models.Text()
 }
 
-@acc.model() // polacc_secret — overrides read to ADMIN-only
-class Secret extends acc.Model {
+// polacc_secret — overrides read to ADMIN-only
+class Secret extends models.Model {
   static objects = db.manager(Secret)
-  id = acc.ID()
-  value = acc.Text()
+  id = models.ID()
+  value = models.Text()
 }
+
+// The app: names the models (→ polacc_*), deny-by-default (secure) + app-default policy.
+// Registered BEFORE definePolicy, which needs the model finalized.
+new Pylon({name: 'polacc', db: {models: [Doc, Secret], secure: true, policy: orgMember}})
+
 db.definePolicy(Secret, {
   read: ({principal}) => ((principal as Principal | undefined)?.role === 'ADMIN' ? {} : false)
 })

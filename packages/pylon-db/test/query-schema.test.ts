@@ -1,4 +1,5 @@
 import {describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
   Model,
   boolean,
@@ -9,16 +10,16 @@ import {
   hasMany,
   id,
   int,
-  model,
   numeric,
   publicFieldNames,
+  type ModelConfig,
   type Relation,
   text,
   timestamp
 } from '../src/index'
 
-@model({search: {columns: ['title']}})
 class Item extends Model {
+  static config = {search: {columns: ['title']}} satisfies ModelConfig<Item>
   id = id() // bigint
   title = text() // textual
   body = text({column: 'body_text'}) // textual; column name differs
@@ -29,6 +30,7 @@ class Item extends Model {
   createdAt = timestamp()
   $secret = text({nullable: true}) // hidden
 }
+new Pylon({db: {models: [Item]}})
 
 const schema = buildQuerySchema(getModelDefinitionOrThrow(Item))
 
@@ -87,12 +89,10 @@ describe('buildQuerySchema', () => {
   })
 })
 
-@model()
 class Author extends Model {
   id = id()
   name = text()
 }
-@model()
 class Book extends Model {
   id = id()
   title = text()
@@ -100,13 +100,13 @@ class Book extends Model {
   declare author: Relation<Author>
   reviews = hasMany(() => Review, {foreignKey: 'bookId'})
 }
-@model()
 class Review extends Model {
   id = id()
   body = text()
   bookId = foreignKey(() => Book)
   declare book: Relation<Book>
 }
+new Pylon({db: {models: [Author, Book, Review]}})
 
 const bookDef = getModelDefinitionOrThrow(Book)
 
@@ -142,16 +142,16 @@ describe('buildQuerySchema — relations (phase 2)', () => {
   })
 })
 
-@model({
-  query: {
-    fields: {
-      authorName: {path: 'author.name'},
-      recent: {toWhere: () => ({createdAt: {gt: new Date(0)}})}
-    },
-    public: ['title', 'recent']
-  }
-})
 class Post extends Model {
+  static config = {
+    query: {
+      fields: {
+        authorName: {path: 'author.name'},
+        recent: {toWhere: () => ({createdAt: {gt: new Date(0)}})}
+      },
+      public: ['title', 'recent']
+    }
+  } satisfies ModelConfig<Post>
   id = id()
   title = text()
   body = text()
@@ -159,6 +159,7 @@ class Post extends Model {
   authorId = foreignKey(() => Author)
   declare author: Relation<Author>
 }
+new Pylon({db: {models: [Post]}})
 
 const postSchema = buildQuerySchema(getModelDefinitionOrThrow(Post))
 

@@ -1,27 +1,35 @@
 // Billing app: a STRONGER app gate — role 'billing' AND the 'billing' FEATURE must
 // be enabled for the tenant. Tenant-scoped model; issuing needs a PBAC permission.
 import {Pylon} from '@getcronit/pylon'
-import {hasPermission, hasRole} from '@getcronit/pylon-auth'
-import {authorize, db, defineAbilities, gate, models} from '@getcronit/pylon-db'
+import {hasPermission, hasRole, type Principal} from '@getcronit/pylon-auth'
+import {authorize, db, gate, models} from '@getcronit/pylon-db'
 
-const billing_ = models.app('billing', {tenant: 'orgId', secure: true})
-
-@billing_.model() // → billing_invoice
-export class Invoice extends billing_.Model {
+// Decorator-free: plain model; the app names it (→ billing_invoice) + sets tenant/secure.
+// The model's OWN rules are co-located in `static abilities` (subject implicit).
+export class Invoice extends models.Model {
   static objects = db.manager(Invoice)
-  id = billing_.ID()
-  orgId = billing_.Text()
-  amount = billing_.Int()
-  status = billing_.Text({default: 'open'})
+  id = models.ID()
+  orgId = models.Text()
+  amount = models.Int()
+  status = models.Text({default: 'open'})
+
+  static abilities(p: Principal | undefined, can: any) {
+    can('read') // any (tenant-scoped) member reads invoices
+    if (p) can('create').stamp((i: Invoice) => (i.orgId = String(p.tenant)))
+  }
 }
 
-defineAbilities((p, can) => {
-  if (hasRole(p, 'admin')) can('manage', 'all')
-  can('read', Invoice) // any (tenant-scoped) member reads invoices
-  if (p) can('create', Invoice).stamp(i => (i.orgId = String(p.tenant)))
-})
-
 export const billing = new Pylon({
+  name: 'billing',
+  db: {
+    models: [Invoice],
+    tenant: 'orgId',
+    secure: true,
+    // CROSS-ENTITY rule (subject not this model) → the app's db config.
+    abilities: (p, can) => {
+      if (hasRole(p, 'admin')) can('manage', 'all')
+    }
+  },
   graphql: {
     Query: {
       invoices: (): Promise<Invoice[]> => Invoice.objects.all()

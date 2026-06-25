@@ -1,5 +1,7 @@
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
+  type ModelConfig,
   Model,
   connect,
   Database,
@@ -7,20 +9,20 @@ import {
   id,
   int,
   manager,
-  model,
   setDefaultDatabase,
   syncSchema,
   text,
   ValidationError
 } from '../../src/index'
 
-@model({table: 'val_widget'})
 class ValWidget extends Model {
+  static config = {table: 'val_widget'} satisfies ModelConfig<ValWidget>
   static objects = manager(ValWidget)
   id = id()
   email = text({email: true})
   age = int({min: 0, max: 130})
 }
+new Pylon({db: {models: [ValWidget]}})
 
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'

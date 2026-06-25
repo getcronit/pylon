@@ -2,15 +2,16 @@ import {promises as fs} from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {pathToFileURL} from 'node:url'
 import {sql} from 'kysely'
 import {
+  type ModelConfig,
   Model,
   MigrationRunner,
   connect,
   Database,
   id,
-  model,
   setDefaultDatabase,
   snapshot,
   text,
@@ -23,11 +24,12 @@ import {
 const load: MigrationLoader = async filePath =>
   (await import(pathToFileURL(filePath).href)).default
 
-@model({table: 'runner_widget'})
 class RunnerWidget extends Model {
+  static config = {table: 'runner_widget'} satisfies ModelConfig<RunnerWidget>
   id = id()
   label = text({unique: true})
 }
+new Pylon({db: {models: [RunnerWidget]}})
 
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'

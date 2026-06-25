@@ -3,9 +3,8 @@
 // operations (→ Query/Mutation) assembled into one app the agent introspects.
 import {Pylon} from '@getcronit/pylon'
 import {models, db, type ModelConfig} from '@getcronit/pylon-db'
-import {Queue, enqueuer} from '@getcronit/pylon-queues'
+import {Queue, manager, type QueueConfig} from '@getcronit/pylon-queues'
 
-@models.model()
 export class Author extends models.Model {
   static objects = db.manager(Author)
   id = models.ID()
@@ -13,7 +12,6 @@ export class Author extends models.Model {
   posts = models.HasMany(() => Post, {foreignKey: 'authorId'})
 }
 
-@models.model()
 export class Post extends models.Model {
   static objects = db.manager(Post)
   static config = {secure: true, indexes: [{columns: ['authorId']}]} satisfies ModelConfig<Post>
@@ -30,7 +28,6 @@ export class Post extends models.Model {
   }
 }
 
-@models.model()
 export class Comment extends models.Model {
   static objects = db.manager(Comment)
   id = models.ID()
@@ -39,8 +36,17 @@ export class Comment extends models.Model {
   authorId = models.ForeignKey(() => Author)
 }
 
-const app = new Pylon({
-  name: 'blog',
+class NotifyFollowers extends Queue<{postId: string}> {
+  static config = {attempts: 3} satisfies QueueConfig<NotifyFollowers>
+  static jobs = manager(NotifyFollowers)
+  async process() {}
+}
+
+// A single (un-named) app owns everything: nameless ⇒ bare table names
+// (author/post/comment, no prefix), and the models/queues live on the app instance
+// the tooling reads (modelsOf/queuesOf), not a sibling registration.
+export default new Pylon({
+  db: {models: [Author, Post, Comment]},
   graphql: {
     Query: {
       posts: (): Promise<Post[]> => Post.objects.all(),
@@ -50,13 +56,6 @@ const app = new Pylon({
       createPost: (title: string, body: string, authorId: number): Promise<Post> =>
         Post.objects.create({title, body, authorId})
     }
-  }
+  },
+  queues: [NotifyFollowers]
 })
-
-@app.queue({attempts: 3})
-class NotifyFollowers extends Queue<{postId: string}> {
-  static jobs = enqueuer(NotifyFollowers)
-  async process() {}
-}
-
-export default app

@@ -1,10 +1,10 @@
 import {makeMigration} from '@getcronit/pylon-ir'
 import {describe, expect, it} from 'vitest'
-import {Model, boolean, foreignKey, id, model, text, timestamp} from '../src/index'
+import {Pylon} from '@getcronit/pylon'
+import {Model, boolean, foreignKey, id, text, timestamp} from '../src/index'
 import {planMigration, serializeSnapshot, snapshot, type Snapshot} from '../src/migrations'
 import type {Relation} from '../src/relations'
 
-@model()
 class User extends Model {
   id = id()
   email = text({unique: true})
@@ -13,13 +13,14 @@ class User extends Model {
   $passwordHash = text({nullable: true})
 }
 
-@model()
 class Post extends Model {
   id = id()
   title = text()
   authorId = foreignKey(() => User)
   declare author: Relation<User>
 }
+
+new Pylon({db: {models: [User, Post]}})
 
 describe('migrations — IR snapshot diff → SQL', () => {
   it('a snapshot is faithfully serializable (valid migration format)', () => {

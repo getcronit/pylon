@@ -1,27 +1,29 @@
 import {describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
   Model,
   boolean,
   getModelDefinitionOrThrow,
   id,
-  model,
   text,
   timestamp
 } from '../src/index'
 
-@model({abstract: true})
-class Base extends Model {
+// Abstract base models are plain classes — never registered, just extended.
+abstract class Base extends Model {
   id = id()
   createdAt = timestamp({defaultSql: 'now()'})
 }
 
-@model()
 class Account extends Base {
   email = text({unique: true})
   fullName = text({column: 'full_name'})
   isActive = boolean({default: true})
   $passwordHash = text({nullable: true})
 }
+
+// Decorator-free: a (root, unnamed) app owns the model via the constructor — bare table.
+new Pylon({db: {models: [Account]}})
 
 describe('model registry', () => {
   const def = getModelDefinitionOrThrow(Account)

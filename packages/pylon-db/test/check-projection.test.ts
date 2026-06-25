@@ -1,11 +1,11 @@
 import {describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
   Model,
   enumOf,
   getModelDefinitionOrThrow,
   id,
   int,
-  model,
   numeric,
   text,
   varchar
@@ -14,7 +14,6 @@ import {
 // Dual projection: the SAME min/max/enum rules the runtime validator enforces
 // are also emitted as a DB CHECK (defense-in-depth). `pattern`/`email` are
 // JS-only (no faithful POSIX translation), so they must NOT appear in a CHECK.
-@model()
 class Product extends Model {
   id = id()
   price = numeric({min: 0}) // numeric lower bound
@@ -25,6 +24,7 @@ class Product extends Model {
   email = text({email: true, pattern: /x/}) // JS-only — no CHECK
   plain = text() // no constraints — no CHECK
 }
+new Pylon({db: {models: [Product]}})
 
 const cols = Object.fromEntries(
   getModelDefinitionOrThrow(Product).columns.map(c => [c.propertyKey, c])

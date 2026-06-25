@@ -19,12 +19,14 @@ const base = path.join(repoRoot, 'e2e/fixtures/mcp-demo-app')
 const runsDir = path.join(repoRoot, 'e2e/fixtures/.eval-runs')
 
 const TAG_MODEL = `
-@models.model()
 export class Tag extends models.Model {
   static objects = db.manager(Tag)
   id = models.ID()
   label = models.Text()
 }
+// A declaration (not a bare expression statement, which prepareModelSource strips as a
+// serve() call) so the model-loading bridge keeps + runs the registration.
+export const __tagApp = new Pylon({db: {models: [Tag]}})
 `
 
 /** Edits in every arm; only migrates when the MCP arm is active. */
@@ -32,7 +34,9 @@ const fakeRunner: AgentRunner = {
   async run(ctx: RunContext): Promise<RunResult> {
     const entry = path.join(ctx.cwd, 'src/index.ts')
     const src = readFileSync(entry, 'utf8')
-    writeFileSync(entry, src.replace('export default app', `${TAG_MODEL}\nexport default app`))
+    // Append the new model + its registration at EOF — registration is a side effect,
+    // so order doesn't matter, and appending needs no fragile `export default` anchor.
+    writeFileSync(entry, `${src}\n${TAG_MODEL}`)
     const toolCalls = ['Edit']
     if (ctx.arm.mcp) {
       // Run via the `pylon` shim the harness put on PATH (proves CLI-in-workdir works).

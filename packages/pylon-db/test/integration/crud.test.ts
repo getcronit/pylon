@@ -1,4 +1,5 @@
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
   Model,
   boolean,
@@ -6,14 +7,12 @@ import {
   Database,
   id,
   manager,
-  model,
   setDefaultDatabase,
   syncSchema,
   text,
   timestamp
 } from '../../src/index'
 
-@model()
 class User extends Model {
   static objects = manager(User)
   id = id()
@@ -22,6 +21,7 @@ class User extends Model {
   isActive = boolean({default: true})
   createdAt = timestamp({defaultSql: 'now()'})
 }
+new Pylon({db: {models: [User]}})
 
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'

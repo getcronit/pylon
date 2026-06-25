@@ -1,8 +1,8 @@
 import {describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {db, getModelDefinitionOrThrow, migrations, models, toIR} from '../src/index'
 
 // Define a model entirely through the capitalized namespaced API.
-@models.model()
 class Widget extends models.Model {
   id = models.ID()
   name = models.Text({unique: true})
@@ -10,6 +10,7 @@ class Widget extends models.Model {
   slug = models.Text({index: true})
   status = models.Enum(['active', 'archived'] as const)
 }
+new Pylon({db: {models: [Widget]}})
 
 describe('namespaced public API', () => {
   it('models.* exposes capitalized field types + Model', () => {

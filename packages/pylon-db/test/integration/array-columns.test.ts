@@ -2,7 +2,9 @@
  * Array columns (`array(text())` → `text[]`), against a real Postgres.
  */
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
+  type ModelConfig,
   array,
   connect,
   Database,
@@ -10,7 +12,6 @@ import {
   id,
   int,
   manager,
-  model,
   Model,
   setDefaultDatabase,
   syncSchema,
@@ -18,14 +19,15 @@ import {
   toIR
 } from '../../src/index'
 
-@model({table: 'arr_org'})
 class Org extends Model {
+  static config = {table: 'arr_org'} satisfies ModelConfig<Org>
   static objects = manager(Org)
   id = id()
   name = text()
   features = array(text()) // text[]
   scores = array(int(), {nullable: true}) // integer[] nullable
 }
+new Pylon({db: {models: [Org]}})
 
 const def = getModelDefinitionOrThrow(Org)
 const connectionString =

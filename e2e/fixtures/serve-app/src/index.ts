@@ -4,7 +4,6 @@
 import {Pylon} from '@getcronit/pylon'
 import {models} from '@getcronit/pylon-db'
 
-@models.model()
 export class Widget extends models.Model {
   id = models.ID()
   name = models.Text({unique: true})
@@ -12,6 +11,7 @@ export class Widget extends models.Model {
 }
 
 export default new Pylon({
+  db: {models: [Widget]},
   graphql: {
     Query: {
       widget: (): Widget => ({}) as Widget,

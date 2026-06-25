@@ -5,13 +5,14 @@
  *  - a `.get()` miss → a NotFoundError (code NOT_FOUND), not a bare Error.
  */
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
+  type ModelConfig,
   connect,
   Database,
   id,
   manager,
   Model,
-  model,
   NotFoundError,
   setDefaultDatabase,
   syncSchema,
@@ -19,14 +20,15 @@ import {
   ValidationError
 } from '../../src/index'
 
-@model({table: 'err_user', indexes: [{columns: ['orgId', 'username'], unique: true}]})
 class ErrUser extends Model {
+  static config = {table: 'err_user', indexes: [{columns: ['orgId', 'username'], unique: true}]} satisfies ModelConfig<ErrUser>
   static objects = manager(ErrUser)
   id = id()
   email = text({unique: true})
   orgId = text()
   username = text()
 }
+new Pylon({db: {models: [ErrUser]}})
 
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'

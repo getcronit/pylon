@@ -5,7 +5,9 @@
  * `.unscoped()` bypass, and the `@model({secure})` deny-by-default flag.
  */
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
 import {
+  type ModelConfig,
   boolean,
   connect,
   Database,
@@ -17,7 +19,6 @@ import {
   int,
   manager,
   Model,
-  model,
   type Relation,
   setDefaultDatabase,
   syncSchema,
@@ -30,16 +31,17 @@ interface Principal {
   role?: 'USER' | 'ADMIN'
 }
 
-@model({table: 'pol_folder'})
 class Folder extends Model {
+  static config = {table: 'pol_folder'} satisfies ModelConfig<Folder>
   static objects = manager(Folder)
   id = id()
   name = text()
   notes = hasMany(() => Note, {foreignKey: 'folderId'})
 }
+new Pylon({db: {models: [Folder]}})
 
-@model({table: 'pol_note'})
 class Note extends Model {
+  static config = {table: 'pol_note'} satisfies ModelConfig<Note>
   static objects = manager(Note)
   id = id()
   title = text()
@@ -48,6 +50,7 @@ class Note extends Model {
   folderId = foreignKey(() => Folder, {nullable: true})
   declare folder: Relation<Folder>
 }
+new Pylon({db: {models: [Note]}})
 
 db.definePolicy(Note, {
   read: ({principal}) => {
@@ -62,12 +65,13 @@ db.definePolicy(Note, {
   }
 })
 
-@model({table: 'pol_vault', secure: true}) // deny-by-default; no policy defined
 class Vault extends Model {
+  static config = {table: 'pol_vault', secure: true} satisfies ModelConfig<Vault>
   static objects = manager(Vault)
   id = id()
   secret = text()
 }
+new Pylon({db: {models: [Vault]}})
 
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'

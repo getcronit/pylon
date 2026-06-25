@@ -2,24 +2,26 @@
 // owned by a user; readable by its owner (or anyone if `shared`), an ADMIN sees
 // all; writable only by its owner. The principal is bound per request from
 // headers (see host index.ts + pylon.config.ts).
+import {Pylon} from '@getcronit/pylon'
 import {db, models} from '@getcronit/pylon-db'
-
-export const notes = models.app('notes')
 
 interface Principal {
   userId: number
   role?: 'USER' | 'ADMIN'
 }
 
-@notes.model() // → notes_note
-export class Note extends notes.Model {
+// Decorator-free plain model; the app names it (→ notes_note) + groups its migrations.
+export class Note extends models.Model {
   static objects = db.manager(Note)
-  id = notes.ID()
-  title = notes.Text()
-  ownerId = notes.Int()
-  shared = notes.Boolean({default: false})
+  id = models.ID()
+  title = models.Text()
+  ownerId = models.Int()
+  shared = models.Boolean({default: false})
 }
 
+export const notes = new Pylon({name: 'notes', db: {models: [Note]}})
+
+// Row-level policy (the policy system — distinct from abilities) stays as-is.
 db.definePolicy(Note, {
   read: ({principal}) => {
     const p = principal as Principal | undefined

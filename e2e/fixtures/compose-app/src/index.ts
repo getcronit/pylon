@@ -8,26 +8,24 @@ import {hasRole} from '@getcronit/pylon-auth'
 import {db, gate, models, type Relation} from '@getcronit/pylon-db'
 
 // ---- catalog app (ungated) ----
-const catalog_ = models.app('catalog')
-
-@catalog_.model() // → catalog_category
-export class Category extends catalog_.Model {
-  id = catalog_.ID()
-  name = catalog_.Text({unique: true})
-  products = catalog_.HasMany(() => Product, {foreignKey: 'categoryId'})
+export class Category extends models.Model {
+  id = models.ID()
+  name = models.Text({unique: true})
+  products = models.HasMany(() => Product, {foreignKey: 'categoryId'})
 }
 
-@catalog_.model() // → catalog_product
-export class Product extends catalog_.Model {
+export class Product extends models.Model {
   static objects = db.manager(Product)
-  id = catalog_.ID()
-  name = catalog_.Text()
-  price = catalog_.Int()
-  categoryId = catalog_.ForeignKey(() => Category)
+  id = models.ID()
+  name = models.Text()
+  price = models.Int()
+  categoryId = models.ForeignKey(() => Category)
   declare category: Relation<Category>
 }
 
 const catalog = new Pylon({
+  name: 'catalog', // → catalog_category / catalog_product
+  db: {models: [Category, Product]},
   graphql: {
     Query: {
       product: (): Product => ({}) as Product,
@@ -40,15 +38,14 @@ const catalog = new Pylon({
 })
 
 // ---- billing app (capability-gated: admin only) ----
-const billing_ = models.app('billing')
-
-@billing_.model() // → billing_invoice
-export class Invoice extends billing_.Model {
-  id = billing_.ID()
-  total = billing_.Int()
+export class Invoice extends models.Model {
+  id = models.ID()
+  total = models.Int()
 }
 
 const billing = new Pylon({
+  name: 'billing', // → billing_invoice
+  db: {models: [Invoice]},
   graphql: {
     Query: {
       invoice: (): Invoice => ({}) as Invoice
