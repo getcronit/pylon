@@ -21,6 +21,42 @@ export interface StoreEntry {
   stale?: boolean
 }
 
+/** A normalized ref pointer (`{__ref}`) — a value, never recursed into. */
+const isRef = (v: unknown): v is {__ref: string} =>
+  v != null && typeof v === 'object' && '__ref' in (v as object)
+
+/** An inline (id-less) object — a connection wrapper, embedded object, etc. */
+const isInlineObject = (v: unknown): v is Record<string, unknown> =>
+  v != null && typeof v === 'object' && !Array.isArray(v) && !isRef(v)
+
+/**
+ * Non-destructive deep merge of a canonical entity. Normalization is ADDITIVE:
+ * a build-time op fetches its full document, so any field it selected is present
+ * in its response — a later read must never see `undefined` for a selected field.
+ * That can only happen if a NARROWER op overwrites the shared entity and drops a
+ * field. So merging must never lose what's already loaded. Per field:
+ *   - absent in `incoming` → keep `existing` (don't drop)
+ *   - both inline objects (e.g. a connection `{nodes, totalCount}`) → recurse,
+ *     so a `{totalCount}`-only write can't clobber a sibling op's `nodes`
+ *   - otherwise (scalar / array / ref / null / type change) → `incoming` wins
+ * Arrays and refs replace wholesale, so a refetch stays authoritative for a list
+ * (added/removed nodes) and for which entity a relation points at.
+ */
+export function mergeEntityFields(
+  existing: Record<string, unknown> | undefined,
+  incoming: Record<string, unknown>
+): Record<string, unknown> {
+  if (!existing) return incoming
+  const out: Record<string, unknown> = {...existing}
+  for (const k of Object.keys(incoming)) {
+    const b = incoming[k]
+    if (b === undefined) continue // never let an undefined erase a loaded field
+    const a = out[k]
+    out[k] = isInlineObject(a) && isInlineObject(b) ? mergeEntityFields(a, b) : b
+  }
+  return out
+}
+
 export class Store {
   private map = new Map<string, StoreEntry>()
   /** Canonical entities, keyed "Type:id". Operation data holds refs into this. */
@@ -92,19 +128,19 @@ export class Store {
   getEntity = (key: string): Record<string, unknown> | undefined =>
     this.entities.get(key)
 
-  /** Shallow-merge entities into the table and notify. */
+  /** Non-destructive deep-merge of entities into the table and notify. */
   mergeEntities(entities: Record<string, Record<string, unknown>>): void {
     const keys = Object.keys(entities)
     if (keys.length === 0) return
     for (const key of keys) {
-      this.entities.set(key, {...this.entities.get(key), ...entities[key]})
+      this.entities.set(key, mergeEntityFields(this.entities.get(key), entities[key]))
     }
     this.emit()
   }
 
   /** Directly write/patch a single entity (manual cache writes, mutations). */
   writeEntity(key: string, fields: Record<string, unknown>): void {
-    this.entities.set(key, {...this.entities.get(key), ...fields})
+    this.entities.set(key, mergeEntityFields(this.entities.get(key), fields))
     this.emit()
   }
 
