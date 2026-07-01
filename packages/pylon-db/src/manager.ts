@@ -13,6 +13,9 @@ import {ValidationError, uniqueViolation, validateInstance} from './validation.j
 import {NotFoundError} from './errors.js'
 import {ForbiddenError} from './features.js'
 import {type FilterAction, getAppPolicy, getPolicy, policyContext} from './policies.js'
+// Runtime cycle with keyed-query.ts (which imports QuerySet) — safe: neither uses the
+// other's binding at module top-level (only inside method/function bodies).
+import {tryKeyedCount} from './keyed-query.js'
 // Type-only (erased at runtime → no import cycle with relations.ts) — used to
 // exclude relation accessors from the set of filterable fields.
 import type {ManyToManyManager, RelatedManager} from './relations.js'
@@ -828,6 +831,10 @@ export class QuerySet<T extends object> {
   }
 
   async count(): Promise<number> {
+    // If the predicate carries a batchKey() marker, coalesce across the microtask
+    // (or throw if it's marked-but-unbatchable — §10). Marker-free → plain count.
+    const keyed = tryKeyedCount(this.ctor, this.state.where, !!this.state.unscoped)
+    if (keyed) return keyed
     const db = getDatabase()
     let q: any = db.kysely
       .selectFrom(this.def.tableName)

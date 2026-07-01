@@ -45,6 +45,7 @@ export {createId, uuidv4} from './id.js'
 export {RelatedManager, ManyToManyManager, type Relation, type Linkable} from './relations.js'
 export {
   keyedQuery,
+  batchKey,
   type KeyProjection,
   type KeyedQueryOptions,
   type KeyedTerminal
