@@ -434,7 +434,11 @@ function addForeignKeySQL(fk: ForeignKeyChange): string {
 }
 
 function dropForeignKeySQL(fk: ForeignKeyChange): string {
-  return `ALTER TABLE "${fk.table}" DROP CONSTRAINT "${fk.name}"`
+  // `IF EXISTS` for the same reason as dropIndexSQL below: a foreign-key
+  // constraint vanishes out-of-band when its column is dropped (Postgres
+  // cascades the constraint), so a later diff can emit a phantom drop for a
+  // constraint that's already gone — without `IF EXISTS` that aborts the migration.
+  return `ALTER TABLE "${fk.table}" DROP CONSTRAINT IF EXISTS "${fk.name}"`
 }
 
 function addIndexSQL(ix: IndexSpec): string[] {

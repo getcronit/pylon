@@ -1,8 +1,8 @@
 /**
- * `pylon worker` end-to-end: bundle a worker entry with esbuild and run it.
- * Uses the actual built CLI (`dist/index.js`) so the command wiring, bundling
- * and child-process spawn are all exercised — no Redis needed (the trivial entry
- * just prints a marker and exits).
+ * `pylon worker` end-to-end: run a worker entry UNBUNDLED via the loader.
+ * Uses the actual built CLI (`dist/index.js`) so the command wiring (default tsx
+ * loader command) and child-process spawn are exercised — no Redis needed (the
+ * trivial entry just prints a marker and exits).
  */
 import {spawn} from 'node:child_process'
 import {promises as fs} from 'node:fs'
@@ -45,18 +45,16 @@ describe('pylon worker CLI', () => {
     expect(stderr).toMatch(/startWorkers/)
   })
 
-  it('bundles the worker entry and runs it', async () => {
+  it('runs the worker entry via the loader (no bundle)', async () => {
     await fs.writeFile(
       path.join(cwd, 'src', 'worker.ts'),
       `const marker: string = 'WORKER_OK'\nconsole.log(marker)\nprocess.exit(0)\n`
     )
-    const {code, stdout} = await run(
-      ['worker', '-e', './src/worker.ts', '-o', './.pylon/worker.js', '-c', 'node .pylon/worker.js'],
-      cwd
-    )
+    // No -o/-c: the default command is `node <tsx> ./src/worker.ts` (unbundled).
+    const {code, stdout} = await run(['worker', '-e', './src/worker.ts'], cwd)
     expect(stdout).toMatch(/WORKER_OK/)
     expect(code).toBe(0)
-    // the bundle was emitted
-    await expect(fs.access(path.join(cwd, '.pylon', 'worker.js'))).resolves.toBeUndefined()
+    // no bundle is emitted
+    await expect(fs.access(path.join(cwd, '.pylon', 'worker.js'))).rejects.toThrow()
   })
 })

@@ -33,13 +33,21 @@
   },
   "peerDependencies": {
     "@getcronit/pylon": "workspace:*",
-    "@getcronit/pylon-db": "workspace:*"
+    "@getcronit/pylon-db": "workspace:*",
+    "@bull-board/api": "*",
+    "@bull-board/hono": "*"
   },
   "peerDependenciesMeta": {
     "@getcronit/pylon": {
       "optional": true
     },
     "@getcronit/pylon-db": {
+      "optional": true
+    },
+    "@bull-board/api": {
+      "optional": true
+    },
+    "@bull-board/hono": {
       "optional": true
     }
   },

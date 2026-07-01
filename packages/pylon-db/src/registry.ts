@@ -103,6 +103,9 @@ export interface RelationDefinition {
   onDelete?: OnDelete
   /** hasMany: the FK *property* on the target model that points back here. */
   targetForeignKey?: string
+  /** hasMany: default ordering for the plain list — a target property name,
+   *  optionally `-`-prefixed for descending (e.g. `createdAt` / `-createdAt`). */
+  orderBy?: string
   /** manyToMany: explicit join-table name (default: the two tables, sorted). */
   through?: string
   /** manyToMany: join column referencing THIS model (default: `<table>_<pk>`). */

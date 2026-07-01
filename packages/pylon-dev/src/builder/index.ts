@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'path'
 import {loadAppContribution} from '../project-bridge.js'
-import {Bundler} from './bundler/bundler.js'
+import {Bundler, type BuildMode} from './bundler/bundler.js'
 import {SchemaBuilder} from './schema/builder.js'
 
 /**
@@ -25,6 +25,8 @@ const fingerprint = (files: string[]): string =>
 export interface BuildOptions {
   sfiFilePath: string
   outputFilePath: string
+  /** dev = run `src/**` live via the loader; build = transpile to `.pylon/**`. Default 'dev'. */
+  mode?: BuildMode
 }
 
 export {SchemaBuilder}
@@ -58,6 +60,7 @@ export const build = async (options: BuildOptions) => {
     | undefined
 
   return await bundler.build({
+    mode: options.mode,
     getBuildDefs: () => {
       if (cache && fingerprint(cache.files) === cache.fp) {
         return cache.defs

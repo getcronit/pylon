@@ -57,7 +57,9 @@ function registerQueueOn(
   // underscore so the kebab name stays clean (`reindex`, not `-reindex`).
   const className = (Ctor as {name: string}).name.replace(/^_(?=[A-Za-z])/, '')
   const base = options.name ?? queueConfigOf(Ctor).name ?? kebab(className)
-  const fqName = (app.name ? `${app.name}:` : '') + base
+  // BullMQ forbids ':' in queue names (it's the Redis key separator), so join the
+  // app namespace to the queue base with '.' → e.g. `tickets.email-receive`.
+  const fqName = (app.name ? `${app.name}.` : '') + base
   const def = registerQueueClass(Ctor, fqName, options)
   const set = appQueues.get(app) ?? new Set<QueueDefinition<any, any>>()
   set.add(def)

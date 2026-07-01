@@ -404,6 +404,14 @@ export interface HasManyOptions {
    * N+1-batched (each parent's page is its own keyset query).
    */
   paginate?: boolean
+  /**
+   * Default ordering for the plain list (`await parent.field` / the GraphQL list
+   * field). A target-model property name, optionally `-`-prefixed for descending
+   * (e.g. `'createdAt'` ascending, `'-createdAt'` descending). Without it the
+   * list is returned in unspecified DB order. Ignored when `paginate` is set
+   * (cursor pagination orders by its own `orderBy` arg).
+   */
+  orderBy?: string
 }
 
 /**
@@ -832,7 +840,8 @@ function harvestMember(
     target: value.target,
     nullable: true,
     targetForeignKey: value.options.foreignKey,
-    paginate: value.options.paginate
+    paginate: value.options.paginate,
+    orderBy: value.options.orderBy
   }
   registerRelation(Ctor, rel)
   return rel
@@ -943,7 +952,7 @@ function installRelationAccessors(proto: any, relations: RelationDefinition[]): 
         }
       })
     } else {
-      const {target, targetForeignKey, paginate} = rel
+      const {target, targetForeignKey, paginate, orderBy} = rel
       const makeManager = (self: any): RelatedManager<any> => {
         const def = getModelDefinitionOrThrow(self.constructor)
         const pkProperty = def.primaryKey?.propertyKey
@@ -952,7 +961,7 @@ function installRelationAccessors(proto: any, relations: RelationDefinition[]): 
             `Cannot resolve hasMany "${rel.propertyKey}": "${def.tableName}" has no primary key.`
           )
         }
-        return new RelatedManager(target() as ModelCtor<any>, targetForeignKey!, self[pkProperty])
+        return new RelatedManager(target() as ModelCtor<any>, targetForeignKey!, self[pkProperty], orderBy)
       }
       Object.defineProperty(proto, rel.propertyKey, {
         configurable: true,

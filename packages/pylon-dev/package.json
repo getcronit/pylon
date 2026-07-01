@@ -32,7 +32,8 @@
     "dotenv": "^16.4.5",
     "esbuild": "^0.23.1",
     "esbuild-plugin-tsc": "^0.4.0",
-    "posthog-node": "^4.10.1"
+    "posthog-node": "^4.10.1",
+    "tsx": "^4.19.2"
   },
   "publishConfig": {
     "access": "public"

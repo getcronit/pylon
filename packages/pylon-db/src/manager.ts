@@ -837,6 +837,35 @@ export class QuerySet<T extends object> {
     return Number((row as any).count)
   }
 
+  /**
+   * Grouped count over a set of foreign-key values — the batched twin of
+   * `count()`. Runs ONE `SELECT fk, count(*) WHERE fk IN (values) AND <this
+   * query's predicates> GROUP BY fk` and returns `fkValue → count` (absent = 0).
+   * This query's `.filter()` predicates + tenant scope + row policy all apply
+   * (via `applyWhere`). Used by the relation-count batcher so N parents'
+   * `children.filter(P).count()` collapse into a single round-trip.
+   */
+  async groupedCountByFk(
+    fkColumn: string,
+    values: readonly unknown[]
+  ): Promise<Map<unknown, number>> {
+    const out = new Map<unknown, number>()
+    if (values.length === 0) return out
+    const db = getDatabase()
+    let q: any = db.kysely
+      .selectFrom(this.def.tableName)
+      .select((eb: ExpressionBuilder<any, any>) => [
+        eb.ref(fkColumn).as('k'),
+        eb.fn.countAll().as('n')
+      ])
+      .where(fkColumn as any, 'in', values as any)
+    q = this.applyWhere(q)
+    q = q.groupBy(fkColumn as any)
+    const rows = await q.execute()
+    for (const r of rows) out.set((r as any).k, Number((r as any).n))
+    return out
+  }
+
   /** Delete every row matching the current filter. Returns the count deleted. */
   async delete(): Promise<number> {
     const db = getDatabase()

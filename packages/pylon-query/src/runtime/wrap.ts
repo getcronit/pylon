@@ -28,18 +28,46 @@ export type Deref = (value: any) => any
 interface Ctx {
   descriptor: SchemaDescriptor
   deref: Deref
+  /** Operation label for diagnostics (which doc served this read). */
+  debugLabel?: string
 }
 
 const IDENTITY: Deref = value => value
+
+// ── DEV diagnostic: partial-entity reads ────────────────────────────────────
+// Fires when component code reads a schema field that is MISSING from the cached
+// entity (the entity was populated by a query that didn't select it). This is the
+// silent "hole" that surfaces as `undefined` and crashes downstream
+// (`undefined.map`). Deduped per op|entity|field. Temporary instrumentation to
+// capture the exact op/entity/field/state at the bug site.
+const seenHoles = new Set<string>()
+function reportPartialRead(owner: any, fieldName: string, ctx: Ctx): void {
+  if (owner == null || typeof owner !== 'object') return
+  if (fieldName in owner) return // present (even if null) → genuinely loaded
+  if (!owner.__typename) return // only entity-like nodes (skip the inline op root)
+  const id = owner.id ?? '?'
+  const tag = `${ctx.debugLabel ?? '?'}|${owner.__typename}:${id}.${fieldName}`
+  if (seenHoles.has(tag)) return
+  seenHoles.add(tag)
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[pylon-query] PARTIAL READ — op "${ctx.debugLabel ?? '?'}" read ` +
+      `${owner.__typename}:${id}.${fieldName}, but that field is ABSENT from the cached ` +
+      `entity (a narrower query populated it). Present fields: [${Object.keys(owner).join(', ')}]. ` +
+      `Returning undefined instead of refetching → this is the partial-read bug.`,
+    {op: ctx.debugLabel, entity: owner}
+  )
+}
 
 export function wrapResult<T = any>(
   getRoot: () => any,
   descriptor: SchemaDescriptor,
   rootExtras?: Record<string, unknown>,
   deref: Deref = IDENTITY,
-  rootTypeName: string = descriptor.query
+  rootTypeName: string = descriptor.query,
+  debugLabel?: string
 ): T {
-  const ctx: Ctx = {descriptor, deref}
+  const ctx: Ctx = {descriptor, deref, debugLabel}
   return buildObject(
     () => ctx.deref(getRoot()),
     rootTypeName,
@@ -69,6 +97,8 @@ function buildField(
 
   // Truly unknown field → raw value.
   if (!fd) return getValue()
+
+  reportPartialRead(getOwner(), fieldName, ctx)
 
   if (fd.callable) {
     return (..._args: unknown[]) => buildValue(getValue, fd, ctx)

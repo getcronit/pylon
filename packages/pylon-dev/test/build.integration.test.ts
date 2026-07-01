@@ -31,9 +31,10 @@ beforeAll(async () => {
 
   const ctx = await build({sfiFilePath: './src/index.ts', outputFilePath: './.pylon'})
   // `build()` returns the bundler controls; the caller drives the build. Run the
-  // server build to emit `.pylon/{index.js,schema.graphql,resolvers.js}`.
+  // server build (dev mode) emits the glue — `.pylon/{server.mjs,schema.graphql,
+  // schema.mjs,resolvers.js}` — no bundle (the app runs unbundled via the loader).
   await ctx.buildServer()
-  await ctx.dispose() // release the esbuild service
+  await ctx.dispose()
 
   schema = await fs.readFile(path.join(pylonDir, 'schema.graphql'), 'utf8')
 }, 60_000)
@@ -44,11 +45,12 @@ afterAll(async () => {
 })
 
 describe('pylon build (real pipeline) on an ORM-backed app', () => {
-  it('writes the schema and resolver artifacts', async () => {
+  it('writes the schema + bootstrap glue', async () => {
     const files = await fs.readdir(pylonDir)
     expect(files).toContain('schema.graphql')
+    expect(files).toContain('schema.mjs')
     expect(files).toContain('resolvers.js')
-    expect(files).toContain('index.js')
+    expect(files).toContain('server.mjs')
   })
 
   it('emits VALID GraphQL SDL (no empty interface)', () => {

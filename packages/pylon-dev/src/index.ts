@@ -6,7 +6,6 @@ import path from 'node:path'
 import chokidar from 'chokidar'
 import consola from 'consola'
 import dotenv from 'dotenv'
-import esbuild from 'esbuild'
 import {version} from '../package.json'
 import {
   analytics,
@@ -21,6 +20,7 @@ import {verifyApp} from './verify'
 import {startMcpServer} from './mcp'
 import {runEval, formatReport, SdkRunner} from './eval'
 import {fileURLToPath} from 'node:url'
+import {createRequire} from 'node:module'
 import {buildClient} from './builder/build-client'
 import {startDevReloadServer} from './builder/dev-reload-server'
 import {runDbCommand} from './db'
@@ -29,13 +29,43 @@ import {treeKillSync} from './tree-kill'
 
 dotenv.config()
 
+const requireFromHere = createRequire(import.meta.url)
+
+/**
+ * Absolute path to tsx's CLI, resolved from pylon-dev's OWN deps so the user project needs
+ * nothing installed. tsx (esbuild) transpiles `src/**` on-import honouring the project
+ * tsconfig (`useDefineForClassFields:false`), and Node's module cache gives one instance
+ * per file (no bundling, no duplication).
+ */
+function tsxCli(): string {
+  const pkgPath = requireFromHere.resolve('tsx/package.json')
+  const pkg = requireFromHere(pkgPath) as {bin: string | {tsx: string}}
+  const bin = typeof pkg.bin === 'string' ? pkg.bin : pkg.bin.tsx
+  return path.join(path.dirname(pkgPath), bin)
+}
+
+/** Default dev runner: the loader on the generated bootstrap. Override with `-c`. */
+function defaultDevCommand(outputDir = '.pylon'): string {
+  return `node ${tsxCli()} ${outputDir}/server.mjs`
+}
+
+/** Default worker runner: the loader on the worker entry (unbundled). Override with `-c`
+ *  (e.g. prod: `node .pylon/src/worker.js` after `pylon build`). */
+function defaultWorkerCommand(entry: string): string {
+  return `node ${tsxCli()} ${entry}`
+}
+
 program.name('pylon-dev').description('Pylon Development CLI').version(version)
 
 program
   .command('build')
   .description('Build the Pylon Schema')
   .action(async () => {
-    const ctx = await build({sfiFilePath: './src/index.ts', outputFilePath: './.pylon'})
+    const ctx = await build({
+      sfiFilePath: './src/index.ts',
+      outputFilePath: './.pylon',
+      mode: 'build'
+    })
 
     const cleanupAndExit = async () => {
       await ctx.dispose().catch(() => {})
@@ -541,10 +571,11 @@ program
   .description('Start the Pylon Development Server')
   .option(
     '-c, --command <command>',
-    'Command to run the server',
-    'bun run .pylon/index.js'
+    'Command to run the server (default: node + the tsx loader on .pylon/server.mjs)'
   )
   .action(async options => {
+    // Default runner: the tsx loader on the generated bootstrap (unbundled server).
+    const command: string = options.command ?? defaultDevCommand()
     let serverProcess: ChildProcess | null = null
     // `killing` distinguishes our intentional kill from a real crash (read by the
     // child's `exit` handler).
@@ -577,7 +608,7 @@ program
 
     const restartServer = async () => {
       await killServer()
-      serverProcess = startDevServer(options.command, (code, signal) => {
+      serverProcess = startDevServer(command, (code, signal) => {
         if (killing) {
           killing = false // our intentional restart — not a crash
           return
@@ -603,7 +634,11 @@ program
     )
 
     // build() throws loudly on a config/init failure → exits non-zero (fail-loud).
-    const ctx = await build({sfiFilePath: './src/index.ts', outputFilePath: './.pylon'})
+    const ctx = await build({
+      sfiFilePath: './src/index.ts',
+      outputFilePath: './.pylon',
+      mode: 'dev'
+    })
 
     // The ordered, single-flight sequence (the Supervisor). On every change:
     //   server bundle (→ schema) → gqty client (← schema) → page bundles
@@ -700,7 +735,7 @@ We value your feedback—help us make Pylon even better!`)
       distinctId,
       event: 'dev server started',
       properties: {
-        command: options.command,
+        command,
         dependencies,
         pylonConfig: await readPylonConfig(),
         $session_id: sessionId
@@ -714,11 +749,13 @@ We value your feedback—help us make Pylon even better!`)
 program
   .command('worker')
   .description(
-    'Run the Pylon background worker: bundle the worker entry and run it (queue consumers + outbox relay). The entry should call startWorkers()/runOutboxRelay() from @getcronit/pylon-queues.'
+    'Run the Pylon background worker (queue consumers + outbox relay) — unbundled, via the loader. The entry should call startWorkers()/runOutboxRelay() from @getcronit/pylon-queues.'
   )
   .option('-e, --entry <path>', 'Worker entry that starts the queue workers', './src/worker.ts')
-  .option('-o, --output <path>', 'Bundled worker output', './.pylon/worker.js')
-  .option('-c, --command <command>', 'Command to run the built worker', 'bun run .pylon/worker.js')
+  .option(
+    '-c, --command <command>',
+    'Command to run the worker (default: node + the tsx loader on the entry)'
+  )
   .action(async options => {
     const entry = path.resolve(process.cwd(), options.entry)
     try {
@@ -735,26 +772,13 @@ program
       process.exit(1)
     }
 
-    const output = path.resolve(process.cwd(), options.output)
-    await esbuild.build({
-      entryPoints: [entry],
-      outfile: output,
-      bundle: true,
-      platform: 'node',
-      target: 'node18',
-      format: 'esm',
-      sourcemap: 'linked',
-      packages: 'external',
-      logLevel: 'silent',
-      tsconfigRaw: {
-        compilerOptions: {
-          experimentalDecorators: true,
-          useDefineForClassFields: false
-        }
-      }
-    })
+    // No bundling — run the worker entry through the loader (unbundled), like the server,
+    // so it shares Node's one-instance-per-file module graph. For a production deploy,
+    // point `-c` at the transpiled output (`pylon build` emits `.pylon/src/worker.js`):
+    // e.g. `pylon worker -c "node .pylon/src/worker.js"`.
+    const command: string = options.command ?? defaultWorkerCommand(options.entry)
 
-    let worker: ChildProcess | null = startWorkerProcess(options.command)
+    let worker: ChildProcess | null = startWorkerProcess(command)
 
     const shutdown = (signal: NodeJS.Signals) => {
       if (worker?.pid) {

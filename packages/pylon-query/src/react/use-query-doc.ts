@@ -54,9 +54,18 @@ export function useQueryDoc<TResult, TVars extends Record<string, unknown>>(
     client.revalidate(doc, vars as TVars)
   })
 
+  // Keep the LATEST variables thunk in a ref. `refetch`'s deps are [client, doc]
+  // (stable across a soft-nav that only changes variables — same component, same
+  // document), so closing over `variablesThunk` directly would refetch the
+  // PREVIOUS route's variables: e.g. navigate ticket A → B, add a note on B, and
+  // the tag-refetch would re-fetch A (the page you navigated away from), so B
+  // never refreshes. The ref makes refetch always read the current variables.
+  const varsThunkRef = useRef(variablesThunk)
+  varsThunkRef.current = variablesThunk
+
   const refetch = useCallback(() => {
     if (!doc) return
-    const vars = variablesThunk ? variablesThunk() : undefined
+    const vars = varsThunkRef.current ? varsThunkRef.current() : undefined
     void client.refetch(doc, vars as TVars).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, doc])
@@ -80,5 +89,5 @@ export function useQueryDoc<TResult, TVars extends Record<string, unknown>>(
     return rootData
   }
 
-  return client.wrapData<WithRefetch<TResult>>(getRoot, {$refetch: refetch})
+  return client.wrapData<WithRefetch<TResult>>(getRoot, {$refetch: refetch}, undefined, doc.name)
 }

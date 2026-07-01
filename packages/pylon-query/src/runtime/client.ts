@@ -203,14 +203,16 @@ export class PylonQueryClient {
   wrapData<T = any>(
     getRoot: () => unknown,
     rootExtras?: Record<string, unknown>,
-    rootTypeName?: string
+    rootTypeName?: string,
+    debugLabel?: string
   ): T {
     return wrapResult<T>(
       getRoot,
       this.descriptor,
       rootExtras,
       this.deref,
-      rootTypeName ?? this.descriptor.query
+      rootTypeName ?? this.descriptor.query,
+      debugLabel
     )
   }
 
