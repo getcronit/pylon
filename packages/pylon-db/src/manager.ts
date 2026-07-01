@@ -15,7 +15,7 @@ import {ForbiddenError} from './features.js'
 import {type FilterAction, getAppPolicy, getPolicy, policyContext} from './policies.js'
 // Runtime cycle with keyed-query.ts (which imports QuerySet) — safe: neither uses the
 // other's binding at module top-level (only inside method/function bodies).
-import {keyedTerminalFor} from './keyed-query.js'
+import {keyedTerminalFor, noteUnmarkedCount} from './keyed-query.js'
 // Type-only (erased at runtime → no import cycle with relations.ts) — used to
 // exclude relation accessors from the set of filterable fields.
 import type {ManyToManyManager, RelatedManager} from './relations.js'
@@ -844,6 +844,7 @@ export class QuerySet<T extends object> {
     // (or throw if it's marked-but-unbatchable — §10). Marker-free → plain count.
     const keyed = keyedTerminalFor(this.ctor, this.state.where, !!this.state.unscoped)
     if (keyed) return keyed.count()
+    noteUnmarkedCount(this.ctor, this.state.where) // dev-only missed-batch hint
     const db = getDatabase()
     let q: any = db.kysely
       .selectFrom(this.def.tableName)

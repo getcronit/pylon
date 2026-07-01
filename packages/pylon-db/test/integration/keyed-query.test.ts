@@ -11,7 +11,7 @@
  *  - marker-free counts are untouched.
  */
 import pg from 'pg'
-import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {afterAll, beforeAll, describe, expect, it, vi} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
 import {
   batchKey,
@@ -247,6 +247,20 @@ describe.skipIf(!runDb)('keyed-query batching (Postgres)', () => {
       expect(eg).toBe(false)
       expect(fa).not.toBeNull()
       expect(fg).toBeNull()
+    })
+  })
+
+  it('dev missed-batch detector hints on unmarked same-shape counts', async () => {
+    await runAsSystem(async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      // 13 UNMARKED counts, same shape {teamId, status}, only teamId varies.
+      const teams = [team.alpha, team.beta, team.gamma, ...fillers.slice(0, 10)]
+      await Promise.all(
+        teams.map(t => Task.objects.filter({teamId: t, status: 'CLOSED'}).count())
+      )
+      const msgs = warn.mock.calls.map(c => String(c[0]))
+      warn.mockRestore()
+      expect(msgs.some(m => m.includes('batch-hint') && m.includes('teamId'))).toBe(true)
     })
   })
 

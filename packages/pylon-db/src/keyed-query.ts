@@ -436,3 +436,62 @@ export function keyedTerminalFor(
   if (!plan) return null
   return keyedQuery(root, {key: plan.key, where: plan.where, paths: plan.paths, unscoped})
 }
+
+// ── Phase 6: missed-batch detector (dev-only advisory) ──────────────────────
+// The safe half of auto-detect (§10): when several UNMARKED counts of the same
+// shape run in one microtask differing only in a projectable-equality column, hint
+// that a batchKey() there would coalesce them. Never changes behaviour — the queries
+// still run un-batched. Dev-gated (zero prod overhead).
+const HINTS = process.env.NODE_ENV !== 'production' || process.env.PYLON_BATCH_HINTS === '1'
+const HINT_MIN = 8
+
+const seenBuffers = new WeakMap<
+  object,
+  {shapes: Map<string, Array<Record<string, unknown>>>; scheduled: boolean}
+>()
+
+/** Record an un-marked count for the missed-batch detector (no-op in prod). Called
+ *  from `QuerySet.count()` on the plain (marker-free) path. */
+export function noteUnmarkedCount(root: ModelCtor<any>, fragments: WhereInput<any>[]): void {
+  if (!HINTS) return
+  // Only top-level scalar equalities on real columns — the shape a hint can suggest.
+  const eq: Record<string, unknown> = {}
+  for (const frag of fragments)
+    for (const [k, v] of Object.entries(frag as Record<string, unknown>))
+      if (v === null || typeof v !== 'object') eq[k] = v
+  const cols = Object.keys(eq).sort()
+  if (cols.length === 0) return
+  const def = getModelDefinitionOrThrow(root)
+  if (!cols.every(c => def.columns.some(col => col.propertyKey === c))) return
+
+  const shape = `${def.tableName}|${cols.join(',')}`
+  const ctxKey = appContextKey()
+  let buf = seenBuffers.get(ctxKey)
+  if (!buf) seenBuffers.set(ctxKey, (buf = {shapes: new Map(), scheduled: false}))
+  const list = buf.shapes.get(shape) ?? []
+  list.push(eq)
+  buf.shapes.set(shape, list)
+  if (!buf.scheduled) {
+    buf.scheduled = true
+    queueMicrotask(() => scanUnmarked(ctxKey))
+  }
+}
+
+function scanUnmarked(ctxKey: object): void {
+  const buf = seenBuffers.get(ctxKey)
+  if (!buf) return
+  seenBuffers.delete(ctxKey)
+  for (const [shape, entries] of buf.shapes) {
+    if (entries.length < HINT_MIN) continue
+    const [table, colStr] = shape.split('|')
+    const cols = colStr.split(',')
+    const varying = cols.filter(c => new Set(entries.map(e => e[c])).size > 1)
+    if (varying.length === 1) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[pylon-db:batch-hint] ${entries.length} counts on ${table} differ only in ` +
+          `\`${varying[0]}\` — mark it with batchKey() to batch ${entries.length}→~1`
+      )
+    }
+  }
+}
