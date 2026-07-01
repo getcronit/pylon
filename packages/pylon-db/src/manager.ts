@@ -15,7 +15,7 @@ import {ForbiddenError} from './features.js'
 import {type FilterAction, getAppPolicy, getPolicy, policyContext} from './policies.js'
 // Runtime cycle with keyed-query.ts (which imports QuerySet) — safe: neither uses the
 // other's binding at module top-level (only inside method/function bodies).
-import {tryKeyedCount} from './keyed-query.js'
+import {keyedTerminalFor} from './keyed-query.js'
 // Type-only (erased at runtime → no import cycle with relations.ts) — used to
 // exclude relation accessors from the set of filterable fields.
 import type {ManyToManyManager, RelatedManager} from './relations.js'
@@ -809,13 +809,22 @@ export class QuerySet<T extends object> {
   }
 
   async all(): Promise<T[]> {
+    const keyed = keyedTerminalFor(this.ctor, this.state.where, !!this.state.unscoped)
+    if (keyed) return keyed.all(this.state.orderBy) as Promise<T[]>
     const rows = await this.build().execute()
     return rows.map(r => hydrate(this.ctor, r))
   }
 
   async first(): Promise<T | null> {
+    const keyed = keyedTerminalFor(this.ctor, this.state.where, !!this.state.unscoped)
+    if (keyed) return keyed.first(this.state.orderBy) as Promise<T | null>
     const rows = await this.limit(1).build().execute()
     return rows.length ? hydrate(this.ctor, rows[0]) : null
+  }
+
+  /** True if any row matches. Batches on a batchKey() marker (via count()). */
+  async exists(): Promise<boolean> {
+    return (await this.count()) > 0
   }
 
   async get(conditions?: WhereInput<T>): Promise<T> {
@@ -833,8 +842,8 @@ export class QuerySet<T extends object> {
   async count(): Promise<number> {
     // If the predicate carries a batchKey() marker, coalesce across the microtask
     // (or throw if it's marked-but-unbatchable — §10). Marker-free → plain count.
-    const keyed = tryKeyedCount(this.ctor, this.state.where, !!this.state.unscoped)
-    if (keyed) return keyed
+    const keyed = keyedTerminalFor(this.ctor, this.state.where, !!this.state.unscoped)
+    if (keyed) return keyed.count()
     const db = getDatabase()
     let q: any = db.kysely
       .selectFrom(this.def.tableName)
@@ -870,6 +879,35 @@ export class QuerySet<T extends object> {
     q = q.groupBy(fkColumn as any)
     const rows = await q.execute()
     for (const r of rows) out.set((r as any).k, Number((r as any).n))
+    return out
+  }
+
+  /**
+   * The rows twin of `groupedCountByFk`: `SELECT * WHERE fk IN (values) AND <this
+   * query's predicates>`, hydrated and grouped `fkValue → rows` (absent = []). Same
+   * scope (tenant + policy + `.filter()`) via `applyWhere`. Used by the keyed-query
+   * materialize terminals (`.all()`/`.first()`); ordering is applied by the caller
+   * after the union (in memory), so no ORDER BY here.
+   */
+  async groupedRowsByFk(
+    fkColumn: string,
+    values: readonly unknown[]
+  ): Promise<Map<unknown, T[]>> {
+    const out = new Map<unknown, T[]>()
+    if (values.length === 0) return out
+    const db = getDatabase()
+    let q: any = db.kysely
+      .selectFrom(this.def.tableName)
+      .select(selectableColumns(this.def))
+      .where(fkColumn as any, 'in', values as any)
+    q = this.applyWhere(q)
+    const rows = await q.execute()
+    for (const r of rows) {
+      const k = (r as any)[fkColumn]
+      const list = out.get(k) ?? []
+      list.push(hydrate(this.ctor, r))
+      out.set(k, list)
+    }
     return out
   }
 

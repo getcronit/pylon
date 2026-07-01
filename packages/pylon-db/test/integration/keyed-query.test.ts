@@ -220,4 +220,47 @@ describe.skipIf(!runDb)('keyed-query batching (Postgres)', () => {
       expect(open).toBe(6 + fillers.length)
     })
   })
+
+  it('.all() returns the matched rows across both paths', async () => {
+    await runAsSystem(async () => {
+      const [a, b, g] = await Promise.all([
+        Task.objects.filter(markedWhere(team.alpha)).all(),
+        Task.objects.filter(markedWhere(team.beta)).all(),
+        Task.objects.filter(markedWhere(team.gamma)).all()
+      ])
+      expect(a.length).toBe(4)
+      expect(b.length).toBe(3)
+      expect(g.length).toBe(0)
+      expect(a.every(t => t.status === 'OPEN')).toBe(true)
+    })
+  })
+
+  it('.exists() and .first() batch on the marker', async () => {
+    await runAsSystem(async () => {
+      const [ea, eg, fa, fg] = await Promise.all([
+        Task.objects.filter(markedWhere(team.alpha)).exists(),
+        Task.objects.filter(markedWhere(team.gamma)).exists(),
+        Task.objects.filter(markedWhere(team.alpha)).first(),
+        Task.objects.filter(markedWhere(team.gamma)).first()
+      ])
+      expect(ea).toBe(true)
+      expect(eg).toBe(false)
+      expect(fa).not.toBeNull()
+      expect(fg).toBeNull()
+    })
+  })
+
+  it('.all() coalesces a large key set into a constant query count', async () => {
+    await runAsSystem(async () => {
+      const teams = [team.alpha, team.beta, team.gamma, ...fillers]
+      queries = 0
+      const lists = await Promise.all(teams.map(t => Task.objects.filter(markedWhere(t)).all()))
+      // rows path: 1 column groupedRows + (1 membership fetch + 1 via groupedRows) ≈ 3,
+      // independent of the 53 keys.
+      expect(queries).toBeLessThanOrEqual(4)
+      expect(lists[0].length).toBe(4) // alpha
+      expect(lists[2].length).toBe(0) // gamma
+      expect(lists.slice(3).every(l => l.length === 1)).toBe(true) // fillers
+    })
+  })
 })

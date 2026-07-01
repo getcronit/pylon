@@ -42,19 +42,26 @@ export interface KeyedQueryOptions<T extends object> {
   unscoped?: boolean
 }
 
-export interface KeyedTerminal {
+/** Ordering spec (column name + direction), as `QuerySet` stores it. */
+export type OrderSpec = {column: string; dir: 'asc' | 'desc'}
+
+export interface KeyedTerminal<T extends object = any> {
   count(): Promise<number>
+  exists(): Promise<boolean>
+  all(order?: OrderSpec[]): Promise<T[]>
+  first(order?: OrderSpec[]): Promise<T | null>
 }
 
-interface CountBatch {
+interface Batch<V> {
   root: ModelCtor<any>
   where?: WhereInput<any>
   paths: KeyProjection<any>[]
   unscoped: boolean
-  waiters: Map<unknown, Array<{resolve: (n: number) => void; reject: (e: unknown) => void}>>
+  waiters: Map<unknown, Array<{resolve: (v: V) => void; reject: (e: unknown) => void}>>
   scheduled: boolean
 }
-const batches = new WeakMap<object, Map<string, CountBatch>>()
+const countBatches = new WeakMap<object, Map<string, Batch<number>>>()
+const rowsBatches = new WeakMap<object, Map<string, Batch<any[]>>>()
 
 function canon(v: unknown): string {
   return JSON.stringify(v, (_k, x) =>
@@ -69,102 +76,117 @@ function pathToken(p: KeyProjection<any>): string {
     : `t:${getModelDefinitionOrThrow(p.through).tableName}.${p.on}->${p.to}#${p.key}?${canon(p.where ?? {})}`
 }
 
+/** Enqueue THIS caller's key into a per-context, per-token batch; flush on the next
+ *  microtask. The generic shared by every terminal (count vs rows). */
+function enqueue<V>(
+  map: WeakMap<object, Map<string, Batch<V>>>,
+  kind: string,
+  root: ModelCtor<any>,
+  opts: KeyedQueryOptions<any>,
+  flush: (ctxKey: object, token: string) => Promise<void>
+): Promise<V> {
+  const def = getModelDefinitionOrThrow(root)
+  const ctxKey = appContextKey()
+  const token =
+    `${kind}:${def.tableName}${opts.unscoped ? '!u' : ''}` +
+    `?w=${canon(opts.where ?? {})}&p=${opts.paths.map(pathToken).sort().join('|')}`
+  let perCtx = map.get(ctxKey)
+  if (!perCtx) {
+    perCtx = new Map()
+    map.set(ctxKey, perCtx)
+  }
+  let batch = perCtx.get(token)
+  if (!batch) {
+    batch = {
+      root,
+      where: opts.where,
+      paths: opts.paths,
+      unscoped: !!opts.unscoped,
+      waiters: new Map(),
+      scheduled: false
+    }
+    perCtx.set(token, batch)
+  }
+  const b = batch
+  return new Promise<V>((resolve, reject) => {
+    const list = b.waiters.get(opts.key) ?? []
+    list.push({resolve, reject})
+    b.waiters.set(opts.key, list)
+    if (!b.scheduled) {
+      b.scheduled = true
+      queueMicrotask(() => void flush(ctxKey, token))
+    }
+  })
+}
+
+/** In-memory sort of hydrated rows by a QuerySet order spec (column → property). */
+function sortRows<T>(rows: T[], root: ModelCtor<any>, order?: OrderSpec[]): T[] {
+  if (!order?.length) return rows
+  const def = getModelDefinitionOrThrow(root)
+  const specs = order.map(o => ({
+    prop: def.columns.find(c => c.columnName === o.column)?.propertyKey ?? o.column,
+    dir: o.dir
+  }))
+  return [...rows].sort((a, b) => {
+    for (const {prop, dir} of specs) {
+      const av = (a as any)[prop]
+      const bv = (b as any)[prop]
+      if (av < bv) return dir === 'asc' ? -1 : 1
+      if (av > bv) return dir === 'asc' ? 1 : -1
+    }
+    return 0
+  })
+}
+
 /**
- * A keyed count: N callers sharing (root, where, paths) coalesce into a few grouped
- * queries per microtask. All key values differing only at the key share one batch;
- * everything else (the `where` values, the paths) is part of the batch identity, so
- * callers with a different shared filter automatically form a separate batch.
+ * A keyed query: N callers sharing (root, where, paths) coalesce per microtask.
+ * `count`/`exists` use grouped counts (disjoint-sum); `all`/`first` gather rows
+ * (deduped by pk across paths, so overlapping paths are safe) and sort in memory.
  */
 export function keyedQuery<T extends object>(
   root: ModelCtor<T>,
   opts: KeyedQueryOptions<T>
-): KeyedTerminal {
+): KeyedTerminal<T> {
   return {
-    count() {
-      const def = getModelDefinitionOrThrow(root)
-      const ctxKey = appContextKey()
-      const token =
-        `${def.tableName}${opts.unscoped ? '!u' : ''}` +
-        `?w=${canon(opts.where ?? {})}` +
-        `&p=${opts.paths.map(pathToken).sort().join('|')}`
-      let perCtx = batches.get(ctxKey)
-      if (!perCtx) {
-        perCtx = new Map()
-        batches.set(ctxKey, perCtx)
-      }
-      let batch = perCtx.get(token)
-      if (!batch) {
-        batch = {
-          root,
-          where: opts.where,
-          paths: opts.paths,
-          unscoped: !!opts.unscoped,
-          waiters: new Map(),
-          scheduled: false
-        }
-        perCtx.set(token, batch)
-      }
-      const b = batch
-      return new Promise<number>((resolve, reject) => {
-        const list = b.waiters.get(opts.key) ?? []
-        list.push({resolve, reject})
-        b.waiters.set(opts.key, list)
-        if (!b.scheduled) {
-          b.scheduled = true
-          queueMicrotask(() => void flushCount(ctxKey, token))
-        }
-      })
-    }
+    count: () => enqueue(countBatches, 'count', root, opts, flushCount),
+    exists: () => enqueue(countBatches, 'count', root, opts, flushCount).then(n => n > 0),
+    all: order =>
+      enqueue<any[]>(rowsBatches, 'rows', root, opts, flushRows).then(rows => sortRows(rows, root, order)),
+    first: order =>
+      enqueue<any[]>(rowsBatches, 'rows', root, opts, flushRows).then(
+        rows => sortRows(rows, root, order)[0] ?? null
+      )
   }
 }
 
+/** Build a scoped root QuerySet carrying the shared `where`. */
+function baseOf(batch: Batch<any>): QuerySet<any> {
+  let qs = new QuerySet(batch.root)
+  if (batch.where) qs = qs.filter(batch.where)
+  if (batch.unscoped) qs = qs.unscoped()
+  return qs
+}
+
 async function flushCount(ctxKey: object, token: string): Promise<void> {
-  const perCtx = batches.get(ctxKey)
+  const perCtx = countBatches.get(ctxKey)
   const batch = perCtx?.get(token)
   if (!perCtx || !batch) return
   perCtx.delete(token)
   const keys = [...batch.waiters.keys()]
   const rootDef = getModelDefinitionOrThrow(batch.root)
-
-  const base = (): QuerySet<any> => {
-    let qs = new QuerySet(batch.root)
-    if (batch.where) qs = qs.filter(batch.where)
-    if (batch.unscoped) qs = qs.unscoped()
-    return qs
-  }
-
   try {
     const totals = new Map<unknown, number>()
     const add = (k: unknown, n: number) => totals.set(k, (totals.get(k) ?? 0) + n)
 
     for (const p of batch.paths) {
       if ('column' in p) {
-        // Direct: group the root by the key column over the key set.
         const col = columnFor(rootDef, p.column).columnName
-        for (const [k, n] of await base().groupedCountByFk(col, keys)) add(k, n)
+        for (const [k, n] of await baseOf(batch).groupedCountByFk(col, keys)) add(k, n)
       } else {
-        // Through: fetch the (via → key) links once, count the root grouped by the
-        // join column over all `via` values, then roll each key's `via`s up.
-        let tq = new QuerySet(p.through).filter({
-          [p.key]: {in: keys},
-          ...(p.where ?? {})
-        } as WhereInput<any>)
-        if (batch.unscoped) tq = tq.unscoped()
-        const links = (await tq.all()) as Array<Record<string, unknown>>
-
-        const viaByKey = new Map<unknown, unknown[]>()
-        const allVia = new Set<unknown>()
-        for (const row of links) {
-          const keyVal = row[p.key]
-          const viaVal = row[p.on]
-          allVia.add(viaVal)
-          const list = viaByKey.get(keyVal) ?? []
-          list.push(viaVal)
-          viaByKey.set(keyVal, list)
-        }
+        const {viaByKey, allVia} = await gatherLinks(batch, p, keys)
         if (allVia.size > 0) {
           const toCol = columnFor(rootDef, p.to).columnName
-          const viaCounts = await base().groupedCountByFk(toCol, [...allVia])
+          const viaCounts = await baseOf(batch).groupedCountByFk(toCol, [...allVia])
           for (const [keyVal, vias] of viaByKey) {
             let sum = 0
             for (const via of vias) sum += viaCounts.get(via) ?? 0
@@ -173,7 +195,6 @@ async function flushCount(ctxKey: object, token: string): Promise<void> {
         }
       }
     }
-
     for (const [k, waiters] of batch.waiters) {
       const n = totals.get(k) ?? 0
       for (const w of waiters) w.resolve(n)
@@ -181,6 +202,76 @@ async function flushCount(ctxKey: object, token: string): Promise<void> {
   } catch (err) {
     for (const waiters of batch.waiters.values()) for (const w of waiters) w.reject(err)
   }
+}
+
+async function flushRows(ctxKey: object, token: string): Promise<void> {
+  const perCtx = rowsBatches.get(ctxKey)
+  const batch = perCtx?.get(token)
+  if (!perCtx || !batch) return
+  perCtx.delete(token)
+  const keys = [...batch.waiters.keys()]
+  const rootDef = getModelDefinitionOrThrow(batch.root)
+  const pk = rootDef.columns.find(c => c.primaryKey)?.propertyKey ?? 'id'
+  try {
+    // key → (pk → row): dedup rows a key matches via more than one path.
+    const byKey = new Map<unknown, Map<unknown, any>>()
+    const bucket = (k: unknown) => {
+      let m = byKey.get(k)
+      if (!m) byKey.set(k, (m = new Map()))
+      return m
+    }
+    for (const p of batch.paths) {
+      if ('column' in p) {
+        const col = columnFor(rootDef, p.column).columnName
+        const m = await baseOf(batch).groupedRowsByFk(col, keys)
+        for (const [k, rows] of m) {
+          const bk = bucket(k)
+          for (const r of rows) bk.set((r as any)[pk], r)
+        }
+      } else {
+        const {viaByKey, allVia} = await gatherLinks(batch, p, keys)
+        if (allVia.size > 0) {
+          const toCol = columnFor(rootDef, p.to).columnName
+          const rowsByVia = await baseOf(batch).groupedRowsByFk(toCol, [...allVia])
+          for (const [keyVal, vias] of viaByKey) {
+            const bk = bucket(keyVal)
+            for (const via of vias) for (const r of rowsByVia.get(via) ?? []) bk.set((r as any)[pk], r)
+          }
+        }
+      }
+    }
+    for (const [k, waiters] of batch.waiters) {
+      const rows = [...(byKey.get(k)?.values() ?? [])]
+      for (const w of waiters) w.resolve(rows)
+    }
+  } catch (err) {
+    for (const waiters of batch.waiters.values()) for (const w of waiters) w.reject(err)
+  }
+}
+
+/** Through path: fetch the (via → key) links once (scoped). Shared by count + rows. */
+async function gatherLinks(
+  batch: Batch<any>,
+  p: Extract<KeyProjection<any>, {through: unknown}>,
+  keys: unknown[]
+): Promise<{viaByKey: Map<unknown, unknown[]>; allVia: Set<unknown>}> {
+  let tq = new QuerySet(p.through).filter({
+    [p.key]: {in: keys},
+    ...(p.where ?? {})
+  } as WhereInput<any>)
+  if (batch.unscoped) tq = tq.unscoped()
+  const links = (await tq.all()) as Array<Record<string, unknown>>
+  const viaByKey = new Map<unknown, unknown[]>()
+  const allVia = new Set<unknown>()
+  for (const row of links) {
+    const keyVal = row[p.key]
+    const viaVal = row[p.on]
+    allVia.add(viaVal)
+    const list = viaByKey.get(keyVal) ?? []
+    list.push(viaVal)
+    viaByKey.set(keyVal, list)
+  }
+  return {viaByKey, allVia}
 }
 
 // ── Phase 2: the batchKey() marker + predicate deriver ──────────────────────
@@ -331,21 +422,17 @@ function deriveBranch(
 }
 
 /**
- * If `whereFragments` contain a batchKey() marker, derive the plan and run the keyed
- * count; else return null so the caller runs a plain count. Wired into
- * `QuerySet.count()`. Throws BatchKeyError on a marked-but-unbatchable predicate.
+ * If `whereFragments` carry a batchKey() marker, derive the plan and return the keyed
+ * terminal object (`.count()/.exists()/.all()/.first()`); else null so the caller runs
+ * plain. Wired into `QuerySet`. Throws BatchKeyError on a marked-but-unbatchable
+ * predicate (§10) — never a silent N+1.
  */
-export function tryKeyedCount(
+export function keyedTerminalFor(
   root: ModelCtor<any>,
   whereFragments: WhereInput<any>[],
   unscoped: boolean
-): Promise<number> | null {
+): KeyedTerminal | null {
   const plan = deriveKeyedPlan(getModelDefinitionOrThrow(root), whereFragments)
   if (!plan) return null
-  return keyedQuery(root, {
-    key: plan.key,
-    where: plan.where,
-    paths: plan.paths,
-    unscoped
-  }).count()
+  return keyedQuery(root, {key: plan.key, where: plan.where, paths: plan.paths, unscoped})
 }

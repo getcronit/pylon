@@ -48,7 +48,8 @@ export {
   batchKey,
   type KeyProjection,
   type KeyedQueryOptions,
-  type KeyedTerminal
+  type KeyedTerminal,
+  type OrderSpec
 } from './keyed-query.js'
 export {
   Database,
