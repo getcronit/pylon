@@ -126,8 +126,22 @@ function baseOf(root: ModelCtor<any>, opts: KeyedQueryOptions<any>): QuerySet<an
   return qs
 }
 
-/** `load` for the count realm: per-key count over the paths (disjoint-summed). */
+/** `load` for the count realm. A SINGLE path can't overlap itself, so use the cheap
+ *  grouped `count(*)` (keeps the hot relation-count path fast). TWO+ paths may share a
+ *  row → count DISTINCT via deduped pk-sets (§7.4). */
 async function computeCounts(
+  root: ModelCtor<any>,
+  opts: KeyedQueryOptions<any>,
+  keys: unknown[]
+): Promise<Map<unknown, number>> {
+  if (opts.paths.length <= 1) return sumCounts(root, opts, keys)
+  const out = new Map<unknown, number>()
+  for (const [k, ids] of await gatherIds(root, opts, keys)) out.set(k, ids.size)
+  return out
+}
+
+/** Per-path grouped count, summed — exact for a single path (no cross-path overlap). */
+async function sumCounts(
   root: ModelCtor<any>,
   opts: KeyedQueryOptions<any>,
   keys: unknown[]
@@ -153,6 +167,44 @@ async function computeCounts(
     }
   }
   return totals
+}
+
+/** Deduped pk-set per key — the count(DISTINCT) substrate for overlapping paths.
+ *  Pulls only `(fk, pk)` pairs, not full rows; a row a key matches via two paths lands
+ *  in the same Set once. */
+async function gatherIds(
+  root: ModelCtor<any>,
+  opts: KeyedQueryOptions<any>,
+  keys: unknown[]
+): Promise<Map<unknown, Set<unknown>>> {
+  const rootDef = getModelDefinitionOrThrow(root)
+  const pkCol = rootDef.primaryKey?.columnName ?? 'id'
+  const byKey = new Map<unknown, Set<unknown>>()
+  const bucket = (k: unknown) => {
+    let s = byKey.get(k)
+    if (!s) byKey.set(k, (s = new Set()))
+    return s
+  }
+  for (const p of opts.paths) {
+    if ('column' in p) {
+      const col = columnFor(rootDef, p.column).columnName
+      for (const [k, ids] of await baseOf(root, opts).groupedIdsByFk(col, pkCol, keys)) {
+        const s = bucket(k)
+        for (const id of ids) s.add(id)
+      }
+    } else {
+      const {viaByKey, allVia} = await gatherLinks(opts, p, keys)
+      if (allVia.size > 0) {
+        const toCol = columnFor(rootDef, p.to).columnName
+        const idsByVia = await baseOf(root, opts).groupedIdsByFk(toCol, pkCol, [...allVia])
+        for (const [keyVal, vias] of viaByKey) {
+          const s = bucket(keyVal)
+          for (const via of vias) for (const id of idsByVia.get(via) ?? []) s.add(id)
+        }
+      }
+    }
+  }
+  return byKey
 }
 
 /** `load` for the rows realm: per-key rows over the paths, deduped by pk. */

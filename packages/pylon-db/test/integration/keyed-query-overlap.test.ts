@@ -1,13 +1,9 @@
 /**
- * Demonstrates the UNION-DISTINCT gap. The engine's count() sums per-path grouped
- * counts, which is correct only for DISJOINT paths. Here one task matches team T via
+ * Overlapping-paths correctness (the count-DISTINCT case). One task matches team T via
  * BOTH paths at once — directly (task.teamId = T) AND through its owner's membership
- * (owner ∈ T). The direct path counts it once, the through path counts it again →
- * sum = 2, but there is only ONE distinct open task for T.
- *
- * `.all()` dedups by pk, so it correctly returns 1 — only `.count()` (and sum) is wrong.
- * The `it()` asserting the correct count(=1) FAILS today; it'll pass once count uses
- * `count(DISTINCT id)` over the UNION.
+ * (owner ∈ T). A naive per-path sum would count it twice; the engine dedups by pk
+ * (multi-path count gathers deduped id-sets — §7.4), so count() = 1, matching
+ * .all().length. This pins the fix for the former UNION-DISTINCT gap.
  */
 import {beforeAll, describe, expect, it} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
@@ -105,21 +101,20 @@ describe.skipIf(!runDb)('keyed-query — overlapping paths (UNION-DISTINCT gap)'
     })
   })
 
-  it('count() OVER-COUNTS overlapping paths — currently returns 2, not 1', async () => {
+  it('count() dedups overlapping paths — one distinct match, not 2', async () => {
     await runAsSystem(async () => {
-      // Documents the current (wrong) behaviour: direct(1) + through(1) summed.
       const n = await OTask.objects.filter(markedWhere(team)).count()
-      expect(n).toBe(2)
+      expect(n).toBe(1) // direct + through match the same task → counted ONCE
     })
   })
 
-  // KNOWN GAP: count() should equal the distinct match (1), but disjoint-sum returns 2.
-  // `it.fails` = expected-to-fail; it will start FAILING (i.e. flag) the day count()
-  // uses `count(DISTINCT id)` over the UNION — the cue to convert this to a normal it().
-  it.fails('count() SHOULD equal the distinct match (1) — pending UNION-DISTINCT', async () => {
+  it('count() agrees with .all().length under overlap', async () => {
     await runAsSystem(async () => {
-      const n = await OTask.objects.filter(markedWhere(team)).count()
-      expect(n).toBe(1)
+      const [n, rows] = await Promise.all([
+        OTask.objects.filter(markedWhere(team)).count(),
+        OTask.objects.filter(markedWhere(team)).all()
+      ])
+      expect(n).toBe(rows.length)
     })
   })
 })

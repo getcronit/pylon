@@ -912,6 +912,38 @@ export class QuerySet<T extends object> {
     return out
   }
 
+  /**
+   * Lightweight `(fk, pk)` pairs: `SELECT fk, pk WHERE fk IN (values) AND <predicates>`,
+   * grouped `fkValue → pk[]` (absent = []). The count(DISTINCT) substrate for keyed
+   * counts over MULTIPLE paths — dedup the pk sets in memory (a row a key matches via
+   * two paths appears once), without pulling full rows. Same scope via `applyWhere`.
+   */
+  async groupedIdsByFk(
+    fkColumn: string,
+    pkColumn: string,
+    values: readonly unknown[]
+  ): Promise<Map<unknown, unknown[]>> {
+    const out = new Map<unknown, unknown[]>()
+    if (values.length === 0) return out
+    const db = getDatabase()
+    let q: any = db.kysely
+      .selectFrom(this.def.tableName)
+      .select((eb: ExpressionBuilder<any, any>) => [
+        eb.ref(fkColumn).as('k'),
+        eb.ref(pkColumn).as('id')
+      ])
+      .where(fkColumn as any, 'in', values as any)
+    q = this.applyWhere(q)
+    const rows = await q.execute()
+    for (const r of rows) {
+      const k = (r as any).k
+      const list = out.get(k) ?? []
+      list.push((r as any).id)
+      out.set(k, list)
+    }
+    return out
+  }
+
   /** Delete every row matching the current filter. Returns the count deleted. */
   async delete(): Promise<number> {
     const db = getDatabase()
