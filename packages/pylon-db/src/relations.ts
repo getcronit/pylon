@@ -19,6 +19,8 @@ import {
   type WhereInput
 } from './manager.js'
 import {appContextKey} from './app-context.js'
+import {batchLoad, createRealm} from './batch-loader.js'
+import {keyedQuery} from './keyed-query.js'
 import {getModelDefinitionOrThrow, type ModelDefinition} from './registry.js'
 import {parseSearchQuery} from './query-parser.js'
 
@@ -74,116 +76,47 @@ export function asPaginated<T extends object, M extends Paginatable<T>>(
   }) as unknown as M
 }
 
-interface Waiter<R> {
-  resolve: (value: R | null) => void
-  reject: (error: unknown) => void
-}
-
-interface Batch {
-  tableName: string
-  pkColumn: string
-  target: ModelCtor<any>
-  /** FK value → waiters requesting the related row for that value. */
-  waiters: Map<unknown, Waiter<any>[]>
-  scheduled: boolean
-}
-
 /**
- * Per-REQUEST, per-target batches. Many `belongsTo` accesses in the same
- * microtask collapse into a single `WHERE pk IN (...)` query — the N+1
- * elimination seam, working underneath the GraphQL array resolution path. Keyed
- * by the ambient app-context (not the connection): the connection is shared
- * across concurrent requests, but each request has its own context — so two
- * requests with different principals never share a batch (and thus never mix
- * each other's row-level policy).
+ * Load a single related instance by foreign-key value, batched per microtask: many
+ * `belongsTo` accesses in one tick collapse to a single `WHERE pk IN (…)`. Re-applies
+ * the target's READ policy + TENANT scope (traversal can't surface a row you couldn't
+ * query directly, incl. one in another tenant). Coalescing via the shared batch-loader.
  */
-const belongsToBatches = new WeakMap<object, Map<string, Batch>>()
+const belongsToRealm = createRealm<unknown, any>()
 
-/** Load a single related instance by foreign-key value, batched per microtask. */
 export function loadBelongsTo<R extends object>(
   target: ModelCtor<R>,
   fkValue: unknown
 ): Promise<R | null> {
-  const db = getDatabase()
   const def = getModelDefinitionOrThrow(target)
   const pk = def.primaryKey
   if (!pk) {
-    throw new Error(
-      `Cannot resolve relation: "${def.tableName}" has no primary key.`
-    )
+    throw new Error(`Cannot resolve relation: "${def.tableName}" has no primary key.`)
   }
-
-  const ctxKey = appContextKey()
-  const token = `${def.tableName}.${pk.columnName}`
-  let perCtx = belongsToBatches.get(ctxKey)
-  if (!perCtx) {
-    perCtx = new Map()
-    belongsToBatches.set(ctxKey, perCtx)
-  }
-  let batch = perCtx.get(token)
-  if (!batch) {
-    batch = {
-      tableName: def.tableName,
-      pkColumn: pk.columnName,
-      target,
-      waiters: new Map(),
-      scheduled: false
-    }
-    perCtx.set(token, batch)
-  }
-
-  const b = batch
-  return new Promise<R | null>((resolve, reject) => {
-    const list = b.waiters.get(fkValue) ?? []
-    list.push({resolve, reject})
-    b.waiters.set(fkValue, list)
-    if (!b.scheduled) {
-      b.scheduled = true
-      queueMicrotask(() => {
-        void flush(db, ctxKey, token)
-      })
-    }
-  })
-}
-
-async function flush(db: Database, ctxKey: object, token: string): Promise<void> {
-  const perCtx = belongsToBatches.get(ctxKey)
-  const batch = perCtx?.get(token)
-  if (!perCtx || !batch) return
-  // Drop the batch before awaiting so accesses on the next tick start fresh.
-  perCtx.delete(token)
-
-  const targetDef = getModelDefinitionOrThrow(batch.target)
-  const keys = [...batch.waiters.keys()]
-  try {
-    // A relation read re-applies the target's READ policy AND its TENANT scope —
-    // traversal can't surface a row you couldn't have queried directly (incl. one
-    // in another tenant).
-    const rows = await applyTenantWhere(
-      applyPolicyWhere(
-        db.kysely
-          .selectFrom(batch.tableName)
-          .select(selectableColumns(targetDef))
-          .where(batch.pkColumn as any, 'in', keys as any),
-        targetDef,
-        'read'
-      ),
-      targetDef
-    ).execute()
-
-    const byKey = new Map<unknown, any>()
-    for (const row of rows) byKey.set((row as any)[batch.pkColumn], row)
-
-    for (const [key, waiters] of batch.waiters) {
-      const row = byKey.get(key)
-      const instance = row ? hydrate(batch.target, row) : null
-      for (const w of waiters) w.resolve(instance)
-    }
-  } catch (err) {
-    for (const waiters of batch.waiters.values()) {
-      for (const w of waiters) w.reject(err)
-    }
-  }
+  const pkCol = pk.columnName
+  return batchLoad<unknown, R | null>(
+    belongsToRealm,
+    `${def.tableName}.${pkCol}`,
+    fkValue,
+    async keys => {
+      const db = getDatabase()
+      const rows = await applyTenantWhere(
+        applyPolicyWhere(
+          db.kysely
+            .selectFrom(def.tableName)
+            .select(selectableColumns(def))
+            .where(pkCol as any, 'in', keys as any),
+          def,
+          'read'
+        ),
+        def
+      ).execute()
+      const byKey = new Map<unknown, R>()
+      for (const row of rows) byKey.set((row as any)[pkCol], hydrate(target, row))
+      return byKey
+    },
+    () => null
+  )
 }
 
 /** A resolved relation default ordering: column name + direction. */
@@ -192,61 +125,46 @@ export interface RelationOrder {
   dir: 'asc' | 'desc'
 }
 
-interface HasManyBatch {
-  childTable: string
-  fkColumn: string
-  child: ModelCtor<any>
-  /** Default ordering for this relation's batched query, if declared. */
-  order?: RelationOrder
-  /** Parent PK value → waiters wanting that parent's children. */
-  waiters: Map<unknown, Array<{resolve: (rows: any[]) => void; reject: (e: unknown) => void}>>
-  scheduled: boolean
-}
+// Load a parent's `hasMany` children by FK value, batched per microtask: many
+// `parent.children.all()` accesses in one tick collapse into a single `WHERE fk IN
+// (…)` with a global ORDER BY, grouped back by FK (each parent's list inherits the
+// order). Re-scoped by the child's READ policy + TENANT. Coalescing via the shared
+// batch-loader; the order is part of the token so different orderings don't mix.
+const hasManyRealm = createRealm<unknown, any[]>()
 
-// Per-REQUEST, per-(childTable.fkColumn) batches: many `parent.children.all()`
-// accesses in one microtask collapse into a single `WHERE fk IN (…)` and are
-// grouped back by FK. The read-side twin of the belongsTo batcher — it makes a
-// nested list field (`authors { posts { … } }`) resolve in one query per level
-// instead of one per parent. Keyed by the ambient app-context (see belongsTo)
-// so concurrent requests never share a batch.
-const hasManyBatches = new WeakMap<object, Map<string, HasManyBatch>>()
-
-/** Load a parent's `hasMany` children by FK value, batched per microtask. */
 function loadHasMany<T extends object>(
   child: ModelCtor<T>,
   fkColumn: string,
   parentValue: unknown,
   order?: RelationOrder
 ): Promise<T[]> {
-  const db = getDatabase()
   const def = getModelDefinitionOrThrow(child)
-  const ctxKey = appContextKey()
-  // The order is part of the batch identity: two relations to the same child via
-  // the same FK but different default orderings must not collapse into one query.
   const token = order
     ? `${def.tableName}.${fkColumn}#${order.column} ${order.dir}`
     : `${def.tableName}.${fkColumn}`
-  let perCtx = hasManyBatches.get(ctxKey)
-  if (!perCtx) {
-    perCtx = new Map()
-    hasManyBatches.set(ctxKey, perCtx)
-  }
-  let batch = perCtx.get(token)
-  if (!batch) {
-    batch = {childTable: def.tableName, fkColumn, child, order, waiters: new Map(), scheduled: false}
-    perCtx.set(token, batch)
-  }
-
-  const b = batch
-  return new Promise<T[]>((resolve, reject) => {
-    const list = b.waiters.get(parentValue) ?? []
-    list.push({resolve, reject})
-    b.waiters.set(parentValue, list)
-    if (!b.scheduled) {
-      b.scheduled = true
-      queueMicrotask(() => void flushHasMany(db, ctxKey, token))
-    }
-  })
+  return batchLoad<unknown, T[]>(
+    hasManyRealm,
+    token,
+    parentValue,
+    async keys => {
+      const db = getDatabase()
+      let query = db.kysely
+        .selectFrom(def.tableName)
+        .select(selectableColumns(def))
+        .where(fkColumn as any, 'in', keys as any)
+      if (order) query = query.orderBy(order.column as any, order.dir)
+      const rows = await applyTenantWhere(applyPolicyWhere(query, def, 'read'), def).execute()
+      const byKey = new Map<unknown, T[]>()
+      for (const row of rows) {
+        const k = (row as any)[fkColumn]
+        const list = byKey.get(k) ?? []
+        list.push(hydrate(child, row))
+        byKey.set(k, list)
+      }
+      return byKey
+    },
+    () => []
+  )
 }
 
 /**
@@ -262,162 +180,47 @@ export function loadHasOne<T extends object>(
   return loadHasMany(child, fkColumn, parentValue).then(rows => (rows[0] as T) ?? null)
 }
 
-async function flushHasMany(db: Database, ctxKey: object, token: string): Promise<void> {
-  const perCtx = hasManyBatches.get(ctxKey)
-  const batch = perCtx?.get(token)
-  if (!perCtx || !batch) return
-  perCtx.delete(token)
-
-  const childDef = getModelDefinitionOrThrow(batch.child)
-  const keys = [...batch.waiters.keys()]
-  try {
-    // Children are re-scoped by the child model's READ policy AND its TENANT scope
-    // (a relation read is scoped exactly like a direct query — no cross-tenant leak).
-    let query = db.kysely
-      .selectFrom(batch.childTable)
-      .select(selectableColumns(childDef))
-      .where(batch.fkColumn as any, 'in', keys as any)
-    // One global ORDER BY over the batched rows: grouping by FK below iterates in
-    // result order, so each parent's list inherits this ordering (no per-parent
-    // query needed). The batch token keys on the order, so groups never mix.
-    if (batch.order) {
-      query = query.orderBy(batch.order.column as any, batch.order.dir)
-    }
-    const rows = await applyTenantWhere(
-      applyPolicyWhere(query, childDef, 'read'),
-      childDef
-    ).execute()
-
-    // Group rows by their FK value → each parent gets its own list.
-    const byKey = new Map<unknown, any[]>()
-    for (const row of rows) {
-      const k = (row as any)[batch.fkColumn]
-      const list = byKey.get(k) ?? []
-      list.push(row)
-      byKey.set(k, list)
-    }
-
-    for (const [key, waiters] of batch.waiters) {
-      const instances = (byKey.get(key) ?? []).map(r => hydrate(batch.child, r))
-      for (const w of waiters) w.resolve(instances)
-    }
-  } catch (err) {
-    for (const waiters of batch.waiters.values()) {
-      for (const w of waiters) w.reject(err)
-    }
-  }
-}
-
-// ── Batched relation counts ─────────────────────────────────────────────────
-// The aggregate twin of the hasMany batcher: N parents doing
-// `children[.filter(P)].count()` in one microtask collapse into a single
-// `SELECT fk, count(*) WHERE fk IN (…) AND P GROUP BY fk`. Keyed on the child
-// table + fk column + the (canonicalised) predicate P + scope, so only callers
-// with the SAME predicate share a batch. A predicate-free `.count()` is the P = ∅
-// case. Per-parent orderBy/limit (top-N) is NOT covered — that needs a window
-// function; count/exists/existence don't.
-interface CountBatch {
-  child: ModelCtor<any>
-  fkColumn: string
-  where: WhereInput<any>[]
-  unscoped: boolean
-  waiters: Map<unknown, Array<{resolve: (n: number) => void; reject: (e: unknown) => void}>>
-  scheduled: boolean
-}
-const countBatches = new WeakMap<object, Map<string, CountBatch>>()
-
-// Stable serialisation of the predicate list for the batch token (object keys
-// sorted, so equivalent filters share a batch; a mismatch only costs a missed
-// coalesce, never correctness).
-function canonicalWhere(where: WhereInput<any>[]): string {
-  const norm = (v: any): any =>
-    v && typeof v === 'object' && !Array.isArray(v)
-      ? Object.fromEntries(Object.keys(v).sort().map(k => [k, norm(v[k])]))
-      : v
-  return JSON.stringify(where.map(norm))
-}
-
-/** Enqueue a batched relation count; resolves with THIS parent's count. */
-function batchedRelationCount<T extends object>(
-  child: ModelCtor<T>,
-  fkColumn: string,
-  fkValue: unknown,
-  where: WhereInput<T>[],
-  unscoped: boolean
-): Promise<number> {
-  const def = getModelDefinitionOrThrow(child)
-  const ctxKey = appContextKey()
-  const token = `${def.tableName}.${fkColumn}${unscoped ? '!u' : ''}?${canonicalWhere(where)}`
-  let perCtx = countBatches.get(ctxKey)
-  if (!perCtx) {
-    perCtx = new Map()
-    countBatches.set(ctxKey, perCtx)
-  }
-  let batch = perCtx.get(token)
-  if (!batch) {
-    batch = {child, fkColumn, where, unscoped, waiters: new Map(), scheduled: false}
-    perCtx.set(token, batch)
-  }
-  const b = batch
-  return new Promise<number>((resolve, reject) => {
-    const list = b.waiters.get(fkValue) ?? []
-    list.push({resolve, reject})
-    b.waiters.set(fkValue, list)
-    if (!b.scheduled) {
-      b.scheduled = true
-      queueMicrotask(() => void flushCountBatch(ctxKey, token))
-    }
-  })
-}
-
-async function flushCountBatch(ctxKey: object, token: string): Promise<void> {
-  const perCtx = countBatches.get(ctxKey)
-  const batch = perCtx?.get(token)
-  if (!perCtx || !batch) return
-  perCtx.delete(token)
-  const keys = [...batch.waiters.keys()]
-  try {
-    let qs = new QuerySet(batch.child)
-    for (const w of batch.where) qs = qs.filter(w)
-    if (batch.unscoped) qs = qs.unscoped()
-    const counts = await qs.groupedCountByFk(batch.fkColumn, keys)
-    for (const [key, waiters] of batch.waiters) {
-      const n = counts.get(key) ?? 0
-      for (const w of waiters) w.resolve(n)
-    }
-  } catch (err) {
-    for (const waiters of batch.waiters.values()) {
-      for (const w of waiters) w.reject(err)
-    }
-  }
-}
-
 // A relation-derived filtered query (from `parent.children.filter(P)`). Extends
-// QuerySet so every op (all/first/update/delete/search/…) behaves exactly as
-// before; ONLY count()/exists() are overridden to BATCH across parents. A further
-// `.filter()` chains via the inherited QuerySet (un-batched) — the single-filter
-// case, which is the common one, is what batches.
+// QuerySet so every op (all/first/update/delete/search/…) behaves exactly as before;
+// ONLY count()/exists() are overridden to BATCH across parents — routed through the
+// keyed-query engine as one column path (the FK) + the shared predicate P, so the
+// relation count-batcher is just the engine's simplest case. A further `.filter()`
+// chains via the inherited QuerySet (un-batched); single-filter is the common case.
 export class RelatedQuerySet<T extends object> extends QuerySet<T> {
   constructor(
     private readonly relChild: ModelCtor<T>,
-    fkProperty: string,
-    private readonly relFkColumn: string,
+    private readonly relFkProperty: string,
+    _relFkColumn: string, // retained for the constructor shape; count routes by property
     private readonly relFkValue: unknown,
     private readonly relWhere: WhereInput<T>[]
   ) {
     super(relChild, {
-      where: [{[fkProperty]: relFkValue} as WhereInput<T>, ...relWhere],
+      where: [{[relFkProperty]: relFkValue} as WhereInput<T>, ...relWhere],
       raw: [],
       orderBy: []
     })
   }
 
+  private keyed() {
+    const where =
+      this.relWhere.length === 0
+        ? undefined
+        : this.relWhere.length === 1
+          ? this.relWhere[0]
+          : ({AND: this.relWhere} as WhereInput<T>)
+    return keyedQuery(this.relChild, {
+      key: this.relFkValue,
+      where,
+      paths: [{column: this.relFkProperty as keyof T & string}]
+    })
+  }
+
   count(): Promise<number> {
-    return batchedRelationCount(this.relChild, this.relFkColumn, this.relFkValue, this.relWhere, false)
+    return this.keyed().count()
   }
 
   exists(): Promise<boolean> {
-    return this.count().then(n => n > 0)
+    return this.keyed().exists()
   }
 }
 
@@ -508,8 +311,12 @@ export class RelatedManager<T extends object> {
   }
 
   count(): Promise<number> {
-    // Batched across parents (P = ∅). `.filter(P).count()` batches with the predicate.
-    return batchedRelationCount(this.ctor, this.fkColumn, this.fkValue, [], false)
+    // The relation count-batcher is the engine's simplest case: one column path (the
+    // FK), no shared predicate. `.filter(P).count()` (RelatedQuerySet) adds P.
+    return keyedQuery(this.ctor, {
+      key: this.fkValue,
+      paths: [{column: this.fkProperty as keyof T & string}]
+    }).count()
   }
 
   /**
