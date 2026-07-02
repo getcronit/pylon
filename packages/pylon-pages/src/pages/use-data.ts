@@ -59,12 +59,18 @@ export function useData<TResult>(
   variables?: () => Record<string, unknown>,
   options?: UseDataOptions
 ): TResult & {$refetch: () => void}
+// Authoring form with options (e.g. `useData({ tags: ['post'] })`): the analyzer
+// rewrites it to `useData(doc, thunk, options)`, preserving this object as the 3rd
+// (options) arg. Placed AFTER the `doc` overload: an options LITERAL isn't assignable
+// to TypedDoc (which requires id/body/name), so it falls through to here, while a
+// real doc variable still matches the `doc` overload and keeps its TResult inference.
+export function useData(options: UseDataOptions): Data
 export function useData(
-  doc?: TypedDoc<any, any>,
+  doc?: TypedDoc<any, any> | UseDataOptions,
   variables?: () => Record<string, unknown>,
   options?: UseDataOptions
 ): any {
-  const data = useQueryDoc(doc, variables, options)
+  const data = useQueryDoc(doc as TypedDoc<any, any> | undefined, variables, options)
   useTagRefetch(options?.tags, () => (data as any)?.$refetch?.())
   return data
 }
