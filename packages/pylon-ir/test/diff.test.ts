@@ -5,6 +5,7 @@ import {
   makeMigration,
   physicalSchemaOf,
   renameCandidates,
+  tableRenameCandidates,
   renderChanges,
   tableSpecOf,
   type Entity
@@ -392,6 +393,34 @@ describe('migration engine — renameTable (authoring-only)', () => {
     expect(Object.keys(after)).toEqual(['ProductAttribute'])
     expect(after.ProductAttribute.name).toBe('ProductAttribute')
     expect(after.ProductAttribute.table).toBe('products_product_attribute')
+  })
+})
+
+describe('migration engine — table rename detection + collapse', () => {
+  const before = physicalSchemaOf(
+    entity('Attribute', [idField, field('handle', col({name: 'handle', sqlType: 'text'}))])
+  )
+  const after = physicalSchemaOf(
+    entity('ProductAttribute', [idField, field('handle', col({name: 'handle', sqlType: 'text'}))])
+  )
+
+  it('the plain diff sees drop + create (never infers a rename)', () => {
+    expect(diffSchema(before, after).map(c => c.kind).sort()).toEqual(['createTable', 'dropTable'])
+  })
+
+  it('flags a drop+create with identical columns as a table-rename candidate', () => {
+    expect(tableRenameCandidates(diffSchema(before, after))).toEqual([
+      {from: 'Attribute', to: 'ProductAttribute'}
+    ])
+  })
+
+  it('a tableRenames hint collapses drop+create into a single renameTable', () => {
+    const changes = diffSchema(before, after, {tableRenames: [{from: 'Attribute', to: 'ProductAttribute'}]})
+    expect(changes.map(c => c.kind)).toEqual(['renameTable'])
+    expect(renderChanges(changes).up).toEqual([
+      'ALTER TABLE "attribute" RENAME TO "productattribute"'
+    ])
+    expect(tableRenameCandidates(changes)).toEqual([]) // no leftover drop+create
   })
 })
 

@@ -82,6 +82,8 @@ export interface DbCommandOptions {
   out?: string
   /** `diff`: confirmed renames (drop+add → renameColumn, data-preserving). */
   renames?: Array<{table: string; from: string; to: string}>
+  /** `diff`: confirmed TABLE renames (drop+create → renameTable, data-preserving). */
+  tableRenames?: Array<{from: string; to: string}>
   /** Entry that imports the models (default `./src/index.ts`). */
   models?: string
   /** Migrations directory (default `./migrations`). */
@@ -102,6 +104,8 @@ export interface DbCommandResult {
   destructive?: boolean
   /** `diff`: possible renames not confirmed via --rename (data-loss warning). */
   renameCandidates?: Array<{table: string; from: string; to: string}>
+  /** `diff`: possible TABLE renames not confirmed via --rename-table (data-loss warning). */
+  tableRenameCandidates?: Array<{from: string; to: string}>
   applied?: string[]
   /** `rollback`: reversed migration names. */
   rolledBack?: string[]
@@ -181,18 +185,30 @@ export async function runDbCommand(
         }
         const group = groups.find(g => g.name === options.app)
         if (!group) throw new Error(`Unknown app "${options.app}".`)
-        const made = await orm.generateGroup(group, options.name ?? 'migration', loadMigrationFile)
-        return {command: 'diff', created: made?.name ?? null, destructive: false, renameCandidates: []}
+        const made = await orm.generateGroup(group, options.name ?? 'migration', loadMigrationFile, {
+          renames: options.renames,
+          tableRenames: options.tableRenames
+        })
+        const groupDestructive = (made?.changes as SchemaChange[] | undefined)?.some(isDestructive)
+        return {
+          command: 'diff',
+          created: made?.name ?? null,
+          destructive: groupDestructive ?? false,
+          renameCandidates: made?.renameCandidates ?? [],
+          tableRenameCandidates: made?.tableRenameCandidates ?? []
+        }
       }
       const created = await runner.generate(options.name ?? 'migration', loadMigrationFile, {
-        renames: options.renames
+        renames: options.renames,
+        tableRenames: options.tableRenames
       })
       const destructive = (created?.changes as SchemaChange[] | undefined)?.some(isDestructive)
       return {
         command: 'diff',
         created: created?.name ?? null,
         destructive: destructive ?? false,
-        renameCandidates: created?.renameCandidates ?? []
+        renameCandidates: created?.renameCandidates ?? [],
+        tableRenameCandidates: created?.tableRenameCandidates ?? []
       }
     }
     case 'plan': {

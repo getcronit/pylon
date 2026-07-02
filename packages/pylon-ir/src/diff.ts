@@ -280,11 +280,45 @@ export interface Rename {
   to: string
 }
 
+/** A table rename hint (`from`/`to` are the IR keys — model names). */
+export interface TableRename {
+  from: string
+  to: string
+}
+
 export function diffSchema(
   prev: PhysicalSchema,
   next: PhysicalSchema,
-  opts: {renames?: Rename[]} = {}
+  opts: {renames?: Rename[]; tableRenames?: TableRename[]} = {}
 ): SchemaChange[] {
+  const renameTables: SchemaChange[] = []
+
+  // Apply table-rename hints FIRST: remap prev[from] → prev[to] so the normal
+  // column/FK/index diffs treat it as the SAME table (emitting the rename + the
+  // dependent-object name reconciliation in one pass, data-preserving). The entry's
+  // physical `.table` — and its nested FK/index `.table` — move to the NEW table so
+  // their drops target the renamed table; NAMES stay old so they diff to the model's
+  // derived names (safe drop/recreate). Renamed COLUMNS still surface as drop+add and
+  // need their own `renames` hint to stay data-preserving.
+  if (opts.tableRenames?.length) {
+    prev = {...prev}
+    for (const {from, to} of opts.tableRenames) {
+      const src = prev[from]
+      const dst = next[to]
+      if (!src || !dst || prev[to]) continue
+      const toTable = dst.table
+      delete prev[from]
+      prev[to] = {
+        ...src,
+        name: to,
+        table: toTable,
+        foreignKeys: (src.foreignKeys ?? []).map(fk => ({...fk, table: toTable})),
+        indexes: (src.indexes ?? []).map(ix => ({...ix, table: toTable}))
+      }
+      renameTables.push({kind: 'renameTable', from, to, fromTable: src.table, toTable})
+    }
+  }
+
   const creates: SchemaChange[] = []
   const cols: SchemaChange[] = []
   const fkDrops: SchemaChange[] = []
@@ -388,7 +422,7 @@ export function diffSchema(
   // Order: create tables → column changes → drop FKs/indexes → add FKs/indexes
   // → drop tables. Guarantees a constraint/index's columns exist before it's
   // added, and that it's dropped before its table; `down` inverts this cleanly.
-  return [...creates, ...cols, ...fkDrops, ...indexDrops, ...fkAdds, ...indexAdds, ...drops]
+  return [...renameTables, ...creates, ...cols, ...fkDrops, ...indexDrops, ...fkAdds, ...indexAdds, ...drops]
 }
 
 /** Diff two IR entity maps (convenience wrapper over `diffSchema`). */
@@ -427,6 +461,31 @@ export function renameCandidates(changes: SchemaChange[]): Rename[] {
         used.add(a)
         out.push({table, from: d.name, to: a.name})
       }
+    }
+  }
+  return out
+}
+
+/**
+ * Heuristic TABLE rename detection: a `dropTable` + `createTable` whose column-name
+ * sets are identical is almost certainly a rename (the diff otherwise destroys the
+ * whole table's data). Returned so tooling can warn / prompt; pass confirmed ones
+ * back via `diffSchema`'s `tableRenames`. Conservative — an exact column-name match
+ * avoids false positives; a rename that also renamed a column needs a manual hint.
+ */
+export function tableRenameCandidates(changes: SchemaChange[]): TableRename[] {
+  const drops = changes.flatMap(c => (c.kind === 'dropTable' ? [c.spec] : []))
+  const creates = changes.flatMap(c => (c.kind === 'createTable' ? [c.spec] : []))
+  const cols = (spec: {columns: {name: string}[]}) =>
+    spec.columns.map(c => c.name).sort().join(',')
+  const out: TableRename[] = []
+  const used = new Set<string>()
+  for (const d of drops) {
+    const sig = cols(d)
+    const c = creates.find(x => !used.has(x.name) && cols(x) === sig)
+    if (c) {
+      used.add(c.name)
+      out.push({from: d.name, to: c.name})
     }
   }
   return out

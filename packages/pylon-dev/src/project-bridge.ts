@@ -138,8 +138,17 @@ export interface ProjectApp {
     group: GroupLike,
     name: string,
     load: (filePath: string) => Promise<unknown>,
-    opts?: {now?: () => string}
-  ): Promise<{name: string} | null>
+    opts?: {
+      now?: () => string
+      renames?: Array<{table: string; from: string; to: string}>
+      tableRenames?: Array<{from: string; to: string}>
+    }
+  ): Promise<{
+    name: string
+    changes: unknown[]
+    renameCandidates: Array<{table: string; from: string; to: string}>
+    tableRenameCandidates: Array<{from: string; to: string}>
+  } | null>
   migrateGroups(
     groups: GroupLike[],
     load: (filePath: string) => Promise<unknown>,

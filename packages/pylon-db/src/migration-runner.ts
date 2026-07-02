@@ -25,10 +25,12 @@ import {
   diffSchema,
   physicalSchemaOf,
   renameCandidates,
+  tableRenameCandidates,
   renderChanges,
   type Entity,
   type PhysicalSchema,
   type Rename,
+  type TableRename,
   type SchemaChange
 } from '@getcronit/pylon-ir'
 import {databaseForKysely, getDatabase, type Database} from './database.js'
@@ -51,6 +53,8 @@ export interface GeneratedMigration {
   unsupported: string[]
   /** Drop+add pairs that look like renames — surfaced so the CLI can warn. */
   renameCandidates: Rename[]
+  /** Drop+create table pairs (matching columns) that look like table renames. */
+  tableRenameCandidates: TableRename[]
 }
 
 /** Loads a migration file into its module (the CLI provides a TS transpiler). */
@@ -205,11 +209,14 @@ export class MigrationRunner {
   async generate(
     name: string,
     load: MigrationLoader,
-    opts: {renames?: Rename[]} = {}
+    opts: {renames?: Rename[]; tableRenames?: TableRename[]} = {}
   ): Promise<GeneratedMigration | null> {
     const prev = await this.foldHistory(load)
     const next = this.currentPhysical()
-    const changes = diffSchema(prev, next, {renames: opts.renames})
+    const changes = diffSchema(prev, next, {
+      renames: opts.renames,
+      tableRenames: opts.tableRenames
+    })
     if (changes.length === 0) return null
 
     const {unsupported} = renderChanges(changes)
@@ -220,7 +227,13 @@ export class MigrationRunner {
       this.filePath(migrationName),
       fileTemplate(changes, unsupported, dependencies)
     )
-    return {name: migrationName, changes, unsupported, renameCandidates: renameCandidates(changes)}
+    return {
+      name: migrationName,
+      changes,
+      unsupported,
+      renameCandidates: renameCandidates(changes),
+      tableRenameCandidates: tableRenameCandidates(changes)
+    }
   }
 
   /**
@@ -252,7 +265,7 @@ export class MigrationRunner {
       this.filePath(migrationName),
       fileTemplate(changes, unsupported, [])
     )
-    return {name: migrationName, changes, unsupported, renameCandidates: []}
+    return {name: migrationName, changes, unsupported, renameCandidates: [], tableRenameCandidates: []}
   }
 
   /** Uncaptured changes (baseline vs current) + which migrations are unapplied. */

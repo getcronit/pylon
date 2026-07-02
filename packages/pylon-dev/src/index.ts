@@ -265,7 +265,11 @@ db.command('diff')
   .option('-a, --app <name>', 'Generate for a specific app (apps mode)')
   .option(
     '--rename <spec...>',
-    'Treat a drop+add as a rename, e.g. --rename table.old=table.new'
+    'Treat a drop+add column as a rename, e.g. --rename table.old=table.new'
+  )
+  .option(
+    '--rename-table <spec...>',
+    'Treat a drop+create table as a rename, e.g. --rename-table Old=New (model names)'
   )
   .action(async (name, options) => {
     try {
@@ -277,16 +281,29 @@ db.command('diff')
           throw new Error(`Invalid --rename "${spec}" (expected table.old=table.new)`)
         return {table, from, to}
       })
-      const {created, destructive, renameCandidates} = await runDbCommand({
+      const tableRenames = ((options.renameTable as string[]) ?? []).map(spec => {
+        const [from, to] = spec.split('=')
+        if (!from || !to)
+          throw new Error(`Invalid --rename-table "${spec}" (expected Old=New)`)
+        return {from, to}
+      })
+      const {created, destructive, renameCandidates, tableRenameCandidates} = await runDbCommand({
         command: 'diff',
         name,
         app: options.app,
         models: options.models,
         dir: options.dir,
-        renames
+        renames,
+        tableRenames
       })
       if (created) {
         consola.success(`Created migration ${created}`)
+        for (const r of tableRenameCandidates ?? [])
+          consola.warn(
+            `Possible table rename ${r.from} → ${r.to} was emitted as drop+create ` +
+              `(destroys the table's data). If it's a rename, regenerate with ` +
+              `--rename-table ${r.from}=${r.to}`
+          )
         for (const r of renameCandidates ?? [])
           consola.warn(
             `Possible rename ${r.table}.${r.from} → ${r.table}.${r.to} was emitted as ` +

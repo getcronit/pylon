@@ -153,9 +153,16 @@ export function generateGroup(
   group: MigrationGroup,
   name: string,
   load: MigrationLoader,
-  opts: {renames?: GeneratedMigration['renameCandidates']; now?: () => string} = {}
+  opts: {
+    renames?: GeneratedMigration['renameCandidates']
+    tableRenames?: GeneratedMigration['tableRenameCandidates']
+    now?: () => string
+  } = {}
 ): Promise<GeneratedMigration | null> {
-  return groupRunner(group, {now: opts.now}).generate(name, load, {renames: opts.renames})
+  return groupRunner(group, {now: opts.now}).generate(name, load, {
+    renames: opts.renames,
+    tableRenames: opts.tableRenames
+  })
 }
 
 export interface GroupApplyResult {

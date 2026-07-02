@@ -34,6 +34,7 @@ export {
   renderChanges,
   applyChanges,
   isDestructive,
-  renameCandidates
+  renameCandidates,
+  tableRenameCandidates
 } from './diff.js'
-export type {SchemaChange, Migration, Rename} from './diff.js'
+export type {SchemaChange, Migration, Rename, TableRename} from './diff.js'
