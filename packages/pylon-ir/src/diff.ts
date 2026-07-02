@@ -45,6 +45,13 @@ export type SchemaChange =
   // Rename is authoring-only — the diff can't infer it (it sees drop+add), but
   // a hand-written migration can express it (and it preserves the column data).
   | {kind: 'renameColumn'; table: string; from: string; to: string}
+  // Table rename — also authoring-only. `from`/`to` are the IR keys (model names,
+  // how the snapshot is keyed); `fromTable`/`toTable` are the physical table names
+  // (what the SQL renames). A class rename changes BOTH, so both are carried: the
+  // SQL renames the physical table, the snapshot re-keys + updates `.table`. Nested
+  // index/FK names (which embed the old table) are left as-is — a follow-up diff
+  // reconciles them via safe drop/recreate.
+  | {kind: 'renameTable'; from: string; to: string; fromTable: string; toTable: string}
 
 export interface Migration {
   changes: SchemaChange[]
@@ -543,6 +550,8 @@ function up(change: SchemaChange, unsupported: string[]): string[] {
       return [dropIndexSQL(change.index)]
     case 'renameColumn':
       return [`ALTER TABLE "${change.table}" RENAME COLUMN "${change.from}" TO "${change.to}"`]
+    case 'renameTable':
+      return [`ALTER TABLE "${change.fromTable}" RENAME TO "${change.toTable}"`]
   }
 }
 
@@ -568,6 +577,8 @@ function down(change: SchemaChange, unsupported: string[]): string[] {
       return addIndexSQL(change.index)
     case 'renameColumn':
       return [`ALTER TABLE "${change.table}" RENAME COLUMN "${change.to}" TO "${change.from}"`]
+    case 'renameTable':
+      return [`ALTER TABLE "${change.toTable}" RENAME TO "${change.fromTable}"`]
   }
 }
 
@@ -647,6 +658,26 @@ export function applyChanges(
                 : x
             )
           })
+        break
+      }
+      case 'renameTable': {
+        // Re-key from the old model name to the new one and update the physical
+        // `table` — on the entry AND its nested indexes/FKs (Postgres keeps those
+        // attached to the renamed table under their OLD names). We keep the old
+        // NAMES so a follow-up diff reconciles them to the model's derived names via
+        // a safe drop/recreate; but the `.table` must point at the new physical name
+        // so that drop targets an existing table.
+        const t = next[c.from]
+        if (t) {
+          delete next[c.from]
+          next[c.to] = {
+            ...t,
+            name: c.to,
+            table: c.toTable,
+            indexes: (t.indexes ?? []).map(ix => ({...ix, table: c.toTable})),
+            foreignKeys: (t.foreignKeys ?? []).map(fk => ({...fk, table: c.toTable}))
+          }
+        }
         break
       }
       case 'addForeignKey': {

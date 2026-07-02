@@ -369,6 +369,32 @@ describe('migration engine — renameColumn (authoring-only, never inferred)', (
   })
 })
 
+describe('migration engine — renameTable (authoring-only)', () => {
+  const change = {
+    kind: 'renameTable' as const,
+    from: 'Attribute',
+    to: 'ProductAttribute',
+    fromTable: 'products_attribute',
+    toTable: 'products_product_attribute'
+  }
+
+  it('renders ALTER TABLE … RENAME TO (reversible)', () => {
+    const {up, down} = renderChanges([change])
+    expect(up).toEqual(['ALTER TABLE "products_attribute" RENAME TO "products_product_attribute"'])
+    expect(down).toEqual(['ALTER TABLE "products_product_attribute" RENAME TO "products_attribute"'])
+  })
+
+  it('re-keys the snapshot by model name and updates the physical table', () => {
+    const before = {
+      Attribute: {name: 'Attribute', table: 'products_attribute', columns: [], foreignKeys: [], indexes: []}
+    } as any
+    const after = applyChanges(before, [change])
+    expect(Object.keys(after)).toEqual(['ProductAttribute'])
+    expect(after.ProductAttribute.name).toBe('ProductAttribute')
+    expect(after.ProductAttribute.table).toBe('products_product_attribute')
+  })
+})
+
 describe('many-to-many join tables', () => {
   const m2mField = (name: string, target: string, through?: string) => ({
     name,
