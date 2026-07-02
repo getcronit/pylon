@@ -38,9 +38,17 @@ const isInlineObject = (v: unknown): v is Record<string, unknown> =>
  *   - absent in `incoming` → keep `existing` (don't drop)
  *   - both inline objects (e.g. a connection `{nodes, totalCount}`) → recurse,
  *     so a `{totalCount}`-only write can't clobber a sibling op's `nodes`
+ *   - both non-empty lists where `incoming`'s elements are all id-less inline
+ *     objects but `existing` holds refs → keep `existing`. A narrower op that reads
+ *     only e.g. `list.length` selects the list WITHOUT its elements' `id`, so its
+ *     elements can't normalize to refs — they arrive as `{__typename}`-only inline
+ *     objects. Letting those replace a wider op's `[ref, …]` is the partial-read
+ *     clobber (the reader then sees `undefined` for every element field). This is
+ *     NOT a real update: a genuine list refetch selects `id`, so it carries refs
+ *     and still wins (add/remove/reorder), as does an empty list (cleared).
  *   - otherwise (scalar / array / ref / null / type change) → `incoming` wins
- * Arrays and refs replace wholesale, so a refetch stays authoritative for a list
- * (added/removed nodes) and for which entity a relation points at.
+ * Arrays and refs otherwise replace wholesale, so a refetch stays authoritative for
+ * a list (added/removed nodes) and for which entity a relation points at.
  */
 export function mergeEntityFields(
   existing: Record<string, unknown> | undefined,
@@ -52,9 +60,30 @@ export function mergeEntityFields(
     const b = incoming[k]
     if (b === undefined) continue // never let an undefined erase a loaded field
     const a = out[k]
-    out[k] = isInlineObject(a) && isInlineObject(b) ? mergeEntityFields(a, b) : b
+    if (isInlineObject(a) && isInlineObject(b)) {
+      out[k] = mergeEntityFields(a, b)
+    } else if (isUnderSelectedList(a, b)) {
+      // keep `a` (the ref-bearing list); `b` is an under-selection artifact
+    } else {
+      out[k] = b
+    }
   }
   return out
+}
+
+/**
+ * True when `incoming` would clobber a ref-bearing list with a non-empty list of
+ * purely id-less objects — the partial-read case above. Empty `incoming` (a genuine
+ * clear) and any `incoming` carrying a ref (a genuine refetch) return false.
+ */
+function isUnderSelectedList(existing: unknown, incoming: unknown): boolean {
+  return (
+    Array.isArray(existing) &&
+    Array.isArray(incoming) &&
+    incoming.length > 0 &&
+    incoming.every(isInlineObject) && // no refs, no scalars → all id-less objects
+    existing.some(isRef) // we'd be dropping identified rows
+  )
 }
 
 export class Store {
