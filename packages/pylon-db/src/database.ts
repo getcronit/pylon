@@ -16,12 +16,29 @@ export interface DatabaseOptions {
   poolConfig?: PoolConfig
 }
 
+/** Run one after-commit callback with its error isolated + logged. The transaction
+ *  has already committed, so a failing hook must NEVER throw back into the caller
+ *  (that would masquerade as a write failure). Logged unconditionally — a swallowed
+ *  post-commit exception the operator can't see is worse than a log line. */
+async function runAfterCommit(cb: () => void | Promise<unknown>): Promise<void> {
+  try {
+    await cb()
+  } catch (err) {
+    console.error(
+      '[pylon-db] after-commit handler failed (transaction already committed):',
+      err instanceof Error ? (err.stack ?? err.message) : err
+    )
+  }
+}
+
 export class Database {
   readonly kysely: Kysely<any>
   /** True when this Database is bound to a transaction (not a pool). */
   readonly transactional: boolean = false
   private readonly pool: Pool
   private _queryCount = 0
+  /** Callbacks registered via `onCommit`, drained after the OUTERMOST commit. */
+  private _afterCommit?: Array<() => void | Promise<unknown>>
 
   constructor(options: DatabaseOptions = {}) {
     this.pool =
@@ -78,7 +95,44 @@ export class Database {
    */
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
     if (this.transactional) return this.run(fn) // already in a txn → join it
-    return this.kysely.transaction().execute(trx => databaseForKysely(trx).run(fn))
+    let txDb: Database | undefined
+    const result = await this.kysely.transaction().execute(trx => {
+      txDb = databaseForKysely(trx)
+      return txDb.run(fn)
+    })
+    // `execute()` resolves ONLY on COMMIT (it throws on rollback), so any callbacks
+    // registered via `onCommit` during `fn` now run — outside the transaction, on
+    // the committed data. On rollback we never reach here, so they're dropped.
+    if (txDb) await txDb.flushAfterCommit()
+    return result
+  }
+
+  /**
+   * Register `cb` to run AFTER the current transaction commits, OUTSIDE it. For side
+   * effects that must not run on rollback and must never veto or break the write:
+   * realtime pokes, cache invalidation, webhooks, external notifications. Errors are
+   * isolated — a committed transaction cannot be undone, so the hook can't fail the
+   * write. Reentrancy-safe: nested `transaction()`/`saveInstance` calls JOIN the
+   * outer txn, so their `onCommit`s all fire together after the OUTER commit.
+   *
+   * With no transaction open, the ambient write has already autocommitted (each
+   * statement is its own txn), so `cb` runs on the next microtask — still "after the
+   * write is durable".
+   */
+  onCommit(cb: () => void | Promise<unknown>): void {
+    if (this.transactional) {
+      ;(this._afterCommit ??= []).push(cb)
+    } else {
+      void runAfterCommit(cb)
+    }
+  }
+
+  /** Drain + run the after-commit queue in registration order (outermost only). */
+  private async flushAfterCommit(): Promise<void> {
+    const cbs = this._afterCommit
+    if (!cbs || cbs.length === 0) return
+    this._afterCommit = undefined
+    for (const cb of cbs) await runAfterCommit(cb)
   }
 
   async destroy(): Promise<void> {
@@ -130,6 +184,17 @@ export function inTransaction(): boolean {
  */
 export function transaction<T>(fn: () => Promise<T>): Promise<T> {
   return getDatabase().transaction(fn)
+}
+
+/**
+ * Run `cb` after the ambient transaction commits (see `Database.onCommit`) — the
+ * Django `transaction.on_commit` analogue. Free-function sugar so app + signal code
+ * needn't reach for the `Database` handle:
+ *
+ *   onCommit(() => publishChange({orgId, table}))  // fire a realtime poke post-commit
+ */
+export function onCommit(cb: () => void | Promise<unknown>): void {
+  getDatabase().onCommit(cb)
 }
 
 /**

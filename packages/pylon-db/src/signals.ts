@@ -17,10 +17,18 @@
  * audit row) commit or roll back atomically, and it can read the ambient
  * tenant/context for the actor.
  *
+ * For side effects that must run only AFTER the write is durable — and must not be
+ * able to roll it back — connect with `{afterCommit: true}`; the receiver is deferred
+ * (via `onCommit`) until the transaction commits, and its errors are isolated:
+ *
+ *   signals.postSave.connect(({instances}) => publishChange(...), {afterCommit: true})
+ *
  * Like Django, set-based `QuerySet.update()/.delete()` do NOT fire signals — they
  * never load instances. Bulk instance ops (`createMany`, relation `.set()`) DO,
  * unless called with `{signals: false}` (raw seed/import throughput).
  */
+
+import {onCommit} from './database.js'
 
 export interface SaveSignalPayload<T = unknown> {
   /** The rows written (1-element for a single create/save). */
@@ -42,35 +50,74 @@ export interface DeleteSignalPayload<T = unknown> {
 type Receiver<P> = (payload: P) => void | Promise<unknown>
 type ModelCtor<T> = {new (): T}
 
+export interface ConnectOptions {
+  /**
+   * Run the receiver AFTER the transaction commits (and OUTSIDE it) rather than
+   * inline within it. For side effects that must not run on rollback and must never
+   * veto or break the write: realtime pokes, cache invalidation, webhooks, external
+   * notifications. Errors are isolated (a committed write can't be undone); with no
+   * open transaction the write already autocommitted, so the receiver runs on the
+   * next microtask.
+   *
+   * Default (false): fire inside the transaction, so a receiver's own ORM writes
+   * (e.g. an audit row) commit or roll back atomically with the triggering write.
+   */
+  afterCommit?: boolean
+}
+
+type Entry<P> = {receiver: Receiver<P>; afterCommit: boolean}
+
 class Signal<P extends {model: Function; instances: unknown[]}> {
-  private readonly global = new Set<Receiver<P>>()
-  private readonly byModel = new Map<Function, Set<Receiver<P>>>()
+  private readonly global = new Set<Entry<P>>()
+  private readonly byModel = new Map<Function, Set<Entry<P>>>()
 
   /** Subscribe to every model. Returns a disconnect function. */
-  connect(receiver: Receiver<P>): () => void
+  connect(receiver: Receiver<P>, options?: ConnectOptions): () => void
   /** Subscribe to one model (instances are typed). Returns a disconnect function. */
   connect<T extends object>(
     model: ModelCtor<T>,
-    receiver: Receiver<Omit<P, 'instances'> & {instances: T[]}>
+    receiver: Receiver<Omit<P, 'instances'> & {instances: T[]}>,
+    options?: ConnectOptions
   ): () => void
-  connect(a: ModelCtor<any> | Receiver<P>, b?: Receiver<any>): () => void {
+  connect(
+    a: ModelCtor<any> | Receiver<P>,
+    b?: Receiver<any> | ConnectOptions,
+    c?: ConnectOptions
+  ): () => void {
     if (typeof b === 'function') {
       const model = a as ModelCtor<any>
-      const set = this.byModel.get(model) ?? new Set()
-      set.add(b as Receiver<P>)
+      const entry: Entry<P> = {
+        receiver: b as Receiver<P>,
+        afterCommit: c?.afterCommit === true
+      }
+      const set = this.byModel.get(model) ?? new Set<Entry<P>>()
+      set.add(entry)
       this.byModel.set(model, set)
-      return () => set.delete(b as Receiver<P>)
+      return () => set.delete(entry)
     }
-    const receiver = a as Receiver<P>
-    this.global.add(receiver)
-    return () => this.global.delete(receiver)
+    const entry: Entry<P> = {
+      receiver: a as Receiver<P>,
+      afterCommit: (b as ConnectOptions | undefined)?.afterCommit === true
+    }
+    this.global.add(entry)
+    return () => this.global.delete(entry)
   }
 
-  /** Internal: dispatch to model-scoped then global receivers, in order, awaited. */
+  /**
+   * Internal: dispatch to model-scoped then global receivers, in order. Inline
+   * receivers are awaited within the transaction; `afterCommit` receivers are
+   * deferred (each as its own isolated `onCommit`) until the transaction commits.
+   */
   async emit(payload: P): Promise<void> {
     if (payload.instances.length === 0) return
-    for (const r of this.byModel.get(payload.model) ?? []) await r(payload)
-    for (const r of this.global) await r(payload)
+    const entries = [
+      ...(this.byModel.get(payload.model) ?? []),
+      ...this.global
+    ]
+    for (const {receiver, afterCommit} of entries) {
+      if (afterCommit) onCommit(() => receiver(payload))
+      else await receiver(payload)
+    }
   }
 }
 

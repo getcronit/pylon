@@ -58,6 +58,7 @@ export {
   setDefaultDatabase,
   inTransaction,
   transaction,
+  onCommit,
   databaseForKysely,
   type DatabaseOptions
 } from './database.js'
@@ -123,6 +124,7 @@ export {runAsSystem} from './app-context.js'
 export {type PolicyContext, type AppPolicy} from './policies.js'
 export {
   signals,
+  type ConnectOptions,
   type SaveSignalPayload,
   type DeleteSignalPayload
 } from './signals.js'
@@ -316,6 +318,7 @@ export const db = {
   getDatabase: database.getDatabase,
   setDefaultDatabase: database.setDefaultDatabase,
   transaction: database.transaction,
+  onCommit: database.onCommit,
   Manager: managerApi.Manager,
   QuerySet: managerApi.QuerySet,
   manager,

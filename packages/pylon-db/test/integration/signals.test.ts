@@ -143,6 +143,68 @@ describe.skipIf(!runDb)('model signals (Postgres)', () => {
     expect((await Widget.objects.filter({}).count()) >= 3).toBe(true)
   })
 
+  it('afterCommit receiver fires only after the transaction commits, outside it', async () => {
+    const order: string[] = []
+    disconnects.push(signals.postSave.connect(Widget, () => order.push('inline')))
+    disconnects.push(
+      signals.postSave.connect(Widget, () => order.push('commit'), {afterCommit: true})
+    )
+    const {transaction} = await import('../../src/database')
+    await transaction(async () => {
+      await Widget.objects.create({name: 'ac1'})
+      order.push('mid') // still inside the txn, before COMMIT
+    })
+    // inline fired during the write; 'mid' before commit; the afterCommit hook last.
+    expect(order).toEqual(['inline', 'mid', 'commit'])
+  })
+
+  it('afterCommit receiver does NOT fire on rollback', async () => {
+    let fired = 0
+    disconnects.push(
+      signals.postSave.connect(Widget, () => { fired++ }, {afterCommit: true})
+    )
+    const {transaction} = await import('../../src/database')
+    await transaction(async () => {
+      await Widget.objects.create({name: 'ac2'})
+      throw new Error('boom') // roll back
+    }).catch(() => {})
+    expect(fired).toBe(0)
+    expect((await Widget.objects.filter({name: 'ac2'}).all()).length).toBe(0)
+  })
+
+  it('afterCommit runs after an autocommit write when no transaction is open', async () => {
+    const seen: string[] = []
+    disconnects.push(
+      signals.postSave.connect(
+        Widget,
+        ({instances}) => {
+          for (const w of instances) seen.push(w.name)
+        },
+        {afterCommit: true}
+      )
+    )
+    await Widget.objects.createMany([{name: 'ac3'}]) // single autocommit stmt, no txn
+    await Promise.resolve() // let the deferred microtask settle
+    await new Promise(r => setTimeout(r, 0))
+    expect(seen).toContain('ac3')
+  })
+
+  it('afterCommit receivers registered across nested saves all fire after the OUTER commit', async () => {
+    const order: string[] = []
+    disconnects.push(
+      signals.postSave.connect(Widget, ({instances}) =>
+        order.push(`commit:${instances[0].name}`), {afterCommit: true})
+    )
+    const {transaction} = await import('../../src/database')
+    await transaction(async () => {
+      await Widget.objects.create({name: 'outer'}) // saveInstance JOINS this txn
+      await Widget.objects.create({name: 'inner'})
+      order.push('body-end')
+    })
+    // both pokes deferred past the single outer commit, in registration order
+    expect(order).toEqual(['body-end', 'commit:outer', 'commit:inner'])
+  })
+
   it('createMany({signals:false}) skips lifecycle hooks', async () => {
     let fired = 0
     disconnects.push(signals.postSave.connect(Widget, () => { fired++ }))
