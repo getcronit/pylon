@@ -55,6 +55,12 @@ function defaultWorkerCommand(entry: string): string {
   return `node ${tsxCli()} ${entry}`
 }
 
+/** The app entry that, when imported, constructs your `Pylon` and registers its models. */
+const ENTRY_DEFAULT = './src/index.ts'
+/** Resolve the entry: `--entry`, else the deprecated `--models` alias, else the default. */
+const entryOf = (o: {entry?: string; models?: string}): string =>
+  o.entry ?? o.models ?? ENTRY_DEFAULT
+
 program.name('pylon-dev').description('Pylon Development CLI').version(version)
 
 program
@@ -104,12 +110,13 @@ program
 program
   .command('inspect')
   .description('Serialize the app model (schema + entities + queues + authz)')
-  .option('-m, --models <path>', 'Entry that exports the app', './src/index.ts')
+  .option('-e, --entry <path>', 'Entry that constructs your app / registers models (default ./src/index.ts)')
+  .option('-m, --models <path>', 'Deprecated alias for --entry')
   .option('--json', 'Emit the full AppModel as JSON (default)')
   .option('--sdl', 'Emit the GraphQL schema (SDL)')
   .option('--ddl', 'Emit the Postgres DDL')
-  .action(async (options: {models: string; json?: boolean; sdl?: boolean; ddl?: boolean}) => {
-    const model = await inspectApp(process.cwd(), options.models)
+  .action(async (options: {entry?: string; models?: string; json?: boolean; sdl?: boolean; ddl?: boolean}) => {
+    const model = await inspectApp(process.cwd(), entryOf(options))
     if (options.sdl) {
       process.stdout.write(appModelToSDL(model) + '\n')
     } else if (options.ddl) {
@@ -123,10 +130,11 @@ program
 program
   .command('verify')
   .description('Build + typecheck + migration check → a stratified verdict (pass/review/fail)')
-  .option('-m, --models <path>', 'Entry that exports the app', './src/index.ts')
+  .option('-e, --entry <path>', 'Entry that constructs your app / registers models (default ./src/index.ts)')
+  .option('-m, --models <path>', 'Deprecated alias for --entry')
   .option('--json', 'Emit the verdict as JSON')
-  .action(async (options: {models: string; json?: boolean}) => {
-    const result = await verifyApp(process.cwd(), options.models)
+  .action(async (options: {entry?: string; models?: string; json?: boolean}) => {
+    const result = await verifyApp(process.cwd(), entryOf(options))
     if (options.json) {
       // Lean payload for agents — verdict + checks (the AppModel is a separate call).
       process.stdout.write(JSON.stringify({verdict: result.verdict, checks: result.checks}, null, 2) + '\n')
@@ -143,14 +151,15 @@ program
 program
   .command('mcp')
   .description('Run the Pylon MCP server (stdio): describe_app / get_entity / get_operation / verify')
-  .option('-m, --models <path>', 'Entry that exports the app', './src/index.ts')
+  .option('-e, --entry <path>', 'Entry that constructs your app / registers models (default ./src/index.ts)')
+  .option('-m, --models <path>', 'Deprecated alias for --entry')
   .option('-c, --cwd <dir>', 'Project root to inspect (default: current directory)', '.')
-  .action(async (options: {models: string; cwd: string}) => {
+  .action(async (options: {entry?: string; models?: string; cwd: string}) => {
     // Directory-independent: resolve the target root so an MCP client config never
     // has to depend on the launch cwd. The spawned inspect/verify run with this root.
     const root = path.resolve(process.cwd(), options.cwd)
     // stdout is the MCP protocol stream from here on — do not write to it.
-    await startMcpServer(root, options.models)
+    await startMcpServer(root, entryOf(options))
   })
 
 program
@@ -216,13 +225,14 @@ const db = program
 
 db.command('status')
   .description('Show pending schema changes and unapplied migrations')
-  .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
+  .option('-e, --entry <path>', 'Entry that constructs your app / registers models (default ./src/index.ts)')
+  .option('-m, --models <path>', 'Deprecated alias for --entry')
   .option('-d, --dir <path>', 'Migrations directory', './migrations')
   .action(async options => {
     try {
       const {status, appsStatus, drift} = await runDbCommand({
         command: 'status',
-        models: options.models,
+        models: entryOf(options),
         dir: options.dir
       })
       if (appsStatus) {
@@ -260,7 +270,8 @@ db.command('status')
 db.command('diff')
   .description('Generate a migration from the diff between models and the migration history')
   .argument('[name]', 'Migration name', 'migration')
-  .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
+  .option('-e, --entry <path>', 'Entry that constructs your app / registers models (default ./src/index.ts)')
+  .option('-m, --models <path>', 'Deprecated alias for --entry')
   .option('-d, --dir <path>', 'Migrations directory', './migrations')
   .option('-a, --app <name>', 'Generate for a specific app (apps mode)')
   .option(
@@ -291,7 +302,7 @@ db.command('diff')
         command: 'diff',
         name,
         app: options.app,
-        models: options.models,
+        models: entryOf(options),
         dir: options.dir,
         renames,
         tableRenames
@@ -321,14 +332,15 @@ db.command('diff')
 
 db.command('plan')
   .description('Print the SQL each migration would run, without touching a database')
-  .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
+  .option('-e, --entry <path>', 'Entry that constructs your app / registers models (default ./src/index.ts)')
+  .option('-m, --models <path>', 'Deprecated alias for --entry')
   .option('-d, --dir <path>', 'Migrations directory', './migrations')
   .option('--down', 'Show the down (reverse) SQL')
   .action(async options => {
     try {
       const {plan} = await runDbCommand({
         command: 'plan',
-        models: options.models,
+        models: entryOf(options),
         dir: options.dir,
         down: options.down
       })
@@ -348,13 +360,14 @@ db.command('plan')
 
 db.command('check')
   .description('CI gate: fail on uncaptured model changes or tampered migrations')
-  .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
+  .option('-e, --entry <path>', 'Entry that constructs your app / registers models (default ./src/index.ts)')
+  .option('-m, --models <path>', 'Deprecated alias for --entry')
   .option('-d, --dir <path>', 'Migrations directory', './migrations')
   .action(async options => {
     try {
       const {check} = await runDbCommand({
         command: 'check',
-        models: options.models,
+        models: entryOf(options),
         dir: options.dir
       })
       const problems: string[] = []
@@ -385,13 +398,14 @@ db.command('check')
 
 db.command('migrate')
   .description('Apply unapplied migrations to the database (requires DATABASE_URL)')
-  .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
+  .option('-e, --entry <path>', 'Entry that constructs your app / registers models (default ./src/index.ts)')
+  .option('-m, --models <path>', 'Deprecated alias for --entry')
   .option('-d, --dir <path>', 'Migrations directory', './migrations')
   .action(async options => {
     try {
       const {applied, apps} = await runDbCommand({
         command: 'migrate',
-        models: options.models,
+        models: entryOf(options),
         dir: options.dir
       })
       if (apps) {
@@ -409,14 +423,15 @@ db.command('migrate')
 
 db.command('rollback')
   .description('Reverse the most recently applied migration(s) (requires DATABASE_URL)')
-  .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
+  .option('-e, --entry <path>', 'Entry that constructs your app / registers models (default ./src/index.ts)')
+  .option('-m, --models <path>', 'Deprecated alias for --entry')
   .option('-d, --dir <path>', 'Migrations directory', './migrations')
   .option('-s, --steps <n>', 'How many migrations to reverse', '1')
   .action(async options => {
     try {
       const {rolledBack} = await runDbCommand({
         command: 'rollback',
-        models: options.models,
+        models: entryOf(options),
         dir: options.dir,
         steps: Number.parseInt(options.steps, 10)
       })
@@ -432,7 +447,8 @@ db.command('rollback')
 db.command('resolve')
   .description('Mark a migration applied/rolled-back in the ledger without running it')
   .argument('<name>', 'Migration name')
-  .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
+  .option('-e, --entry <path>', 'Entry that constructs your app / registers models (default ./src/index.ts)')
+  .option('-m, --models <path>', 'Deprecated alias for --entry')
   .option('-d, --dir <path>', 'Migrations directory', './migrations')
   .option('--rolled-back', 'Mark as rolled-back (default: applied)')
   .action(async (name, options) => {
@@ -440,7 +456,7 @@ db.command('resolve')
       const {resolved} = await runDbCommand({
         command: 'resolve',
         name,
-        models: options.models,
+        models: entryOf(options),
         dir: options.dir,
         resolve: options.rolledBack ? 'rolled-back' : 'applied'
       })
@@ -454,11 +470,12 @@ db.command('resolve')
 db.command('seed')
   .description('Run the seed file to populate the database (requires DATABASE_URL)')
   .option('-s, --seed <path>', 'Seed file (default exports a function)', './src/seed.ts')
-  .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
+  .option('-e, --entry <path>', 'Entry that constructs your app / registers models (default ./src/index.ts)')
+  .option('-m, --models <path>', 'Deprecated alias for --entry')
   .option('-d, --dir <path>', 'Migrations directory (unused)', './migrations')
   .action(async options => {
     try {
-      await runDbCommand({command: 'seed', seed: options.seed, models: options.models})
+      await runDbCommand({command: 'seed', seed: options.seed, models: entryOf(options)})
       consola.success('Seed complete')
     } catch (error) {
       consola.error(error)
@@ -471,7 +488,8 @@ db.command('baseline')
     'Adopt an existing database: introspect it, generate model stubs + an initial migration, and mark it applied (requires DATABASE_URL)'
   )
   .argument('[name]', 'Name for the initial migration', 'baseline')
-  .option('-m, --models <path>', 'Entry that imports @getcronit/pylon-db', './src/index.ts')
+  .option('-e, --entry <path>', 'Entry that imports @getcronit/pylon-db (default ./src/index.ts)')
+  .option('-m, --models <path>', 'Deprecated alias for --entry')
   .option('-d, --dir <path>', 'Migrations directory', './migrations')
   .option('-o, --out <path>', 'Where to write generated model stubs', './src/models.generated.ts')
   .action(async (name, options) => {
@@ -479,7 +497,7 @@ db.command('baseline')
       const {baseline} = await runDbCommand({
         command: 'baseline',
         name,
-        models: options.models,
+        models: entryOf(options),
         dir: options.dir,
         out: options.out
       })
@@ -501,14 +519,15 @@ db.command('baseline')
 db.command('merge')
   .description('Reconverge divergent migration heads (after a branch merge) into a merge migration')
   .argument('[name]', 'Name for the merge migration', 'merge')
-  .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
+  .option('-e, --entry <path>', 'Entry that constructs your app / registers models (default ./src/index.ts)')
+  .option('-m, --models <path>', 'Deprecated alias for --entry')
   .option('-d, --dir <path>', 'Migrations directory', './migrations')
   .action(async (name, options) => {
     try {
       const {merged} = await runDbCommand({
         command: 'merge',
         name,
-        models: options.models,
+        models: entryOf(options),
         dir: options.dir
       })
       if (!merged) consola.info('No divergent heads — nothing to merge')
@@ -522,14 +541,15 @@ db.command('merge')
 db.command('squash')
   .description('Collapse the schema migration history into a single migration (rewrites history)')
   .argument('[name]', 'Name for the squashed migration', 'squashed')
-  .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
+  .option('-e, --entry <path>', 'Entry that constructs your app / registers models (default ./src/index.ts)')
+  .option('-m, --models <path>', 'Deprecated alias for --entry')
   .option('-d, --dir <path>', 'Migrations directory', './migrations')
   .action(async (name, options) => {
     try {
       const {squashed} = await runDbCommand({
         command: 'squash',
         name,
-        models: options.models,
+        models: entryOf(options),
         dir: options.dir
       })
       if (!squashed) consola.info('No migrations to squash')
@@ -545,13 +565,14 @@ db.command('squash')
 
 db.command('deploy')
   .description('Apply pending migrations for production (refuses on uncaptured changes / tampering)')
-  .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
+  .option('-e, --entry <path>', 'Entry that constructs your app / registers models (default ./src/index.ts)')
+  .option('-m, --models <path>', 'Deprecated alias for --entry')
   .option('-d, --dir <path>', 'Migrations directory', './migrations')
   .action(async options => {
     try {
       const {applied, apps} = await runDbCommand({
         command: 'deploy',
-        models: options.models,
+        models: entryOf(options),
         dir: options.dir
       })
       if (apps) {
@@ -571,11 +592,12 @@ db.command('deploy')
 
 db.command('push')
   .description('Sync models to the database directly, without a migration (prototyping)')
-  .option('-m, --models <path>', 'Entry that imports the models', './src/index.ts')
+  .option('-e, --entry <path>', 'Entry that constructs your app / registers models (default ./src/index.ts)')
+  .option('-m, --models <path>', 'Deprecated alias for --entry')
   .option('-d, --dir <path>', 'Migrations directory (unused)', './migrations')
   .action(async options => {
     try {
-      await runDbCommand({command: 'push', models: options.models})
+      await runDbCommand({command: 'push', models: entryOf(options)})
       consola.success('Schema pushed to the database')
     } catch (error) {
       consola.error(error)
