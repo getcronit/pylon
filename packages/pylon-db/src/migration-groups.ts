@@ -41,7 +41,8 @@ export interface MigrationGroup {
  * `models.app(name)` joins group `name`. Dependencies are INFERRED from cross-app
  * `belongsTo` FKs (a model whose FK targets another app's model ⇒ this group
  * depends on that one), unioned with any explicit `dependsOn` from
- * `models.app(name, {dependsOn})`. No `dir` (the caller/CLI resolves it).
+ * `models.app(name, {dependsOn})`. `dir` carries the app's declared `migrations`
+ * directory (colocated with the app source); the CLI resolves it to an absolute path.
  */
 export function appGroups(): MigrationGroup[] {
   const byApp = new Map<string, ModelDefinition[]>()
@@ -77,7 +78,7 @@ export function appGroups(): MigrationGroup[] {
         }
       }
     }
-    groups.push({name, models: defs.map(d => d.ctor), dependencies: [...deps]})
+    groups.push({name, models: defs.map(d => d.ctor), dependencies: [...deps], dir: getAppMeta(name)?.dir})
   }
 
   // Cross-app m2m guard: a join table synthesized by two DIFFERENT apps would be

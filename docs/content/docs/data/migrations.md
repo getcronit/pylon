@@ -59,14 +59,51 @@ pylon db deploy
 | `pylon db status` | show applied vs pending migrations |
 | `pylon db check` | fail if models have uncaptured changes — a CI gate |
 | `pylon db rollback` | reverse the last migration (`--steps <n>` for more) |
+| `pylon db resolve <name>` | mark a migration applied / `--rolled-back` in the ledger without running it (recovery) |
 | `pylon db baseline` | adopt an existing database as the starting point |
 | `pylon db seed` | run your seed file |
 | `pylon db squash` | collapse a range of migrations into one |
 | `pylon db merge` | reconcile divergent migration histories |
 
-Common flags: `-m, --models <path>` (the entry that imports your models,
-defaults to `./src/index.ts`) and `-d, --dir <path>` (the migrations directory,
-defaults to `./migrations`).
+Common flags: `-e, --entry <path>` (the entry that constructs your app and
+registers its models, defaults to `./src/index.ts`; `-m, --models` is a
+deprecated alias) and `-d, --dir <path>` (the migrations directory for a
+single-app project, defaults to `./migrations`; apps declare their own — see
+below).
+
+## Renaming columns and tables
+
+A diff can't tell a rename from a delete-and-recreate — it only sees your models.
+So by default, renaming a column or table generates a **drop + create**, which
+**destroys the column's (or table's) data**. `pylon db diff` detects the likely
+rename and warns you, printing the exact flag to regenerate with:
+
+```bash
+pylon db diff rename_email
+# ⚠ Possible rename user.email → user.login was emitted as drop+add (destroys
+#   data). If it's a rename, regenerate with --rename user.email=user.login
+```
+
+Confirm the rename and the migration is rewritten as a **data-preserving**
+`RENAME` instead:
+
+```bash
+# a column rename (table.old=table.new)
+pylon db diff rename_email --rename user.email=user.login
+
+# a table rename (model names, not table names)
+pylon db diff rename_model --rename-table Attribute=ProductAttribute
+```
+
+Both flags take multiple specs, so you can confirm several renames in one diff.
+A column-level `UNIQUE`/`CHECK` constraint whose name embeds the renamed
+column or table is renamed automatically alongside it, so the constraint stays
+in step with the model.
+
+When hand-writing a migration, the same operations are available directly:
+`migrations.renameColumn(table, from, to)`, `migrations.renameTable({from, to,
+fromTable, toTable})`, and `migrations.renameConstraint(table, from, to)` — each
+data-preserving and reversible.
 
 ## Guard CI with `check`
 
@@ -86,6 +123,10 @@ derives the groups and orders them by their dependencies (inferred from
 cross-app foreign keys, plus any explicit `dependsOn`). Each group keeps its own
 ledger.
 
+Each app **owns its migrations, colocated with its source** — there is no central
+migrations folder for apps. And it's **zero-config**: an app's migrations default
+to `<app-source-dir>/migrations`, so you don't declare anything.
+
 ```ts title="src/apps/blog/index.ts"
 import {Pylon} from '@getcronit/pylon'
 import {models, db} from '@getcronit/pylon-db'
@@ -96,9 +137,13 @@ export class Post extends models.Model {
   title = models.Text()
 }
 
-// the app's name is the migration group (and prefixes the table → blog_post)
+// the app's name is the migration group (and prefixes the table → blog_post);
+// its migrations live beside it, in src/apps/blog/migrations — no config needed
 export const blog = new Pylon({name: 'blog', db: {models: [Post]}})
 ```
+
+To put an app's migrations somewhere else, set `db.migrations` to an explicit
+path (absolute, or relative to the project root) — it overrides the default.
 
 Run a command across every app, or scope `diff` to one with `--app`:
 

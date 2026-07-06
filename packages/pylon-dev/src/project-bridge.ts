@@ -1,31 +1,29 @@
 /**
- * The project-loading bridge, shared by `pylon db`, `pylon build`, and `pylon inspect`.
+ * The project-loading bridge, shared by `pylon db`, `pylon build`, `pylon inspect`,
+ * `verify`, and `mcp`.
  *
  * A project's app — its models, queues, and the migration/IR API the CLI drives — only
- * exists after the registration code RUNS, so any consumer must EXECUTE the user's entry,
- * in the project's own module context, so constructing `export default new Pylon({db:
- * {models}, queues})` (and every app it composes) registers into the SAME
- * `@getcronit/pylon-db` / `@getcronit/pylon-queues` instances we then read.
+ * exists after the registration code RUNS, so any consumer must EXECUTE the user's entry
+ * in the project's own module context. We do that in a CHILD process (`project-runner`,
+ * run via tsx with `cwd` = the project): it imports the project's REAL modules and
+ * resolves `@getcronit/pylon-db` FROM THE PROJECT, so the models register into the same
+ * ORM instance we then read — one instance, no bundle, and `import.meta`/stack traces
+ * reflect real files (which is what makes zero-config per-app migrations possible). v3
+ * entries don't serve on import (serving is a boot-time config plugin), so no stripping.
  *
- * Critically, we do NOT import the entry as-is: that would run its top-level
- * `serve(app)` / `Deno.serve(...)` and start a server. Instead we load a side-effect-
- * stripped view of the entry — `prepareModelSource` keeps declarations + imports, drops
- * `serve()`, and re-binds `export default <app>` to an exported `__pylonEntry` — and
- * re-export the project's pylon-db API (`export * from …`) plus, when present, the
- * project's `queuesOf`. One native ESM import yields the constructed app, its models
- * (`modelsOf(__pylonEntry)`) and queues (`queuesOf(__pylonEntry)`), and the API — from a
- * single instance, no server. Runtime-agnostic (every entrypoint form is dropped).
+ * `spawnProjectRunner` is the parent-side spawn+envelope helper; introspection returns
+ * serializable data, and `pylon db` runs its whole command in the child (see db/index).
  */
-import {promises as fs} from 'node:fs'
+import {existsSync} from 'node:fs'
+import {spawn} from 'node:child_process'
+import {createRequire} from 'node:module'
 import path from 'node:path'
-import {prepareModelSource} from './builder/prepare-model-source.js'
-import {pathToFileURL} from 'node:url'
-import esbuild from 'esbuild'
+import {fileURLToPath} from 'node:url'
+import {RESULT_OPEN, RESULT_CLOSE, type RunnerEnvelope} from './project-runner-protocol.js'
 import type {PhysicalSchema, PylonIR} from '@getcronit/pylon-ir'
 
-/** The loaded project's surface the dev tooling drives: the constructed app
- *  (`__pylonEntry` + `modelsOf`/`queuesOf`) plus the pylon-db migration/IR API. Typed
- *  locally so pylon-dev needn't take a runtime dependency on the ORM or queues. */
+/** The project's pylon-db migration/IR API, as driven by `runDbCommandCore` in the
+ *  child. Typed locally so pylon-dev needn't take a runtime dependency on the ORM. */
 export interface ProjectApp {
   toIR(): PylonIR
   MigrationRunner: new (opts: {dir: string}) => {
@@ -40,11 +38,15 @@ export interface ProjectApp {
     generate(
       name: string,
       load: (filePath: string) => Promise<unknown>,
-      opts?: {renames?: Array<{table: string; from: string; to: string}>}
+      opts?: {
+        renames?: Array<{table: string; from: string; to: string}>
+        tableRenames?: Array<{from: string; to: string}>
+      }
     ): Promise<{
       name: string
       changes: unknown[]
       renameCandidates: Array<{table: string; from: string; to: string}>
+      tableRenameCandidates: Array<{from: string; to: string}>
     } | null>
     apply(load: (filePath: string) => Promise<unknown>, db?: unknown): Promise<string[]>
     rollback(
@@ -104,21 +106,6 @@ export interface ProjectApp {
     secure?: boolean
   }>
 
-  /** The project's default-exported app instance (`export default new Pylon(...)`),
-   *  re-bound by `prepareModelSource` to a named export so the loader can read it. */
-  __pylonEntry?: unknown
-  /** The model classes the app owns (walks composed children). */
-  modelsOf?(app: unknown): Array<new () => unknown>
-  /**
-   * The queue classes the app owns, read from the LOADED project's OWN pylon-queues
-   * instance (re-exported by the bundle IFF the project uses queues) so it reflects what
-   * the app's `queues: [...]` registered — a separate import would be a different
-   * singleton under pnpm's isolated node_modules. Absent if the project has no queues.
-   */
-  queuesOf?(app: unknown): Array<{
-    name: string
-    describe?(): {name: string; attempts?: number; concurrency?: number; hasSchema: boolean}
-  }>
   /**
    * Every registered queue across ALL of the project's apps (the global pylon-queues
    * registry) — the queue analogue of `allModels()`. `pylon inspect` reads this so a
@@ -177,97 +164,81 @@ export interface GroupLike {
   dir?: string
 }
 
-let counter = 0
+const requireHere = createRequire(import.meta.url)
 
-export async function loadProjectApp(
-  cwd: string,
-  modelsEntry: string
-): Promise<ProjectApp> {
-  // Strip the entry's side effects (serve etc.) before loading, so executing it
-  // registers models without starting a server. Imports inside the stripped
-  // source resolve relative to the entry's own directory.
-  const entryAbs = path.resolve(cwd, modelsEntry)
-  const entrySource = await fs.readFile(entryAbs, 'utf8')
-  const stripped = prepareModelSource(entrySource, path.basename(entryAbs))
+/** Absolute path to tsx's CLI (from pylon-dev's own deps), used to run the child. */
+function tsxCliPath(): string {
+  const pkgPath = requireHere.resolve('tsx/package.json')
+  const pkg = requireHere(pkgPath) as {bin: string | {tsx: string}}
+  const bin = typeof pkg.bin === 'string' ? pkg.bin : pkg.bin.tsx
+  return path.join(path.dirname(pkgPath), bin)
+}
 
-  // Constructor-only registration: importing the (stripped) entry constructs
-  // `export default new Pylon({db: {models}, queues})` — and every app it composes —
-  // which registers all models/queues into the registry. The entry's import graph
-  // reaches every registered class, so there's no whole-tree discovery to do.
-  //
-  // If the project uses pylon-queues, re-export its registry from THIS bundle so
-  // `inspect` reads the same instance the constructor registered into (pnpm isolates
-  // package instances, so a separate import would see an empty registry). Detect by the
-  // entry importing it (the common case), with a manifest fallback for an entry that
-  // imports it only transitively (a composed app does, the root entry doesn't). Guard
-  // either way — re-exporting an absent package would fail the whole IR load. Read the
-  // project's `package.json` rather than `require.resolve` — the package is ESM-only and
-  // its `exports` map blocks both a bare and a `package.json`-subpath CJS resolve, so a
-  // resolve probe is a false negative.
-  let usesQueues = entrySource.includes('@getcronit/pylon-queues')
-  if (!usesQueues) {
-    try {
-      const manifest = JSON.parse(await fs.readFile(path.join(cwd, 'package.json'), 'utf8'))
-      const deps = {
-        ...manifest.dependencies,
-        ...manifest.devDependencies,
-        ...manifest.peerDependencies
-      }
-      usesQueues = Boolean(deps['@getcronit/pylon-queues'])
-    } catch {
-      /* no manifest / not a dependency */
-    }
-  }
-  const queuesReexport = usesQueues
-    ? `export {queuesOf, registeredQueues} from '@getcronit/pylon-queues'\n`
-    : ''
-
-  // Unique temp name per call so a watch-mode re-import re-runs the models
-  // (a fixed name would be cached by the ESM loader → stale registry).
-  const tmp = path.join(cwd, `.pylon-orm-entry.${process.pid}.${counter++}.mjs`)
-  await esbuild.build({
-    stdin: {
-      contents: `${stripped}\nexport * from '@getcronit/pylon-db'\n${queuesReexport}`,
-      resolveDir: path.dirname(entryAbs),
-      loader: 'ts',
-      sourcefile: 'pylon-orm-entry.ts'
-    },
-    outfile: tmp,
-    bundle: true,
-    platform: 'node',
-    format: 'esm',
-    packages: 'external',
-    logLevel: 'silent',
-    tsconfigRaw: {
-      compilerOptions: {
-        experimentalDecorators: true,
-        useDefineForClassFields: false
-      }
-    }
-  })
-
-  try {
-    return (await import(/* @vite-ignore */ pathToFileURL(tmp).href)) as unknown as ProjectApp
-  } finally {
-    await fs.rm(tmp, {force: true})
-  }
+/** The runner file beside this module: `.js` in the built dist, `.ts` in dev/test. */
+function projectRunnerPath(): string {
+  const dir = path.dirname(fileURLToPath(import.meta.url))
+  const js = path.join(dir, 'project-runner.js')
+  return existsSync(js) ? js : path.join(dir, 'project-runner.ts')
 }
 
 /**
- * Best-effort: the ORM's entity IR for a project, or `undefined` if the project
- * doesn't use the ORM (pylon-orm not resolvable, no models, or load failure).
- * Used by `pylon build` to feed `SchemaBuilder.build({contributeIR})`.
+ * Run the project runner as a tsx child (cwd = the project), so it loads the
+ * project's REAL modules in the project's own context, and return its JSON
+ * envelope. This is the bundle-free successor to `loadProjectApp` — one ORM
+ * instance by project-scoped resolution, and `import.meta`/stacks reflect real
+ * files. `op` selects the operation (`introspect`, later `db`, …).
  */
-export async function loadAppContribution(
+export async function spawnProjectRunner<T = unknown>(
+  cwd: string,
+  op: string,
+  modelsEntry: string,
+  extraArgs: string[] = []
+): Promise<T> {
+  const child = spawn(
+    process.execPath,
+    [tsxCliPath(), projectRunnerPath(), op, cwd, modelsEntry, ...extraArgs],
+    {cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe']}
+  )
+  let out = ''
+  let err = ''
+  child.stdout.on('data', d => (out += d))
+  child.stderr.on('data', d => (err += d))
+
+  const code: number = await new Promise((resolve, reject) => {
+    child.on('error', reject)
+    child.on('close', c => resolve(c ?? 0))
+  })
+
+  const start = out.indexOf(RESULT_OPEN)
+  const end = out.indexOf(RESULT_CLOSE, start + RESULT_OPEN.length)
+  if (start === -1 || end === -1) {
+    throw new Error(
+      `project runner produced no result (exit ${code}).\n${err || out}`.trim()
+    )
+  }
+  const envelope = JSON.parse(out.slice(start + RESULT_OPEN.length, end)) as RunnerEnvelope<T>
+  if (!envelope.ok) throw new Error(envelope.error ?? 'project runner failed')
+  return envelope.result as T
+}
+
+/** The serializable ORM-derived data the AppModel is assembled from (parent-side). */
+export interface IntrospectData {
+  ir: PylonIR | null
+  authz: Array<{model: string; table: string; app?: string; tenant?: string; secure: boolean}>
+  queues: Array<{name: string; attempts?: number; concurrency?: number; hasSchema: boolean}>
+}
+
+/** Introspect a project via the child runner → its IR + authz + queues. */
+export function introspectAppData(cwd: string, modelsEntry: string): Promise<IntrospectData> {
+  return spawnProjectRunner<IntrospectData>(cwd, 'introspect', modelsEntry)
+}
+
+/** Introspect a project via the child runner → its entity IR (or undefined). */
+export async function introspectViaRunner(
   cwd: string,
   modelsEntry: string
 ): Promise<PylonIR | undefined> {
-  try {
-    const orm = await loadProjectApp(cwd, modelsEntry)
-    if (typeof orm.toIR !== 'function') return undefined
-    const ir = orm.toIR()
-    return Object.keys(ir.entities).length > 0 ? ir : undefined
-  } catch {
-    return undefined
-  }
+  const {ir} = await introspectAppData(cwd, modelsEntry)
+  return ir && Object.keys(ir.entities).length > 0 ? ir : undefined
 }
+

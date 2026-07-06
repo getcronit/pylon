@@ -13,7 +13,7 @@ import path from 'node:path'
 import {pathToFileURL} from 'node:url'
 import esbuild from 'esbuild'
 import {isDestructive, type SchemaChange} from '@getcronit/pylon-ir'
-import {loadProjectApp} from '../project-bridge.js'
+import {spawnProjectRunner, type ProjectApp} from '../project-bridge.js'
 
 let migrationCounter = 0
 
@@ -134,14 +134,31 @@ export interface DbCommandResult {
   baseline?: {migration: string | null; modelsFile: string; tables: number}
 }
 
-export async function runDbCommand(
+/**
+ * Run a `pylon db` command. Executes in a CHILD process (the project runner) so it
+ * drives the project's OWN `@getcronit/pylon-db` — one instance, real migration
+ * files, real `import.meta`. The parent stays the UX layer: it gets the plain
+ * `DbCommandResult` back and formats it (see the CLI actions). See
+ * PROJECT_LOADER_DESIGN.md.
+ */
+export async function runDbCommand(options: DbCommandOptions): Promise<DbCommandResult> {
+  const cwd = options.cwd ?? process.cwd()
+  const entry = options.models ?? './src/index.ts'
+  return spawnProjectRunner<DbCommandResult>(cwd, 'db', entry, [JSON.stringify({...options, cwd})])
+}
+
+/**
+ * The command logic, driven against an already-resolved project ORM. Runs INSIDE
+ * the child (via `project-runner`), where the models are registered and the ORM is
+ * the project's own instance.
+ */
+export async function runDbCommandCore(
+  orm: ProjectApp,
   options: DbCommandOptions
 ): Promise<DbCommandResult> {
   const cwd = options.cwd ?? process.cwd()
-  const modelsEntry = path.resolve(cwd, options.models ?? './src/index.ts')
   const dir = path.resolve(cwd, options.dir ?? './migrations')
 
-  const orm = await loadProjectApp(cwd, modelsEntry)
   const runner = new orm.MigrationRunner({dir})
   const loadMigrationFile = createMigrationLoader(cwd)
 
@@ -151,10 +168,19 @@ export async function runDbCommand(
   const derived = typeof orm.appGroups === 'function' ? orm.appGroups() : []
   const groups =
     derived.length > 0
-      ? derived.map(g => ({
-          ...g,
-          dir: g.dir ? path.resolve(cwd, g.dir) : path.join(dir, g.name)
-        }))
+      ? derived.map(g => {
+          // Each app owns its migrations, colocated with its source (default
+          // `<app-source-dir>/migrations`) — no central folder. `g.dir` is unset only
+          // when core couldn't capture the app's source location; set it explicitly.
+          if (!g.dir) {
+            throw new Error(
+              `App "${g.name}" migrations directory couldn't be determined. ` +
+                `Set it explicitly:\n` +
+                `  new Pylon({name: '${g.name}', db: {models: […], migrations: 'src/apps/${g.name}/migrations'}})`
+            )
+          }
+          return {...g, dir: path.isAbsolute(g.dir) ? g.dir : path.resolve(cwd, g.dir)}
+        })
       : null
 
   switch (options.command) {

@@ -8,7 +8,7 @@
  */
 import {describe, it, expect} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
-import {models, db, toIR, getModelDefinition, getModelDefinitionOrThrow} from '../src/index'
+import {models, db, toIR, getModelDefinition, getModelDefinitionOrThrow, appGroups} from '../src/index'
 import {modelsOf} from '../src/app'
 import {hydrate} from '../src/manager'
 import type {Relation} from '../src/index'
@@ -120,5 +120,28 @@ describe('cross-bundle lookup — duplicate class copies resolve by name', () =>
     expect(inst).toBeInstanceOf(Author) // the REGISTERED class, not the blank copy
     expect(inst.id).toBe('a1')
     expect(inst.name).toBe('Ada') // values actually landed (would be undefined on a copy)
+  })
+})
+
+describe("an app's migrations directory (colocated with its source)", () => {
+  it('appGroups carries the app-declared `migrations` dir', () => {
+    class MigDirWidget extends models.Model {
+      static objects = db.manager(MigDirWidget)
+      id = models.ID()
+    }
+    new Pylon({name: 'migdir', db: {models: [MigDirWidget], migrations: 'src/apps/migdir/migrations'}})
+    const group = appGroups().find(g => g.name === 'migdir')
+    expect(group?.dir).toBe('src/apps/migdir/migrations')
+  })
+
+  it('a named app without `migrations` defaults its dir to <source-dir>/migrations', () => {
+    class NoDirWidget extends models.Model {
+      static objects = db.manager(NoDirWidget)
+      id = models.ID()
+    }
+    // No `migrations` declared → zero-config default from the construction call site
+    // (core captures `app.sourceDir`; here that's this test file's directory).
+    new Pylon({name: 'nodir', db: {models: [NoDirWidget]}})
+    expect(appGroups().find(g => g.name === 'nodir')?.dir).toMatch(/[/\\]migrations$/)
   })
 })

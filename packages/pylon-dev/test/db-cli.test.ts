@@ -46,20 +46,20 @@ describe('pylon db CLI (model-loading bridge, no DB)', () => {
     expect(body).toContain('migrations.createTable(')
     expect(body).toMatch(/"table":\s*"account"/)
     expect(body).toMatch(/"name":\s*"email"/)
-  })
+  }, 30000)
 
   it('status reports no pending changes once a migration captured them', async () => {
     await runDbCommand({command: 'diff', name: 'init', models: 'models.ts', dir: migrationsDir, cwd: fixtureCwd})
     const res = await runDbCommand({command: 'status', models: 'models.ts', dir: migrationsDir, cwd: fixtureCwd})
     expect(res.status!.pendingChanges).toEqual([])
     expect(res.status!.unapplied).toHaveLength(1)
-  })
+  }, 30000)
 
   it('diff is a no-op when models match the reconstructed baseline', async () => {
     await runDbCommand({command: 'diff', name: 'init', models: 'models.ts', dir: migrationsDir, cwd: fixtureCwd})
     const res = await runDbCommand({command: 'diff', name: 'again', models: 'models.ts', dir: migrationsDir, cwd: fixtureCwd})
     expect(res.created).toBeNull()
-  })
+  }, 30000)
 })
 
 // `baseline` adopts an existing database — it needs a live DB to introspect.

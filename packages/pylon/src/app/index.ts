@@ -5,6 +5,8 @@ import {compress} from 'hono/compress'
 import {HTTPException} from 'hono/http-exception'
 import {logger} from 'hono/logger'
 import type {ContentfulStatusCode} from 'hono/utils/http-status'
+import path from 'node:path'
+import {fileURLToPath} from 'node:url'
 import {asyncContext, Env} from '../context'
 import type {PylonConfig} from '../index'
 
@@ -95,6 +97,32 @@ function gateResolvers<R extends Resolvers>(resolvers: R, gate: Gate): R {
  * Pylons don't share global mutable state. The default export `app` is one instance,
  * kept for back-compat — the generated entry + every existing plugin target it today.
  */
+/**
+ * Absolute directory of the source file that CALLED `new Pylon()` — the first stack
+ * frame outside the constructor. Reads real frames, so it needs the constructing file
+ * to run unbundled (the project runner guarantees this; the legacy bundle loader would
+ * report the bundle temp file). Returns undefined if capture is unsupported.
+ */
+function callerSourceDir(): string | undefined {
+  const prep = Error.prepareStackTrace
+  try {
+    Error.prepareStackTrace = (_, frames) => frames as unknown as string
+    const holder: {stack?: unknown} = {}
+    Error.captureStackTrace(holder, Pylon) // drop frames at/above the Pylon constructor
+    const frames = (holder.stack ?? []) as Array<{getFileName(): string | null | undefined}>
+    for (const f of frames) {
+      const file = f.getFileName()
+      if (!file || file.startsWith('node:')) continue
+      return path.dirname(file.startsWith('file:') ? fileURLToPath(file) : file)
+    }
+  } catch {
+    /* capture unsupported → undefined; explicit `db.migrations` still works */
+  } finally {
+    Error.prepareStackTrace = prep
+  }
+  return undefined
+}
+
 export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
   /** The resolved config for this instance (set by `executeConfig`). */
   config?: PylonConfig
@@ -188,6 +216,16 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
    */
   readonly routePrefix?: string
 
+  /**
+   * Absolute directory of the SOURCE FILE that constructed this Pylon (captured from
+   * the call stack). Generic and satellite-free — core only stores it. Satellites use
+   * it to colocate per-app artifacts with the app's source: `pylon-db` defaults an
+   * app's migrations to `<sourceDir>/migrations`. `undefined` if the call site can't
+   * be determined. Requires the constructing file to run as itself (not bundled) —
+   * which the project runner guarantees.
+   */
+  readonly sourceDir?: string
+
   constructor()
   // `{graphql: G}` leads (graphql REQUIRED) so the checker still infers `G` from the
   // argument — an optional `graphql?` here silently dropped the schema. `& PylonOptions`
@@ -198,6 +236,7 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
   constructor(opts?: PylonOptions<G>) {
     super()
 
+    this.sourceDir = callerSourceDir()
     this.pylonOptions = opts ?? {}
     this.name = opts?.name
     this.gate = opts?.gate

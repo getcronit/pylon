@@ -23,4 +23,5 @@ export class Purchase extends models.Model {
 }
 
 // The shop app — depends on blog (the cross-app FK Purchase.buyerId → blog_author).
+// Zero-config: migrations default to src/apps/shop/migrations.
 export const shop = new Pylon({name: 'shop', db: {models: [Product, Purchase]}})

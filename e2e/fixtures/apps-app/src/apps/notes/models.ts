@@ -19,6 +19,7 @@ export class Note extends models.Model {
   shared = models.Boolean({default: false})
 }
 
+// Zero-config: migrations default to src/apps/notes/migrations.
 export const notes = new Pylon({name: 'notes', db: {models: [Note]}})
 
 // Row-level policy (the policy system — distinct from abilities) stays as-is.

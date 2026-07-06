@@ -164,16 +164,22 @@ const pendingRelations = new WeakMap<
 >()
 const models = new Map<Function, ModelDefinition>()
 
-/** App-level metadata declared via `models.app(name, {dependsOn})`. */
+/** App-level metadata declared via `models.app(name, {dependsOn, migrations})`. */
 export interface AppMeta {
   dependsOn?: string[]
+  /** This app's migrations directory — colocated with the app's source. Absolute,
+   *  or resolved by the CLI relative to the project root. */
+  dir?: string
 }
 const appMeta = new Map<string, AppMeta>()
 
 /** Record (or merge) an app's metadata — called by `models.app(name, opts)`. */
 export function recordApp(name: string, meta: AppMeta = {}): void {
   const prev = appMeta.get(name) ?? {}
-  appMeta.set(name, {dependsOn: [...(prev.dependsOn ?? []), ...(meta.dependsOn ?? [])]})
+  appMeta.set(name, {
+    dependsOn: [...(prev.dependsOn ?? []), ...(meta.dependsOn ?? [])],
+    dir: meta.dir ?? prev.dir
+  })
 }
 
 /** Declared metadata for an app, if any. */

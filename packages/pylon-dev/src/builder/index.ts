@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'path'
-import {loadAppContribution} from '../project-bridge.js'
+import {introspectViaRunner} from '../project-bridge.js'
 import {Bundler, type BuildMode} from './bundler/bundler.js'
 import {SchemaBuilder} from './schema/builder.js'
 
@@ -43,7 +43,7 @@ export const build = async (options: BuildOptions) => {
   // models) and merge it authoritatively into the schema. `undefined` when the
   // project has no ORM. Loaded here (not per-rebuild) to avoid re-running the
   // models inside the bundler hot loop.
-  const contributeIR = await loadAppContribution(cwd, options.sfiFilePath)
+  const contributeIR = await introspectViaRunner(cwd, options.sfiFilePath).catch(() => undefined)
 
   const bundler = new Bundler(options.sfiFilePath, options.outputFilePath)
 

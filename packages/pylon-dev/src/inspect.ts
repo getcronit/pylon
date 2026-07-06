@@ -12,7 +12,7 @@
  */
 import path from 'node:path'
 import {toDDL, tableSpecOf, toSDL, type PylonIR} from '@getcronit/pylon-ir'
-import {loadProjectApp} from './project-bridge.js'
+import {introspectAppData} from './project-bridge.js'
 import {SchemaBuilder} from './builder/schema/builder.js'
 
 /** Per-model authorization + persistence shape (Tier 2). Rule bodies stay runtime. */
@@ -51,37 +51,20 @@ export async function inspectApp(
   cwd: string,
   modelsEntry = './src/index.ts'
 ): Promise<AppModel> {
-  // Loading the project constructs its app (`new Pylon({db: {models}, queues})`),
-  // populating the ORM + queue registries we read below.
-  const orm = await loadProjectApp(cwd, modelsEntry)
+  // Load the project in a child process (its real modules, project context), which
+  // constructs the app and returns the serializable ORM-derived data: the entity IR,
+  // per-model authz/tenant shape (the ORM registry), and declared queues (the
+  // project's pylon-queues, if any). See PROJECT_LOADER_DESIGN.md.
+  const {ir: ormIR, authz: rawAuthz, queues: rawQueues} = await introspectAppData(cwd, modelsEntry)
 
-  const ormIR = typeof orm.toIR === 'function' ? orm.toIR() : undefined
   const contributeIR =
     ormIR && Object.keys(ormIR.entities).length > 0 ? ormIR : undefined
 
   const entryAbs = path.resolve(cwd, modelsEntry)
   const {ir} = new SchemaBuilder(entryAbs).build({contributeIR})
 
-  const authz: AuthzInfo[] = (orm.allModels?.() ?? [])
-    .filter(m => !m.abstract)
-    .map(m => ({
-      model: m.ctor.name,
-      table: m.tableName,
-      app: m.app,
-      tenant: m.tenantColumn,
-      secure: Boolean(m.secure)
-    }))
-    .sort((a, b) => a.model.localeCompare(b.model))
-
-  // Queues come from the project's OWN pylon-queues instance (re-exported by the
-  // bundle, so it's the same singleton the constructor registered into). We read the
-  // GLOBAL registry (`registeredQueues()`), the queue analogue of `allModels()`,
-  // rather than `queuesOf(entry)` — a COMPOSED project registers its queues on child
-  // apps, not the composed root entry, so an entry-scoped read would miss them all.
-  // Empty when the project doesn't use queues.
-  const queues: QueueInfo[] = (orm.registeredQueues?.() ?? [])
-    .map(d => (d.describe ? d.describe() : {name: d.name, hasSchema: false}))
-    .sort((a, b) => a.name.localeCompare(b.name))
+  const authz: AuthzInfo[] = rawAuthz.sort((a, b) => a.model.localeCompare(b.model))
+  const queues: QueueInfo[] = rawQueues.sort((a, b) => a.name.localeCompare(b.name))
 
   return {version: 1, schema: canonicalize(pruneEmptyTypes(ir)), authz, queues}
 }

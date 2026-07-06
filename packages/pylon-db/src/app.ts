@@ -16,6 +16,7 @@
  * (the extension bus in core's `app/index.ts`), so `@getcronit/pylon` stays an
  * OPTIONAL peer. The `declare module` below supplies the types (a type-only import).
  */
+import path from 'node:path'
 import type {Resolvers, PylonOptions} from '@getcronit/pylon'
 import {finalizeProxyModel} from './fields.js'
 import {recordApp} from './registry.js'
@@ -41,6 +42,13 @@ export interface AppModelOptions {
   secure?: boolean
   /** Explicit cross-app migration dependencies (FK-inferred ones are added too). */
   dependsOn?: string[]
+  /**
+   * Override for THIS app's migrations directory. Optional — migrations default to
+   * `<app-source-dir>/migrations` (zero config, colocated with the app). Set this only
+   * for a non-standard location: absolute, or resolved by the CLI relative to the
+   * project root. There is no central migrations folder for apps.
+   */
+  migrations?: string
   /** App-wide fallback policy for any model/action a per-model `definePolicy` omits. */
   policy?: AppPolicy
   /**
@@ -94,7 +102,13 @@ const register = (app: any, name: string): void => {
   if (registered.has(app)) return
   registered.add(app)
   const opts = config(app)
-  recordApp(name, {dependsOn: opts.dependsOn})
+  // Migrations default to `<app-source-dir>/migrations`, colocated with the app —
+  // zero config. `app.sourceDir` is captured by core from the construction call site
+  // (works when the app runs unbundled, i.e. under the project runner). An explicit
+  // `db.migrations` always wins.
+  const dir =
+    opts.migrations ?? (app.sourceDir ? path.join(app.sourceDir, 'migrations') : undefined)
+  recordApp(name, {dependsOn: opts.dependsOn, dir})
   if (opts.policy) defineAppPolicy(name, opts.policy)
   else if (opts.secure) {
     console.warn(

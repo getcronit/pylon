@@ -84,7 +84,7 @@ for the full workflow.
 | Command | Description |
 | --- | --- |
 | `pylon db status` | Show pending model changes and unapplied migrations |
-| `pylon db diff [name] [--app a] [--rename]` | Generate a migration from model changes (name is a positional argument) |
+| `pylon db diff [name] [--app a] [--rename] [--rename-table]` | Generate a migration from model changes; `--rename table.old=table.new` / `--rename-table Old=New` make a rename data-preserving instead of drop+create |
 | `pylon db plan [--down]` | Print the SQL a migration would run (`--down` for the reverse) |
 | `pylon db check` | CI gate: fail on uncaptured changes, drift, or tampered history |
 | `pylon db migrate` | Apply unapplied migrations |
@@ -101,8 +101,8 @@ for the full workflow.
 
 | Flag | Default | Description |
 | --- | --- | --- |
-| `-m, --models <path>` | `./src/index.ts` | Entry that exports your models |
-| `-d, --dir <path>` | `./migrations` | Migration directory |
+| `-e, --entry <path>` | `./src/index.ts` | Entry that constructs your app / registers its models (`-m, --models` is a deprecated alias) |
+| `-d, --dir <path>` | `./migrations` | Migration directory (single-app; apps declare their own via `db.migrations`) |
 
 `migrate`, `deploy`, `rollback`, and `seed` connect to the database and require
 `DATABASE_URL`. `diff`, `plan`, `status`, and `squash` work from the models and

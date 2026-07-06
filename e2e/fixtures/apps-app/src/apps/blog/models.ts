@@ -35,4 +35,6 @@ export class Activity extends models.Model {
 
 // The blog app: registers its models, names them (→ blog_author/blog_article/blog_activity),
 // and forms the 'blog' migration group. Not served itself — the host composes the schema.
+// Zero-config migrations: they default to <app-source-dir>/migrations (here
+// src/apps/blog/migrations), so no `migrations` option is needed.
 export const blog = new Pylon({name: 'blog', db: {models: [Author, Article, Activity]}})

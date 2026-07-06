@@ -9,15 +9,15 @@ import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {describe, expect, it} from 'vitest'
 import {SchemaBuilder} from '../src/builder/schema/builder'
-import {loadAppContribution} from '../src/project-bridge'
+import {introspectViaRunner} from '../src/project-bridge'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const cwd = path.resolve(dir, 'fixtures/orm-build-app')
 const entry = path.join(cwd, 'index.ts')
 
 describe('Stage 2b — build merges the ORM contribution', () => {
-  it('loadAppContribution executes models and returns the entity IR', async () => {
-    const ir = await loadAppContribution(cwd, './index.ts')
+  it('introspectViaRunner executes models and returns the entity IR', async () => {
+    const ir = await introspectViaRunner(cwd, './index.ts')
     expect(ir).toBeDefined()
     expect(Object.keys(ir!.entities)).toContain('Product')
     const product = ir!.entities.Product
@@ -25,16 +25,16 @@ describe('Stage 2b — build merges the ORM contribution', () => {
     // $-prefixed column is present but hidden
     const note = product.fields.find(f => f.column?.name === 'internal_note')
     expect(note?.exposed).toBe(false)
-  })
+  }, 30000)
 
   it('the built schema reflects ORM intent (id→ID, $-column hidden)', async () => {
-    const contributeIR = await loadAppContribution(cwd, './index.ts')
+    const contributeIR = await introspectViaRunner(cwd, './index.ts')
     const {typeDefs} = new SchemaBuilder(entry).build({contributeIR})
     expect(typeDefs).toMatch(/type Product/)
     expect(typeDefs).toMatch(/id: ID!/) // ORM intent — not the introspected Number
     expect(typeDefs).toMatch(/name: String!/)
     expect(typeDefs).not.toMatch(/internalNote|internal_note/)
-  })
+  }, 30000)
 
   it('without a contribution the build is unchanged (id introspected as Number)', () => {
     const {typeDefs} = new SchemaBuilder(entry).build()
@@ -50,8 +50,8 @@ describe('Stage 2b — build merges the ORM contribution', () => {
     const plain = new SchemaBuilder(entry).build().typeDefs
     expect(plain).toMatch(/internalCode/) // leaked by pure introspection
 
-    const contributeIR = await loadAppContribution(cwd, './index.ts')
+    const contributeIR = await introspectViaRunner(cwd, './index.ts')
     const merged = new SchemaBuilder(entry).build({contributeIR}).typeDefs
     expect(merged).not.toMatch(/internalCode|internal_code/) // hidden by the ORM
-  })
+  }, 30000)
 })

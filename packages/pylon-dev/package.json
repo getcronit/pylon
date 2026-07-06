@@ -4,7 +4,7 @@
   "version": "1.0.5",
   "description": "CLI for creating a Pylon",
   "scripts": {
-    "build": "rimraf ./dist && esbuild ./src/index.ts --bundle --platform=node --target=node18 --format=esm --minify --outdir=./dist --sourcemap=linked --packages=external",
+    "build": "rimraf ./dist && esbuild ./src/index.ts ./src/project-runner.ts --bundle --platform=node --target=node18 --format=esm --minify --outdir=./dist --sourcemap=linked --packages=external",
     "test": "vitest run"
   },
   "bin": {
