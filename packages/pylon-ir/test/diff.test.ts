@@ -93,7 +93,7 @@ describe('migration engine — diff two IR snapshots → SQL', () => {
       'ALTER TABLE "user" ADD CONSTRAINT "user_email_key" UNIQUE ("email")'
     ])
     expect(m.down).toEqual([
-      'ALTER TABLE "user" DROP CONSTRAINT "user_email_key"'
+      'ALTER TABLE "user" DROP CONSTRAINT IF EXISTS "user_email_key"'
     ])
   })
 
@@ -110,7 +110,7 @@ describe('migration engine — diff two IR snapshots → SQL', () => {
     expect(m.up).toEqual([
       `ALTER TABLE "user" ADD CONSTRAINT "user_role_check" CHECK ("role" IN ('a','b'))`
     ])
-    expect(m.down).toEqual([`ALTER TABLE "user" DROP CONSTRAINT "user_role_check"`])
+    expect(m.down).toEqual([`ALTER TABLE "user" DROP CONSTRAINT IF EXISTS "user_role_check"`])
   })
 
   it('reports a primary-key change as unsupported (never silent)', () => {
@@ -159,7 +159,7 @@ describe('migration engine — foreign keys (self-contained, never inline)', () 
 
   const ADD_FK =
     'ALTER TABLE "post" ADD CONSTRAINT "post_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "user" ("id")'
-  const DROP_FK = 'ALTER TABLE "post" DROP CONSTRAINT "post_author_id_fkey"'
+  const DROP_FK = 'ALTER TABLE "post" DROP CONSTRAINT IF EXISTS "post_author_id_fkey"'
 
   it('physicalSchemaOf extracts columns + resolved FKs (the state currency)', () => {
     const schema = physicalSchemaOf({User: user(), Post: post()})
@@ -383,6 +383,30 @@ describe('migration engine — renameTable (authoring-only)', () => {
     const {up, down} = renderChanges([change])
     expect(up).toEqual(['ALTER TABLE "products_attribute" RENAME TO "products_product_attribute"'])
     expect(down).toEqual(['ALTER TABLE "products_product_attribute" RENAME TO "products_attribute"'])
+  })
+
+  it('renders RENAME CONSTRAINT (reversible), a no-op in the fold', () => {
+    const rc = {kind: 'renameConstraint' as const, table: 'user', from: 'user_email_key', to: 'user_login_key'}
+    const {up, down} = renderChanges([rc])
+    expect(up).toEqual(['ALTER TABLE "user" RENAME CONSTRAINT "user_email_key" TO "user_login_key"'])
+    expect(down).toEqual(['ALTER TABLE "user" RENAME CONSTRAINT "user_login_key" TO "user_email_key"'])
+    // constraint names aren't modeled in PhysicalSchema → folding it changes nothing
+    const before = {User: {name: 'User', table: 'user', columns: [], foreignKeys: [], indexes: []}} as any
+    expect(applyChanges(before, [rc])).toEqual(before)
+  })
+
+  it('a renamed UNIQUE column emits a paired RENAME CONSTRAINT', () => {
+    const uniqueCol = (name: string) => col({name, sqlType: 'text', unique: true})
+    const before = entity('Widget', [idField, field('code', uniqueCol('code'))])
+    const after = entity('Widget', [idField, field('sku', uniqueCol('sku'))])
+    const changes = diffSchema(physicalSchemaOf(before), physicalSchemaOf(after), {
+      renames: [{table: 'widget', from: 'code', to: 'sku'}]
+    })
+    expect(changes.map(c => c.kind)).toEqual(['renameColumn', 'renameConstraint'])
+    expect(renderChanges(changes).up).toEqual([
+      'ALTER TABLE "widget" RENAME COLUMN "code" TO "sku"',
+      'ALTER TABLE "widget" RENAME CONSTRAINT "widget_code_key" TO "widget_sku_key"'
+    ])
   })
 
   it('re-keys the snapshot by model name and updates the physical table', () => {

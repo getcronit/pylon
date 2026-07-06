@@ -52,6 +52,13 @@ export type SchemaChange =
   // index/FK names (which embed the old table) are left as-is — a follow-up diff
   // reconciles them via safe drop/recreate.
   | {kind: 'renameTable'; from: string; to: string; fromTable: string; toTable: string}
+  // Rename a constraint (authoring-only, paired with a renameColumn). Postgres
+  // keeps a column-level UNIQUE/CHECK constraint's OLD name when its column is
+  // renamed (the name embeds the old column), but the model derives the new name —
+  // so a follow-up op that drops it by the derived name would miss. `from`/`to` are
+  // the physical constraint names. Not modeled in `PhysicalSchema` (constraint
+  // names are implicit), so it's a no-op in the fold.
+  | {kind: 'renameConstraint'; table: string; from: string; to: string}
 
 export interface Migration {
   changes: SchemaChange[]
@@ -292,6 +299,8 @@ export function diffSchema(
   opts: {renames?: Rename[]; tableRenames?: TableRename[]} = {}
 ): SchemaChange[] {
   const renameTables: SchemaChange[] = []
+  // Constraint-name resyncs for renamed tables (run right after the table rename).
+  const renameConstraints: SchemaChange[] = []
 
   // Apply table-rename hints FIRST: remap prev[from] → prev[to] so the normal
   // column/FK/index diffs treat it as the SAME table (emitting the rename + the
@@ -302,11 +311,14 @@ export function diffSchema(
   // need their own `renames` hint to stay data-preserving.
   if (opts.tableRenames?.length) {
     prev = {...prev}
+    // Old physical name → new physical name, for rewriting incoming FK references.
+    const renamedTables = new Map<string, string>()
     for (const {from, to} of opts.tableRenames) {
       const src = prev[from]
       const dst = next[to]
       if (!src || !dst || prev[to]) continue
       const toTable = dst.table
+      renamedTables.set(src.table, toTable)
       delete prev[from]
       prev[to] = {
         ...src,
@@ -316,6 +328,47 @@ export function diffSchema(
         indexes: (src.indexes ?? []).map(ix => ({...ix, table: toTable}))
       }
       renameTables.push({kind: 'renameTable', from, to, fromTable: src.table, toTable})
+      // A column-level UNIQUE/CHECK constraint's name embeds the OLD table name and
+      // Postgres keeps it on table rename — resync to the new name so a later diff
+      // can drop/alter it by the model's derived name. Only for constraints
+      // PRESERVED across the rename (a same-step toggle is handled by the col diff).
+      const dstCols = new Map(dst.columns.map(c => [c.name, c]))
+      for (const col of src.columns) {
+        const d = dstCols.get(col.name)
+        if (!d) continue
+        if (col.unique && d.unique)
+          renameConstraints.push({
+            kind: 'renameConstraint',
+            table: toTable,
+            from: `${src.table}_${col.name}_key`,
+            to: `${toTable}_${col.name}_key`
+          })
+        if (col.check && d.check)
+          renameConstraints.push({
+            kind: 'renameConstraint',
+            table: toTable,
+            from: `${src.table}_${col.name}_check`,
+            to: `${toTable}_${col.name}_check`
+          })
+      }
+    }
+    // Postgres `ALTER TABLE … RENAME` auto-updates every FK that REFERENCES the
+    // renamed table, so rewrite those incoming refs in `prev` too. Otherwise they'd
+    // diff against `next` (which already points at the new name) and emit a
+    // redundant FK drop/recreate — which is not only unnecessary but breaks
+    // reversal: the down re-adds the FK referencing the OLD name before the
+    // rename-back has restored it (`relation "<old>" does not exist`).
+    if (renamedTables.size) {
+      for (const key of Object.keys(prev)) {
+        const t = prev[key]
+        if (!t.foreignKeys?.length) continue
+        prev[key] = {
+          ...t,
+          foreignKeys: t.foreignKeys.map(fk =>
+            renamedTables.has(fk.refTable) ? {...fk, refTable: renamedTables.get(fk.refTable)!} : fk
+          )
+        }
+      }
     }
   }
 
@@ -350,17 +403,36 @@ export function diffSchema(
     }
   }
 
+  // Columns renamed away (per physical table). A renamed column is ABSENT from
+  // `next` under its old name, so it looks "dropped" — but `RENAME COLUMN` does
+  // NOT cascade-drop its dependent FKs/indexes (they survive, auto-updated by
+  // Postgres, keeping their OLD names). So renamed columns must be excluded from
+  // the cascade-suppression below, or the diff wrongly suppresses the drop of the
+  // old-named index/FK and it lingers in the DB (permanent non-convergence).
+  const renamedAway = new Map<string, Set<string>>()
+  for (const r of opts.renames ?? []) {
+    if (!renamedAway.has(r.table)) renamedAway.set(r.table, new Set())
+    renamedAway.get(r.table)!.add(r.from)
+  }
+  const genuinelyDropped = (name: string): Set<string> => {
+    const table = next[name]?.table
+    const renamed = (table && renamedAway.get(table)) || undefined
+    return new Set(
+      name in prev
+        ? [...pColumns(prev[name]).keys()].filter(
+            c => !pColumns(next[name]).has(c) && !renamed?.has(c)
+          )
+        : []
+    )
+  }
+
   // Foreign-key changes for every table present in `next` (new + existing).
   for (const name of Object.keys(next)) {
     const beforeFks = name in prev ? pFks(prev[name]) : new Map<string, ForeignKeyChange>()
     const afterFks = pFks(next[name])
     // Columns dropped from this table — their FKs vanish via DROP COLUMN cascade,
     // so we must NOT also emit an explicit DROP CONSTRAINT (it would fail).
-    const droppedCols = new Set(
-      name in prev
-        ? [...pColumns(prev[name]).keys()].filter(c => !pColumns(next[name]).has(c))
-        : []
-    )
+    const droppedCols = genuinelyDropped(name)
 
     for (const [fkName, fk] of afterFks) {
       const old = beforeFks.get(fkName)
@@ -381,11 +453,7 @@ export function diffSchema(
   for (const name of Object.keys(next)) {
     const beforeIx = name in prev ? pIndexes(prev[name]) : new Map<string, IndexSpec>()
     const afterIx = pIndexes(next[name])
-    const droppedCols = new Set(
-      name in prev
-        ? [...pColumns(prev[name]).keys()].filter(c => !pColumns(next[name]).has(c))
-        : []
-    )
+    const droppedCols = genuinelyDropped(name)
     for (const [ixName, ix] of afterIx) {
       const old = beforeIx.get(ixName)
       if (!old) indexAdds.push({kind: 'addIndex', index: ix})
@@ -407,10 +475,24 @@ export function diffSchema(
     const di = cols.findIndex(c => c.kind === 'dropColumn' && c.table === table && c.column.name === from)
     const ai = cols.findIndex(c => c.kind === 'addColumn' && c.table === table && c.column.name === to)
     if (di >= 0 && ai >= 0) {
+      const dropped = cols[di] as {kind: 'dropColumn'; column: ColumnSpec}
+      const added = cols[ai] as {kind: 'addColumn'; column: ColumnSpec}
       // splice the higher index first so the lower stays valid
       cols.splice(Math.max(di, ai), 1)
       cols.splice(Math.min(di, ai), 1)
       cols.push({kind: 'renameColumn', table, from, to})
+      // A column-level UNIQUE/CHECK constraint's name embeds the column name, and
+      // Postgres does NOT rename it when the column is renamed. Rename it to the
+      // model's derived name so a later diff can drop/alter it by that name (else
+      // the constraint drifts: the DB keeps `<table>_<from>_key` while the model
+      // expects `<table>_<to>_key`). Only when the constraint is PRESERVED across
+      // the rename (a same-step toggle is handled by the column diff instead).
+      if (dropped.column.unique && added.column.unique) {
+        cols.push({kind: 'renameConstraint', table, from: `${table}_${from}_key`, to: `${table}_${to}_key`})
+      }
+      if (dropped.column.check && added.column.check) {
+        cols.push({kind: 'renameConstraint', table, from: `${table}_${from}_check`, to: `${table}_${to}_check`})
+      }
     }
   }
 
@@ -419,10 +501,16 @@ export function diffSchema(
     if (!(name in next)) drops.push({kind: 'dropTable', spec: tableSpecPart(prev[name])})
   }
 
-  // Order: create tables → column changes → drop FKs/indexes → add FKs/indexes
-  // → drop tables. Guarantees a constraint/index's columns exist before it's
-  // added, and that it's dropped before its table; `down` inverts this cleanly.
-  return [...renameTables, ...creates, ...cols, ...fkDrops, ...indexDrops, ...fkAdds, ...indexAdds, ...drops]
+  // Order: rename tables → create tables → drop FKs/indexes → column changes →
+  // add FKs/indexes → drop tables. Two guarantees:
+  //  • a constraint/index's columns exist before it's added, and it's dropped
+  //    before its table.
+  //  • FK/index DROPS precede column changes so the sequence REVERSES cleanly: a
+  //    `renameColumn` (or `renameTable`) whose dependent index/FK is drop/recreated
+  //    would otherwise, on `down`, try to recreate that object against the OLD
+  //    name before the rename-back restores it. Dropping first means the down
+  //    recreates last — after the name is back. `down` inverts the whole list.
+  return [...renameTables, ...renameConstraints, ...creates, ...fkDrops, ...indexDrops, ...cols, ...fkAdds, ...indexAdds, ...drops]
 }
 
 /** Diff two IR entity maps (convenience wrapper over `diffSchema`). */
@@ -548,19 +636,23 @@ function alterColumnSQL(
   if (before.unique !== after.unique) {
     // Postgres names a single-column unique constraint `<table>_<column>_key`,
     // whether created inline or via ADD CONSTRAINT — so this round-trips with a
-    // table created with the column already `UNIQUE`.
+    // table created with the column already `UNIQUE`. `IF EXISTS` on the drop for
+    // the same reason as FKs/indexes: the constraint vanishes out-of-band when its
+    // column or table is dropped (Postgres cascades it), so a later migration or a
+    // rollback can otherwise try to drop a constraint that's already gone.
     const name = `${table}_${after.name}_key`
     out.push(
       after.unique
         ? `ALTER TABLE "${table}" ADD CONSTRAINT "${name}" UNIQUE (${col})`
-        : `ALTER TABLE "${table}" DROP CONSTRAINT "${name}"`
+        : `ALTER TABLE "${table}" DROP CONSTRAINT IF EXISTS "${name}"`
     )
   }
   if (before.check !== after.check) {
     // Postgres names a column check `<table>_<column>_check`; round-trips with
-    // an inline CHECK created on the column.
+    // an inline CHECK created on the column. `IF EXISTS` on the drop for the same
+    // cascade reason as the unique constraint above.
     const name = `${table}_${after.name}_check`
-    if (before.check) out.push(`ALTER TABLE "${table}" DROP CONSTRAINT "${name}"`)
+    if (before.check) out.push(`ALTER TABLE "${table}" DROP CONSTRAINT IF EXISTS "${name}"`)
     if (after.check) out.push(`ALTER TABLE "${table}" ADD CONSTRAINT "${name}" CHECK (${after.check})`)
   }
   if (before.generatedAs !== after.generatedAs) {
@@ -611,6 +703,8 @@ function up(change: SchemaChange, unsupported: string[]): string[] {
       return [`ALTER TABLE "${change.table}" RENAME COLUMN "${change.from}" TO "${change.to}"`]
     case 'renameTable':
       return [`ALTER TABLE "${change.fromTable}" RENAME TO "${change.toTable}"`]
+    case 'renameConstraint':
+      return [`ALTER TABLE "${change.table}" RENAME CONSTRAINT "${change.from}" TO "${change.to}"`]
   }
 }
 
@@ -638,6 +732,8 @@ function down(change: SchemaChange, unsupported: string[]): string[] {
       return [`ALTER TABLE "${change.table}" RENAME COLUMN "${change.to}" TO "${change.from}"`]
     case 'renameTable':
       return [`ALTER TABLE "${change.toTable}" RENAME TO "${change.fromTable}"`]
+    case 'renameConstraint':
+      return [`ALTER TABLE "${change.table}" RENAME CONSTRAINT "${change.to}" TO "${change.from}"`]
   }
 }
 
@@ -694,7 +790,16 @@ export function applyChanges(
       }
       case 'dropColumn': {
         const t = byTable(c.table)
-        if (t) patch(t, {columns: t.columns.filter(x => x.name !== c.column.name)})
+        // DROP COLUMN cascades in Postgres: dependent FKs and indexes go with it.
+        // `diffSchema` relies on that cascade (it omits an explicit drop for a FK/
+        // index on a dropped column), so the fold must cascade too — else it keeps
+        // a phantom FK/index and never re-converges.
+        if (t)
+          patch(t, {
+            columns: t.columns.filter(x => x.name !== c.column.name),
+            foreignKeys: (t.foreignKeys ?? []).filter(f => f.column !== c.column.name),
+            indexes: (t.indexes ?? []).filter(ix => !ix.columns.includes(c.column.name))
+          })
         break
       }
       case 'alterColumn': {
@@ -737,6 +842,21 @@ export function applyChanges(
             foreignKeys: (t.foreignKeys ?? []).map(fk => ({...fk, table: c.toTable}))
           }
         }
+        // Postgres `ALTER TABLE … RENAME` auto-updates FKs that REFERENCE the
+        // renamed table, so re-point incoming refs in the folded state too. Without
+        // this the fold keeps the OLD refTable while the live DB has the new one, so
+        // the NEXT diff sees a phantom refTable change and emits a spurious FK
+        // drop/recreate that references the pre-rename name — wrong, and unreversible.
+        for (const key of Object.keys(next)) {
+          const e = next[key]
+          if (!e.foreignKeys?.length) continue
+          next[key] = {
+            ...e,
+            foreignKeys: e.foreignKeys.map(fk =>
+              fk.refTable === c.fromTable ? {...fk, refTable: c.toTable} : fk
+            )
+          }
+        }
         break
       }
       case 'addForeignKey': {
@@ -761,6 +881,10 @@ export function applyChanges(
         if (t) patch(t, {indexes: (t.indexes ?? []).filter(i => i.name !== c.index.name)})
         break
       }
+      case 'renameConstraint':
+        // Constraint names aren't modeled in PhysicalSchema (uniqueness/checks are
+        // column properties, their names implicit) — nothing to fold.
+        break
     }
   }
   return next

@@ -93,7 +93,7 @@ describe('named operations — each wraps one change with built-in reverse', () 
     expect(up.sql[0]).toMatch(/ADD CONSTRAINT "post_author_id_fkey" FOREIGN KEY/)
     const down = recordingCtx()
     await addForeignKey(fk).down(down.ctx)
-    expect(down.sql).toEqual(['ALTER TABLE "post" DROP CONSTRAINT "post_author_id_fkey"'])
+    expect(down.sql).toEqual(['ALTER TABLE "post" DROP CONSTRAINT IF EXISTS "post_author_id_fkey"'])
   })
 
   it('addIndex up creates, down drops', async () => {
@@ -103,7 +103,7 @@ describe('named operations — each wraps one change with built-in reverse', () 
     expect(up.sql).toEqual(['CREATE INDEX "user_age_idx" ON "user" ("age")'])
     const down = recordingCtx()
     await addIndex(ix).down(down.ctx)
-    expect(down.sql).toEqual(['DROP INDEX "user_age_idx"'])
+    expect(down.sql).toEqual(['DROP INDEX IF EXISTS "user_age_idx"'])
   })
 
   it('renameColumn is reversible (renames back)', async () => {

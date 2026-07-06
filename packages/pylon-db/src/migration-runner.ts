@@ -114,6 +114,8 @@ function opCall(change: SchemaChange): string {
       return `migrations.dropIndex(${arg(change.index)})`
     case 'renameColumn':
       return `migrations.renameColumn(${str(change.table)}, ${str(change.from)}, ${str(change.to)})`
+    case 'renameConstraint':
+      return `migrations.renameConstraint(${str(change.table)}, ${str(change.from)}, ${str(change.to)})`
     case 'renameTable':
       return `migrations.renameTable(${arg({from: change.from, to: change.to, fromTable: change.fromTable, toTable: change.toTable})})`
   }

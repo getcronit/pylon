@@ -346,6 +346,7 @@ export const migrations = {
   addIndex: migrationOps.addIndex,
   dropIndex: migrationOps.dropIndex,
   renameColumn: migrationOps.renameColumn,
+  renameConstraint: migrationOps.renameConstraint,
   renameTable: migrationOps.renameTable,
   runSql: migrationOps.runSql,
   run: migrationOps.run,
