@@ -109,7 +109,16 @@ async function introspectQueues(entryUrl: string): Promise<unknown[]> {
   }
 }
 
-main().catch((e: unknown) => {
-  emit({ok: false, error: e instanceof Error ? (e.stack ?? e.message) : String(e)})
-  process.exitCode = 1
-})
+// The runner is a short-lived command process: once the result is written, exit
+// explicitly. The project's entry (imported above) may leave handles open — a pg
+// pool's idle clients, a realtime/redis connection from an `import "./signals"`,
+// etc. — that would otherwise keep the event loop alive forever (e.g. `db seed`
+// completing but never exiting). The result is written synchronously by `emit`
+// before we get here, so a hard exit is safe.
+main().then(
+  () => process.exit(process.exitCode ?? 0),
+  (e: unknown) => {
+    emit({ok: false, error: e instanceof Error ? (e.stack ?? e.message) : String(e)})
+    process.exit(1)
+  }
+)
