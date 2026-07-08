@@ -21,6 +21,7 @@ import {
 import {appContextKey} from './app-context.js'
 import {batchLoad, createRealm} from './batch-loader.js'
 import {keyedQuery} from './keyed-query.js'
+import {noteQuery} from './n-plus-one.js'
 import {getModelDefinitionOrThrow, type ModelDefinition} from './registry.js'
 import {parseSearchQuery} from './query-parser.js'
 
@@ -180,6 +181,85 @@ export function loadHasOne<T extends object>(
   return loadHasMany(child, fkColumn, parentValue).then(rows => (rows[0] as T) ?? null)
 }
 
+// The join-table twin of loadHasMany: batches `owner.related.all()` across a tick.
+// Many owners in one tick collapse into ONE `SELECT target.*, join.local FROM target
+// JOIN join WHERE join.local IN (…)`, grouped back by owner. Re-scoped by the target's
+// READ policy (mirrors the single-owner .all()). Coalesced via the shared loader.
+interface M2MSpec {
+  joinTable: string
+  localColumn: string
+  targetColumn: string
+  targetTable: string
+  targetPkColumn: string
+}
+
+const manyToManyRealm = createRealm<unknown, any[]>()
+
+function loadManyToMany<T extends object>(
+  targetCtor: ModelCtor<T>,
+  s: M2MSpec,
+  ownerPk: unknown
+): Promise<T[]> {
+  const targetDef = getModelDefinitionOrThrow(targetCtor)
+  const token = `${s.joinTable}:${s.localColumn}->${s.targetTable}`
+  return batchLoad<unknown, T[]>(
+    manyToManyRealm,
+    token,
+    ownerPk,
+    async keys => {
+      const rows = await applyPolicyWhere(
+        getDatabase()
+          .kysely.selectFrom(s.targetTable)
+          .innerJoin(
+            s.joinTable,
+            `${s.joinTable}.${s.targetColumn}` as any,
+            `${s.targetTable}.${s.targetPkColumn}` as any
+          )
+          .where(`${s.joinTable}.${s.localColumn}` as any, 'in', keys as any)
+          .select(selectableColumns(targetDef, s.targetTable) as any)
+          .select(`${s.joinTable}.${s.localColumn} as __m2m_local` as any),
+        targetDef,
+        'read',
+        s.targetTable
+      ).execute()
+      const byKey = new Map<unknown, T[]>()
+      for (const row of rows) {
+        const {__m2m_local: k, ...rest} = row as any
+        const list = byKey.get(k) ?? []
+        list.push(hydrate(targetCtor, rest))
+        byKey.set(k, list)
+      }
+      return byKey
+    },
+    () => []
+  )
+}
+
+// The grouped-count twin: `SELECT local, count(*) FROM join WHERE local IN (…) GROUP
+// BY local`. Counts join rows (matches the single-owner `.count()` — no target policy).
+const manyToManyCountRealm = createRealm<unknown, number>()
+
+function countManyToMany(s: M2MSpec, ownerPk: unknown): Promise<number> {
+  const token = `${s.joinTable}:${s.localColumn}#count`
+  return batchLoad<unknown, number>(
+    manyToManyCountRealm,
+    token,
+    ownerPk,
+    async keys => {
+      const rows = await getDatabase()
+        .kysely.selectFrom(s.joinTable)
+        .select(eb => [eb.ref(s.localColumn).as('k'), eb.fn.countAll().as('n')])
+        .where(s.localColumn as any, 'in', keys as any)
+        .groupBy(s.localColumn as any)
+        .execute()
+      const m = new Map<unknown, number>()
+      for (const r of rows) m.set((r as any).k, Number((r as any).n))
+      return m
+    },
+    () => 0
+  )
+}
+
 // A relation-derived filtered query (from `parent.children.filter(P)`). Extends
 // QuerySet so every op (all/first/update/delete/search/…) behaves exactly as before;
 // ONLY count()/exists() are overridden to BATCH across parents — routed through the
@@ -327,7 +407,11 @@ export class RelatedManager<T extends object> {
    * own keyset query (inherent to cursor pagination; fine for detail views).
    */
   paginate(args?: PaginateArgs): Promise<Connection<T>> {
-    return this.base.paginate(args)
+    // Default the keyset order to the relation's DECLARED `orderBy` (as `.all()` does),
+    // so a paginated connection is chronological/declared-ordered rather than PK order.
+    // An explicit `args.orderBy` (incl. a composite array) still wins.
+    const orderBy = args?.orderBy ?? this.orderProperty
+    return this.base.paginate(orderBy ? {...args, orderBy} : args)
   }
 
   /** Create a child row with the parent foreign key already set. */
@@ -449,34 +533,15 @@ export class ManyToManyManager<T extends object> {
   }
 
   /** All related rows, via a join (re-scoped by the target's READ policy). */
-  async all(): Promise<T[]> {
-    const s = this.spec()
-    const targetDef = getModelDefinitionOrThrow(this.targetCtor)
-    const rows = await applyPolicyWhere(
-      getDatabase()
-        .kysely.selectFrom(s.targetTable)
-        .innerJoin(
-          s.joinTable,
-          `${s.joinTable}.${s.targetColumn}` as any,
-          `${s.targetTable}.${s.targetPkColumn}` as any
-        )
-        .where(`${s.joinTable}.${s.localColumn}` as any, '=', this.ownerPk as any)
-        .select(selectableColumns(targetDef, s.targetTable) as any),
-      targetDef,
-      'read',
-      s.targetTable
-    ).execute()
-    return rows.map(r => hydrate(this.targetCtor, r))
+  // Batched across a tick (loadManyToMany) → `owner.related.all()` over a whole list
+  // collapses to ONE join query, so it's no longer an N+1.
+  all(): Promise<T[]> {
+    return loadManyToMany(this.targetCtor, this.spec(), this.ownerPk)
   }
 
-  async count(): Promise<number> {
-    const s = this.spec()
-    const row = await getDatabase()
-      .kysely.selectFrom(s.joinTable)
-      .select(eb => eb.fn.countAll().as('count'))
-      .where(s.localColumn as any, '=', this.ownerPk as any)
-      .executeTakeFirst()
-    return Number((row as any)?.count ?? 0)
+  // Batched grouped count (countManyToMany) — the twin of `.all()`.
+  count(): Promise<number> {
+    return countManyToMany(this.spec(), this.ownerPk)
   }
 
   /**
@@ -487,8 +552,14 @@ export class ManyToManyManager<T extends object> {
    * the join. Like the hasMany case, a paginated relation is NOT N+1-batched.
    */
   async paginate(args: PaginateArgs = {}): Promise<Connection<T>> {
+    noteQuery(this.targetCtor, 'paginate') // paginated relation isn't batched → advisory
     const s = this.spec()
     const targetDef = getModelDefinitionOrThrow(this.targetCtor)
+    if (Array.isArray(args.orderBy)) {
+      throw new Error(
+        `${targetDef.tableName}: composite orderBy is not supported on relation pagination.`
+      )
+    }
     const raw = args.orderBy ?? targetDef.primaryKey?.propertyKey
     if (!raw) {
       throw new Error(`${targetDef.tableName}: .paginate() needs an orderBy or a primary key.`)

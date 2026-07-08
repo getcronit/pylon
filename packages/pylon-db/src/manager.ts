@@ -15,7 +15,8 @@ import {ForbiddenError} from './features.js'
 import {type FilterAction, getAppPolicy, getPolicy, policyContext} from './policies.js'
 // Runtime cycle with keyed-query.ts (which imports QuerySet) — safe: neither uses the
 // other's binding at module top-level (only inside method/function bodies).
-import {keyedTerminalFor, noteUnmarkedCount} from './keyed-query.js'
+import {keyedTerminalFor} from './keyed-query.js'
+import {noteQuery} from './n-plus-one.js'
 // Type-only (erased at runtime → no import cycle with relations.ts) — used to
 // exclude relation accessors from the set of filterable fields.
 import type {ManyToManyManager, RelatedManager} from './relations.js'
@@ -621,8 +622,13 @@ export interface PaginateArgs {
   before?: string
   /** Offset fallback (forward only), applied before the limit. */
   skip?: number
-  /** Field to order + key on; `-` prefix for descending. Defaults to the PK. */
-  orderBy?: string
+  /**
+   * Field(s) to order + key on; `-` prefix for descending. Defaults to the PK.
+   * Pass an ARRAY for a composite keyset (e.g. `['-type', 'name']` to group one
+   * column first, then sort within it) — the PK is appended as the tiebreaker so
+   * the keyset stays total. A single string keeps the original two-column path.
+   */
+  orderBy?: string | string[]
   /**
    * Shopify/GitHub-style search-query DSL (`status:OPEN -isRead:true "phrase"`),
    * parsed against this model's columns and AND-ed onto the current filter. A
@@ -811,6 +817,7 @@ export class QuerySet<T extends object> {
   async all(): Promise<T[]> {
     const keyed = keyedTerminalFor(this.ctor, this.state.where, !!this.state.unscoped)
     if (keyed) return keyed.all(this.state.orderBy) as Promise<T[]>
+    noteQuery(this.ctor, 'all') // un-batched → N+1 advisory (dev-only)
     const rows = await this.build().execute()
     return rows.map(r => hydrate(this.ctor, r))
   }
@@ -818,6 +825,7 @@ export class QuerySet<T extends object> {
   async first(): Promise<T | null> {
     const keyed = keyedTerminalFor(this.ctor, this.state.where, !!this.state.unscoped)
     if (keyed) return keyed.first(this.state.orderBy) as Promise<T | null>
+    noteQuery(this.ctor, 'first') // un-batched → N+1 advisory (dev-only)
     const rows = await this.limit(1).build().execute()
     return rows.length ? hydrate(this.ctor, rows[0]) : null
   }
@@ -829,6 +837,7 @@ export class QuerySet<T extends object> {
 
   async get(conditions?: WhereInput<T>): Promise<T> {
     const qs = conditions ? this.filter(conditions) : this
+    noteQuery(this.ctor, 'get') // un-batched → N+1 advisory (dev-only)
     const rows = await qs.limit(2).build().execute()
     if (rows.length === 0) {
       throw new NotFoundError(this.def.tableName, conditions as Record<string, unknown> | undefined)
@@ -844,7 +853,7 @@ export class QuerySet<T extends object> {
     // (or throw if it's marked-but-unbatchable — §10). Marker-free → plain count.
     const keyed = keyedTerminalFor(this.ctor, this.state.where, !!this.state.unscoped)
     if (keyed) return keyed.count()
-    noteUnmarkedCount(this.ctor, this.state.where) // dev-only missed-batch hint
+    noteQuery(this.ctor, 'count') // un-batched → N+1 advisory (dev-only)
     const db = getDatabase()
     let q: any = db.kysely
       .selectFrom(this.def.tableName)
@@ -966,6 +975,9 @@ export class QuerySet<T extends object> {
     if (args.query) {
       return this.query(args.query).paginate({...args, query: undefined})
     }
+    // Composite keyset (opt-in) — the single-string path below is left untouched.
+    if (Array.isArray(args.orderBy)) return this.paginateComposite(args.orderBy, args)
+    noteQuery(this.ctor, 'paginate') // paginated relations aren't batched → N+1 advisory
     const raw = args.orderBy ?? this.def.primaryKey?.propertyKey
     if (!raw) {
       throw new Error(`${this.def.tableName}: .paginate() needs an orderBy or a primary key.`)
@@ -1047,6 +1059,109 @@ export class QuerySet<T extends object> {
       edges,
       nodes: edges.map(e => e.node),
       totalCount: await this.count(), // filters + tenant, no cursor window
+      pageInfo: {
+        hasNextPage: backward ? args.before !== undefined : hasExtra,
+        hasPreviousPage: backward
+          ? hasExtra
+          : args.after !== undefined || (args.skip ?? 0) > 0,
+        startCursor: edges.length ? edges[0].cursor : null,
+        endCursor: edges.length ? edges[edges.length - 1].cursor : null
+      }
+    }
+  }
+
+  /**
+   * Composite-keyset pagination — the multi-column twin of the single-`orderBy` path.
+   * `keys` are property names (each optionally `-`-prefixed for descending); the PK is
+   * appended as the final tiebreaker so the keyset stays total. NULLs sort last in
+   * forward order (first when paging backward), matching the single-key path. The cursor
+   * is the ordered tuple of the keyset column values.
+   */
+  private async paginateComposite(
+    keys: string[],
+    args: PaginateArgs
+  ): Promise<Connection<T>> {
+    noteQuery(this.ctor, 'paginate') // not batched → N+1 advisory (dev-only)
+    const pkCol = this.def.primaryKey?.columnName
+    if (!pkCol) {
+      throw new Error(`${this.def.tableName}: composite .paginate() needs a primary key.`)
+    }
+    // Resolve property → column + natural direction; ensure the PK is the last key.
+    const cols = keys.map(raw => {
+      const desc = raw.startsWith('-')
+      return {col: columnFor(this.def, desc ? raw.slice(1) : raw).columnName, asc: !desc}
+    })
+    if (!cols.some(c => c.col === pkCol)) cols.push({col: pkCol, asc: true})
+
+    const backward = args.last !== undefined || args.before !== undefined
+    const size = (backward ? args.last : args.first) ?? 20
+    const nullsLast = !backward
+    // Effective per-column direction (reversed for backward paging, flipped back later).
+    const eff = cols.map(c => {
+      const ea = backward ? !c.asc : c.asc
+      return {col: c.col, dir: (ea ? 'asc' : 'desc') as 'asc' | 'desc', gt: ea ? '>' : '<'}
+    })
+
+    const db = getDatabase()
+    let q: any = db.kysely
+      .selectFrom(this.def.tableName)
+      .select(selectableColumns(this.def))
+    q = this.applyWhere(q)
+
+    const cursorArg = backward ? args.before : args.after
+    if (cursorArg !== undefined) {
+      const decoded = decodeCursor(cursorArg)
+      const vals = (Array.isArray(decoded) ? decoded : [decoded]) as unknown[]
+      q = q.where((eb: any) => {
+        const isNull = (v: unknown) => v === null || v === undefined
+        // Cursor row's value equals v in this column (null-aware equality).
+        const eq = (col: string, v: unknown) =>
+          isNull(v) ? eb(col, 'is', null) : eb(col, '=', v)
+        // Rows strictly PAST v in column i's effective order + NULL placement.
+        const after = (i: number, v: unknown): Expression<SqlBool> => {
+          const {col, gt} = eff[i]
+          if (isNull(v)) {
+            // nulls last → nothing sorts after a null; nulls first → the non-nulls do.
+            return nullsLast ? FALSE() : eb(col, 'is not', null)
+          }
+          const base = eb(col, gt, v)
+          return nullsLast ? eb.or([base, eb(col, 'is', null)]) : base
+        }
+        // OR over positions i: all prefix columns equal, column i strictly after.
+        return eb.or(
+          eff.map((_: unknown, i: number) =>
+            eb.and([
+              ...eff.slice(0, i).map((k, j) => eq(k.col, vals[j])),
+              after(i, vals[i])
+            ])
+          )
+        )
+      })
+    }
+
+    for (const k of eff) {
+      q = q.orderBy(
+        sql`${sql.ref(k.col)} ${sql.raw(k.dir)} nulls ${sql.raw(
+          nullsLast ? 'last' : 'first'
+        )}`
+      )
+    }
+    if (!backward && args.skip) q = q.offset(args.skip)
+
+    const fetched = await q.limit(size + 1).execute()
+    const hasExtra = fetched.length > size
+    let page = hasExtra ? fetched.slice(0, size) : fetched
+    if (backward) page = page.reverse() // restore natural order
+
+    const cursorOf = (r: any) => encodeCursor(cols.map(c => r[c.col]))
+    const edges = page.map((r: any) => ({
+      cursor: cursorOf(r),
+      node: hydrate(this.ctor, r)
+    }))
+    return {
+      edges,
+      nodes: edges.map((e: {node: T}) => e.node),
+      totalCount: await this.count(),
       pageInfo: {
         hasNextPage: backward ? args.before !== undefined : hasExtra,
         hasPreviousPage: backward
@@ -1289,7 +1404,7 @@ export async function saveInstance(instance: object): Promise<object> {
   // opening a second one.
   await getDatabase().transaction(async () => {
    const db = getDatabase()
-   await signals.preSave.emit({instances: [instance], created, model})
+   if (!db.skipSignals) await signals.preSave.emit({instances: [instance], created, model})
 
    try {
     if (!created) {
@@ -1341,7 +1456,7 @@ export async function saveInstance(instance: object): Promise<object> {
      throw err
    }
 
-   await signals.postSave.emit({instances: [instance], created, model})
+   if (!db.skipSignals) await signals.postSave.emit({instances: [instance], created, model})
   })
   return instance
 }
@@ -1391,7 +1506,7 @@ export async function createMany<T extends object>(
 ): Promise<T[]> {
   if (values.length === 0) return []
   const def = getModelDefinitionOrThrow(ctor)
-  const emit = options.signals !== false
+  const emit = options.signals ?? !getDatabase().skipSignals
   const model = ctor as Function
 
   const instances = values.map(v => {
@@ -1459,7 +1574,7 @@ export async function deleteManyInstances<T extends object>(
   if (!pk) {
     throw new Error(`Cannot delete "${def.tableName}": no primary key defined.`)
   }
-  const emit = options.signals !== false
+  const emit = options.signals ?? !getDatabase().skipSignals
   const model = (instances[0] as object).constructor as Function
   // Single atomic DELETE statement — not self-wrapped (see createMany note).
   if (emit) await signals.preDelete.emit({instances, model})

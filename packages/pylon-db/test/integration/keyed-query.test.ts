@@ -250,17 +250,19 @@ describe.skipIf(!runDb)('keyed-query batching (Postgres)', () => {
     })
   })
 
-  it('dev missed-batch detector hints on unmarked same-shape counts', async () => {
+  it('dev N+1 advisory warns on many same-shape queries in one request', async () => {
     await runAsSystem(async () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      // 13 UNMARKED counts, same shape {teamId, status}, only teamId varies.
+      // 13 same-shape counts (only the teamId param varies) → past the default
+      // threshold (12). The general log-level detector catches this regardless of the
+      // terminal (count/all/first), unlike the old count-only hint.
       const teams = [team.alpha, team.beta, team.gamma, ...fillers.slice(0, 10)]
       await Promise.all(
         teams.map(t => Task.objects.filter({teamId: t, status: 'CLOSED'}).count())
       )
       const msgs = warn.mock.calls.map(c => String(c[0]))
       warn.mockRestore()
-      expect(msgs.some(m => m.includes('batch-hint') && m.includes('teamId'))).toBe(true)
+      expect(msgs.some(m => m.includes('[pylon-db:n+1]'))).toBe(true)
     })
   })
 

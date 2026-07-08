@@ -14,6 +14,11 @@ export interface DatabaseOptions {
   connectionString?: string
   pool?: Pool
   poolConfig?: PoolConfig
+  /** Skip lifecycle signals (preSave/postSave/preDelete/postDelete) by default on
+   *  this connection — and therefore the realtime + transactional-outbox handlers
+   *  that hang off them. For bulk seed / import / data-migration processes where
+   *  per-row hooks are unwanted. A per-op `{signals: true}` still overrides. */
+  skipSignals?: boolean
 }
 
 /** Run one after-commit callback with its error isolated + logged. The transaction
@@ -35,12 +40,16 @@ export class Database {
   readonly kysely: Kysely<any>
   /** True when this Database is bound to a transaction (not a pool). */
   readonly transactional: boolean = false
+  /** Default-off lifecycle signals for this connection (bulk import/migration).
+   *  Inherited by the transactional child in `databaseForKysely`. */
+  readonly skipSignals: boolean = false
   private readonly pool: Pool
   private _queryCount = 0
   /** Callbacks registered via `onCommit`, drained after the OUTERMOST commit. */
   private _afterCommit?: Array<() => void | Promise<unknown>>
 
   constructor(options: DatabaseOptions = {}) {
+    ;(this as {skipSignals: boolean}).skipSignals = options.skipSignals ?? false
     this.pool =
       options.pool ??
       new Pool(
@@ -97,7 +106,7 @@ export class Database {
     if (this.transactional) return this.run(fn) // already in a txn → join it
     let txDb: Database | undefined
     const result = await this.kysely.transaction().execute(trx => {
-      txDb = databaseForKysely(trx)
+      txDb = databaseForKysely(trx, this.skipSignals)
       return txDb.run(fn)
     })
     // `execute()` resolves ONLY on COMMIT (it throws on rollback), so any callbacks
@@ -204,17 +213,22 @@ export function onCommit(cb: () => void | Promise<unknown>): void {
  * (and therefore every manager / historical model) resolve to the transaction,
  * so all of a migration's writes commit or roll back together.
  */
-export function databaseForKysely(kysely: Kysely<any>): Database {
+export function databaseForKysely(
+  kysely: Kysely<any>,
+  skipSignals = false
+): Database {
   const db = Object.create(Database.prototype) as Database
   const w = db as unknown as {
     kysely: Kysely<any>
     pool?: Pool
     _queryCount: number
     transactional: boolean
+    skipSignals: boolean
   }
   w.kysely = kysely
   w.pool = undefined
   w._queryCount = 0
   w.transactional = true
+  w.skipSignals = skipSignals
   return db
 }

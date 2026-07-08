@@ -115,3 +115,11 @@ export function runAsSystem<T>(fn: () => T): T {
 export function appContextKey(): object {
   return appContext.getStore() ?? NO_CONTEXT
 }
+
+/** The bound request/job context, or null when none is bound (CLI/seed/startup).
+ *  Per-request diagnostics (the N+1 advisory) key on this so their buffers scope to
+ *  ONE request and are GC'd with it — they must NOT accumulate under the shared
+ *  NO_CONTEXT singleton across unrelated operations. */
+export function boundContextKey(): object | null {
+  return appContext.getStore() ?? null
+}
