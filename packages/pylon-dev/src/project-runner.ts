@@ -87,11 +87,26 @@ async function main(): Promise<void> {
       const options = JSON.parse(process.argv[5] ?? '{}')
       const result = await runDbCommandCore(orm as unknown as ProjectApp, options)
       emit({ok: true, result})
+      // Close the ORM's connection pool so the process can exit on its own. NB: this
+      // closes what the ORM owns (Postgres) — NOT connections the project opened
+      // itself (e.g. an ioredis publisher from a realtime signal, bullmq queues);
+      // those keep the process alive until the project closes them.
+      await closeOrmPool(orm)
       return
     }
     default:
       emit({ok: false, error: `unknown runner op: ${op}`})
       process.exitCode = 1
+  }
+}
+
+/** Close the ORM's default connection pool (best-effort; no-op if none was opened). */
+async function closeOrmPool(orm: unknown): Promise<void> {
+  try {
+    const db = (orm as {getDatabase?: () => {destroy?: () => Promise<void>}}).getDatabase?.()
+    await db?.destroy?.()
+  } catch {
+    /* no default database (e.g. `diff`/`plan` never connected) — nothing to close */
   }
 }
 
@@ -109,16 +124,11 @@ async function introspectQueues(entryUrl: string): Promise<unknown[]> {
   }
 }
 
-// The runner is a short-lived command process: once the result is written, exit
-// explicitly. The project's entry (imported above) may leave handles open — a pg
-// pool's idle clients, a realtime/redis connection from an `import "./signals"`,
-// etc. — that would otherwise keep the event loop alive forever (e.g. `db seed`
-// completing but never exiting). The result is written synchronously by `emit`
-// before we get here, so a hard exit is safe.
-main().then(
-  () => process.exit(process.exitCode ?? 0),
-  (e: unknown) => {
-    emit({ok: false, error: e instanceof Error ? (e.stack ?? e.message) : String(e)})
-    process.exit(1)
-  }
-)
+// Let the process exit on its own once the event loop drains (the db op closes the
+// ORM pool above). If it still hangs, a handle the ORM doesn't own is holding it —
+// e.g. an ioredis publisher or bullmq queue the project opened — which the project
+// must close.
+main().catch((e: unknown) => {
+  emit({ok: false, error: e instanceof Error ? (e.stack ?? e.message) : String(e)})
+  process.exitCode = 1
+})
