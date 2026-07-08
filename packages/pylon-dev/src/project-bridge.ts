@@ -14,12 +14,13 @@
  * `spawnProjectRunner` is the parent-side spawn+envelope helper; introspection returns
  * serializable data, and `pylon db` runs its whole command in the child (see db/index).
  */
-import {existsSync} from 'node:fs'
+import {existsSync, promises as fsp} from 'node:fs'
 import {spawn} from 'node:child_process'
 import {createRequire} from 'node:module'
+import os from 'node:os'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
-import {RESULT_OPEN, RESULT_CLOSE, type RunnerEnvelope} from './project-runner-protocol.js'
+import {type RunnerEnvelope} from './project-runner-protocol.js'
 import type {PhysicalSchema, PylonIR} from '@getcronit/pylon-ir'
 
 /** The project's pylon-db migration/IR API, as driven by `runDbCommandCore` in the
@@ -194,32 +195,39 @@ export async function spawnProjectRunner<T = unknown>(
   modelsEntry: string,
   extraArgs: string[] = []
 ): Promise<T> {
+  // The result envelope goes to a temp FILE, NOT the streams — so the child's stdout
+  // and stderr carry ONLY logs and can be forwarded to the terminal RAW (no filtering).
+  // A file (unlike an extra fd) survives tsx re-spawning the runner.
+  const resultFile = path.join(os.tmpdir(), `pylon-runner-${process.pid}-${runnerSeq++}.json`)
   const child = spawn(
     process.execPath,
     [tsxCliPath(), projectRunnerPath(), op, cwd, modelsEntry, ...extraArgs],
-    {cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe']}
+    {cwd, env: {...process.env, PYLON_RUNNER_RESULT_FILE: resultFile}, stdio: ['ignore', 'pipe', 'pipe']}
   )
-  let out = ''
-  let err = ''
-  child.stdout.on('data', d => (out += d))
-  child.stderr.on('data', d => (err += d))
+  // Forward the child's output LIVE — to the parent's STDERR, so it can't corrupt the
+  // parent's own stdout (e.g. `pylon inspect`'s JSON). Makes a `db seed`'s console.log
+  // show as it runs, and a hang visible instead of silent.
+  child.stdout?.on('data', (d: Buffer) => process.stderr.write(d))
+  child.stderr?.on('data', (d: Buffer) => process.stderr.write(d))
 
   const code: number = await new Promise((resolve, reject) => {
     child.on('error', reject)
     child.on('close', c => resolve(c ?? 0))
   })
 
-  const start = out.indexOf(RESULT_OPEN)
-  const end = out.indexOf(RESULT_CLOSE, start + RESULT_OPEN.length)
-  if (start === -1 || end === -1) {
-    throw new Error(
-      `project runner produced no result (exit ${code}).\n${err || out}`.trim()
-    )
+  let raw: string
+  try {
+    raw = await fsp.readFile(resultFile, 'utf8')
+  } catch {
+    throw new Error(`project runner produced no result (exit ${code}); see output above.`)
+  } finally {
+    fsp.rm(resultFile, {force: true}).catch(() => {})
   }
-  const envelope = JSON.parse(out.slice(start + RESULT_OPEN.length, end)) as RunnerEnvelope<T>
+  const envelope = JSON.parse(raw) as RunnerEnvelope<T>
   if (!envelope.ok) throw new Error(envelope.error ?? 'project runner failed')
   return envelope.result as T
 }
+let runnerSeq = 0
 
 /** The serializable ORM-derived data the AppModel is assembled from (parent-side). */
 export interface IntrospectData {

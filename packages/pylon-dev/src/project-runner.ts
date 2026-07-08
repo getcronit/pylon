@@ -13,14 +13,23 @@
  * user's own logs stay on stdout/stderr around it); the parent extracts it. See
  * `spawnProjectRunner` in project-bridge.ts.
  */
+import fs from 'node:fs'
 import path from 'node:path'
 import {pathToFileURL} from 'node:url'
 import {RESULT_OPEN, RESULT_CLOSE, type RunnerEnvelope} from './project-runner-protocol.js'
 import {runDbCommandCore} from './db/index.js'
 import type {ProjectApp} from './project-bridge.js'
 
+/**
+ * Write the result envelope to the file the parent named (`PYLON_RUNNER_RESULT_FILE`),
+ * keeping stdout/stderr purely for logs. Falls back to a sentinel-framed block on
+ * stdout when there's no parent file (the runner invoked standalone).
+ */
 function emit(payload: RunnerEnvelope): void {
-  process.stdout.write(RESULT_OPEN + JSON.stringify(payload) + RESULT_CLOSE)
+  const json = JSON.stringify(payload)
+  const file = process.env.PYLON_RUNNER_RESULT_FILE
+  if (file) fs.writeFileSync(file, json)
+  else process.stdout.write(RESULT_OPEN + json + RESULT_CLOSE)
 }
 
 async function main(): Promise<void> {
