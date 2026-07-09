@@ -412,6 +412,8 @@ export interface HasManyOptions {
    * (cursor pagination orders by its own `orderBy` arg).
    */
   orderBy?: string
+  /** Hide this relation from the generated GraphQL API (kept usable in code). */
+  hidden?: boolean
 }
 
 /**
@@ -446,6 +448,8 @@ export function hasMany<R extends object>(
 export interface HasOneOptions {
   /** The FK *property* on the target model that references this model. */
   foreignKey: string
+  /** Hide this relation from the generated GraphQL API (kept usable in code). */
+  hidden?: boolean
 }
 
 /**
@@ -501,6 +505,13 @@ export interface ManyToManyOptions {
    * table, keyset on the target's PK by default.
    */
   paginate?: boolean
+  /**
+   * Hide this relation from the generated GraphQL API while keeping it usable in
+   * code (and, for m2m, its join table in migrations). Relations don't support the
+   * `$`-prefix trick (that's column-only), so use this flag — e.g. a raw membership
+   * join that the model resolves into a computed field.
+   */
+  hidden?: boolean
 }
 
 /**
@@ -818,7 +829,9 @@ function harvestMember(
       sourceColumn: value.options.sourceColumn,
       targetColumn: value.options.targetColumn,
       inverse: value.options.inverse,
-      paginate: value.options.paginate
+      paginate: value.options.paginate,
+      // `$`-prefixed → hidden, same universal convention as columns.
+      hidden: value.options.hidden ?? key.startsWith('$')
     }
     registerRelation(Ctor, rel)
     return rel
@@ -829,7 +842,8 @@ function harvestMember(
       propertyKey: key,
       target: value.target,
       nullable: true,
-      targetForeignKey: value.options.foreignKey
+      targetForeignKey: value.options.foreignKey,
+      hidden: value.options.hidden ?? key.startsWith('$')
     }
     registerRelation(Ctor, rel)
     return rel
@@ -841,7 +855,8 @@ function harvestMember(
     nullable: true,
     targetForeignKey: value.options.foreignKey,
     paginate: value.options.paginate,
-    orderBy: value.options.orderBy
+    orderBy: value.options.orderBy,
+    hidden: value.options.hidden ?? key.startsWith('$')
   }
   registerRelation(Ctor, rel)
   return rel

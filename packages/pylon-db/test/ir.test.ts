@@ -1,9 +1,14 @@
 import {toDDL, toSDL, tableSpecOf} from '@getcronit/pylon-ir'
 import {describe, expect, it} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
-import {Model, boolean, foreignKey, hasMany, id, text, timestamp} from '../src/index'
+import {Model, boolean, foreignKey, hasMany, id, manyToMany, text, timestamp} from '../src/index'
 import {toIR} from '../src/ir'
 import type {Relation} from '../src/relations'
+
+class Tag extends Model {
+  id = id()
+  label = text()
+}
 
 class User extends Model {
   id = id()
@@ -12,6 +17,9 @@ class User extends Model {
   createdAt = timestamp({defaultSql: 'now()'})
   posts = hasMany(() => Post, {foreignKey: 'authorId'})
   $passwordHash = text({nullable: true})
+  // Hidden relations: `$`-prefix (universal convention) and the explicit {hidden}.
+  $secretPosts = hasMany(() => Post, {foreignKey: 'authorId'})
+  hiddenTags = manyToMany(() => Tag, {hidden: true})
 }
 
 class Post extends Model {
@@ -29,13 +37,29 @@ class Doc extends Model {
   declare owner: Relation<User>
 }
 
-new Pylon({db: {models: [User, Post, Doc]}})
+new Pylon({db: {models: [User, Post, Doc, Tag]}})
 
 describe('toIR — ORM registry → Pylon IR', () => {
   const full = toIR()
 
   it('produces one entity per concrete model', () => {
-    expect(Object.keys(full.entities).sort()).toEqual(['Doc', 'Post', 'User'])
+    expect(Object.keys(full.entities).sort()).toEqual(['Doc', 'Post', 'Tag', 'User'])
+  })
+
+  it('hides `$`-prefixed and {hidden} relations (name stripped, exposed=false)', () => {
+    const f = (n: string) => full.entities.User.fields.find(x => x.name === n)
+    // `$secretPosts` → name stripped to `secretPosts`, hidden from the API.
+    expect(f('secretPosts')).toMatchObject({exposed: false, relation: {kind: 'hasMany'}})
+    expect(f('$secretPosts')).toBeUndefined()
+    // {hidden} m2m → hidden from the API, but STILL present in the IR with its m2m
+    // metadata (exposed:false), so `joinTablesOf` still synthesizes the join table for
+    // migrations — the same contract as a paginated m2m.
+    expect(f('hiddenTags')).toMatchObject({exposed: false, relation: {kind: 'manyToMany'}})
+    // The normal relation stays exposed.
+    expect(f('posts')).toMatchObject({exposed: true})
+    // Not in the emitted GraphQL schema.
+    const sdl = toSDL(full)
+    expect(sdl).not.toMatch(/secretPosts|hiddenTags|\$/)
   })
 
   it('records the primary key as an ID and a bigint identity column', () => {

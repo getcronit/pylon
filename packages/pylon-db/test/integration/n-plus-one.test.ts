@@ -99,7 +99,7 @@ describe.skipIf(!runDb)('n+1 advisory + batching (Postgres)', () => {
     await db.destroy()
   })
 
-  it('WARNS: standalone .first() per id in a loop (un-batched)', async () => {
+  it('WARNS + names the batchKey column: .first() per id in a loop', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     await runAsSystem(async () => {
       await Promise.all(children.map(cid => Child.objects.filter({id: cid}).first()))
@@ -107,6 +107,9 @@ describe.skipIf(!runDb)('n+1 advisory + batching (Postgres)', () => {
     const calls = warn.mock.calls
     warn.mockRestore()
     expect(warned(calls)).toBe(true)
+    // Only `id` varies across the repeats → it's suggested as the batchKey() target.
+    const msg = calls.map(c => String(c[0])).find(m => m.includes('[pylon-db:n+1]'))!
+    expect(msg).toMatch(/batchKey\(\).*`id`/)
   })
 
   it('NO warn: hasMany .all() across owners (keyed-batched)', async () => {

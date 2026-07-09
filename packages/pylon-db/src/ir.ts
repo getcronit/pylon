@@ -108,13 +108,13 @@ function relationField(rel: RelationDefinition, def: ModelDefinition): Field {
   const target = rel.target().name
   if (rel.kind === 'hasMany') {
     return {
-      name: rel.propertyKey,
+      name: fieldName(rel.propertyKey),
       type: {
         kind: 'list',
         of: {kind: 'ref', name: target, nullable: false},
         nullable: false
       },
-      exposed: true,
+      exposed: !rel.hidden,
       relation: {
         kind: 'hasMany',
         target,
@@ -126,9 +126,9 @@ function relationField(rel: RelationDefinition, def: ModelDefinition): Field {
     // Inverse 1:1 → a single nullable ref (the related row may not exist), like
     // belongsTo but the FK lives on the target side.
     return {
-      name: rel.propertyKey,
+      name: fieldName(rel.propertyKey),
       type: {kind: 'ref', name: target, nullable: true},
-      exposed: true,
+      exposed: !rel.hidden,
       relation: {
         kind: 'hasOne',
         target,
@@ -138,13 +138,13 @@ function relationField(rel: RelationDefinition, def: ModelDefinition): Field {
   }
   if (rel.kind === 'manyToMany') {
     return {
-      name: rel.propertyKey,
+      name: fieldName(rel.propertyKey),
       type: {
         kind: 'list',
         of: {kind: 'ref', name: target, nullable: false},
         nullable: false
       },
-      exposed: true,
+      exposed: !rel.hidden,
       relation: {
         kind: 'manyToMany',
         target,
@@ -163,7 +163,7 @@ function relationField(rel: RelationDefinition, def: ModelDefinition): Field {
     ? (def.columns.find(c => c.propertyKey === rel.fkProperty)?.hidden ?? false)
     : false
   return {
-    name: rel.propertyKey,
+    name: fieldName(rel.propertyKey),
     type: {kind: 'ref', name: target, nullable: rel.nullable},
     exposed: !fkHidden,
     relation: {

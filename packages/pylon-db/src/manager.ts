@@ -817,7 +817,7 @@ export class QuerySet<T extends object> {
   async all(): Promise<T[]> {
     const keyed = keyedTerminalFor(this.ctor, this.state.where, !!this.state.unscoped)
     if (keyed) return keyed.all(this.state.orderBy) as Promise<T[]>
-    noteQuery(this.ctor, 'all') // un-batched → N+1 advisory (dev-only)
+    noteQuery(this.ctor, 'all', this.state.where) // un-batched → N+1 advisory (dev-only)
     const rows = await this.build().execute()
     return rows.map(r => hydrate(this.ctor, r))
   }
@@ -825,7 +825,7 @@ export class QuerySet<T extends object> {
   async first(): Promise<T | null> {
     const keyed = keyedTerminalFor(this.ctor, this.state.where, !!this.state.unscoped)
     if (keyed) return keyed.first(this.state.orderBy) as Promise<T | null>
-    noteQuery(this.ctor, 'first') // un-batched → N+1 advisory (dev-only)
+    noteQuery(this.ctor, 'first', this.state.where) // un-batched → N+1 advisory (dev-only)
     const rows = await this.limit(1).build().execute()
     return rows.length ? hydrate(this.ctor, rows[0]) : null
   }
@@ -837,7 +837,7 @@ export class QuerySet<T extends object> {
 
   async get(conditions?: WhereInput<T>): Promise<T> {
     const qs = conditions ? this.filter(conditions) : this
-    noteQuery(this.ctor, 'get') // un-batched → N+1 advisory (dev-only)
+    noteQuery(this.ctor, 'get', qs.state.where) // un-batched → N+1 advisory (dev-only)
     const rows = await qs.limit(2).build().execute()
     if (rows.length === 0) {
       throw new NotFoundError(this.def.tableName, conditions as Record<string, unknown> | undefined)
@@ -853,7 +853,7 @@ export class QuerySet<T extends object> {
     // (or throw if it's marked-but-unbatchable — §10). Marker-free → plain count.
     const keyed = keyedTerminalFor(this.ctor, this.state.where, !!this.state.unscoped)
     if (keyed) return keyed.count()
-    noteQuery(this.ctor, 'count') // un-batched → N+1 advisory (dev-only)
+    noteQuery(this.ctor, 'count', this.state.where) // un-batched → N+1 advisory (dev-only)
     const db = getDatabase()
     let q: any = db.kysely
       .selectFrom(this.def.tableName)
@@ -977,7 +977,7 @@ export class QuerySet<T extends object> {
     }
     // Composite keyset (opt-in) — the single-string path below is left untouched.
     if (Array.isArray(args.orderBy)) return this.paginateComposite(args.orderBy, args)
-    noteQuery(this.ctor, 'paginate') // paginated relations aren't batched → N+1 advisory
+    noteQuery(this.ctor, 'paginate', this.state.where) // paginated relations aren't batched → N+1 advisory
     const raw = args.orderBy ?? this.def.primaryKey?.propertyKey
     if (!raw) {
       throw new Error(`${this.def.tableName}: .paginate() needs an orderBy or a primary key.`)
@@ -1081,7 +1081,7 @@ export class QuerySet<T extends object> {
     keys: string[],
     args: PaginateArgs
   ): Promise<Connection<T>> {
-    noteQuery(this.ctor, 'paginate') // not batched → N+1 advisory (dev-only)
+    noteQuery(this.ctor, 'paginate', this.state.where) // not batched → N+1 advisory (dev-only)
     const pkCol = this.def.primaryKey?.columnName
     if (!pkCol) {
       throw new Error(`${this.def.tableName}: composite .paginate() needs a primary key.`)

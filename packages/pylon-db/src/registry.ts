@@ -120,6 +120,9 @@ export interface RelationDefinition {
    *  The ORM IR skips it — the type-checker reads the callable field type and
    *  emits the `Connection` shape (+ args), so there's a single source for it. */
   paginate?: boolean
+  /** Hide this relation from the generated GraphQL API (kept usable in code). The
+   *  m2m join table is still synthesized for migrations. */
+  hidden?: boolean
 }
 
 /** A model-level (possibly composite) secondary index. `columns` are PROPERTY keys. */
