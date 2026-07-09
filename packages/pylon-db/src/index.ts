@@ -229,6 +229,7 @@ export {
   groupModelDefinitions,
   generateGroup,
   migrateGroups,
+  renameGroupApp,
   deployGroups,
   statusGroups,
   type MigrationGroup,
@@ -372,6 +373,7 @@ export const groups = {
   modelDefinitions: groupsApi.groupModelDefinitions,
   generate: groupsApi.generateGroup,
   migrate: groupsApi.migrateGroups,
+  renameApp: groupsApi.renameGroupApp,
   deploy: groupsApi.deployGroups,
   status: groupsApi.statusGroups
 } as const

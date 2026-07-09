@@ -497,6 +497,27 @@ export class MigrationRunner {
     return pending
   }
 
+  /**
+   * Re-point this app's ledger rows after the APP was RENAMED. Migrations are keyed
+   * `"<app>:<name>"`, so renaming an app orphans its already-applied rows under the
+   * OLD prefix — `apply` then re-runs the (existing) init and fails with a raw
+   * "relation already exists". Run this ONCE per database (before `migrate`) to move
+   * `"<from>:*"` rows onto this runner's prefix. Idempotent; returns rows re-pointed.
+   */
+  async renameAppLedger(fromApp: string, db: Database = getDatabase()): Promise<number> {
+    const to = this.ledgerPrefix
+    if (!to) {
+      throw new Error('renameAppLedger requires a per-app (ledger-namespaced) runner.')
+    }
+    if (fromApp === to) return 0
+    await this.ensureTable(db)
+    const from = `${fromApp}:`
+    const res = await sql`UPDATE ${sql.ref(APPLIED_TABLE)} SET name = ${`${to}:`} || substr(name, ${
+      from.length + 1
+    }) WHERE name LIKE ${`${from}%`}`.execute(db.kysely)
+    return Number(res.numAffectedRows ?? 0n)
+  }
+
   /** Reverse the most recently applied migration(s). Refuses irreversible ones. */
   async rollback(
     load: MigrationLoader,

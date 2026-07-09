@@ -70,6 +70,7 @@ export interface DbCommandOptions {
     | 'merge'
     | 'seed'
     | 'baseline'
+    | 'rename-app'
   /** Migration name (for `diff`; the target for `resolve`). */
   name?: string
   /** `diff`: which app to generate a migration for (required in apps mode). */
@@ -84,6 +85,8 @@ export interface DbCommandOptions {
   renames?: Array<{table: string; from: string; to: string}>
   /** `diff`: confirmed TABLE renames (drop+create → renameTable, data-preserving). */
   tableRenames?: Array<{from: string; to: string}>
+  /** `rename-app`: re-point the ledger after an app was renamed (`<from>` → app). */
+  renameApp?: {from: string; to: string}
   /** Entry that imports the models (default `./src/index.ts`). */
   models?: string
   /** Migrations directory (default `./migrations`). */
@@ -111,6 +114,8 @@ export interface DbCommandResult {
   rolledBack?: string[]
   /** `resolve`: `{name, as}` recorded in the ledger. */
   resolved?: {name: string; as: 'applied' | 'rolled-back'}
+  /** `rename-app`: `{from, to, rows}` — ledger rows re-pointed to the new app. */
+  renamedApp?: {from: string; to: string; rows: number}
   /** `plan`: per-migration SQL preview. */
   plan?: Array<{name: string; statements: string[]}>
   /** `check`: CI gate result. */
@@ -292,6 +297,20 @@ export async function runDbCommandCore(
       if (as === 'applied') await runner.markApplied(options.name, loadMigrationFile, conn)
       else await runner.markRolledBack(options.name, conn)
       return {command: 'resolve', resolved: {name: options.name, as}}
+    }
+    case 'rename-app': {
+      const connectionString = process.env.DATABASE_URL
+      if (!connectionString) {
+        throw new Error('pylon db rename-app requires DATABASE_URL to be set.')
+      }
+      if (!options.renameApp) throw new Error('pylon db rename-app requires <old>=<new>.')
+      const {from, to} = options.renameApp
+      if (!groups) {
+        throw new Error('pylon db rename-app only applies to an apps-based project.')
+      }
+      const conn = orm.connect({connectionString})
+      const rows = await orm.renameGroupApp(groups, from, to, conn)
+      return {command: 'rename-app', renamedApp: {from, to, rows}}
     }
     case 'push': {
       const connectionString = process.env.DATABASE_URL

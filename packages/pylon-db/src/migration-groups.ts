@@ -171,6 +171,25 @@ export interface GroupApplyResult {
   applied: string[]
 }
 
+/**
+ * Re-point the migration ledger after an app was RENAMED (`fromApp` → `toApp`).
+ * Ledger rows are keyed `"<app>:<name>"`, so a rename orphans the old app's
+ * already-applied rows and `migrate` would re-run its init. Run once per database
+ * (before `migrate`). Returns the number of ledger rows re-pointed. Idempotent.
+ */
+export async function renameGroupApp(
+  groups: MigrationGroup[],
+  fromApp: string,
+  toApp: string,
+  db: Database = getDatabase()
+): Promise<number> {
+  const group = groups.find(g => g.name === toApp)
+  if (!group) {
+    throw new Error(`No app named "${toApp}" — rename the app in code first, then run rename-app.`)
+  }
+  return groupRunner(group).renameAppLedger(fromApp, db)
+}
+
 /** Apply every group's pending migrations, in dependency order. Idempotent. */
 export async function migrateGroups(
   groups: MigrationGroup[],

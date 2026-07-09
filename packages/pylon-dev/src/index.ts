@@ -467,6 +467,35 @@ db.command('resolve')
     }
   })
 
+db.command('rename-app')
+  .description(
+    'Re-point the migration ledger after renaming an app (run once per DB before migrate)'
+  )
+  .argument('<spec>', 'oldApp=newApp (the app was renamed in code from oldApp to newApp)')
+  .option('-e, --entry <path>', 'Entry that constructs your app / registers models (default ./src/index.ts)')
+  .option('-m, --models <path>', 'Deprecated alias for --entry')
+  .option('-d, --dir <path>', 'Migrations directory', './migrations')
+  .action(async (spec, options) => {
+    try {
+      const eq = String(spec).indexOf('=')
+      const from = eq > 0 ? spec.slice(0, eq).trim() : ''
+      const to = eq > 0 ? spec.slice(eq + 1).trim() : ''
+      if (!from || !to) throw new Error(`Invalid spec "${spec}" (expected oldApp=newApp)`)
+      const {renamedApp} = await runDbCommand({
+        command: 'rename-app',
+        renameApp: {from, to},
+        models: entryOf(options),
+        dir: options.dir
+      })
+      consola.success(
+        `Re-pointed ${renamedApp!.rows} ledger row(s) from "${renamedApp!.from}:" to "${renamedApp!.to}:". Run \`pylon db migrate\` next.`
+      )
+    } catch (error) {
+      consola.error(error)
+      process.exit(1)
+    }
+  })
+
 db.command('seed')
   .description('Run the seed file to populate the database (requires DATABASE_URL)')
   .option('-s, --seed <path>', 'Seed file (default exports a function)', './src/seed.ts')
