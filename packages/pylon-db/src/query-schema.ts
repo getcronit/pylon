@@ -177,6 +177,9 @@ function build(def: ModelDefinition, depth: number): QuerySchema {
   const relations = new Map<string, RelationField>()
   if (depth > 0) {
     for (const rel of def.relations) {
+      // hasManyThrough is a read-only chain accessor — not a filterable path (there's
+      // no single reverse FK to correlate on), so it never enters the query schema.
+      if (rel.kind === 'hasManyThrough') continue
       const targetDef = getModelDefinition(rel.target())
       if (!targetDef) continue // unresolved target → not traversable
       relations.set(rel.propertyKey, {

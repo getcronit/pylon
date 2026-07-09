@@ -246,7 +246,12 @@ export function entityFromDefinition(def: ModelDefinition): Entity {
       // the live table. So keep paginated m2m with `exposed: false` (present for
       // migrations, absent from the GraphQL API); paginated hasMany has no join
       // table and is dropped entirely.
+      // hasManyThrough is a pure read accessor — no column, table, or FK — and its
+      // Connection field is emitted by the type-checker off the callable return type.
+      // Drop it from the IR entirely (both paginated and plain) so it never
+      // double-declares nor reaches `relationField` (which has no case for it).
       ...def.relations
+        .filter(rel => rel.kind !== 'hasManyThrough')
         .filter(rel => !rel.paginate || rel.kind === 'manyToMany')
         .map(rel =>
           rel.paginate

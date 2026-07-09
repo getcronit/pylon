@@ -84,7 +84,12 @@ export interface ColumnDefinition {
   schema?: FieldSchema
 }
 
-export type RelationKind = 'belongsTo' | 'hasOne' | 'hasMany' | 'manyToMany'
+export type RelationKind =
+  | 'belongsTo'
+  | 'hasOne'
+  | 'hasMany'
+  | 'manyToMany'
+  | 'hasManyThrough'
 
 export type OnDelete = 'cascade' | 'set null' | 'restrict' | 'no action'
 
@@ -106,6 +111,18 @@ export interface RelationDefinition {
   /** hasMany: default ordering for the plain list — a target property name,
    *  optionally `-`-prefixed for descending (e.g. `createdAt` / `-createdAt`). */
   orderBy?: string
+  /** hasManyThrough: the INTERMEDIATE model (e.g. `() => TicketMessage`) — a thunk so
+   *  TS can infer it and type `foreignKey`/`via` against its fields. */
+  throughTarget?: () => Function
+  /** hasManyThrough: the FK *property* on the intermediate that points back to THIS
+   *  owner (e.g. `TicketMessage.ticketId`). */
+  throughForeignKey?: string
+  /** hasManyThrough: the `hasMany` | `manyToMany` relation on the INTERMEDIATE
+   *  model that reaches the target (e.g. `TicketMessage.comments`). */
+  viaRelation?: string
+  /** hasManyThrough: a static scope predicate ANDed onto the target (e.g.
+   *  `{deletedAt: null}`). Serialized only for the accessor — never hits the IR. */
+  where?: unknown
   /** manyToMany: explicit join-table name (default: the two tables, sorted). */
   through?: string
   /** manyToMany: join column referencing THIS model (default: `<table>_<pk>`). */

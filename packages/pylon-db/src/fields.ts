@@ -1,9 +1,17 @@
-import {type Connection, createManager, ModelCtor, readPolicyDenies} from './manager.js'
+import {
+  type Connection,
+  createManager,
+  ModelCtor,
+  readPolicyDenies,
+  type WhereInput
+} from './manager.js'
 import {registerModelAbilities, type ModelAbilitiesFn} from './abilities.js'
 import {ForbiddenError} from './features.js'
 import type {QueryConfig} from './query-schema.js'
 import {
   asPaginated,
+  type HasManyThroughBinding,
+  HasManyThroughManager,
   loadBelongsTo,
   loadHasOne,
   ManyToManyManager,
@@ -91,12 +99,14 @@ class FieldBuilder {
 /** Internal descriptor produced by a relation builder. */
 class RelationBuilder {
   constructor(
-    readonly kind: 'belongsTo' | 'hasOne' | 'hasMany' | 'manyToMany',
+    readonly kind: 'belongsTo' | 'hasOne' | 'hasMany' | 'manyToMany' | 'hasManyThrough',
     readonly target: () => Function,
-    readonly options: ForeignKeyOptions &
-      HasOneOptions &
-      HasManyOptions &
-      ManyToManyOptions & {length?: number}
+    // Loosely typed on purpose: the public builders above are fully typed; this
+    // internal descriptor just carries whatever they pass. A single intersection
+    // can't hold both m2m's `through: string` (join-table name) and hasManyThrough's
+    // `through: () => Model` (intermediate) — they collide on the property name — so
+    // reads here are guarded by the `kind` switch in `harvestMember`.
+    readonly options: any
   ) {}
 }
 
@@ -393,9 +403,18 @@ export interface PaginatedManyToMany<R extends object> {
   then: ManyToManyManager<R>['then']
 }
 
-export interface HasManyOptions {
+/** A property name of the TARGET model — the compile-time constraint on option
+ *  strings that reference a field (FK / ordering). Mirrors `ModelConfig`'s
+ *  `ColumnKey`: it includes relation accessors/methods too, but still catches the
+ *  common mistake (a mistyped or non-existent field name). `any` widens to `string`,
+ *  so the non-generic re-exports stay source-compatible. */
+export type TargetField<R> = Extract<keyof R, string>
+/** An ordering argument over the target: a property, `-`-prefixed for descending. */
+export type OrderByArg<R> = TargetField<R> | `-${TargetField<R>}`
+
+export interface HasManyOptions<R = any> {
   /** The FK *property* on the target model that references this model. */
-  foreignKey: string
+  foreignKey: TargetField<R>
   /**
    * Expose this relation as a Relay `Connection` (cursor-paginated) instead of a
    * plain list — the GraphQL field gains `first/after/last/before` args and
@@ -411,7 +430,7 @@ export interface HasManyOptions {
    * list is returned in unspecified DB order. Ignored when `paginate` is set
    * (cursor pagination orders by its own `orderBy` arg).
    */
-  orderBy?: string
+  orderBy?: OrderByArg<R>
   /** Hide this relation from the generated GraphQL API (kept usable in code). */
   hidden?: boolean
 }
@@ -428,15 +447,15 @@ export interface HasManyOptions {
  */
 export function hasMany<R extends object>(
   target: () => ModelCtor<R>,
-  options: HasManyOptions & {paginate: true}
+  options: HasManyOptions<R> & {paginate: true}
 ): PaginatedHasMany<R>
 export function hasMany<R extends object>(
   target: () => ModelCtor<R>,
-  options: HasManyOptions
+  options: HasManyOptions<R>
 ): RelatedManager<R>
 export function hasMany<R extends object>(
   target: () => ModelCtor<R>,
-  options: HasManyOptions
+  options: HasManyOptions<R>
 ): RelatedManager<R> | PaginatedHasMany<R> {
   return new RelationBuilder(
     'hasMany',
@@ -445,9 +464,9 @@ export function hasMany<R extends object>(
   ) as unknown as RelatedManager<R>
 }
 
-export interface HasOneOptions {
+export interface HasOneOptions<R = any> {
   /** The FK *property* on the target model that references this model. */
-  foreignKey: string
+  foreignKey: TargetField<R>
   /** Hide this relation from the generated GraphQL API (kept usable in code). */
   hidden?: boolean
 }
@@ -466,7 +485,7 @@ export interface HasOneOptions {
  */
 export function hasOne<R extends object>(
   target: () => ModelCtor<R>,
-  options: HasOneOptions
+  options: HasOneOptions<R>
 ): Relation<R> {
   return new RelationBuilder(
     'hasOne',
@@ -544,6 +563,90 @@ export function manyToMany<R extends object>(
     target as () => Function,
     options as ForeignKeyOptions & HasManyOptions & ManyToManyOptions
   ) as unknown as ManyToManyManager<R>
+}
+
+/** The paginated `hasManyThrough` field: callable (Relay args → `Connection`, read
+ *  off the call signature by the schema builder) plus the read-only chain terminals.
+ *  A single non-Array interface (see {@link PaginatedHasMany} for why). */
+export interface PaginatedHasManyThrough<R extends object> {
+  (first?: number, after?: string, last?: number, before?: string, skip?: number): Promise<Connection<R>>
+  all: HasManyThroughManager<R>['all']
+  count: HasManyThroughManager<R>['count']
+  first: HasManyThroughManager<R>['first']
+  paginate: HasManyThroughManager<R>['paginate']
+  then: HasManyThroughManager<R>['then']
+}
+
+export interface HasManyThroughOptions<I = any, R = any> {
+  /**
+   * The INTERMEDIATE model (a thunk, so it resolves lazily AND is inferred — which
+   * is what lets `foreignKey`/`via` below be `keyof` its fields). E.g.
+   * `() => TicketMessage` for `Ticket → TicketMessage → Comment`.
+   */
+  through: () => ModelCtor<I>
+  /**
+   * The FK *property* on the intermediate that points back to THIS owner — e.g.
+   * `'ticketId'` (`TicketMessage.ticketId → Ticket`). OPTIONAL: auto-detected from the
+   * intermediate's `belongsTo` to the owner; only needed when the intermediate has
+   * more than one FK to the owner (ambiguous). Same sense as a `hasMany`'s `foreignKey`.
+   */
+  foreignKey?: TargetField<I>
+  /**
+   * The `hasMany` | `manyToMany` relation on the intermediate that reaches the
+   * target — e.g. `'comments'` (`TicketMessage.comments`), or `'attachments'` for a
+   * `TicketMessage.attachments` many-to-many. Together with `through`+`foreignKey`
+   * this walks `owner → intermediate → target` over the FKs that already exist (no
+   * denormalized key, no migration).
+   */
+  via: TargetField<I>
+  /** Default target ordering — a target property, `-`-prefixed for descending. */
+  orderBy?: OrderByArg<R>
+  /** Static scope predicate ANDed onto the target (e.g. `{deletedAt: null}`). */
+  where?: WhereInput<R>
+  /** Expose as a Relay `Connection` (cursor-paginated) instead of a plain list. The
+   *  list badge (`totalCount`) batches to a single grouped count across a request. */
+  paginate?: boolean
+  /** Hide this relation from the generated GraphQL API (kept usable in code). */
+  hidden?: boolean
+}
+
+/**
+ * A read-only relation that hops TWO existing relations to reach a grandchild set —
+ * Rails' `has_many :through` / Django's nested lookups. Declare the bridge
+ * (`through`, a hasMany on this model) and the second hop (`via`, a hasMany or
+ * manyToMany on the intermediate); the chain resolves over existing FKs, so there's
+ * no new column and no migration. Every terminal (`count`/`all`/`paginate.totalCount`)
+ * batches across a request tick — the reason to reach for this over a per-row
+ * `async` method that would N+1.
+ *
+ * The intermediate `I` is inferred from the `through` thunk and the target `R` from
+ * the first arg, so `foreignKey`/`via` type-check against the intermediate's fields
+ * and `orderBy`/`where` against the target's — no explicit type arguments.
+ *
+ * ```ts
+ * // Ticket → TicketMessage → Comment (comments = a hasMany on TicketMessage)
+ * comments = hasManyThrough(() => Comment, {through: () => TicketMessage, foreignKey: 'ticketId', via: 'comments', paginate: true})
+ * // Ticket → TicketMessage → Asset (attachments = a m2m on TicketMessage)
+ * attachments = hasManyThrough(() => Asset, {through: () => TicketMessage, foreignKey: 'ticketId', via: 'attachments', where: {deletedAt: null}, paginate: true})
+ * ```
+ */
+export function hasManyThrough<I extends object, R extends object>(
+  target: () => ModelCtor<R>,
+  options: HasManyThroughOptions<I, R> & {paginate: true}
+): PaginatedHasManyThrough<R>
+export function hasManyThrough<I extends object, R extends object>(
+  target: () => ModelCtor<R>,
+  options: HasManyThroughOptions<I, R>
+): HasManyThroughManager<R>
+export function hasManyThrough<I extends object, R extends object>(
+  target: () => ModelCtor<R>,
+  options: HasManyThroughOptions<I, R>
+): HasManyThroughManager<R> | PaginatedHasManyThrough<R> {
+  return new RelationBuilder(
+    'hasManyThrough',
+    target as () => Function,
+    options
+  ) as unknown as HasManyThroughManager<R>
 }
 
 // ===========================================================================
@@ -848,6 +951,23 @@ function harvestMember(
     registerRelation(Ctor, rel)
     return rel
   }
+  if (value.kind === 'hasManyThrough') {
+    const rel: RelationDefinition = {
+      kind: 'hasManyThrough',
+      propertyKey: key,
+      target: value.target,
+      nullable: true,
+      throughTarget: value.options.through as unknown as () => Function,
+      throughForeignKey: value.options.foreignKey,
+      viaRelation: value.options.via,
+      orderBy: value.options.orderBy,
+      where: value.options.where,
+      paginate: value.options.paginate,
+      hidden: value.options.hidden ?? key.startsWith('$')
+    }
+    registerRelation(Ctor, rel)
+    return rel
+  }
   const rel: RelationDefinition = {
     kind: 'hasMany',
     propertyKey: key,
@@ -930,6 +1050,41 @@ function installRelationAccessors(proto: any, relations: RelationDefinition[]): 
             targetDef.columns.find(c => c.propertyKey === targetForeignKey)?.columnName ??
             targetForeignKey!
           return loadHasOne(targetCtor, fkColumn, this[pkProperty])
+        },
+        set() {
+          /* no-op: relation is a computed accessor, not stored state */
+        }
+      })
+    } else if (rel.kind === 'hasManyThrough') {
+      const {target, throughTarget, throughForeignKey, viaRelation, orderBy, where, paginate} = rel
+      const binding: HasManyThroughBinding = {
+        through: throughTarget as () => ModelCtor<any>,
+        foreignKey: throughForeignKey!,
+        via: viaRelation!,
+        orderBy,
+        where: where as HasManyThroughBinding['where']
+      }
+      const makeManager = (self: any): HasManyThroughManager<any> => {
+        const def = getModelDefinitionOrThrow(self.constructor)
+        const pkProperty = def.primaryKey?.propertyKey
+        if (!pkProperty) {
+          throw new Error(
+            `Cannot resolve hasManyThrough "${rel.propertyKey}": "${def.tableName}" has no primary key.`
+          )
+        }
+        return new HasManyThroughManager(
+          self.constructor as ModelCtor<any>,
+          self[pkProperty],
+          target() as ModelCtor<any>,
+          binding
+        )
+      }
+      Object.defineProperty(proto, rel.propertyKey, {
+        configurable: true,
+        enumerable: false,
+        get(this: any) {
+          const mgr = makeManager(this)
+          return paginate ? asPaginated(mgr) : mgr
         },
         set() {
           /* no-op: relation is a computed accessor, not stored state */

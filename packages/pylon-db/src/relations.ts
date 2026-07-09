@@ -10,9 +10,11 @@ import {
   applyTenantWhere,
   decodeCursor,
   deleteManyInstances,
+  type Edge,
   encodeCursor,
   hydrate,
   ModelCtor,
+  type PageInfo,
   type PaginateArgs,
   QuerySet,
   selectableColumns,
@@ -670,5 +672,387 @@ export class ManyToManyManager<T extends object> {
     onrejected?: ((reason: unknown) => R2 | PromiseLike<R2>) | null
   ): Promise<R1 | R2> {
     return this.all().then(onfulfilled, onrejected)
+  }
+}
+
+// ── hasManyThrough ─────────────────────────────────────────────────────────────
+// A read-only accessor that hops TWO existing relations — `owner[through]` (a
+// hasMany bridge) then `intermediate[via]` (a hasMany or manyToMany to the target)
+// — to reach a grandchild set. Django's `related__name` lookups / Rails'
+// `has_many :through`, expressed as a relation *chain*: no denormalized key, no
+// migration — it walks the FKs that already exist. Every terminal batches across a
+// request tick (many owners → a handful of grouped queries, never N+1), so the
+// list badge (`totalCount`) collapses; `.paginate()` windows in memory per owner.
+
+/** Type-only merge so a non-paginated `hasManyThrough` presents as a GraphQL list. */
+export interface HasManyThroughManager<T extends object> extends Array<T> {}
+
+export interface HasManyThroughBinding {
+  /** The INTERMEDIATE model (thunk — e.g. `() => TicketMessage`). */
+  through: () => ModelCtor<any>
+  /** FK property on the intermediate pointing back to the owner (e.g. `ticketId`).
+   *  Optional — auto-detected from the intermediate's belongsTo to the owner. */
+  foreignKey?: string
+  /** hasMany | manyToMany relation on the INTERMEDIATE reaching the target
+   *  (e.g. `TicketMessage.comments`). */
+  via: string
+  /** Default target ordering (property, `-`-prefixed = desc). Applied to lists + pages. */
+  orderBy?: string
+  /** Static scope predicate ANDed onto the target (e.g. `{deletedAt: null}`). */
+  where?: WhereInput<any>
+}
+
+/** The resolved two-hop plan (owner → intermediate → target), derived from the
+ *  registry at call time so forward references resolve. */
+interface ThroughPlan {
+  interCtor: ModelCtor<any>
+  interPkColumn: string
+  /** Intermediate FK column back to the owner (the batch key — e.g. `ticket_id`). */
+  interKeyColumn: string
+  target: ModelCtor<any>
+  targetPkProperty: string
+  orderColumn?: string
+  orderDir: 'asc' | 'desc'
+  where?: WhereInput<any>
+  via:
+    | {kind: 'hasMany'; fkColumn: string}
+    | {kind: 'manyToMany'; joinTable: string; localColumn: string; targetColumn: string}
+}
+
+// One realm per terminal so a count-only read (the list badge) never materializes
+// rows for the hasMany-via case. Both are keyed by the owner PK, coalesced per tick.
+const throughCountRealm = createRealm<unknown, number>()
+const throughRowsRealm = createRealm<unknown, any[]>()
+
+
+export class HasManyThroughManager<T extends object> {
+  constructor(
+    private readonly ownerCtor: ModelCtor<any>,
+    private readonly ownerPk: unknown,
+    private readonly targetCtor: ModelCtor<T>,
+    private readonly binding: HasManyThroughBinding
+  ) {}
+
+  /** Resolve the owner→intermediate→target chain off the registry (call-time, so
+   *  lazy targets are registered). Throws a precise error on a misdeclared chain. */
+  private plan(): ThroughPlan {
+    const ownerDef = getModelDefinitionOrThrow(this.ownerCtor)
+    const label = `hasManyThrough on ${ownerDef.tableName}`
+    const interCtor = this.binding.through() as ModelCtor<any>
+    const interDef = getModelDefinitionOrThrow(interCtor)
+    const interPk = interDef.primaryKey
+    if (!interPk) throw new Error(`${label}: intermediate "${interDef.tableName}" has no primary key.`)
+
+    // The intermediate's FK back to the owner. Explicit when given; otherwise the sole
+    // `belongsTo` on the intermediate whose target IS this owner (ambiguity → ask).
+    let fkProperty = this.binding.foreignKey
+    if (fkProperty) {
+      if (!interDef.columns.some(c => c.propertyKey === fkProperty)) {
+        throw new Error(
+          `${label}: foreignKey "${fkProperty}" is not a column of intermediate "${interDef.tableName}".`
+        )
+      }
+    } else {
+      const backs = interDef.relations.filter(
+        r => r.kind === 'belongsTo' && r.target() === this.ownerCtor
+      )
+      if (backs.length !== 1) {
+        throw new Error(
+          `${label}: could not auto-detect the FK from "${interDef.tableName}" back to ` +
+            `"${ownerDef.tableName}" (${backs.length} candidates) — pass an explicit foreignKey.`
+        )
+      }
+      fkProperty = backs[0].fkProperty!
+    }
+
+    const via = interDef.relations.find(r => r.propertyKey === this.binding.via)
+    if (!via) {
+      throw new Error(
+        `${label}: via "${this.binding.via}" is not a relation on ${interDef.tableName}.`
+      )
+    }
+    const target = via.target() as ModelCtor<any>
+    const targetDef = getModelDefinitionOrThrow(target)
+    const targetPk = targetDef.primaryKey
+    if (!targetPk) throw new Error(`${label}: target "${targetDef.tableName}" has no primary key.`)
+
+    let viaSpec: ThroughPlan['via']
+    if (via.kind === 'hasMany') {
+      viaSpec = {kind: 'hasMany', fkColumn: columnFor(targetDef, via.targetForeignKey!).columnName}
+    } else if (via.kind === 'manyToMany') {
+      viaSpec = {
+        kind: 'manyToMany',
+        joinTable: joinTableName(interDef.tableName, targetDef.tableName, via.through),
+        localColumn: via.sourceColumn ?? joinColumn(interDef.tableName, interPk.columnName),
+        targetColumn: via.targetColumn ?? joinColumn(targetDef.tableName, targetPk.columnName)
+      }
+    } else {
+      throw new Error(
+        `${label}: via "${this.binding.via}" must be a hasMany or manyToMany (got ${via.kind}).`
+      )
+    }
+
+    const rawOrder = this.binding.orderBy
+    const desc = rawOrder?.startsWith('-') ?? false
+    const orderProp = rawOrder ? (desc ? rawOrder.slice(1) : rawOrder) : undefined
+    return {
+      interCtor,
+      interPkColumn: interPk.columnName,
+      interKeyColumn: columnFor(interDef, fkProperty).columnName,
+      target,
+      targetPkProperty: targetPk.propertyKey,
+      orderColumn: orderProp,
+      orderDir: desc ? 'desc' : 'asc',
+      where: this.binding.where,
+      via: viaSpec
+    }
+  }
+
+  private targetQS(p: ThroughPlan): QuerySet<T> {
+    const qs = new QuerySet(p.target as ModelCtor<T>)
+    return p.where ? qs.filter(p.where as WhereInput<T>) : qs
+  }
+
+  /** intermediate PKs grouped by owner PK (scoped) + the flat set of all inter PKs. */
+  private async bridgeIds(
+    p: ThroughPlan,
+    ownerPks: unknown[]
+  ): Promise<{byOwner: Map<unknown, unknown[]>; all: unknown[]}> {
+    const byOwner = await new QuerySet(p.interCtor).groupedIdsByFk(
+      p.interKeyColumn,
+      p.interPkColumn,
+      ownerPks
+    )
+    const all = [...new Set([...byOwner.values()].flat())]
+    return {byOwner, all}
+  }
+
+  /** Batched grouped counts, owner PK → count. hasMany-via stays a pure count (no
+   *  rows); manyToMany-via reuses the deduped row gather (a target may hang off
+   *  several of an owner's intermediates → count DISTINCT). */
+  private async gatherCounts(p: ThroughPlan, ownerPks: unknown[]): Promise<Map<unknown, number>> {
+    if (p.via.kind === 'manyToMany') {
+      const rows = await this.gatherRows(p, ownerPks)
+      return new Map([...rows].map(([k, v]) => [k, v.length]))
+    }
+    const {byOwner, all} = await this.bridgeIds(p, ownerPks)
+    const out = new Map<unknown, number>()
+    if (!all.length) return out
+    const countByInter = await this.targetQS(p).groupedCountByFk(p.via.fkColumn, all)
+    for (const [owner, interIds] of byOwner) {
+      let n = 0
+      for (const iid of interIds) n += countByInter.get(iid) ?? 0
+      out.set(owner, n)
+    }
+    return out
+  }
+
+  /** Batched row gather, owner PK → deduped target rows (unsorted; the terminal
+   *  sorts). Target scope/tenant/policy + the static `where` apply via `targetQS`. */
+  private async gatherRows(p: ThroughPlan, ownerPks: unknown[]): Promise<Map<unknown, T[]>> {
+    const {byOwner, all} = await this.bridgeIds(p, ownerPks)
+    if (!all.length) return new Map()
+    const pk = p.targetPkProperty
+
+    if (p.via.kind === 'hasMany') {
+      const rowsByInter = await this.targetQS(p).groupedRowsByFk(p.via.fkColumn, all)
+      const out = new Map<unknown, T[]>()
+      for (const [owner, interIds] of byOwner) {
+        const seen = new Map<unknown, T>()
+        for (const iid of interIds)
+          for (const r of rowsByInter.get(iid) ?? []) seen.set((r as any)[pk], r)
+        out.set(owner, [...seen.values()])
+      }
+      return out
+    }
+
+    // manyToMany-via: pull (intermediate → target) links from the join table, then
+    // load the target rows once (SCOPED — the where/tenant/policy decide validity).
+    const spec = p.via
+    const links = (await getDatabase()
+      .kysely.selectFrom(spec.joinTable)
+      .select([`${spec.localColumn} as k`, `${spec.targetColumn} as id`] as any)
+      .where(spec.localColumn as any, 'in', all as any)
+      .execute()) as Array<{k: unknown; id: unknown}>
+    const targetIdsByInter = new Map<unknown, unknown[]>()
+    const allTargetIds = new Set<unknown>()
+    for (const l of links) {
+      allTargetIds.add(l.id)
+      const list = targetIdsByInter.get(l.k) ?? []
+      list.push(l.id)
+      targetIdsByInter.set(l.k, list)
+    }
+    if (!allTargetIds.size) return new Map()
+    const rows = await this.targetQS(p)
+      .filter({[pk]: {in: [...allTargetIds]}} as WhereInput<T>)
+      .all()
+    const rowById = new Map<unknown, T>()
+    for (const r of rows) rowById.set((r as any)[pk], r)
+
+    const out = new Map<unknown, T[]>()
+    for (const [owner, interIds] of byOwner) {
+      const seen = new Map<unknown, T>()
+      for (const iid of interIds)
+        for (const tid of targetIdsByInter.get(iid) ?? []) {
+          const r = rowById.get(tid)
+          if (r) seen.set(tid, r)
+        }
+      out.set(owner, [...seen.values()])
+    }
+    return out
+  }
+
+  private sortRows(rows: T[], p: ThroughPlan): T[] {
+    if (!p.orderColumn) return rows
+    const def = getModelDefinitionOrThrow(p.target)
+    const prop = def.columns.find(c => c.columnName === p.orderColumn)?.propertyKey ?? p.orderColumn
+    const dir = p.orderDir === 'asc' ? 1 : -1
+    return [...rows].sort((a, b) => {
+      const av = (a as any)[prop]
+      const bv = (b as any)[prop]
+      if (av < bv) return -dir
+      if (av > bv) return dir
+      return 0
+    })
+  }
+
+  /** Stable batch token: two owners coalesce iff same owner table + resolved chain
+   *  (intermediate + FK column + via) + scope. */
+  private token(kind: string, p: ThroughPlan): string {
+    const ownerTable = getModelDefinitionOrThrow(this.ownerCtor).tableName
+    const inter = getModelDefinitionOrThrow(p.interCtor).tableName
+    return (
+      `${kind}:${ownerTable}.${inter}(${p.interKeyColumn})->${this.binding.via}` +
+      `?w=${JSON.stringify(this.binding.where ?? {})}`
+    )
+  }
+
+  /** Total across the chain — batched (one grouped count per request tick). */
+  count(): Promise<number> {
+    const p = this.plan()
+    return batchLoad(
+      throughCountRealm,
+      this.token('count', p),
+      this.ownerPk,
+      ks => this.gatherCounts(p, ks),
+      () => 0
+    )
+  }
+
+  private rows(p: ThroughPlan): Promise<T[]> {
+    return batchLoad(
+      throughRowsRealm,
+      this.token('rows', p),
+      this.ownerPk,
+      ks => this.gatherRows(p, ks),
+      () => []
+    )
+  }
+
+  /** All target rows across the chain (batched, deduped, ordered). */
+  async all(): Promise<T[]> {
+    const p = this.plan()
+    return this.sortRows(await this.rows(p), p)
+  }
+
+  first(): Promise<T | null> {
+    return this.all().then(r => r[0] ?? null)
+  }
+
+  /**
+   * Relay pagination over the chain. `totalCount` is the batched grouped count;
+   * the page windows the owner's ordered rows IN MEMORY (grandchild sets per owner
+   * are small). LAZY: `totalCount`/`nodes`/`edges` are getters, so the list badge
+   * (`{ comments { totalCount } }`) triggers ONLY the batched count — never a
+   * per-owner page query. Cursors key on the target PK (stable, opaque to clients).
+   */
+  paginate(args: PaginateArgs = {}): Promise<Connection<T>> {
+    const p = this.plan()
+    const page = async (): Promise<{edges: Edge<T>[]; nodes: T[]; pageInfo: PageInfo}> => {
+      const sorted = this.sortRows(await this.rows(p), p)
+      return windowInMemory(sorted, args, p.targetPkProperty)
+    }
+    return Promise.resolve(lazyConnection<T>(() => this.count(), page))
+  }
+
+  then<R1 = T[], R2 = never>(
+    onfulfilled?: ((value: T[]) => R1 | PromiseLike<R1>) | null,
+    onrejected?: ((reason: unknown) => R2 | PromiseLike<R2>) | null
+  ): Promise<R1 | R2> {
+    return this.all().then(onfulfilled, onrejected)
+  }
+}
+
+/**
+ * A Connection whose fields resolve LAZILY: `totalCount` runs the (batched) count
+ * only if selected; `nodes`/`edges`/`pageInfo` run the page fetch once, shared,
+ * only if selected. GraphQL's default resolver reads `source[field]`, so an
+ * unselected getter never fires — which is what lets a `totalCount`-only list
+ * query batch to a single grouped count instead of a per-row page query.
+ */
+function lazyConnection<T>(
+  totalCount: () => Promise<number>,
+  page: () => Promise<{edges: Edge<T>[]; nodes: T[]; pageInfo: PageInfo}>
+): Connection<T> {
+  let pagePromise: Promise<{edges: Edge<T>[]; nodes: T[]; pageInfo: PageInfo}> | undefined
+  const getPage = () => (pagePromise ??= page())
+  const conn = {} as Connection<T>
+  const def = (name: string, get: () => unknown) =>
+    Object.defineProperty(conn, name, {enumerable: true, configurable: true, get})
+  def('totalCount', () => totalCount())
+  def('nodes', () => getPage().then(p => p.nodes))
+  def('edges', () => getPage().then(p => p.edges))
+  def('pageInfo', () => getPage().then(p => p.pageInfo))
+  return conn
+}
+
+/** In-memory Relay window over an already-ordered list; cursors = target PK. */
+function windowInMemory<T>(
+  sorted: T[],
+  args: PaginateArgs,
+  pkProperty: string
+): {edges: Edge<T>[]; nodes: T[]; pageInfo: PageInfo} {
+  const idOf = (r: T) => (r as any)[pkProperty]
+  const backward = args.last !== undefined || args.before !== undefined
+  const size = (backward ? args.last : args.first) ?? 20
+
+  let lo = 0
+  let hi = sorted.length
+  if (args.after !== undefined) {
+    const c = decodeCursor(args.after)
+    const i = sorted.findIndex(r => idOf(r) === c)
+    if (i >= 0) lo = i + 1
+  }
+  if (args.before !== undefined) {
+    const c = decodeCursor(args.before)
+    const i = sorted.findIndex(r => idOf(r) === c)
+    if (i >= 0) hi = i
+  }
+
+  let window: T[]
+  let hasNextPage: boolean
+  let hasPreviousPage: boolean
+  if (backward) {
+    const start = Math.max(lo, hi - size)
+    window = sorted.slice(start, hi)
+    hasPreviousPage = start > lo
+    hasNextPage = hi < sorted.length
+  } else {
+    const start = lo + (args.skip ?? 0)
+    window = sorted.slice(start, start + size)
+    hasNextPage = start + size < hi
+    hasPreviousPage = start > 0
+  }
+
+  const edges = window.map(r => ({cursor: encodeCursor(idOf(r)), node: r}))
+  return {
+    edges,
+    nodes: window,
+    pageInfo: {
+      hasNextPage,
+      hasPreviousPage,
+      startCursor: edges.length ? edges[0].cursor : null,
+      endCursor: edges.length ? edges[edges.length - 1].cursor : null
+    }
   }
 }

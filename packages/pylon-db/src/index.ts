@@ -30,6 +30,7 @@ export {
   foreignKey,
   hasOne,
   hasMany,
+  hasManyThrough,
   manyToMany,
   type ModelOptions,
   type ModelConfig,
@@ -39,10 +40,17 @@ export {
   type ForeignKeyOptions,
   type HasOneOptions,
   type HasManyOptions,
+  type HasManyThroughOptions,
   type ManyToManyOptions
 } from './fields.js'
 export {createId, uuidv4} from './id.js'
-export {RelatedManager, ManyToManyManager, type Relation, type Linkable} from './relations.js'
+export {
+  RelatedManager,
+  ManyToManyManager,
+  HasManyThroughManager,
+  type Relation,
+  type Linkable
+} from './relations.js'
 export {
   keyedQuery,
   batchKey,
@@ -295,6 +303,7 @@ const modelBuilders = {
   ForeignKey: fields.foreignKey,
   HasOne: fields.hasOne,
   HasMany: fields.hasMany,
+  HasManyThrough: fields.hasManyThrough,
   ManyToMany: fields.manyToMany,
   RelatedManager: RelatedManagerClass,
   ManyToManyManager: ManyToManyManagerClass,
