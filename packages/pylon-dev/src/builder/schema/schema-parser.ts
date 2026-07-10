@@ -536,18 +536,24 @@ export class SchemaParser {
           otherTypes.flatMap(t => t.fields.map(f => f.name))
         )
 
-        const uniqueField = type.fields.find(
+        const uniqueFields = type.fields.filter(
           f => f.type.isRequired && !otherFields.has(f.name)
         )
 
-        if (uniqueField) {
-          // Presence via `in` only — NOT `node[field] !== undefined`. For a pylon-db
-          // model instance the proxy's `has` trap is MODEL-AWARE (`"serial" in ticket`
-          // is true iff `serial` is a column of Ticket), so `in` alone discriminates
-          // correctly. Requiring a defined value breaks HIDDEN columns (e.g. a hidden
-          // `serial` picked as the discriminant isn't fetched → undefined → the type
-          // never resolves). A unique REQUIRED field is present on plain objects too.
-          return `if ("${uniqueField.name}" in node) { return '${type.name}'; }`
+        if (uniqueFields.length > 0) {
+          // Match if ANY of the type's unique required fields is present. Two reasons
+          // to check the whole set (via `in`) rather than a single field with
+          // `!== undefined`:
+          //  - the runtime value is a RESOLVED plain object carrying only the SELECTED
+          //    fields + the gateway-injected discriminator (getSelectedFields injects
+          //    the first EXPOSED non-null unique field). The generator's first pick may
+          //    be a HIDDEN column (e.g. `serial`) that's absent from that object — but
+          //    the exposed field the gateway injected is also in this set, so the OR
+          //    still matches. (`in` on a plain object = own-property presence.)
+          //  - for a pylon-db model proxy, `in` is model-aware, so it discriminates
+          //    even when a value isn't fetched.
+          const cond = uniqueFields.map(f => `"${f.name}" in node`).join(' || ')
+          return `if (${cond}) { return '${type.name}'; }`
         } else {
           // Fallback to checking all fields if a discriminant isn't possible
           const fieldChecks = type.fields
