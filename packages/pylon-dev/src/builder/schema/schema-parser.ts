@@ -541,7 +541,13 @@ export class SchemaParser {
         )
 
         if (uniqueField) {
-          return `if ("${uniqueField.name}" in node && node["${uniqueField.name}"] !== undefined) { return '${type.name}'; }`
+          // Presence via `in` only — NOT `node[field] !== undefined`. For a pylon-db
+          // model instance the proxy's `has` trap is MODEL-AWARE (`"serial" in ticket`
+          // is true iff `serial` is a column of Ticket), so `in` alone discriminates
+          // correctly. Requiring a defined value breaks HIDDEN columns (e.g. a hidden
+          // `serial` picked as the discriminant isn't fetched → undefined → the type
+          // never resolves). A unique REQUIRED field is present on plain objects too.
+          return `if ("${uniqueField.name}" in node) { return '${type.name}'; }`
         } else {
           // Fallback to checking all fields if a discriminant isn't possible
           const fieldChecks = type.fields

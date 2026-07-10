@@ -328,7 +328,7 @@ exports[`Pylon Builder - Basic Features > should handle unions of objects (or pr
 {
   "resolvers": {
     "Result": {
-      "__resolveType": "function resolveType(node) { if (!node || typeof node !== 'object') return null; if (node.__typename && ['A', 'B'].indexOf(node.__typename) !== -1) return node.__typename; if ("a" in node && node["a"] !== undefined) { return 'A'; } if ("b" in node && node["b"] !== undefined) { return 'B'; } return null; }",
+      "__resolveType": "function resolveType(node) { if (!node || typeof node !== 'object') return null; if (node.__typename && ['A', 'B'].indexOf(node.__typename) !== -1) return node.__typename; if ("a" in node) { return 'A'; } if ("b" in node) { return 'B'; } return null; }",
     },
   },
   "typeDefs": "type Query {
