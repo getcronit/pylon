@@ -6,10 +6,12 @@ import {
   GraphQLSchema,
   isEnumType,
   isInputObjectType,
+  isInterfaceType,
   isListType,
   isNonNullType,
   isObjectType,
   isScalarType,
+  isUnionType,
   type GraphQLInputType,
   type GraphQLOutputType
 } from 'graphql'
@@ -57,6 +59,21 @@ export function generateRootType(
     }
   }
 
+  // Abstract types → a TS union of their concrete members, so a field typed as an
+  // interface/union (e.g. `entity: SearchEntity`) resolves and narrows by
+  // `__typename`. An INTERFACE maps to the union of its implementers; a UNION to its
+  // members. Without this the object-type references above dangle (undefined name).
+  for (const type of Object.values(schema.getTypeMap())) {
+    if (type.name.startsWith('__')) continue
+    if (isInterfaceType(type)) {
+      const impls = schema.getPossibleTypes(type).map(t => t.name)
+      out.push(`export type ${type.name} = ${impls.length ? impls.join(' | ') : 'never'}`)
+    } else if (isUnionType(type)) {
+      const members = type.getTypes().map(t => t.name)
+      out.push(`export type ${type.name} = ${members.length ? members.join(' | ') : 'never'}`)
+    }
+  }
+
   // Input object types referenced by field args.
   const emittedInputs = new Set<string>()
   const queue = [...neededInputs]
@@ -92,7 +109,11 @@ function renderObject(
   scalars: Record<string, string>,
   neededInputs: Set<string>
 ): string {
-  const members: string[] = []
+  // A `__typename` literal so unions/interfaces of these objects (e.g.
+  // `SearchEntity = Ticket | Contact | …`) form a DISCRIMINATED union — a consumer
+  // narrows with `if (e.__typename === 'Ticket')`. Harmless on non-member types
+  // (GraphQL always resolves `__typename`).
+  const members: string[] = [`  __typename: ${JSON.stringify(type.name)}`]
   for (const field of Object.values(type.getFields())) {
     const ret = renderOutput(field.type, scalars)
     if (field.args.length > 0) {
