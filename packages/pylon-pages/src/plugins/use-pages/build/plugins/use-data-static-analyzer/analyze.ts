@@ -62,6 +62,16 @@ const JS_ARRAY_METHODS = new Set([
   ...JS_ARRAY_ONLY_METHODS,
   ...JS_SHARED_METHODS
 ])
+// The only JS internals reachable as a VALUE rather than a call. Everything else
+// in JS_INTERNALS is a method, so a bare `x.foo` that is never invoked must be a
+// real GraphQL field — otherwise a field named like a builtin (`match`, `filter`,
+// `replace`, `search`, `some`, `at`, …) is silently dropped from the selection.
+const JS_VALUE_INTERNALS = new Set([
+  'length',
+  'constructor',
+  'prototype',
+  '__proto__'
+])
 const JS_INTERNALS = new Set([
   ...JS_ARRAY_METHODS,
   'length',
@@ -921,16 +931,22 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
         return matchingPaths.map(p => p.slice(1))
       }
 
-      if (JS_INTERNALS.has(name) || (name.startsWith('$') && name !== '$on')) {
-        if (JS_ARRAY_METHODS.has(name)) markAsList(basePaths)
-        return name === 'bind' ? basePaths : []
-      }
-
       const parent = node.getParent()
       const isCallExpr =
         parent &&
         parent.getKind() === SyntaxKind.CallExpression &&
         (parent as any).getExpression() === node
+
+      // A builtin only shadows a GraphQL field when it's actually invoked
+      // (`str.match(re)`, `arr.map(fn)`) or is a value-only internal (`arr.length`).
+      // A bare, uncalled `node.match` is a field — see JS_VALUE_INTERNALS.
+      const isJsInternal =
+        JS_INTERNALS.has(name) && (isCallExpr || JS_VALUE_INTERNALS.has(name))
+
+      if (isJsInternal || (name.startsWith('$') && name !== '$on')) {
+        if (JS_ARRAY_METHODS.has(name)) markAsList(basePaths)
+        return name === 'bind' ? basePaths : []
+      }
 
       const newPaths: Path[] = []
       for (const path of basePaths) {

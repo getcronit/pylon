@@ -194,6 +194,42 @@ describe('Selector Tracker Ultra-Advanced Analysis', () => {
     })
   })
 
+  it('should select fields whose name collides with a JS builtin', () => {
+    // `match`, `filter`, `replace`, `some` are String/Array methods — but here they
+    // are never invoked, so they are GraphQL fields, not builtins. Regression: the
+    // builtin bail-out used to swallow them and drop them from the query entirely.
+    const input = `
+      const m = data.hit.match;
+      const t = m?.__typename;
+      const id = m!.id;
+      const f = data.hit.filter.label;
+      const s = data.hit.some;
+      console.log(t, id, f, s);
+    `
+    expect(extractAdvancedSelectors(input, 'data')).toEqual({
+      hit: {
+        match: {__typename: true, id: true},
+        filter: {label: true},
+        some: true
+      }
+    })
+  })
+
+  it('should still treat invoked builtins as JS, not fields', () => {
+    const input = `
+      const hits = data.title.match(/x/);
+      const big = data.items.filter(i => i.big);
+      const n = data.items.length;
+      console.log(hits, big, n);
+    `
+    // `match(...)` and `length` emit no field of their own; `filter(...)` stays a
+    // JS array method — it marks the list and traces `i.big` out of its callback.
+    expect(extractAdvancedSelectors(input, 'data')).toEqual({
+      title: true,
+      items: {__isList: true, big: true}
+    })
+  })
+
   it('should handle array reduce method', () => {
     const input = `
       const total = data.items.reduce((acc, item) => acc + item.price, 0);
