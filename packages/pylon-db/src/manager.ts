@@ -969,16 +969,34 @@ export class QuerySet<T extends object> {
    * `skip` offset) and backward (`last`/`before`) paging; an extra row is
    * over-fetched to detect the next/previous page.
    */
+  /** The chained `.orderBy(...)` as a paginate-shaped `orderBy` (property names,
+   *  `-` = desc): a single string for one column, an array for a composite. `.orderBy`
+   *  stores COLUMN names; map them back to properties. `undefined` when none set. */
+  private orderByFromState(): string | string[] | undefined {
+    const specs = this.state.orderBy
+    if (specs.length === 0) return undefined
+    const toProp = (o: {column: string; dir: 'asc' | 'desc'}) => {
+      const prop = this.def.columns.find(c => c.columnName === o.column)?.propertyKey ?? o.column
+      return o.dir === 'desc' ? `-${prop}` : prop
+    }
+    return specs.length === 1 ? toProp(specs[0]) : specs.map(toProp)
+  }
+
   async paginate(args: PaginateArgs = {}): Promise<Connection<T>> {
     // The `query` DSL is merged into the filter, then we re-enter without it
     // (one level — the keyset logic below is unchanged).
     if (args.query) {
       return this.query(args.query).paginate({...args, query: undefined})
     }
+    // A chained `.orderBy(...)` also drives the keyset, so
+    // `qs.orderBy('createdAt').paginate()` pages by createdAt instead of silently
+    // falling back to PK order. An explicit `args.orderBy` still wins; the fallback
+    // chain is now args → chained `.orderBy()` → PK.
+    const orderBy = args.orderBy ?? this.orderByFromState()
     // Composite keyset (opt-in) — the single-string path below is left untouched.
-    if (Array.isArray(args.orderBy)) return this.paginateComposite(args.orderBy, args)
+    if (Array.isArray(orderBy)) return this.paginateComposite(orderBy, args)
     noteQuery(this.ctor, 'paginate', this.state.where) // paginated relations aren't batched → N+1 advisory
-    const raw = args.orderBy ?? this.def.primaryKey?.propertyKey
+    const raw = orderBy ?? this.def.primaryKey?.propertyKey
     if (!raw) {
       throw new Error(`${this.def.tableName}: .paginate() needs an orderBy or a primary key.`)
     }

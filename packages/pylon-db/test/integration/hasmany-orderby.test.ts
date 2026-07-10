@@ -2,6 +2,7 @@ import {afterAll, beforeAll, describe, expect, it} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
 import {
   Model,
+  boolean,
   connect,
   Database,
   foreignKey,
@@ -26,12 +27,15 @@ class Thread extends Model {
   title = text()
   notesAsc = hasMany(() => Note, {foreignKey: 'threadId', orderBy: 'createdAt'})
   notesDesc = hasMany(() => Note, {foreignKey: 'threadId', orderBy: '-createdAt'})
+  // Paginated + declared desc order — exercises the FILTERED paginate path.
+  notesPaged = hasMany(() => Note, {foreignKey: 'threadId', orderBy: '-createdAt', paginate: true})
   declare notesAscRel: RelatedManager<Note>
 }
 class Note extends Model {
   static objects = manager(Note)
   id = id()
   body = text()
+  archived = boolean({default: false})
   threadId = foreignKey(() => Thread)
   createdAt = timestamp()
   declare thread: Relation<Thread>
@@ -75,5 +79,43 @@ describe.skipIf(!runDb)('hasMany orderBy (Postgres)', () => {
 
     expect(asc.map(n => n.body)).toEqual(['early', 'mid', 'late'])
     expect(desc.map(n => n.body)).toEqual(['late', 'mid', 'early'])
+  })
+
+  it('a FILTERED relation paginate keeps the declared orderBy (not PK order)', async () => {
+    const t = await Thread.objects.create({title: 'F'})
+    const d = (s: string) => new Date(s)
+    // Insert so PK/insertion order (mid, late, early) != createdAt order; one archived
+    // note must be filtered OUT by the query predicate.
+    await Note.objects.create({body: 'mid', threadId: t.id, archived: false, createdAt: d('2026-06-29T09:00:00Z')})
+    await Note.objects.create({body: 'late', threadId: t.id, archived: false, createdAt: d('2026-06-29T10:00:00Z')})
+    await Note.objects.create({body: 'arch', threadId: t.id, archived: true, createdAt: d('2026-06-29T10:30:00Z')})
+    await Note.objects.create({body: 'early', threadId: t.id, archived: false, createdAt: d('2026-06-29T08:00:00Z')})
+
+    const fresh = await Thread.objects.get({id: t.id})
+    // The exact path asPaginated takes for a `query` arg: filter(where).paginate(args).
+    // Before the fix this fell back to PK order (mid, late, early); now it stays desc.
+    const conn = await fresh.notesPaged.filter({archived: false}).paginate({first: 10})
+    expect(conn.nodes.map(n => n.body)).toEqual(['late', 'mid', 'early'])
+  })
+
+  it('QuerySet.orderBy().paginate() keysets by the chained order (not PK)', async () => {
+    const t = await Thread.objects.create({title: 'O'})
+    const d = (s: string) => new Date(s)
+    // insertion/PK order (b1, b3, b2) != createdAt order
+    await Note.objects.create({body: 'b1', threadId: t.id, createdAt: d('2026-06-29T09:00:00Z')})
+    await Note.objects.create({body: 'b3', threadId: t.id, createdAt: d('2026-06-29T10:00:00Z')})
+    await Note.objects.create({body: 'b2', threadId: t.id, createdAt: d('2026-06-29T09:30:00Z')})
+
+    const desc = await Note.objects
+      .filter({threadId: t.id})
+      .orderBy('-createdAt')
+      .paginate({first: 10})
+    expect(desc.nodes.map(n => n.body)).toEqual(['b3', 'b2', 'b1'])
+
+    const asc = await Note.objects
+      .filter({threadId: t.id})
+      .orderBy('createdAt')
+      .paginate({first: 10})
+    expect(asc.nodes.map(n => n.body)).toEqual(['b1', 'b2', 'b3'])
   })
 })

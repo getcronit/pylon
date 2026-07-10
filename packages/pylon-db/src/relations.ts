@@ -274,13 +274,27 @@ export class RelatedQuerySet<T extends object> extends QuerySet<T> {
     private readonly relFkProperty: string,
     _relFkColumn: string, // retained for the constructor shape; count routes by property
     private readonly relFkValue: unknown,
-    private readonly relWhere: WhereInput<T>[]
+    private readonly relWhere: WhereInput<T>[],
+    /** The relation's declared default ordering — so a FILTERED page keeps it. */
+    private readonly relOrderProperty?: string
   ) {
     super(relChild, {
       where: [{[relFkProperty]: relFkValue} as WhereInput<T>, ...relWhere],
       raw: [],
       orderBy: []
     })
+  }
+
+  /**
+   * Default the keyset order to the relation's DECLARED `orderBy` (mirroring the
+   * unfiltered `RelatedManager.paginate`). Without this, a `query`-filtered relation
+   * connection — `post.comments(query: …)`, the Shopify-DSL path in `asPaginated` —
+   * falls through to `QuerySet.paginate`'s PK default and loses its chronological
+   * order. An explicit `args.orderBy` still wins.
+   */
+  paginate(args: PaginateArgs = {}): Promise<Connection<T>> {
+    const orderBy = args.orderBy ?? this.relOrderProperty
+    return super.paginate(orderBy ? {...args, orderBy} : args)
   }
 
   private keyed() {
@@ -346,8 +360,9 @@ export class RelatedManager<T extends object> {
   ): T[]
   filter(conditions: any): RelatedQuerySet<T> | T[] {
     // A batch-aware queryset: `.count()`/`.exists()` collapse across parents; all
-    // other ops behave like the plain QuerySet this used to return.
-    return new RelatedQuerySet(this.ctor, this.fkProperty, this.fkColumn, this.fkValue, [conditions])
+    // other ops behave like the plain QuerySet this used to return. The declared
+    // order rides along so a filtered `.paginate()` keeps it (see RelatedQuerySet).
+    return new RelatedQuerySet(this.ctor, this.fkProperty, this.fkColumn, this.fkValue, [conditions], this.orderProperty)
   }
 
   orderBy(field: keyof T | `-${string & keyof T}`): QuerySet<T> {
