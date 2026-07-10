@@ -69,6 +69,25 @@ describe('compileOperation', () => {
     expect(op.resultType).toBe('{ count: number | null }')
   })
 
+  it('aliases a conflicting union-member field; merges same-typed ones', () => {
+    const s = buildSchema(/* GraphQL */ `
+      type Query { hit: Thing }
+      union Thing = A | B
+      type A { id: ID! status: AStatus! label: String }
+      type B { id: ID! status: BStatus! label: String }
+      enum AStatus { X }
+      enum BStatus { Y }
+    `)
+    const op = compileOperation(s, {hit: {status: true, label: true}}, {name: 'T'})
+    // `status` clashes (AStatus! vs BStatus!) → aliased per member so the query merges;
+    // `label` is String on both → left un-aliased.
+    expect(op.body).toContain('... on A { status__pqAbs__A: status label __typename id }')
+    expect(op.body).toContain('... on B { status__pqAbs__B: status label __typename id }')
+    expect(op.body).not.toContain('label__pqAbs__')
+    // TS still reads `status`/`label` (merged-optional across members).
+    expect(op.resultType).toContain('status?:')
+  })
+
   it('renders enums as string-literal unions', () => {
     const op = compile({me: {role: true}})
     expect(op.resultType).toBe('{ me: { role: "ADMIN" | "USER" | null } | null }')

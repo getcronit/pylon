@@ -461,6 +461,27 @@ function compileInterfaceUnionField(
     optional: false
   })
 
+  // A concrete field selected on ≥2 members with DIFFERENT named types (e.g.
+  // `status`: TicketStatus vs TaskStatus) can't share one response key — GraphQL
+  // rejects the merge. Alias those per member (`status__pqAbs__Ticket: status`); the
+  // runtime un-aliases on normalize, so reads stay `node.status`. Same-typed fields
+  // (e.g. `name: String` on both) merge fine and are left un-aliased.
+  const typesByField = new Map<string, Set<string>>()
+  for (const type of possible) {
+    const tFields = type.getFields()
+    for (const key of accessed) {
+      if (ifaceFields[key]) continue
+      const f = tFields[key]
+      if (!f) continue
+      let s = typesByField.get(key)
+      if (!s) typesByField.set(key, (s = new Set()))
+      s.add(getNamedType(f.type).name)
+    }
+  }
+  const conflicting = new Set(
+    [...typesByField].filter(([, s]) => s.size > 1).map(([k]) => k)
+  )
+
   // 3. Per possible type: remaining accessed fields it declares.
   for (const type of possible) {
     const tFields = type.getFields()
@@ -470,7 +491,8 @@ function compileInterfaceUnionField(
       const f = tFields[key]
       if (!f) continue
       const {sdl, ts} = compileField(ctx, f, mergeBranches(node[key]), [...currentPath, key])
-      fragSelections.push(`${key}${sdl}`)
+      const alias = conflicting.has(key) ? `${key}__pqAbs__${type.name}: ` : ''
+      fragSelections.push(`${alias}${key}${sdl}`)
       addMember(key, ts, true) // concrete field → optional
     }
     if (fragSelections.length === 0) continue

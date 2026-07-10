@@ -50,7 +50,13 @@ function walk(
     const obj = value as Record<string, unknown>
     const fields: Record<string, unknown> = {}
     for (const key of Object.keys(obj)) {
-      fields[key] = walk(obj[key], entities)
+      // Un-alias a union-branch alias back to its base field. The compiler aliases a
+      // field selected on several union members with CONFLICTING types (e.g.
+      // `status` = TicketStatus vs TaskStatus) as `status__pqAbs__Ticket: status` so
+      // the query merges; only the matching member's alias is ever present, so
+      // stripping the marker restores `status` transparently for reads.
+      const marker = key.indexOf('__pqAbs__')
+      fields[marker === -1 ? key : key.slice(0, marker)] = walk(obj[key], entities)
     }
     const typename = obj.__typename
     const id = obj.id

@@ -12,6 +12,22 @@ describe('normalize', () => {
     expect(entities['User:1']).toEqual({__typename: 'User', id: '1', name: 'Ada'})
   })
 
+  it('strips the __pqAbs__ branch alias back to the base field', () => {
+    // The compiler aliases a union-member field whose type conflicts across members
+    // (e.g. `status` is TaskStatus on Task but TicketStatus on Ticket) as
+    // `status__pqAbs__Task: status`. Only the matched member's alias is present, so
+    // normalize restores `status` transparently for reads.
+    const {entities} = normalize({
+      hit: {__typename: 'Task', id: 't1', status__pqAbs__Task: 'TODO', label: 'x'}
+    })
+    expect(entities['Task:t1']).toEqual({
+      __typename: 'Task',
+      id: 't1',
+      status: 'TODO',
+      label: 'x'
+    })
+  })
+
   it('leaves objects without an id inline', () => {
     const {root, entities} = normalize({
       page: {__typename: 'DocPage', title: 'X'}
