@@ -83,10 +83,34 @@ export function mergeIR(...parts: Array<Partial<PylonIR>>): PylonIR {
     if (obj) {
       out.entities[name] = {
         ...out.entities[name],
-        fields: mergeFields(obj.fields, out.entities[name].fields)
+        fields: mergeFields(obj.fields, out.entities[name].fields),
+        // Carry the object view's `implements` too. The type-checker learns a model
+        // is a member of a union-derived INTERFACE (e.g. `SearchEntity`) and records
+        // it on the object; without this union, that membership is lost when the
+        // object folds into the authoritative entity, leaving the interface with no
+        // implementers (so `... on Ticket` can't resolve). Union, entity-first.
+        implements: Array.from(
+          new Set([...out.entities[name].implements, ...(obj.implements ?? [])])
+        )
       }
     }
     delete out.objects[name]
+  }
+
+  // Reconcile a union-derived interface's field TYPES with its implementer entities.
+  // The interface was built from the type-checker's object view of the members (e.g.
+  // `id: String!`), but the authoritative entity types differ (`id: ID!`) — leaving the
+  // interface unimplementable ("interface field expects String! but Ticket.id is ID!").
+  // Adopt an implementer entity's field types so `implements` is valid. Interfaces
+  // implemented only by plain objects (no entity implementer) are untouched.
+  for (const iface of Object.values(out.interfaces)) {
+    const impl = Object.values(out.entities).find(e => e.implements.includes(iface.name))
+    if (!impl) continue
+    const byName = new Map(impl.fields.map(f => [f.name, f]))
+    iface.fields = iface.fields.map(f => {
+      const authoritative = byName.get(f.name)
+      return authoritative ? {...f, type: authoritative.type} : f
+    })
   }
   return out
 }
