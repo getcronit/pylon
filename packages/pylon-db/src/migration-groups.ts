@@ -191,16 +191,30 @@ export async function renameGroupApp(
 }
 
 /** Apply every group's pending migrations, in dependency order. Idempotent. */
+/** Apply every group's pending migrations INTERLEAVED by global timestamp (see
+ *  `MigrationRunner.applyGroupsInterleaved` — group-by-group can't build a fresh DB when
+ *  a dependency gained a later migration a dependent's earlier one relies on). Returns
+ *  the applied names regrouped per app, in dependency order, for the CLI. */
+async function applyOrdered(
+  groups: MigrationGroup[],
+  load: MigrationLoader,
+  db: Database
+): Promise<GroupApplyResult[]> {
+  const ordered = orderGroups(groups)
+  const runners = ordered.map(g => ({
+    runner: groupRunner(g),
+    group: g.name,
+  }))
+  const byGroup = await MigrationRunner.applyGroupsInterleaved(runners, load, db)
+  return ordered.map(g => ({group: g.name, applied: byGroup.get(g.name) ?? []}))
+}
+
 export async function migrateGroups(
   groups: MigrationGroup[],
   load: MigrationLoader,
   db: Database = getDatabase()
 ): Promise<GroupApplyResult[]> {
-  const out: GroupApplyResult[] = []
-  for (const group of orderGroups(groups)) {
-    out.push({group: group.name, applied: await groupRunner(group).apply(load, db)})
-  }
-  return out
+  return applyOrdered(groups, load, db)
 }
 
 /**
@@ -228,11 +242,9 @@ export async function deployGroups(
       throw new Error(`Refusing to deploy group "${group.name}": tampered migration(s): ${tampered.join(', ')}`)
     }
   }
-  const out: GroupApplyResult[] = []
-  for (const group of ordered) {
-    out.push({group: group.name, applied: await groupRunner(group).apply(load, db)})
-  }
-  return out
+  // All groups passed the gate → apply interleaved by global timestamp (same order a
+  // fresh build needs), all-or-nothing under one lock.
+  return applyOrdered(groups, load, db)
 }
 
 export interface GroupStatus {

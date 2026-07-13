@@ -498,6 +498,195 @@ export class MigrationRunner {
   }
 
   /**
+   * Apply MANY groups' migrations in one globally-correct order, not group-by-group.
+   *
+   * Neither naive order builds a fresh database:
+   *  - Applying each group FULLY in dependency order runs a dependency's LATE migration
+   *    (say, renaming a table) before a dependent's EARLY one that still references the
+   *    old table — the classic "dependency's later work breaks the dependent's init".
+   *  - Applying purely by TIMESTAMP runs a migration before the one that creates a table
+   *    it references, because migration timestamps are assigned in registration order,
+   *    which need not match FK dependency order (an app's init can be stamped earlier
+   *    than the init of an app it FKs into).
+   *
+   * So we TOPOLOGICALLY sort the individual migrations under two kinds of edge, using the
+   * timestamp only to break ties among migrations that are all ready:
+   *  - intra-group: migration i waits for migration i-1 (their own sequence);
+   *  - table dependency: a migration that REFERENCES a table (an FK target, an altered
+   *    or dropped table, a rename's source) waits for the migration that CREATES it.
+   *    These edges come from the migrations' own `changes`, NOT the current models — so
+   *    an FK that has since been removed from a model is still honoured (the exact case
+   *    that breaks a fresh build: `files:init` FK'd `contacts_contact`, later dropped).
+   *
+   * State is threaded across ALL migrations (applied ones included, so an unapplied data
+   * migration's `ctx.models` sees the true historical schema), applying only the pending
+   * ones — under one shared lock, each recorded in its own group's ledger prefix.
+   */
+  static async applyGroupsInterleaved(
+    runners: Array<{runner: MigrationRunner; group: string}>,
+    load: MigrationLoader,
+    db: Database = getDatabase()
+  ): Promise<Map<string, string[]>> {
+    type Node = {
+      gi: number
+      idx: number
+      name: string
+      mod: MigrationModule
+      pending: boolean
+      indeg: number
+      out: number[] // successor node ids
+      creates: string[] // physical table names this migration makes available
+      needs: string[] // physical table names that must already exist
+    }
+    const byGroup = new Map<string, string[]>()
+    runners.forEach(({group}) => byGroup.set(group, []))
+
+    // What tables a migration CREATES vs must find already there — from its own changes,
+    // so the ordering is independent of whatever the models look like today.
+    const tablesOf = (mod: MigrationModule): {creates: Set<string>; needs: Set<string>} => {
+      const creates = new Set<string>()
+      const needs = new Set<string>()
+      for (const op of mod.operations ?? []) {
+        for (const ch of (op.changes ?? []) as any[]) {
+          switch (ch.kind) {
+            case 'createTable':
+              creates.add(ch.spec.table)
+              break
+            case 'renameTable':
+              creates.add(ch.toTable)
+              needs.add(ch.fromTable)
+              break
+            case 'dropTable':
+              needs.add(ch.spec.table)
+              break
+            case 'addForeignKey':
+            case 'dropForeignKey':
+              needs.add(ch.fk.table)
+              if (ch.fk.refTable) needs.add(ch.fk.refTable)
+              break
+            case 'addColumn':
+            case 'dropColumn':
+            case 'alterColumn':
+            case 'renameColumn':
+            case 'renameConstraint':
+              if (ch.table) needs.add(ch.table)
+              break
+            case 'addIndex':
+            case 'dropIndex':
+              if (ch.index?.table) needs.add(ch.index.table)
+              break
+          }
+        }
+      }
+      for (const t of creates) needs.delete(t) // don't wait on what we make ourselves
+      return {creates, needs}
+    }
+
+    // Load every group's full history (integrity-checking applied rows), as node lists.
+    const perGroup: Node[][] = []
+    const nodes: Node[] = []
+    for (let gi = 0; gi < runners.length; gi++) {
+      const {runner, group} = runners[gi]
+      const done = await runner.appliedMigrations(db)
+      const history = await runner.loadAll(load)
+      const list: Node[] = []
+      history.forEach(({name, mod}, idx) => {
+        const stored = done.get(name)
+        if (done.has(name) && stored && stored !== migrationChecksum(mod)) {
+          throw new Error(
+            `Migration "${group}:${name}" was modified after it was applied (checksum ` +
+              `mismatch). Applied migrations are immutable — revert the edit, or use ` +
+              `\`pylon db resolve\`.`
+          )
+        }
+        const {creates, needs} = tablesOf(mod)
+        const node: Node = {
+          gi,
+          idx,
+          name,
+          mod,
+          pending: !done.has(name),
+          indeg: 0,
+          out: [],
+          creates: [...creates],
+          needs: [...needs]
+        }
+        list.push(node)
+        nodes.push(node)
+      })
+      perGroup.push(list)
+    }
+    if (nodes.length === 0) return byGroup
+
+    const idOf = new Map(nodes.map((n, i) => [n, i]))
+    const addEdge = (from: Node, to: Node) => {
+      if (from === to) return
+      from.out.push(idOf.get(to)!)
+      to.indeg++
+    }
+    // Intra-group sequence.
+    for (const list of perGroup) {
+      for (let i = 1; i < list.length; i++) addEdge(list[i - 1], list[i])
+    }
+    // Table dependency: needer waits for every creator of a table it references.
+    const creators = new Map<string, Node[]>()
+    for (const n of nodes) {
+      for (const t of n.creates) {
+        const arr = creators.get(t) ?? []
+        arr.push(n)
+        creators.set(t, arr)
+      }
+    }
+    for (const n of nodes) {
+      for (const t of n.needs) {
+        for (const c of creators.get(t) ?? []) addEdge(c, n)
+      }
+    }
+
+    // Kahn's algorithm, choosing among ready nodes by timestamp (name).
+    const ready = nodes.filter(n => n.indeg === 0)
+    const order: Node[] = []
+    while (ready.length) {
+      ready.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.gi - b.gi))
+      const n = ready.shift()!
+      order.push(n)
+      for (const s of n.out) {
+        const m = nodes[s]
+        if (--m.indeg === 0) ready.push(m)
+      }
+    }
+    if (order.length !== nodes.length) {
+      throw new Error('Migration dependency cycle across groups.')
+    }
+
+    await runners[0].runner.withLock(db, async () => {
+      let state: PhysicalSchema = {}
+      for (const n of order) {
+        const {runner, group} = runners[n.gi]
+        if (n.pending) {
+          const before = state
+          await db.kysely.transaction().execute(async trx => {
+            let s = before
+            for (const op of n.mod.operations) {
+              const ctx = runner.trxCtx(trx, s)
+              await ctx.db.run(() => op.up(ctx)) // ambient DB = trx
+              s = applyChanges(s, op.changes ?? [])
+            }
+            await sql`INSERT INTO ${sql.ref(APPLIED_TABLE)} (name, checksum) VALUES (${runner.ledgerName(
+              n.name
+            )}, ${migrationChecksum(n.mod)})`.execute(trx)
+          })
+          byGroup.get(group)!.push(n.name)
+        }
+        // Accumulate state for EVERY migration (applied or not), so a later pending
+        // migration's ctx.models reflects the full historical schema.
+        for (const op of n.mod.operations) state = applyChanges(state, op.changes ?? [])
+      }
+    })
+    return byGroup
+  }
+
+  /**
    * Re-point this app's ledger rows after the APP was RENAMED. Migrations are keyed
    * `"<app>:<name>"`, so renaming an app orphans its already-applied rows under the
    * OLD prefix — `apply` then re-runs the (existing) init and fails with a raw
