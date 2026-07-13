@@ -609,6 +609,14 @@ export interface Connection<T> {
   pageInfo: PageInfo
   /** Total rows matching the filter (ignores the cursor window). */
   totalCount: number
+  /**
+   * Absolute index of `nodes[0]` within the full filtered+ordered list — the
+   * offset a virtualizer places the loaded window against. The `skip` used for a
+   * forward page (0 for a plain first page); for an `anchor` seek it's the anchor's
+   * resolved rank, so a deep-linked list arrives pre-positioned on SERVER first
+   * paint. 0 for backward pages (the client tracks its own position there).
+   */
+  startIndex: number
 }
 
 export interface PaginateArgs {
@@ -635,6 +643,15 @@ export interface PaginateArgs {
    * scalar in the GraphQL layer, so it needs no per-model filter-input type.
    */
   query?: string
+  /**
+   * Seek to the node with this primary key: page from its ABSOLUTE index within the
+   * current filter + order (returned as `startIndex`), so a virtualized list can
+   * render already scrolled to it on SSR first paint — no client jump after
+   * hydration. Generic (no per-model resolver). Ignored when an explicit
+   * cursor/offset (`after`/`before`/`last`/`skip`) is given — those win. Undefined
+   * for relevance ordering (`.search(rank:true)` has no seekable key → throws).
+   */
+  anchor?: string
 }
 
 /** Keyset cursor = base64url(JSON(orderBy value)). */
@@ -982,6 +999,88 @@ export class QuerySet<T extends object> {
     return specs.length === 1 ? toProp(specs[0]) : specs.map(toProp)
   }
 
+  /** The composite keyset columns (property `keys` + PK tiebreaker) as {col, asc} —
+   *  the single source of truth shared by `anchorSeek` and `paginateComposite` so a
+   *  seek's values line up with the page's ordering. */
+  private keysetCols(keys: string[]): {col: string; asc: boolean}[] {
+    const pkCol = this.def.primaryKey?.columnName
+    if (!pkCol) {
+      throw new Error(`${this.def.tableName}: keyset pagination needs a primary key.`)
+    }
+    const cols = keys.map(raw => {
+      const desc = raw.startsWith('-')
+      return {col: columnFor(this.def, desc ? raw.slice(1) : raw).columnName, asc: !desc}
+    })
+    if (!cols.some(c => c.col === pkCol)) cols.push({col: pkCol, asc: true})
+    return cols
+  }
+
+  /**
+   * Resolve an anchor node id to its position for a deep-link seek: the anchor's
+   * ABSOLUTE index within the current filter + order (rows the keyset places strictly
+   * before it), plus its keyset VALUES so the page can be fetched by an inclusive
+   * keyset SEEK — `O(window)`, no `OFFSET` scan. Generic: every connection gets
+   * jump-to-position with no hand-written "index of id" resolver.
+   *
+   * Same keyset semantics as `paginate` (per-column asc/desc, NULLS LAST, PK tiebreak)
+   * so index and page can't disagree — "before" is the mirror of the `after` predicate.
+   * Returns `undefined` when the anchor id isn't in the filtered set (caller falls back
+   * to a plain first page). Relevance ordering has no seekable key → throws.
+   */
+  private async anchorSeek(
+    anchorId: unknown,
+    keys: string[]
+  ): Promise<{startIndex: number; values: unknown[]} | undefined> {
+    if (this.state.rank) {
+      throw new Error(
+        `${this.def.tableName}: .paginate({anchor}) is not supported with relevance ` +
+          `ordering (.search(…, {rank:true})) — its ranking has no seekable key. Order ` +
+          `by a column instead, or deep-link without an anchor.`
+      )
+    }
+    const cols = this.keysetCols(keys)
+    const pkCol = this.def.primaryKey!.columnName
+
+    const db = getDatabase()
+    // The anchor row's keyset values (tenant + filter scoped — an anchor outside the
+    // filtered set has no position → undefined).
+    const distinctCols = [...new Set(cols.map(c => c.col))]
+    let aq: any = db.kysely.selectFrom(this.def.tableName).select(distinctCols as any)
+    aq = this.applyWhere(aq)
+    aq = aq.where(pkCol as any, '=', anchorId as any)
+    const arow = await aq.executeTakeFirst()
+    if (!arow) return undefined
+    const values = cols.map(c => (arow as any)[c.col])
+
+    // COUNT rows strictly BEFORE the anchor in natural forward order (NULLS LAST) — the
+    // mirror of the composite `after` predicate, comparator flipped to "before".
+    let cq: any = db.kysely
+      .selectFrom(this.def.tableName)
+      .select(db.kysely.fn.countAll().as('count'))
+    cq = this.applyWhere(cq)
+    cq = cq.where((eb: any) => {
+      const isNull = (v: unknown) => v === null || v === undefined
+      const eq = (col: string, v: unknown) =>
+        isNull(v) ? eb(col, 'is', null) : eb(col, '=', v)
+      // Rows strictly before v in column i's natural order (NULLS LAST): a non-null v
+      // excludes nulls (they sort after); a null v (anchor sits in the trailing NULL
+      // group) has all the non-nulls before it.
+      const before = (i: number, v: unknown): Expression<SqlBool> => {
+        const {col, asc} = cols[i]
+        if (isNull(v)) return eb(col, 'is not', null)
+        return eb(col, asc ? '<' : '>', v)
+      }
+      // OR over positions i: all prefix columns equal, column i strictly before.
+      return eb.or(
+        cols.map((_, i) =>
+          eb.and([...cols.slice(0, i).map((k, j) => eq(k.col, values[j])), before(i, values[i])])
+        )
+      )
+    })
+    const row = await cq.executeTakeFirstOrThrow()
+    return {startIndex: Number((row as any).count), values}
+  }
+
   async paginate(args: PaginateArgs = {}): Promise<Connection<T>> {
     // The `query` DSL is merged into the filter, then we re-enter without it
     // (one level — the keyset logic below is unchanged).
@@ -993,6 +1092,23 @@ export class QuerySet<T extends object> {
     // falling back to PK order. An explicit `args.orderBy` still wins; the fallback
     // chain is now args → chained `.orderBy()` → PK.
     const orderBy = args.orderBy ?? this.orderByFromState()
+    // SSR jump-to-position: an `anchor` node id resolves to its absolute index + keyset
+    // values, then the page is fetched by an inclusive keyset SEEK from there (via the
+    // composite path — it handles single keys too). Only when no explicit cursor/offset
+    // is supplied (those win, so loadNext/loadPrev/jumpTo pass through untouched); a
+    // missing anchor row falls back to a plain first page. The index is computed ONLY
+    // here — a non-anchored page pays no rank count.
+    if (
+      args.anchor !== undefined &&
+      args.after === undefined &&
+      args.before === undefined &&
+      args.last === undefined &&
+      args.skip === undefined
+    ) {
+      const keys = orderBy === undefined ? [] : Array.isArray(orderBy) ? orderBy : [orderBy]
+      const seek = await this.anchorSeek(args.anchor, keys)
+      if (seek) return this.paginateComposite(keys, args, seek)
+    }
     // Composite keyset (opt-in) — the single-string path below is left untouched.
     if (Array.isArray(orderBy)) return this.paginateComposite(orderBy, args)
     noteQuery(this.ctor, 'paginate', this.state.where) // paginated relations aren't batched → N+1 advisory
@@ -1077,6 +1193,7 @@ export class QuerySet<T extends object> {
       edges,
       nodes: edges.map(e => e.node),
       totalCount: await this.count(), // filters + tenant, no cursor window
+      startIndex: backward ? 0 : args.skip ?? 0,
       pageInfo: {
         hasNextPage: backward ? args.before !== undefined : hasExtra,
         hasPreviousPage: backward
@@ -1097,21 +1214,18 @@ export class QuerySet<T extends object> {
    */
   private async paginateComposite(
     keys: string[],
-    args: PaginateArgs
+    args: PaginateArgs,
+    /** Deep-link seek (from `anchor`): fetch forward from these keyset values,
+     *  INCLUSIVE of the anchor row itself, positioned at absolute `startIndex`. */
+    seek?: {startIndex: number; values: unknown[]}
   ): Promise<Connection<T>> {
     noteQuery(this.ctor, 'paginate', this.state.where) // not batched → N+1 advisory (dev-only)
-    const pkCol = this.def.primaryKey?.columnName
-    if (!pkCol) {
-      throw new Error(`${this.def.tableName}: composite .paginate() needs a primary key.`)
-    }
-    // Resolve property → column + natural direction; ensure the PK is the last key.
-    const cols = keys.map(raw => {
-      const desc = raw.startsWith('-')
-      return {col: columnFor(this.def, desc ? raw.slice(1) : raw).columnName, asc: !desc}
-    })
-    if (!cols.some(c => c.col === pkCol)) cols.push({col: pkCol, asc: true})
+    // Property → column + natural direction, PK appended as tiebreaker (shared with
+    // `anchorSeek`, so a seek's `values` line up with these columns positionally).
+    const cols = this.keysetCols(keys)
 
-    const backward = args.last !== undefined || args.before !== undefined
+    // A seek is always forward (from the anchor toward the tail).
+    const backward = !seek && (args.last !== undefined || args.before !== undefined)
     const size = (backward ? args.last : args.first) ?? 20
     const nullsLast = !backward
     // Effective per-column direction (reversed for backward paging, flipped back later).
@@ -1126,10 +1240,17 @@ export class QuerySet<T extends object> {
       .select(selectableColumns(this.def))
     q = this.applyWhere(q)
 
+    // The tuple to seek from: an `anchor` seek's keyset values (inclusive of the anchor),
+    // or a decoded forward/backward cursor (exclusive, Relay semantics).
     const cursorArg = backward ? args.before : args.after
-    if (cursorArg !== undefined) {
+    let vals: unknown[] | undefined
+    if (seek) vals = seek.values
+    else if (cursorArg !== undefined) {
       const decoded = decodeCursor(cursorArg)
-      const vals = (Array.isArray(decoded) ? decoded : [decoded]) as unknown[]
+      vals = (Array.isArray(decoded) ? decoded : [decoded]) as unknown[]
+    }
+    if (vals !== undefined) {
+      const tuple = vals
       q = q.where((eb: any) => {
         const isNull = (v: unknown) => v === null || v === undefined
         // Cursor row's value equals v in this column (null-aware equality).
@@ -1146,14 +1267,13 @@ export class QuerySet<T extends object> {
           return nullsLast ? eb.or([base, eb(col, 'is', null)]) : base
         }
         // OR over positions i: all prefix columns equal, column i strictly after.
-        return eb.or(
-          eff.map((_: unknown, i: number) =>
-            eb.and([
-              ...eff.slice(0, i).map((k, j) => eq(k.col, vals[j])),
-              after(i, vals[i])
-            ])
-          )
+        const terms = eff.map((_: unknown, i: number) =>
+          eb.and([...eff.slice(0, i).map((k, j) => eq(k.col, tuple[j])), after(i, tuple[i])])
         )
+        // Inclusive seek: also match the anchor row itself (the full tuple is equal;
+        // the unique PK makes it exactly one row), so it's the first row of the window.
+        if (seek) terms.push(eb.and(eff.map((k, j) => eq(k.col, tuple[j]))))
+        return eb.or(terms)
       })
     }
 
@@ -1164,7 +1284,7 @@ export class QuerySet<T extends object> {
         )}`
       )
     }
-    if (!backward && args.skip) q = q.offset(args.skip)
+    if (!backward && !seek && args.skip) q = q.offset(args.skip)
 
     const fetched = await q.limit(size + 1).execute()
     const hasExtra = fetched.length > size
@@ -1180,11 +1300,14 @@ export class QuerySet<T extends object> {
       edges,
       nodes: edges.map((e: {node: T}) => e.node),
       totalCount: await this.count(),
+      startIndex: seek ? seek.startIndex : backward ? 0 : args.skip ?? 0,
       pageInfo: {
         hasNextPage: backward ? args.before !== undefined : hasExtra,
-        hasPreviousPage: backward
-          ? hasExtra
-          : args.after !== undefined || (args.skip ?? 0) > 0,
+        hasPreviousPage: seek
+          ? seek.startIndex > 0
+          : backward
+            ? hasExtra
+            : args.after !== undefined || (args.skip ?? 0) > 0,
         startCursor: edges.length ? edges[0].cursor : null,
         endCursor: edges.length ? edges[edges.length - 1].cursor : null
       }

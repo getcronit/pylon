@@ -17,6 +17,9 @@ export interface ConnectionMeta {
   before?: string
   /** Variable name carrying `skip` (offset) — drives `jumpTo(index)`. */
   skip?: string
+  /** Variable name carrying `anchor` (a node id) — drives `seekTo(id)`: the server
+   *  resolves the id's absolute index and returns the window + `startIndex`. */
+  anchor?: string
 }
 
 export interface DocInit {

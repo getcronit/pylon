@@ -377,7 +377,7 @@ export function foreignKey<R extends object>(
 //    guard on any bidirectional relation graph (→ a broken `WhereInput`).
 // Methods are referenced by indexed access so their signatures never drift.
 export interface PaginatedHasMany<R extends object> {
-  (first?: number, after?: string, last?: number, before?: string, skip?: number, query?: string): Promise<Connection<R>>
+  (first?: number, after?: string, last?: number, before?: string, skip?: number, query?: string, anchor?: string): Promise<Connection<R>>
   all: RelatedManager<R>['all']
   filter: RelatedManager<R>['filter']
   orderBy: RelatedManager<R>['orderBy']

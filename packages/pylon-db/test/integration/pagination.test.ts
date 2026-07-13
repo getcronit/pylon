@@ -110,4 +110,54 @@ describe.skipIf(!runDb)('cursor pagination (Postgres)', () => {
     expect(page.pageInfo.hasPreviousPage).toBe(true) // skip > 0
     expect(page.pageInfo.hasNextPage).toBe(true)
   })
+
+  it('reports startIndex (0 on a plain first page, shifts with skip)', async () => {
+    const first = await Widget.objects.paginate({first: 2})
+    expect(first.startIndex).toBe(0)
+    const skipped = await Widget.objects.paginate({first: 2, skip: 1})
+    expect(skipped.startIndex).toBe(1)
+  })
+
+  const idOf = async (name: string) =>
+    (await Widget.objects.filter({name}).first())!.id
+
+  it('anchor seeks to a deep node (PK order): window starts AT it, startIndex = its rank', async () => {
+    const page = await Widget.objects.paginate({first: 2, anchor: await idOf('w3')})
+    expect(page.nodes.map(w => w.name)).toEqual(['w3', 'w4']) // inclusive of the anchor
+    expect(page.startIndex).toBe(2) // w1,w2 precede it
+    expect(page.pageInfo.hasPreviousPage).toBe(true) // rows before it
+    expect(page.pageInfo.hasNextPage).toBe(true) // w5 after this window
+  })
+
+  it('anchor honours a custom order (asc rank → w5,w4,w3,…)', async () => {
+    const page = await Widget.objects.paginate({
+      first: 2,
+      orderBy: 'rank',
+      anchor: await idOf('w3')
+    })
+    expect(page.nodes.map(w => w.name)).toEqual(['w3', 'w2']) // asc rank from w3
+    expect(page.startIndex).toBe(2) // w5, w4 precede w3 in asc-rank order
+  })
+
+  it('anchor on the first node → startIndex 0, no previous page', async () => {
+    const page = await Widget.objects.paginate({first: 2, anchor: await idOf('w1')})
+    expect(page.nodes.map(w => w.name)).toEqual(['w1', 'w2'])
+    expect(page.startIndex).toBe(0)
+    expect(page.pageInfo.hasPreviousPage).toBe(false)
+  })
+
+  it('anchor outside the filtered set → falls back to a plain first page', async () => {
+    const page = await Widget.objects
+      .filter({name: 'w2'})
+      .paginate({first: 5, anchor: await idOf('w4')})
+    expect(page.nodes.map(w => w.name)).toEqual(['w2'])
+    expect(page.startIndex).toBe(0)
+  })
+
+  it('an explicit cursor/offset wins over anchor (loadNext/jumpTo pass through)', async () => {
+    const anchor = await idOf('w3')
+    const withSkip = await Widget.objects.paginate({first: 2, skip: 1, anchor})
+    expect(withSkip.nodes.map(w => w.name)).toEqual(['w2', 'w3']) // skip wins, seek ignored
+    expect(withSkip.startIndex).toBe(1)
+  })
 })

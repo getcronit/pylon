@@ -21,7 +21,9 @@ export interface PaginatedResult<TNode = any, TEdge = any> {
    * Absolute index of `nodes[0]` within the full list — the offset a virtualizer
    * needs to place the loaded window against `totalCount`. 0 at the start / after
    * a base-variable reset, the `jumpTo` target after a jump, and shifts down as
-   * `loadPrev` prepends.
+   * `loadPrev` prepends. When the connection is fetched with an `anchor` variable
+   * (a node id), the SERVER resolves that node's absolute rank and returns it here,
+   * so an SSR-rendered virtual list arrives pre-positioned on first paint.
    */
   startIndex: number
   loadNext: (n?: number) => Promise<void>
@@ -32,6 +34,15 @@ export interface PaginatedResult<TNode = any, TEdge = any> {
    * with the anchor page; `loadNext`/`loadPrev` then continue keyset from there.
    */
   jumpTo: (index: number, n?: number) => Promise<void>
+  /**
+   * Seek the window to a node BY ID (needs an `anchor` arg on the connection): the
+   * server resolves the id's absolute index under the current filter+order and
+   * returns the window + `startIndex`, adopted here. The imperative twin of the
+   * `anchor` base var — use it for in-list navigation so a click doesn't re-fetch
+   * the whole base. Resolves to the node's absolute index (now `startIndex`), or
+   * `null` if it isn't in the current filter (window left untouched — widen + retry).
+   */
+  seekTo: (id: string, n?: number) => Promise<number | null>
   /** Force-refetch every loaded window in place (keeps the current windows and
    *  scroll position). Used to refresh after a mutation / tag-refetch. */
   refetch: () => Promise<void>
@@ -217,6 +228,40 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
     [client, doc, pageSize]
   )
 
+  const seekTo = useCallback(
+    async (id: string, n?: number): Promise<number | null> => {
+      if (!conn.anchor) {
+        throw new Error(
+          `usePaginatedData: seekTo(id) needs an "anchor" arg on the connection ` +
+            `"${doc.name}".`
+        )
+      }
+      const vars = {
+        ...baseRef.current,
+        ...(conn.first ? {[conn.first]: n ?? pageSize} : {}),
+        [conn.anchor]: id
+      }
+      setLoadingMore(true)
+      try {
+        await client.fetch(doc, vars as TVars)
+        const data = client.store.get(opKey(doc, vars))?.data
+        const c = readConnection(client, data, conn.path)
+        // If the id isn't in the filtered set the server falls back to a plain first
+        // page (which wouldn't contain it) — signal that as `null` so the caller can
+        // decide (e.g. widen the filter), and DON'T clobber the current window.
+        const found = (c?.edges ?? []).some((e: any) => e?.node?.id === id)
+        if (!found) return null
+        const si = typeof c?.startIndex === 'number' ? c.startIndex : 0
+        setWindows([{vars}]) // replace the stack with the sought window
+        setStartIndex(si)
+        return si
+      } finally {
+        setLoadingMore(false)
+      }
+    },
+    [client, doc, pageSize]
+  )
+
   const refetch = useCallback(async () => {
     const eff = liveWindows()
     setLoadingMore(true)
@@ -246,7 +291,6 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
 
   const effWindows: Window[] =
     !resetting && windows.length ? windows : [{vars: firstWindowVars(base)}]
-  const effStartIndex = resetting ? 0 : startIndex
 
   // ── read + merge (Suspense on the head window) ─────────────────────────────
   const headRead = client.ensure(doc, effWindows[0].vars as TVars)
@@ -261,12 +305,18 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
   let lastConn: any
   let totalCount: number | undefined
 
+  let headServerStart: number | undefined
   effWindows.forEach((w, idx) => {
     const data =
       idx === 0 ? headRead.data : client.store.get(opKey(doc, w.vars))?.data
     const connWrapped = readConnection(client, data, conn.path)
     if (connWrapped == null) return
-    if (idx === 0) firstConn = connWrapped
+    if (idx === 0) {
+      firstConn = connWrapped
+      if (typeof connWrapped.startIndex === 'number') {
+        headServerStart = connWrapped.startIndex
+      }
+    }
     lastConn = connWrapped
     if (typeof connWrapped.totalCount === 'number') {
       totalCount = connWrapped.totalCount
@@ -289,6 +339,22 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
     endCursor: lastConn?.pageInfo?.endCursor
   }
 
+  // On the INITIAL (not-yet-paged) window, trust the server's authoritative
+  // startIndex — an `anchor` seek resolves the deep-linked node's absolute rank
+  // server-side, so an SSR-rendered virtual list is already positioned on first
+  // paint. Seed local state (bounded by the value check) so a later loadPrev's
+  // decrement / loadNext's carry start from the right base; once the user pages,
+  // `windows` is non-empty and local state governs (jumpTo/loadPrev own it).
+  const onInitialWindow = !resetting && windows.length === 0
+  if (onInitialWindow && headServerStart !== undefined && startIndex !== headServerStart) {
+    setStartIndex(headServerStart)
+  }
+  const effStartIndex = resetting
+    ? 0
+    : onInitialWindow
+      ? headServerStart ?? 0
+      : startIndex
+
   return {
     edges: mergedEdges,
     nodes: mergedEdges.map(e => e?.node),
@@ -298,6 +364,7 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
     loadNext,
     loadPrev,
     jumpTo,
+    seekTo,
     refetch,
     isLoadingMore
   }

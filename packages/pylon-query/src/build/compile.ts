@@ -571,6 +571,9 @@ function compileConnectionField(
     ctx.connVarDecls.push(`$${varName}: ${arg.type.toString()}`)
     argParts.push(`${arg.name}: $${varName}`)
     if (isPagination) meta[arg.name as (typeof PAGINATION_ARGS)[number]] = varName
+    // `anchor` is a base arg (bound by its own name), but the hook needs its var
+    // name for the imperative `seekTo(id)` — record it like the pagination ones.
+    else if (arg.name === 'anchor') meta.anchor = varName
   }
   ctx.connectionMeta = meta
 
@@ -582,6 +585,7 @@ function compileConnectionField(
 
   const skeleton: SelectorNode = {
     totalCount: hasField(named, 'totalCount') ? true : undefined,
+    startIndex: hasField(named, 'startIndex') ? true : undefined,
     pageInfo: {
       hasNextPage: true,
       hasPreviousPage: true,
@@ -591,6 +595,7 @@ function compileConnectionField(
     edges: {cursor: true, node: nodeSelection}
   }
   if (!skeleton.totalCount) delete skeleton.totalCount
+  if (!skeleton.startIndex) delete skeleton.startIndex
 
   // Inner currentPath = the connection's own path, so edges/pageInfo never
   // re-match the connection path.

@@ -123,6 +123,34 @@ describe('compileOperation', () => {
     expect(op.body).toContain('totalCount')
   })
 
+  it('selects startIndex + passes an anchor base var when the connection exposes them', () => {
+    const s = buildSchema(/* GraphQL */ `
+      type Query {
+        posts(first: Int, after: String, last: Int, before: String, anchor: String): PostConnection!
+      }
+      type PostConnection {
+        edges: [PostEdge!]!
+        pageInfo: PageInfo!
+        totalCount: Int
+        startIndex: Int!
+      }
+      type PostEdge { cursor: String! node: Post! }
+      type Post { id: ID! title: String }
+      type PageInfo { hasNextPage: Boolean! hasPreviousPage: Boolean! startCursor: String endCursor: String }
+    `)
+    const op = compileOperation(
+      s,
+      {posts: {edges: {node: {title: true}}}},
+      {name: 'Test', connection: {path: ['posts']}}
+    )
+    // startIndex is a real connection field → auto-selected like totalCount.
+    expect(op.body).toContain('startIndex')
+    // `anchor` is a base arg bound by its own name, and recorded in meta so the
+    // hook's imperative seekTo(id) knows the variable to set.
+    expect(op.body).toContain('anchor: $anchor')
+    expect(op.connection).toMatchObject({ anchor: 'anchor' })
+  })
+
   it('compiles a connection from the `nodes` accessor, ignoring hook controls', () => {
     const op = compile(
       {

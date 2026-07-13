@@ -91,6 +91,13 @@ describe.skipIf(!runDb)('full-text search (Postgres)', () => {
     expect(page.nodes[0].title).toBe('The quick brown fox')
   })
 
+  it('anchor seek is rejected under relevance ordering (no seekable key)', async () => {
+    const anchor = (await FtsDoc.objects.get({title: 'Unrelated'})).id
+    await expect(
+      FtsDoc.objects.search('text', {rank: true}).paginate({first: 5, anchor})
+    ).rejects.toThrow(/relevance|seekable key/i)
+  })
+
   it('syncSchema (db push) creates the GIN index, not just the column', async () => {
     const idx = await db.kysely
       .selectFrom('pg_indexes' as any)

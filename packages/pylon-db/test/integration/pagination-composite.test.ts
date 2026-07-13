@@ -102,4 +102,31 @@ describe.skipIf(!runDb)('composite-keyset pagination (Postgres)', () => {
     expect(drained.slice(3)).toEqual(['echo', 'foxtrot', 'delta']) // files by size asc
     expect(drained).toHaveLength(6) // no skips/dupes
   })
+
+  const idOf = async (name: string) =>
+    (await Node.objects.filter({name}).first())!.id
+
+  it('anchor seeks into a composite order (startIndex = rank, window inclusive)', async () => {
+    // Order: alpha,bravo,charlie,delta,echo,foxtrot. delta is index 3.
+    const page = await Node.objects.paginate({
+      first: 2,
+      orderBy: ['-kind', 'name'],
+      anchor: await idOf('delta')
+    })
+    expect(page.nodes.map(n => n.name)).toEqual(['delta', 'echo'])
+    expect(page.startIndex).toBe(3)
+    expect(page.pageInfo.hasPreviousPage).toBe(true)
+  })
+
+  it('anchor on a NULL-valued keyset column (folder, null size) ranks by the PK tiebreak', async () => {
+    // ['-kind','size']: folders first (all null size → PK order), then files by size.
+    // bravo is the 2nd folder → index 1.
+    const page = await Node.objects.paginate({
+      first: 2,
+      orderBy: ['-kind', 'size'],
+      anchor: await idOf('bravo')
+    })
+    expect(page.nodes.map(n => n.name)).toEqual(['bravo', 'charlie'])
+    expect(page.startIndex).toBe(1)
+  })
 })

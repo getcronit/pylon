@@ -625,6 +625,9 @@ export class ManyToManyManager<T extends object> {
       edges,
       nodes: edges.map(e => e.node),
       totalCount: await this.count(),
+      // Through-relation connections don't resolve `anchor` (rare deep-link target);
+      // startIndex still reflects an explicit forward `skip` so the field is total.
+      startIndex: backward ? 0 : args.skip ?? 0,
       pageInfo: {
         hasNextPage: backward ? args.before !== undefined : hasExtra,
         hasPreviousPage: backward ? hasExtra : args.after !== undefined || (args.skip ?? 0) > 0,
