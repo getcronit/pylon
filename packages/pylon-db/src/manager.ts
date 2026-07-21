@@ -1643,11 +1643,15 @@ function applyCreateDefaults(def: ModelDefinition, instance: any): void {
 export async function saveInstance(instance: object): Promise<object> {
   const def = getModelDefinitionOrThrow(instance.constructor)
 
-  if (!persisted.has(instance)) applyCreateDefaults(def, instance)
+  const isCreate = !persisted.has(instance)
+  if (isCreate) applyCreateDefaults(def, instance)
 
   // Validate before touching the DB — fail fast with structured, translatable
-  // issues instead of a raw Postgres constraint error.
-  const issues = validateInstance(def, instance)
+  // issues instead of a raw Postgres constraint error. On UPDATE the primary key
+  // is immutable + already persisted, so its validators are skipped (else a
+  // format-strict PK — e.g. a snowflake — would reject rows created under an
+  // older id scheme).
+  const issues = validateInstance(def, instance, {created: isCreate})
   if (issues.length > 0) throw new ValidationError(issues)
 
   const pk = def.primaryKey

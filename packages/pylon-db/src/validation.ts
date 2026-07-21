@@ -166,9 +166,18 @@ function validateColumn(col: ColumnDefinition, value: unknown): ValidationIssue[
 }
 
 /** Validate an instance against its model definition; returns all issues. */
-export function validateInstance(def: ModelDefinition, instance: object): ValidationIssue[] {
+export function validateInstance(
+  def: ModelDefinition,
+  instance: object,
+  opts: {created?: boolean} = {}
+): ValidationIssue[] {
+  const created = opts.created ?? true
   const issues: ValidationIssue[] = []
   for (const col of def.columns) {
+    // The primary key is immutable — on UPDATE it's already persisted and valid,
+    // so re-running its (possibly format-strict) validators would wrongly reject
+    // rows created under a different id scheme (e.g. a cuid → snowflake switch).
+    if (!created && col.primaryKey) continue
     // FK columns store a `bigint` fallback but follow the target PK's type
     // (e.g. a cuid `text`); validate against the resolved type.
     const resolved = col.fkInferType
