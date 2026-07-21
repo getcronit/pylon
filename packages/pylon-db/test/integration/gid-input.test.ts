@@ -9,6 +9,7 @@ import {
   type ModelConfig,
   connect,
   Database,
+  enumOf,
   foreignKey,
   id,
   manager,
@@ -38,6 +39,38 @@ class GiBook extends Model {
 }
 new Pylon({db: {models: [GiBook]}})
 
+// STI: GiParty (base) + GiPerson (subclass, shared table) + GiInvoice (FK → base).
+enum GiKind {
+  PERSON = 'PERSON',
+  ORG = 'ORG'
+}
+class GiParty extends Model {
+  static config = {
+    table: 'gi_party',
+    inheritance: {strategy: 'single-table', discriminator: 'kind'}
+  } satisfies ModelConfig<GiParty>
+  static objects = manager(GiParty)
+  id = id({snowflake: true})
+  kind = enumOf(GiKind)
+  name = text()
+}
+new Pylon({db: {models: [GiParty]}})
+
+class GiPerson extends GiParty {
+  static config = {discriminatorValue: GiKind.PERSON} satisfies ModelConfig<GiPerson>
+  static objects = manager(GiPerson)
+}
+new Pylon({db: {models: [GiPerson]}})
+
+class GiInvoice extends Model {
+  static config = {table: 'gi_invoice'} satisfies ModelConfig<GiInvoice>
+  static objects = manager(GiInvoice)
+  id = id({snowflake: true})
+  partyId = foreignKey(() => GiParty)
+  declare party: Relation<GiParty>
+}
+new Pylon({db: {models: [GiInvoice]}})
+
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'
 const runDb = process.env.DATABASE_URL || process.env.PYLON_ORM_IT
@@ -49,7 +82,7 @@ describe.skipIf(!runDb)('gid-on-input (Postgres)', () => {
 
   beforeAll(async () => {
     db = connect({connectionString})
-    for (const t of ['gi_book', 'gi_author']) {
+    for (const t of ['gi_invoice', 'gi_book', 'gi_author', 'gi_party']) {
       await db.kysely.schema.dropTable(t).ifExists().cascade().execute()
     }
     await syncSchema()
@@ -60,7 +93,7 @@ describe.skipIf(!runDb)('gid-on-input (Postgres)', () => {
   })
   afterAll(async () => {
     if (db) {
-      for (const t of ['gi_book', 'gi_author']) {
+      for (const t of ['gi_invoice', 'gi_book', 'gi_author', 'gi_party']) {
         await db.kysely.schema.dropTable(t).ifExists().cascade().execute()
       }
       await db.destroy()
@@ -107,6 +140,18 @@ describe.skipIf(!runDb)('gid-on-input (Postgres)', () => {
     await expect(
       GiBook.objects.create({title: 'x', authorId: toGid('GiBook', authorId) as never})
     ).rejects.toThrow(/Expected a GiAuthor id but received a GiBook id/)
+  })
+
+  it('accepts a subclass gid where the STI base is expected (FK + filter)', async () => {
+    const person = await GiPerson.objects.create({name: 'Ada'})
+    // FK to the base GiParty accepts a GiPerson (subclass) gid — same table/id family.
+    const inv = await GiInvoice.objects.create({
+      partyId: toGid('GiPerson', person.id) as never
+    })
+    expect(inv.partyId).toBe(person.id)
+    // Base filter accepts the subclass gid too.
+    const found = await GiParty.objects.get({id: toGid('GiPerson', person.id)})
+    expect(found.id).toBe(person.id)
   })
 
   it('rejects a wrong-type gid with BAD_REQUEST', async () => {

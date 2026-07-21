@@ -12,8 +12,9 @@ import {
   RelationDefinition
 } from './registry.js'
 import {ValidationError, uniqueViolation, validateInstance} from './validation.js'
-import {NotFoundError} from './errors.js'
-import {decodeId, isGid} from './gid.js'
+import {BadRequestError, NotFoundError} from './errors.js'
+import {fromGid, isGid} from './gid.js'
+import {modelForTypeName} from './registry.js'
 import {ForbiddenError} from './features.js'
 import {type FilterAction, getAppPolicy, getPolicy, policyContext} from './policies.js'
 // Runtime cycle with keyed-query.ts (which imports QuerySet) — safe: neither uses the
@@ -528,11 +529,38 @@ function idFilterType(def: ModelDefinition, col: ColumnDefinition): string | und
   return rel ? normalizedCtorName(rel.target()) : undefined
 }
 
+/** The STI base type name of a model, if it's a subclass (else undefined). */
+function stiBase(typeName: string): string | undefined {
+  const def = modelForTypeName(typeName)
+  return def?.sti ? normalizedCtorName(def.sti.baseCtor) : undefined
+}
+
+/**
+ * Whether a gid of `gidType` is acceptable where `expectedType` is required —
+ * true when equal OR in the same single-table-inheritance family (a `Person` gid
+ * is a valid `Contact`, since subclasses share the base's table + id space).
+ */
+function idTypeMatches(gidType: string, expectedType: string): boolean {
+  if (gidType === expectedType) return true
+  const gidBase = stiBase(gidType)
+  const expBase = stiBase(expectedType)
+  return gidBase === expectedType || expBase === gidType || (!!gidBase && gidBase === expBase)
+}
+
+/** Decode a gid to its raw local id, requiring a same-family type; else throw. */
+function decodeIdOfFamily(value: string, expectedType: string): string {
+  const {type, id} = fromGid(value)
+  if (!idTypeMatches(type, expectedType)) {
+    throw new BadRequestError(`Expected a ${expectedType} id but received a ${type} id (${value})`)
+  }
+  return id
+}
+
 /**
  * Decode the gids the API hands out to raw local ids on an instance's PK/FK
  * columns, before it's written — so a client can pass a `gid://…` FK straight
- * back into a create/update. Type-checked (a wrong-type gid throws); raw ids and
- * non-strings pass through untouched.
+ * back into a create/update. Type-checked (a wrong-family gid throws); raw ids
+ * and non-strings pass through untouched.
  */
 function decodeInstanceIds(def: ModelDefinition, instance: object): void {
   const rec = instance as Record<string, unknown>
@@ -540,7 +568,7 @@ function decodeInstanceIds(def: ModelDefinition, instance: object): void {
     const type = idFilterType(def, col)
     if (!type) continue
     const v = rec[col.propertyKey]
-    if (typeof v === 'string' && isGid(v)) rec[col.propertyKey] = decodeId(v, type)
+    if (typeof v === 'string' && isGid(v)) rec[col.propertyKey] = decodeIdOfFamily(v, type)
   }
 }
 
@@ -551,7 +579,8 @@ function decodeInstanceIds(def: ModelDefinition, instance: object): void {
  * non-string values pass through untouched.
  */
 function decodeIdsIn(value: unknown, expectedType: string): unknown {
-  const decode = (v: unknown) => (typeof v === 'string' && isGid(v) ? decodeId(v, expectedType) : v)
+  const decode = (v: unknown) =>
+    typeof v === 'string' && isGid(v) ? decodeIdOfFamily(v, expectedType) : v
   if (typeof value === 'string') return decode(value)
   if (Array.isArray(value)) return value.map(decode)
   if (value && typeof value === 'object') {
