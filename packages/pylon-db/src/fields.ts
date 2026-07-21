@@ -23,6 +23,7 @@ import {
   finalizeModel,
   getModelDefinition,
   getModelDefinitionOrThrow,
+  ModelDefinition,
   ModelIndex,
   OnDelete,
   registerColumn,
@@ -732,6 +733,15 @@ export interface ModelOptions {
    * ```
    */
   query?: QueryConfig
+  /**
+   * Single-table inheritance — declare this model an STI **base**. Its subclasses
+   * (`class Sub extends This`) share this table, discriminated by the named
+   * column, and the base projects to a GraphQL `interface <ClassName>` (no `I`
+   * prefix) while staying a usable manager. Subclasses set `discriminatorValue`.
+   */
+  inheritance?: {strategy?: 'single-table'; discriminator: string}
+  /** STI **subclass**: the value of the base's discriminator column that selects it. */
+  discriminatorValue?: string | number
 }
 
 /** Full-text search config for `@model({search})`. */
@@ -767,7 +777,7 @@ interface ModelSearchConfig<T> {
  * take precedence, so the two forms compose. (`app` is set by the binding —
  * `@app.model()` / `models.app(name)` — not here.)
  */
-export interface ModelConfig<T> {
+export interface ModelConfig<T, D extends ColumnKey<T> = never> {
   table?: string
   abstract?: boolean
   secure?: boolean
@@ -776,6 +786,15 @@ export interface ModelConfig<T> {
   search?: ModelSearchConfig<T> | ModelSearchConfig<T>[]
   trigram?: {columns: ColumnKey<T>[]}
   query?: QueryConfig<T>
+  /** STI base: subclasses share this table, discriminated by the named column. */
+  inheritance?: {strategy?: 'single-table'; discriminator: ColumnKey<T>}
+  /**
+   * STI subclass: the discriminator value that selects it. Supply the
+   * discriminator key as the 2nd generic to type-check the value against that
+   * field — `static config = {...} satisfies ModelConfig<VideoAsset, 'type'>`
+   * then requires `discriminatorValue: AssetType`. Without it, it's `string | number`.
+   */
+  discriminatorValue?: [D] extends [never] ? string | number : T[D]
 }
 
 // Mirror the runtime validator's type buckets (validation.ts) so a DB CHECK and
@@ -1296,8 +1315,27 @@ export function finalizeProxyModel(Ctor: Function, options: ModelOptions = {}): 
   // so composing multiple named apps can't collide on a shared table. An UNNAMED (root)
   // app doesn't prefix — the single-app common case keeps clean table names.
   const base = snakeCase(Ctor.name)
-  const tableName =
+  let tableName =
     options.table ?? (options.app ? `${snakeCase(options.app)}_${base}` : base)
+  // STI subclass: adopt the nearest inheriting ancestor's table so schema-sync AND
+  // the runtime manager both hit the one shared table (the base is registered first),
+  // and resolve the discriminator binding for scoping/create/materialisation.
+  let sti: ModelDefinition['sti']
+  if (options.discriminatorValue !== undefined) {
+    let proto = Object.getPrototypeOf(Ctor)
+    while (proto && proto !== Function.prototype) {
+      const baseDef = getModelDefinition(proto)
+      if (baseDef?.inheritance) {
+        tableName = baseDef.tableName
+        const property = baseDef.inheritance.discriminator
+        const column =
+          baseDef.columns.find(c => c.propertyKey === property)?.columnName ?? property
+        sti = {baseCtor: baseDef.ctor, property, column, value: options.discriminatorValue}
+        break
+      }
+      proto = Object.getPrototypeOf(proto)
+    }
+  }
   const isAbstract = options.abstract ?? false
 
   new (Ctor as any)() // probe: field initializers run under the proxy → traps harvest
@@ -1311,11 +1349,34 @@ export function finalizeProxyModel(Ctor: Function, options: ModelOptions = {}): 
     secure: options.secure,
     search: options.search,
     trigram: options.trigram,
-    query: options.query
+    query: options.query,
+    inheritance: options.inheritance,
+    discriminatorValue: options.discriminatorValue,
+    sti
   })
 
   const def = getModelDefinitionOrThrow(Ctor)
   installRelationAccessors(Ctor.prototype, def.relations)
+
+  // STI subclass: its own columns share the base's ONE table, so its trigram columns and
+  // composite indexes belong on that table. Fold them onto the base def (registered
+  // first) — then every consumer that reads the base's `trigramColumns`/`indexes` picks
+  // them up: migrations (IR), schema-sync's `createTable`, and the runtime `.query()`
+  // search. So a `FileAsset({trigram:{columns:['mimeType']}})` makes `Asset.objects
+  // .query()` search the shared table by mimeType, with one GIN index.
+  if (sti) {
+    const baseDef = getModelDefinition(sti.baseCtor)
+    if (baseDef) {
+      if (def.trigramColumns?.length) {
+        baseDef.trigramColumns = Array.from(
+          new Set([...(baseDef.trigramColumns ?? []), ...def.trigramColumns])
+        )
+      }
+      if (def.indexes?.length) {
+        baseDef.indexes = [...(baseDef.indexes ?? []), ...def.indexes]
+      }
+    }
+  }
 
   if (!isAbstract) {
     const abilitiesFn = (Ctor as {abilities?: unknown}).abilities

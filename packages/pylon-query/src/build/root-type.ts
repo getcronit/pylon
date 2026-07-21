@@ -126,7 +126,18 @@ function renderObject(
         .join('; ')
       const argsObj = `{ ${argMembers} }`
       const allOptional = field.args.every(a => !isNonNullType(a.type))
-      members.push(`  ${field.name}(args${allOptional ? '?' : ''}: ${argsObj}): ${ret}`)
+      const named = getNamedType(field.type)
+      const isScalarLeaf = isScalarType(named) || isEnumType(named)
+      // A SCALAR leaf whose args are ALL optional is dual-mode: usable as a bare
+      // value (`img.url` → the string, so `src={img.url}` typechecks) OR called in
+      // the authoring style (`img.url({transform})`). The runtime reads it as the
+      // plain scalar (see wrap.ts) — the call signature exists only so args can be
+      // baked into the document at build time. Emit the intersection of both.
+      if (isScalarLeaf && allOptional) {
+        members.push(`  ${field.name}: ${ret} & ((args?: ${argsObj}) => ${ret})`)
+      } else {
+        members.push(`  ${field.name}(args${allOptional ? '?' : ''}: ${argsObj}): ${ret}`)
+      }
     } else {
       members.push(`  ${field.name}: ${ret}`)
     }

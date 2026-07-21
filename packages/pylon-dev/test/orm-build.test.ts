@@ -54,4 +54,18 @@ describe('Stage 2b — build merges the ORM contribution', () => {
     const merged = new SchemaBuilder(entry).build({contributeIR}).typeDefs
     expect(merged).not.toMatch(/internalCode|internal_code/) // hidden by the ORM
   }, 30000)
+
+  it('a `private` column is hidden via the AST pass (runtime IR can’t see it)', async () => {
+    // `secretRank` has a NORMAL name + no {hidden} — the TS `private` modifier is
+    // erased at runtime, so the introspected contribution EXPOSES it…
+    const contributeIR = await introspectViaRunner(cwd, './index.ts')
+    const rank = contributeIR!.entities.Product.fields.find(
+      f => f.column?.name === 'secret_rank'
+    )
+    expect(rank?.exposed).toBe(true) // leaked by runtime introspection
+
+    // …but the built SDL drops it, because hidePrivateOrmMembers reads the class AST.
+    const {typeDefs} = new SchemaBuilder(entry).build({contributeIR})
+    expect(typeDefs).not.toMatch(/secretRank|secret_rank/)
+  }, 30000)
 })

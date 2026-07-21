@@ -1,5 +1,7 @@
 import {describe, expect, it} from 'vitest'
 import {
+  collapseInterfaceTwins,
+  mergeFields,
   emptyIR,
   mergeIR,
   pruneUnreferencedEnums,
@@ -111,5 +113,63 @@ describe('pruneUnreferencedEnums', () => {
     const pruned = pruneUnreferencedEnums(ir)
     expect(pruned.enums.Tag).toBeDefined()
     expect(pruned.enums.Status).toBeDefined()
+  })
+})
+
+describe('collapseInterfaceTwins — STI interface unification', () => {
+  const f = (name: string, exposed = true) => ({
+    name,
+    type: {kind: 'scalar' as const, name: 'String', nullable: true},
+    exposed
+  })
+  const sub = (name: string, own: string) => ({
+    name,
+    table: 'asset',
+    abstract: false,
+    primaryKey: 'id',
+    // analyzer view: the I-twin + a property-named alias `Item`; ORM adds `Asset`.
+    implements: ['Asset', 'IAsset', 'Item'],
+    fields: [f('id'), f('name'), f(own)]
+  })
+  const build = () => {
+    const ir = emptyIR()
+    ir.entities.Asset = {
+      name: 'Asset',
+      table: 'asset',
+      abstract: false,
+      primaryKey: 'id',
+      implements: [],
+      fields: [f('id'), f('name'), {...f('url'), exposed: true}]
+    }
+    ir.interfaces.Asset = {name: 'Asset', fields: [f('id'), f('name')]}
+    ir.interfaces.IAsset = {name: 'IAsset', fields: [f('id'), f('name')]}
+    // property-named alias carrying an over-broad field set (incl. a hidden col).
+    ir.interfaces.Item = {name: 'Item', fields: [f('id'), f('name'), f('s3Key', false)]}
+    ir.entities.Image = sub('Image', 'width')
+    ir.entities.Doc = sub('Doc', 'pages')
+    return ir
+  }
+
+  it('folds the analyzer I-twin AND property-named aliases into the one STI interface', () => {
+    const ir = collapseInterfaceTwins(build())
+    expect(ir.interfaces.IAsset).toBeUndefined()
+    expect(ir.interfaces.Item).toBeUndefined() // the property-named alias is folded
+    expect(ir.interfaces.Asset).toBeDefined()
+    // subclasses now implement exactly the base interface (aliases collapsed away).
+    expect(ir.entities.Image.implements).toEqual(['Asset'])
+    expect(ir.entities.Doc.implements).toEqual(['Asset'])
+  })
+})
+
+describe('mergeFields — a hidden m2m relation never shadows an exposed accessor', () => {
+  const list = {kind: 'list' as const, of: {kind: 'ref' as const, name: 'Media', nullable: false}, nullable: false}
+  it('keeps the exposed no-args accessor in the schema, retains relation meta for migrations', () => {
+    // e.g. `media()` accessor (exposed, NO args) + `$media = m2m(Media)` (strips to `media`, hidden).
+    const accessor = {name: 'media', type: list, exposed: true}
+    const relation = {name: 'media', type: list, exposed: false, relation: {kind: 'manyToMany' as const, target: 'Media'}}
+    const merged = mergeFields([accessor], [relation])
+    const m = merged.find(f => f.name === 'media')!
+    expect(m.exposed).toBe(true) // the accessor wins the schema slot (not shadowed)
+    expect(m.relation?.kind).toBe('manyToMany') // join-table meta retained for migrations
   })
 })

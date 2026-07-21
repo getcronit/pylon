@@ -8,7 +8,7 @@ import {
 } from './fetcher'
 import {isRef, normalize} from './normalize'
 import {Store} from './store'
-import {wrapResult} from './wrap'
+import {wrapResult, type ArgAliasMapSource} from './wrap'
 
 /** Empty descriptor — every field falls back to raw values (no wrapping). */
 const EMPTY_DESCRIPTOR: SchemaDescriptor = {query: 'Query', types: {}}
@@ -204,7 +204,8 @@ export class PylonQueryClient {
     getRoot: () => unknown,
     rootExtras?: Record<string, unknown>,
     rootTypeName?: string,
-    debugLabel?: string
+    debugLabel?: string,
+    argAliasMap?: ArgAliasMapSource
   ): T {
     return wrapResult<T>(
       getRoot,
@@ -212,7 +213,8 @@ export class PylonQueryClient {
       rootExtras,
       this.deref,
       rootTypeName ?? this.descriptor.query,
-      debugLabel
+      debugLabel,
+      argAliasMap
     )
   }
 

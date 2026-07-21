@@ -241,6 +241,11 @@ export interface Entity {
   implements: string[]
   /** Secondary indexes (beyond PK / column-level UNIQUE constraints). */
   indexes?: IndexSpec[]
+  /** Single-table inheritance: this entity SHARES another entity's physical table
+   *  (an STI subclass — a GraphQL type only). The base entity owns the table and
+   *  carries the merged columns, so `physicalSchemaOf` skips this one to create the
+   *  table exactly once. */
+  sharedTable?: boolean
 }
 
 /** A non-persisted object type (DTO, json shape, resolver return shape). */

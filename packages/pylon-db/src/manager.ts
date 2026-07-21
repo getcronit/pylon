@@ -4,6 +4,7 @@ import {currentTenant, dbLog, isSystem} from './app-context.js'
 import {getDatabase} from './database.js'
 import {signals} from './signals.js'
 import {
+  allModels,
   ColumnDefinition,
   getModelDefinitionOrThrow,
   ModelDefinition,
@@ -35,7 +36,17 @@ export function columnFor(
   def: ModelDefinition,
   propertyKey: string
 ): ColumnDefinition {
-  const col = def.columns.find(c => c.propertyKey === propertyKey)
+  let col = def.columns.find(c => c.propertyKey === propertyKey)
+  // STI base: subclass columns live on the SAME shared table, so a base query can
+  // filter/order by them too (e.g. `Asset.objects.filter({mimeType})` where mimeType is
+  // a FileAsset column). Mirrors `selectableColumns`, which already unions them for SELECT.
+  if (!col && def.inheritance) {
+    for (const m of allModels()) {
+      if (m.sti?.baseCtor !== def.ctor) continue
+      col = m.columns.find(c => c.propertyKey === propertyKey)
+      if (col) break
+    }
+  }
   if (!col) {
     throw new Error(
       `Unknown field "${propertyKey}" on model "${def.tableName}".`
@@ -58,7 +69,21 @@ function assignDefined<T extends object>(instance: T, values: Partial<T>): void 
 }
 
 export function hydrate<T extends object>(ctor: ModelCtor<T>, row: any): T {
-  const def = getModelDefinitionOrThrow(ctor)
+  let def = getModelDefinitionOrThrow(ctor)
+  // STI base: materialise the concrete subclass by the discriminator column value,
+  // so `Base.objects.get(id)` returns a real `VideoAsset` (not a bare `Asset`).
+  if (def.inheritance) {
+    const discCol = def.columns.find(
+      c => c.propertyKey === def.inheritance!.discriminator
+    )?.columnName
+    const val = discCol ? row[discCol] : undefined
+    if (val !== undefined) {
+      const sub = allModels().find(
+        m => m.sti?.baseCtor === def.ctor && String(m.sti.value) === String(val)
+      )
+      if (sub) def = sub
+    }
+  }
   // Instantiate the REGISTERED class, not the passed-in `ctor`. They differ when a
   // project is split across esbuild bundles (e.g. a runtime-config/middleware bundle):
   // each bundle inlines its own copy of the model class, but only the copy whose app was
@@ -72,8 +97,29 @@ export function hydrate<T extends object>(ctor: ModelCtor<T>, row: any): T {
       ;(instance as any)[col.propertyKey] = row[col.columnName]
     }
   }
+  // Stamp the concrete GraphQL type name on EVERY hydrated row — not just STI. A
+  // single, universal `__resolveType` (see the schema builder) then resolves any
+  // interface/union membership by `__typename`, with no structural guessing and no
+  // per-type resolver reconciliation. `def.ctor` is the discriminator-chosen subclass
+  // for an STI base, so this is the concrete type.
+  stampTypename(instance, def.ctor.name)
   persisted.add(instance)
   return instance
+}
+
+/**
+ * Stamp the concrete GraphQL type name on an instance — non-enumerable + readonly, so
+ * it never leaks into column serialization / JSON, but `__resolveType` can read it.
+ * Universal (not STI-specific): harmless on a concrete-typed return (ignored), and it
+ * removes the need to tell structurally-identical types apart.
+ */
+function stampTypename(instance: object, name: string): void {
+  Object.defineProperty(instance, '__typename', {
+    value: name,
+    enumerable: false,
+    writable: false,
+    configurable: true
+  })
 }
 
 // ── Typed, Prisma-style filtering (WhereInput) ──────────────────────────────
@@ -733,6 +779,12 @@ export class QuerySet<T extends object> {
         `${def.tableName} UNSCOPED (${isSystem() ? 'runAsSystem' : '.unscoped()'})`
       )
     }
+    // STI: a subclass manager only ever sees its own rows. This is a TYPE constraint,
+    // not a security scope, so it is NOT lifted by `.unscoped()` / `runAsSystem`.
+    if (def.sti) {
+      const {column, value} = def.sti
+      ps.push(eb => eb(column, '=', value as any))
+    }
     if (scoped) {
       const outcome = policyOutcome(def, action)
       if (outcome === 'deny') ps.push(() => FALSE())
@@ -1145,7 +1197,9 @@ export class QuerySet<T extends object> {
     q = this.applyWhere(q)
 
     const cursorArg = backward ? args.before : args.after
-    if (cursorArg !== undefined) {
+    // `!= null` (not `!== undefined`): an explicitly-passed `after: null` is "no
+    // cursor", same as omitting it — decoding it would crash (Buffer.from(null)).
+    if (cursorArg != null) {
       const decoded = decodeCursor(cursorArg) as any
       // New cursors are [orderValue, pkValue]; tolerate legacy scalar cursors.
       const [cv, ck] = Array.isArray(decoded) ? decoded : [decoded, undefined]
@@ -1245,7 +1299,7 @@ export class QuerySet<T extends object> {
     const cursorArg = backward ? args.before : args.after
     let vals: unknown[] | undefined
     if (seek) vals = seek.values
-    else if (cursorArg !== undefined) {
+    else if (cursorArg != null) {
       const decoded = decodeCursor(cursorArg)
       vals = (Array.isArray(decoded) ? decoded : [decoded]) as unknown[]
     }
@@ -1386,8 +1440,29 @@ export class Manager<T extends object> {
   async create(values: Partial<T>): Promise<T> {
     // Build the REGISTERED (finalized) class — see `hydrate`; a duplicate bundle copy is
     // unfinalized and would produce a blank instance.
-    const instance = new (getModelDefinitionOrThrow(this.ctor).ctor as ModelCtor<T>)()
+    let def = getModelDefinitionOrThrow(this.ctor)
+    // STI base manager: resolve the concrete subclass from the discriminator value in
+    // `values` (the same rule `hydrate` applies to a read row), so
+    // `Base.objects.create({type: X})` builds — and stamps — the right subclass without
+    // reaching for the subclass manager. No/unknown discriminator → stays the base.
+    if (def.inheritance) {
+      const val = (values as any)[def.inheritance.discriminator]
+      if (val !== undefined) {
+        const sub = allModels().find(
+          m => m.sti?.baseCtor === def.ctor && String(m.sti.value) === String(val)
+        )
+        if (sub) def = sub
+      }
+    }
+    const instance = new (def.ctor as ModelCtor<T>)()
     assignDefined(instance, values)
+    // STI subclass: stamp the discriminator so the row is selectable as this type.
+    if (def.sti && (instance as any)[def.sti.property] === undefined) {
+      ;(instance as any)[def.sti.property] = def.sti.value
+    }
+    // Stamp the concrete type on the fresh instance (create skips `hydrate`), so a
+    // resolver returning it resolves — universal, same rule as `hydrate`.
+    stampTypename(instance as object, def.ctor.name)
     await saveInstance(instance as object)
     return instance
   }
@@ -1455,10 +1530,20 @@ function copyRowOnto(def: ModelDefinition, instance: any, row: any): void {
  * table/alias for joined queries. Replaces `selectAll()` on the read paths.
  */
 export function selectableColumns(def: ModelDefinition, table?: string): string[] {
-  const names = def.columns
-    .filter(c => !(c.generatedAs && c.hidden))
-    .map(c => c.columnName)
-  return table ? names.map(n => `${table}.${n}`) : names
+  const names = new Set(
+    def.columns.filter(c => !(c.generatedAs && c.hidden)).map(c => c.columnName)
+  )
+  // STI base: also select every subclass's own columns (they live on the shared
+  // table), so a base query can materialise the concrete subclass with all its fields.
+  if (def.inheritance) {
+    for (const m of allModels()) {
+      if (m.sti?.baseCtor !== def.ctor) continue
+      for (const c of m.columns) {
+        if (!(c.generatedAs && c.hidden)) names.add(c.columnName)
+      }
+    }
+  }
+  return table ? [...names].map(n => `${table}.${n}`) : [...names]
 }
 
 /**
@@ -1657,6 +1742,7 @@ export async function createMany<T extends object>(
     applyCreateDefaults(def, inst as any)
     const issues = validateInstance(def, inst as object)
     if (issues.length > 0) throw new ValidationError(issues)
+    stampTypename(inst as object, def.ctor.name)
     return inst
   })
 

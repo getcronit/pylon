@@ -172,6 +172,9 @@ export function physicalSchemaOf(
   const schema: PhysicalSchema = {}
   for (const name of Object.keys(entities)) {
     const e = entities[name]
+    // STI subclass: the base entity owns the shared physical table (with the merged
+    // columns) — skip so the table is projected (and created) exactly once.
+    if (e.sharedTable) continue
     schema[name] = {
       ...tableSpecOf(e), // {name, table, columns}
       foreignKeys: [...foreignKeysOf(e, resolveAgainst).values()],

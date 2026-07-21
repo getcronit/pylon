@@ -1,4 +1,42 @@
 import type {FieldDesc, SchemaDescriptor} from './descriptor'
+import {stableStringify} from './hash'
+
+/**
+ * Per-operation routing for a ROOT field read with multiple different-args call sites:
+ * fieldName → (stableStringify(callArgs) → response alias). Built at the read path from
+ * the doc's `argAliases` metadata + the resolved variables. Lets `data.field(args)` resolve
+ * to the aliased response slot whose args match the call (instead of always the first).
+ *
+ * Supplied as a thunk because the variables it needs are evaluated lazily (TDZ-safe) at
+ * first field access; the thunk is invoked inside the field call, past that point.
+ */
+export type ArgAliasMap = Record<string, Record<string, string>>
+export type ArgAliasMapSource = ArgAliasMap | (() => ArgAliasMap | undefined)
+
+/**
+ * Build the read-time `ArgAliasMap` from a doc's compile-time `argAliases` (fieldName →
+ * branches of `{alias, arg→variable}`) plus the operation's resolved `variables`. Each
+ * branch's resolved args are hashed the SAME way a field call's args are — so
+ * `data.field(args)` routes to the branch whose args match.
+ */
+export function buildArgAliasMap(
+  argAliases: Record<string, Array<{alias: string; args: Record<string, string>}>>,
+  variables: Record<string, unknown> | undefined
+): ArgAliasMap {
+  const out: ArgAliasMap = {}
+  for (const [field, branches] of Object.entries(argAliases)) {
+    const byHash: Record<string, string> = {}
+    for (const {alias, args} of branches) {
+      const resolved: Record<string, unknown> = {}
+      for (const [argName, varName] of Object.entries(args)) {
+        resolved[argName] = variables?.[varName]
+      }
+      byHash[stableStringify(resolved)] = alias
+    }
+    out[field] = byHash
+  }
+  return out
+}
 
 /**
  * Wrap a resolved GraphQL result so component code can read it in the Pylon
@@ -30,6 +68,10 @@ interface Ctx {
   deref: Deref
   /** Operation label for diagnostics (which doc served this read). */
   debugLabel?: string
+  /** Root type name — arg-alias routing only applies to fields on this type. */
+  rootType: string
+  /** Per-field arg→alias routing for same-field/different-args root reads (may be a thunk). */
+  argAliasMap?: ArgAliasMapSource
 }
 
 const IDENTITY: Deref = value => value
@@ -65,9 +107,16 @@ export function wrapResult<T = any>(
   rootExtras?: Record<string, unknown>,
   deref: Deref = IDENTITY,
   rootTypeName: string = descriptor.query,
-  debugLabel?: string
+  debugLabel?: string,
+  argAliasMap?: ArgAliasMapSource
 ): T {
-  const ctx: Ctx = {descriptor, deref, debugLabel}
+  const ctx: Ctx = {
+    descriptor,
+    deref,
+    debugLabel,
+    rootType: rootTypeName,
+    argAliasMap
+  }
   return buildObject(
     () => ctx.deref(getRoot()),
     rootTypeName,
@@ -101,9 +150,66 @@ function buildField(
   reportPartialRead(getOwner(), fieldName, ctx)
 
   if (fd.callable) {
-    return (..._args: unknown[]) => buildValue(getValue, fd, ctx)
+    // Same field read with different args at multiple call sites → the compiler emitted an
+    // aliased response slot per branch; route this call to the slot whose args match. Only
+    // for root fields carrying an argAliases entry; everything else ignores args (the args
+    // are baked into the document + variables at build time). The map thunk is resolved
+    // INSIDE the call (not at property-access), so root-resolution timing is unchanged.
+    const call = (...args: unknown[]) => {
+      const src = ownerType === ctx.rootType ? ctx.argAliasMap : undefined
+      const map = typeof src === 'function' ? src() : src
+      const aliases = map?.[fieldName]
+      if (aliases) {
+        const alias = aliases[stableStringify(args[0] ?? {})] ?? fieldName
+        const getAliased = () => {
+          const owner = getOwner()
+          return owner == null ? undefined : ctx.deref((owner as any)[alias])
+        }
+        return buildValue(getAliased, fd, ctx)
+      }
+      return buildValue(getValue, fd, ctx)
+    }
+    // A callable with any REQUIRED arg is call-only (`data.field(args)`): a bare
+    // read can't produce a valid value, so return the plain function.
+    if (!fd.optionalArgs) return call
+    // Every arg optional → dual-mode: usable as a bare property (`data.field`) OR
+    // called (`data.field()` / `data.field(args)`). Return a value that both
+    // coerces/forwards to the no-arg result AND stays callable.
+    return makeDualMode(call)
   }
   return buildValue(getValue, fd, ctx)
+}
+
+/**
+ * Wrap a resolved-value thunk so the field reads BOTH as the value and as a call.
+ * The Proxy's `apply` runs the call; every other access (coercion, property,
+ * method) is forwarded to the resolved no-arg value — so `img.url` coerces to the
+ * URL string, `img.url.startsWith(…)` works, and `img.url({…})` still calls.
+ *
+ * NOTE: the result is `typeof 'function'`, so it can't be passed straight into a
+ * React DOM prop (`src={img.url}` → React drops the attribute). For an `<img>`,
+ * CALL the field — `img.url()` / `img.url({transform})` — which returns the plain
+ * (already server-transformed) URL string.
+ */
+function makeDualMode(call: (...args: unknown[]) => any): unknown {
+  return new Proxy(call, {
+    apply: (_t, _this, args) => call(...args),
+    get(target, key, recv) {
+      if (key === Symbol.toPrimitive) return () => call()
+      if (key === 'valueOf') return () => call()
+      if (key === 'toString') {
+        return () => {
+          const v = call()
+          return v == null ? '' : String(v)
+        }
+      }
+      if (typeof key === 'symbol') return Reflect.get(target, key, recv)
+      const v = call()
+      if (v == null) return undefined
+      const inner = (v as any)[key]
+      return typeof inner === 'function' ? inner.bind(v) : inner
+    }
+  })
 }
 
 function buildValue(getValue: () => any, fd: FieldDesc, ctx: Ctx): unknown {

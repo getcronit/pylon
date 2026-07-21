@@ -32,6 +32,13 @@ export interface DocInit {
   connection?: ConnectionMeta
   /** For mutations: the single top-level field whose value `mutate()` returns. */
   rootField?: string
+  /**
+   * Root fields read with multiple different-args call sites — each emitted as its own
+   * aliased response field. fieldName → branches ({alias, arg→variable}); the read path
+   * resolves it (with the call's variables) into an arg-hash→alias map so
+   * `data.field(args)` routes to the matching slot. Absent unless a field has arg-branches.
+   */
+  argAliases?: Record<string, Array<{alias: string; args: Record<string, string>}>>
 }
 
 /**

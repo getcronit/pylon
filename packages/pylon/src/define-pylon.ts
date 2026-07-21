@@ -116,6 +116,15 @@ export const getSelectedFields = (
     parentType &&
     (isInterfaceType(parentType) || parentType instanceof GraphQLUnionType)
   ) {
+    // Always carry `__typename` through the field projection (below, the resolved value
+    // is re-projected to only its selected fields, dropping everything else). A resolver
+    // stamps the concrete type name on its rows, so `resolveType` reads it back here.
+    // This is the ONLY discriminant for members that add no unique NON-NULL field of
+    // their own — e.g. single-table-inheritance subclasses Person/Organization or
+    // FileAsset/FolderAsset, which are structurally identical to each other.
+    if (!result.some(f => f.name === '__typename')) {
+      result.push({name: '__typename', fieldNodes: [], returnType: undefined})
+    }
     const abstractType = info.schema.getType(parentType.name) as
       | GraphQLInterfaceType
       | GraphQLUnionType

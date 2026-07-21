@@ -263,6 +263,108 @@ export function entityFromDefinition(def: ModelDefinition): Entity {
   }
 }
 
+/** Is `sub` a subclass of `base` somewhere up its prototype chain? */
+function isPrototypeDescendant(sub: Function, base: Function): boolean {
+  let proto = Object.getPrototypeOf(sub)
+  while (proto && proto !== Function.prototype) {
+    if (proto === base) return true
+    proto = Object.getPrototypeOf(proto)
+  }
+  return false
+}
+
+/**
+ * Single-table inheritance. For each STI base (a model with `inheritance`), fold
+ * its subclasses (models with `discriminatorValue` extending it) into ONE table:
+ *
+ *  - the base projects to `interface <ClassName>` (its shared exposed fields) —
+ *    NOT a concrete `type` (its object type is suppressed by hiding every field);
+ *  - the base entity OWNS the shared physical table, unioning every subclass's
+ *    columns onto it (forced nullable, hidden from the API);
+ *  - each subclass keeps its own object type, `implements` the base interface,
+ *    and points at the shared table.
+ *
+ * The base entity stays in `ir.entities` (it carries the merged table for
+ * migrations) but emits no SDL `type` — only the interface + the subclass types
+ * are rendered.
+ */
+function applySingleTableInheritance(ir: PylonIR, defs: ModelDefinition[]): void {
+  for (const base of defs.filter(d => d.inheritance)) {
+    const baseName = base.ctor.name
+    const baseEntity = ir.entities[baseName]
+    if (!baseEntity) continue
+
+    const subDefs = defs.filter(
+      d =>
+        d.discriminatorValue !== undefined &&
+        d.ctor !== base.ctor &&
+        isPrototypeDescendant(d.ctor, base.ctor)
+    )
+
+    // Validate: each subclass's discriminatorValue must be a member of the base
+    // discriminator column's enum (when it is one), and unique across the group.
+    const discCol = base.columns.find(
+      c => c.propertyKey === base.inheritance!.discriminator
+    )
+    const seen = new Map<string, string>()
+    for (const sub of subDefs) {
+      const v = String(sub.discriminatorValue)
+      if (discCol?.enumValues && !discCol.enumValues.includes(v)) {
+        throw new Error(
+          `[pylon-db] STI "${baseName}": discriminatorValue "${v}" on "${sub.ctor.name}" ` +
+            `is not a value of "${base.inheritance!.discriminator}" ` +
+            `(${discCol.enumValues.join(', ')}).`
+        )
+      }
+      const dup = seen.get(v)
+      if (dup) {
+        throw new Error(
+          `[pylon-db] STI "${baseName}": duplicate discriminatorValue "${v}" on ` +
+            `"${sub.ctor.name}" and "${dup}".`
+        )
+      }
+      seen.set(v, sub.ctor.name)
+    }
+
+    // 1. The interface = the base's own EXPOSED fields (the shared contract),
+    //    captured before we suppress the base's object type in step 3.
+    ir.interfaces[baseName] = {
+      name: baseName,
+      fields: baseEntity.fields.filter(f => f.exposed).map(f => ({...f})),
+      implements: baseEntity.implements.length ? [...baseEntity.implements] : undefined
+    }
+
+    // 2. Union every subclass column onto the base's physical table (nullable +
+    //    hidden). Subclasses share the base table and implement the interface.
+    const tableCols = new Set(
+      baseEntity.fields.filter(f => f.column).map(f => f.column!.name)
+    )
+    for (const sub of subDefs) {
+      const subEntity = ir.entities[sub.ctor.name]
+      if (!subEntity) continue
+      subEntity.table = base.tableName
+      subEntity.sharedTable = true // the base entity owns the physical table
+      subEntity.implements = [...subEntity.implements, baseName]
+      for (const f of subEntity.fields) {
+        if (f.column && !tableCols.has(f.column.name)) {
+          tableCols.add(f.column.name)
+          baseEntity.fields.push({
+            ...f,
+            exposed: false,
+            type: {...f.type, nullable: true},
+            column: {...f.column, nullable: true}
+          })
+        }
+      }
+    }
+
+    // 3. Suppress the base's `type <ClassName>` — hide every field, so `toSDL`
+    //    skips it. The base entity now only owns the merged table (all columns
+    //    still carry `column`, so `tableSpecOf` keeps them) + the interface.
+    baseEntity.fields = baseEntity.fields.map(f => ({...f, exposed: false}))
+  }
+}
+
 /**
  * Build the `entities` slice of a Pylon IR from the ORM registry. Defaults to
  * every registered (concrete) model. Returns a full `PylonIR` so it can be
@@ -273,5 +375,6 @@ export function toIR(defs: ModelDefinition[] = allModels()): PylonIR {
   for (const def of defs) {
     ir.entities[def.ctor.name] = entityFromDefinition(def)
   }
+  applySingleTableInheritance(ir, defs)
   return ir
 }

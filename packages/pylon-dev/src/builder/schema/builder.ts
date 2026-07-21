@@ -1,6 +1,19 @@
 import ts from 'typescript'
 import fs from 'node:fs'
-import {mergeIR, pruneUnreferencedEnums, toSDL, type PylonIR} from '@getcronit/pylon-ir'
+import {
+  buildSchema,
+  isInterfaceType,
+  isUnionType,
+  type GraphQLInterfaceType,
+  type GraphQLUnionType
+} from 'graphql'
+import {
+  collapseInterfaceTwins,
+  mergeIR,
+  pruneUnreferencedEnums,
+  toSDL,
+  type PylonIR
+} from '@getcronit/pylon-ir'
 import {SchemaParser} from './schema-parser'
 import path from 'path'
 
@@ -48,6 +61,123 @@ export interface BuildOptions {
    * the returned `typeDefs` are rendered from the merged IR.
    */
   contributeIR?: PylonIR
+}
+
+type ResolverMap = Record<
+  string,
+  {__resolveType?: (obj: any) => string | null; [k: string]: unknown}
+>
+
+/**
+ * Build a SELF-CONTAINED `__resolveType` for one interface/union. It must serialize to
+ * `resolvers.js` via source extraction, so it can capture NOTHING from this scope — the
+ * member list is inlined as a literal and the analyzer's structural resolver is inlined
+ * as source. Order: trust `__typename` if it names a CURRENT concrete member (the
+ * post-merge list — a stale one is exactly why an STI subclass like `FileAsset` used to
+ * be rejected), else fall back to the analyzer's structural checks (for plain, non-ORM
+ * returns with no `__typename`). `new Function` guarantees the result has no closure.
+ */
+function buildResolveType(
+  validNames: string[],
+  prior: ((n: any) => string | null) | undefined
+): (n: any) => string | null {
+  const names = JSON.stringify(validNames)
+  const fallback =
+    typeof prior === 'function' ? `return (${prior.toString()})(node);` : 'return null;'
+  return new Function(
+    'node',
+    `if (!node || typeof node !== 'object') return null;
+     if (node.__typename && ${names}.indexOf(node.__typename) !== -1) return node.__typename;
+     ${fallback}`
+  ) as (n: any) => string | null
+}
+
+/**
+ * Rebuild `__resolveType` for every interface/union the EMITTED SDL declares. Keying off
+ * the SDL is what makes this robust: analyzer twins that got collapsed or pruned
+ * (`IModel`, `IAsset`, …) leave no orphan resolver behind — the old IR-driven
+ * reconciliation is exactly what produced "X defined in resolvers, but not in schema".
+ * Each resolver is self-contained (no closures — the previous approach captured `prior`
+ * and serialized to a dangling free variable), `__typename`-first against the CURRENT
+ * members, with the analyzer's structural resolver kept as the no-`__typename` fallback.
+ */
+function attachUniversalResolveType(
+  resolvers: ResolverMap,
+  typeDefs: string
+): ResolverMap {
+  // Parse the emitted SDL into a real schema and ask graphql-js for the abstract types
+  // and their concrete implementers — the canonical, post-merge source of truth (handles
+  // interface-implements-interface + unions; no string scraping). `assumeValidSDL` keeps
+  // it lenient (the SDL is already the build output).
+  const schema = buildSchema(typeDefs, {assumeValidSDL: true})
+  const abstractTypes = Object.values(schema.getTypeMap()).filter(
+    (t): t is GraphQLInterfaceType | GraphQLUnionType =>
+      !t.name.startsWith('__') && (isInterfaceType(t) || isUnionType(t))
+  )
+  const polymorphic = new Set(abstractTypes.map(t => t.name))
+
+  const out: ResolverMap = {}
+  // Drop entries that exist ONLY to carry a `__resolveType` for a type the schema no
+  // longer declares (collapsed/pruned analyzer twins) — else the schema rejects them.
+  for (const [name, r] of Object.entries(resolvers)) {
+    const polyOnly =
+      r && typeof r === 'object' && '__resolveType' in r && Object.keys(r).length === 1
+    if (polyOnly && !polymorphic.has(name)) continue
+    out[name] = r
+  }
+  for (const t of abstractTypes) {
+    const validNames = schema.getPossibleTypes(t).map(pt => pt.name)
+    out[t.name] = {
+      ...(out[t.name] ?? {}),
+      __resolveType: buildResolveType(validNames, out[t.name]?.__resolveType)
+    }
+  }
+  return out
+}
+
+/**
+ * Hide ORM entity members declared `private` (or `#`-private) from the generated API.
+ *
+ * The ORM contributes its field list via RUNTIME introspection (`introspectViaRunner`),
+ * which can't observe a TS-only `private` modifier — it's erased at compile time, so at
+ * runtime a `private` column is an ordinary property and the only surviving hint is the
+ * `$` sigil. That leaves an inconsistency: the analyzer path already drops `private`/`#`
+ * members (see `getProperties`), but ORM columns/relations would leak into the SDL. We
+ * reconcile them here, where the TS `Program` (the AST) IS available: for each entity we
+ * read its class declaration and flip `exposed = false` on every field whose backing
+ * member is `private`/`#`. Matching is by name with the leading `#`/`$` stripped, mirroring
+ * the ORM's own exposed-name derivation. Physical columns are untouched (visibility lives
+ * in `exposed`), so this is purely an API-projection change — identical to the `$` sigil.
+ */
+function hidePrivateOrmMembers(ir: PylonIR, program: ts.Program): void {
+  // entity name → set of private member names (leading `#`/`$` stripped)
+  const hiddenByEntity = new Map<string, Set<string>>()
+  for (const sf of program.getSourceFiles()) {
+    if (sf.isDeclarationFile) continue
+    sf.forEachChild(node => {
+      if (!ts.isClassDeclaration(node) || !node.name) return
+      const entityName = node.name.text
+      if (!ir.entities[entityName]) return // only ORM entities matter
+      for (const member of node.members) {
+        if (!ts.isPropertyDeclaration(member) && !ts.isMethodDeclaration(member)) continue
+        const name = member.name
+        if (!ts.isIdentifier(name) && !ts.isPrivateIdentifier(name)) continue
+        const isPrivate =
+          ts.isPrivateIdentifier(name) ||
+          !!(ts.getCombinedModifierFlags(member) & ts.ModifierFlags.Private)
+        if (!isPrivate) continue
+        const key = name.text.replace(/^#/, '').replace(/^\$/, '')
+        let set = hiddenByEntity.get(entityName)
+        if (!set) hiddenByEntity.set(entityName, (set = new Set()))
+        set.add(key)
+      }
+    })
+  }
+  for (const [entityName, hidden] of hiddenByEntity) {
+    for (const field of ir.entities[entityName].fields) {
+      if (hidden.has(field.name)) field.exposed = false
+    }
+  }
 }
 
 export class SchemaBuilder {
@@ -226,14 +356,28 @@ export class SchemaBuilder {
     // (`parser.toString()`), but `ir` is still returned so `pylon inspect` can serialize
     // the model whether or not the project uses the ORM.
     const base = parser.toIR()
-    const ir = options.contributeIR
-      ? pruneUnreferencedEnums(mergeIR(base, options.contributeIR))
-      : base
+    let ir = base
+    if (options.contributeIR) {
+      // STI: collapse the analyzer's conservative `I<Base>` twin into the ORM's
+      // single-table-inheritance interface `<Base>` before rendering.
+      ir = collapseInterfaceTwins(mergeIR(base, options.contributeIR))
+      // Drop `private`/`#` ORM members from the API (the runtime IR can't see the
+      // TS-only modifier). Runs BEFORE pruning so a now-orphaned enum is removed too.
+      hidePrivateOrmMembers(ir, this.program)
+      ir = pruneUnreferencedEnums(ir)
+    }
+
+    const typeDefs = options.contributeIR ? toSDL(ir) : parser.toString()
+    // Attach the universal `__typename`-first `__resolveType` to every interface/union
+    // the SDL declares (ORM path). Driven by the SDL so no orphan resolvers survive.
+    const resolvers = options.contributeIR
+      ? attachUniversalResolveType(parser.getResolvers(), typeDefs)
+      : parser.getResolvers()
 
     return {
-      typeDefs: options.contributeIR ? toSDL(ir) : parser.toString(),
+      typeDefs,
       schema: parser.getSchema(),
-      resolvers: parser.getResolvers(),
+      resolvers,
       ir
     }
   }

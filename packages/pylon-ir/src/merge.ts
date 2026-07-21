@@ -21,22 +21,25 @@ export function mergeFields(base: Field[], extra: Field[]): Field[] {
       continue
     }
     const merged = {...prev, ...f}
-    // Enum columns: the ORM owns persistence (text + CHECK) but the type-checker
-    // owns the GraphQL enum's identity (name + members). Keep the parser's type
-    // rather than the ORM's placeholder `String`.
-    if (f.column?.enum && prev.type) merged.type = prev.type
-    // Paginated many-to-many: the type-checker emits it as a callable Relay
-    // Connection (`field(first, …): TConnection`, with args + exposed). The ORM
-    // contributes the SAME field only to carry join-table metadata for migrations,
-    // marked `exposed: false` (so a plain m2m list isn't double-declared). That
-    // placeholder must not hide or reshape the checker's Connection field — keep
-    // the exposed callable shape, while retaining the ORM's join `relation` meta.
-    if (
-      f.relation?.kind === 'manyToMany' &&
-      f.exposed === false &&
-      prev.exposed &&
-      prev.args
-    ) {
+    // Enum columns: the ORM owns persistence (text + CHECK + NULL-ability) but the
+    // type-checker owns the GraphQL enum's identity (name + members). Keep the parser's
+    // enum type rather than the ORM's placeholder `String`, but take NULL-ability from
+    // the ORM column — else an enum column that is non-null (or nullable) renders with
+    // the analyzer's inferred nullability instead (e.g. a non-null enum without a
+    // default would wrongly emit as nullable).
+    if (f.column?.enum && prev.type) {
+      merged.type = {...prev.type, nullable: f.type.nullable}
+    }
+    // A HIDDEN many-to-many relation must never shadow an EXPOSED field of the same
+    // (stripped) name. Two cases:
+    //  - the paginated m2m: the checker emits a callable Relay Connection (with args);
+    //    the ORM contributes the same field `exposed: false` only to carry join-table meta.
+    //  - a hidden `$`-relation whose stripped name collides with an exposed accessor —
+    //    e.g. `$media = m2m(...)` (strips to `media`) alongside a `media()` method.
+    // Keep the exposed field's schema shape (type/args/exposed), while RETAINING the ORM's
+    // join `relation` meta so migrations still synthesize the join table (`joinTablesOf`).
+    // Runtime resolves the field via the accessor/Connection, not the raw relation.
+    if (f.relation?.kind === 'manyToMany' && f.exposed === false && prev.exposed) {
       merged.exposed = true
       merged.type = prev.type
       merged.args = prev.args
@@ -145,4 +148,131 @@ export function pruneUnreferencedEnums(ir: PylonIR): PylonIR {
     Object.entries(ir.enums).filter(([name]) => referenced.has(name))
   )
   return {...ir, enums}
+}
+
+/** Rewrite one type name → another everywhere in an IR (refs + implements + union members). */
+function renameTypeAcross(ir: PylonIR, from: string, to: string): void {
+  const fixRef = (t: TypeRef): TypeRef =>
+    t.kind === 'list'
+      ? {...t, of: fixRef(t.of)}
+      : t.kind === 'ref' && t.name === from
+        ? {...t, name: to}
+        : t
+  const fixFields = (fields: Field[]): void => {
+    for (const f of fields) {
+      f.type = fixRef(f.type)
+      if (f.args) for (const a of f.args) a.type = fixRef(a.type)
+    }
+  }
+  const fixImpl = (impl?: string[]): string[] | undefined =>
+    impl ? Array.from(new Set(impl.map(n => (n === from ? to : n)))) : impl
+
+  for (const e of Object.values(ir.entities)) {
+    fixFields(e.fields)
+    e.implements = fixImpl(e.implements) ?? []
+  }
+  for (const o of Object.values(ir.objects)) {
+    fixFields(o.fields)
+    o.implements = fixImpl(o.implements)
+  }
+  for (const i of Object.values(ir.interfaces)) {
+    fixFields(i.fields)
+    i.implements = fixImpl(i.implements)
+  }
+  for (const op of ir.operations) {
+    op.returns = fixRef(op.returns)
+    for (const a of op.args) a.type = fixRef(a.type)
+  }
+  for (const inp of Object.values(ir.inputs)) fixFields(inp.fields)
+  for (const u of Object.values(ir.unions))
+    u.members = u.members.map(m => (m === from ? to : m))
+}
+
+/**
+ * Collapse an analyzer-generated `I<X>` interface into an ORM single-table-inheritance
+ * interface `<X>`. When an STI base contributes `interface Asset` (no `I`), the
+ * type-checker independently emits its conservative twin `interface IAsset` — plus
+ * `... implements IAsset` and `field: IAsset` references. This drops the twin and
+ * rewrites every reference to it, so the STI interface name (no prefix) is the sole
+ * survivor. A no-op unless a bare interface `<X>` has an `I<X>` twin — which only
+ * happens for STI, since the analyzer always `I`-prefixes its interfaces.
+ */
+export function collapseInterfaceTwins(
+  ir: PylonIR,
+  /** Out: collapsed twin → STI name (`IAsset` → `Asset`), for renaming resolvers. */
+  renames?: Map<string, string>
+): PylonIR {
+  const collapsed: string[] = []
+  for (const name of Object.keys(ir.interfaces)) {
+    const twin = `I${name}`
+    if (!ir.interfaces[twin]) continue
+    renameTypeAcross(ir, twin, name)
+    delete ir.interfaces[twin]
+    collapsed.push(name)
+    renames?.set(twin, name)
+  }
+  // Property-named ALIASES of an STI base: when the base is returned through a polymorphic
+  // property — a mutation's `{item: Media}`, a `folder: Media`, … — the type-checker promotes
+  // that position to a FRESH interface named after the PROPERTY (`Item`) whose implementers
+  // are EXACTLY the base's subclasses. Fold each such alias into the base interface, so the
+  // STI base keeps a single interface (and the alias's over-broad field set — it can even
+  // include the base's HIDDEN columns — doesn't demand fields the subtypes don't expose).
+  for (const x of collapsed) {
+    const subs = new Set(
+      Object.values(ir.entities)
+        .filter(e => e.name !== x && e.implements.includes(x))
+        .map(e => e.name)
+    )
+    if (!subs.size) continue
+    for (const name of Object.keys(ir.interfaces)) {
+      if (name === x || collapsed.includes(name)) continue
+      const impls = Object.values(ir.entities)
+        .filter(e => e.implements.includes(name))
+        .map(e => e.name)
+      if (impls.length === subs.size && impls.every(n => subs.has(n))) {
+        renameTypeAcross(ir, name, x)
+        delete ir.interfaces[name]
+        renames?.set(name, x)
+      }
+    }
+  }
+  // For each collapsed STI interface `X`, the hidden base entity `X` may itself
+  // implement OTHER interfaces — e.g. a promoted-union interface it was a member of
+  // (`SearchEntity`). The base entity is hidden (renders no `type X`), so those
+  // `implements` would be lost. Propagate them onto `X`'s concrete implementers (so
+  // they satisfy those interfaces) and onto `X` itself (interface implements interface),
+  // keeping the promoted-union interface's possible types correct.
+  for (const x of collapsed) {
+    const base = ir.entities[x]
+    if (!base) continue
+    const inherited = base.implements.filter(i => i !== x && !!ir.interfaces[i])
+    if (!inherited.length) continue
+    for (const e of Object.values(ir.entities)) {
+      if (e.name !== x && e.implements.includes(x)) {
+        e.implements = Array.from(new Set([...e.implements, ...inherited]))
+      }
+    }
+    ir.interfaces[x].implements = Array.from(
+      new Set([...(ir.interfaces[x].implements ?? []), ...inherited])
+    )
+  }
+  // Fold each STI base entity's remaining EXPOSED fields (analyzer-contributed
+  // computed methods like `url`/`itemCount`, merged in AFTER the ORM hid the
+  // columns) into the interface, then fully suppress the entity's own object type —
+  // otherwise those exposed fields render a concrete `type X` that collides with
+  // `interface X`. The entity stays (hidden) so it still owns the physical table.
+  for (const x of collapsed) {
+    const entity = ir.entities[x]
+    const iface = ir.interfaces[x]
+    if (!entity || !iface) continue
+    const have = new Set(iface.fields.map(f => f.name))
+    for (const f of entity.fields) {
+      if (f.exposed && !have.has(f.name)) {
+        iface.fields.push({...f})
+        have.add(f.name)
+      }
+    }
+    entity.fields = entity.fields.map(f => ({...f, exposed: false}))
+  }
+  return ir
 }

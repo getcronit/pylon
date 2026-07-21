@@ -47,6 +47,16 @@ describe.skipIf(!runDb)('cursor pagination (Postgres)', () => {
     setDefaultDatabase(undefined)
   })
 
+  it('treats an explicit `after: null` as no cursor (not a crash)', async () => {
+    // A GraphQL nullable `after` passed as `null` must behave like omitting it.
+    // The guard used to be `!== undefined`, so `null` fell through to
+    // decodeCursor(null) → Buffer.from(null) → throw.
+    const p = await Widget.objects.paginate({first: 2, after: null as any})
+    expect(p.nodes.map(w => w.name)).toEqual(['w1', 'w2'])
+    const b = await Widget.objects.paginate({last: 2, before: null as any})
+    expect(b.nodes.map(w => w.name)).toEqual(['w4', 'w5'])
+  })
+
   it('forward-paginates by PK with hasNextPage + cursors + totalCount', async () => {
     const p1 = await Widget.objects.paginate({first: 2})
     expect(p1.nodes.map(w => w.name)).toEqual(['w1', 'w2'])

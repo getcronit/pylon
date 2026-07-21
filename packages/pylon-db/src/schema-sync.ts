@@ -189,6 +189,52 @@ async function createJoinTable(db: Database, p: JoinTablePlan): Promise<void> {
     .execute()
 }
 
+/** Is `sub` a subclass of `base` somewhere up its prototype chain? */
+function isDescendant(sub: Function, base: Function): boolean {
+  let proto = Object.getPrototypeOf(sub)
+  while (proto && proto !== Function.prototype) {
+    if (proto === base) return true
+    proto = Object.getPrototypeOf(proto)
+  }
+  return false
+}
+
+/**
+ * Single-table inheritance: fold each STI base's subclasses into it. Subclasses
+ * (models with `discriminatorValue` extending a base with `inheritance`) share
+ * the base's table, so their OWN columns/relations are unioned onto a synthetic
+ * base def (subclass columns forced nullable) and the subclass defs themselves
+ * are dropped — the physical table is created ONCE. Non-STI models pass through.
+ */
+function foldSingleTableInheritance(models: ModelDefinition[]): ModelDefinition[] {
+  const bases = models.filter(m => m.inheritance)
+  if (!bases.length) return models
+
+  const subs = new Set<ModelDefinition>()
+  const merged = new Map<ModelDefinition, ModelDefinition>()
+  for (const base of bases) {
+    const group = models.filter(
+      m =>
+        m.discriminatorValue !== undefined &&
+        m.ctor !== base.ctor &&
+        isDescendant(m.ctor, base.ctor)
+    )
+    const cols = new Map(base.columns.map(c => [c.columnName, c]))
+    const rels = new Map(base.relations.map(r => [r.propertyKey, r]))
+    for (const sub of group) {
+      subs.add(sub)
+      for (const c of sub.columns)
+        if (!cols.has(c.columnName)) cols.set(c.columnName, {...c, nullable: true})
+      for (const r of sub.relations)
+        if (!rels.has(r.propertyKey)) rels.set(r.propertyKey, r)
+    }
+    merged.set(base, {...base, columns: [...cols.values()], relations: [...rels.values()]})
+  }
+  return models
+    .filter(m => !subs.has(m))
+    .map(m => merged.get(m) ?? m)
+}
+
 /**
  * Order models so that a table is created after the tables it references via a
  * belongsTo foreign key (parents before children). Cycles and self-references
@@ -226,6 +272,7 @@ export async function syncSchema(
   models: ModelDefinition[] = allModels()
 ): Promise<void> {
   const db = getDatabase()
+  models = foldSingleTableInheritance(models)
   for (const def of orderByDependencies(models)) {
     await createTable(db, def)
   }
@@ -267,6 +314,7 @@ export async function dropTables(
   models: ModelDefinition[] = allModels()
 ): Promise<void> {
   const db = getDatabase()
+  models = foldSingleTableInheritance(models)
   for (const plan of joinTablePlans(models)) {
     await db.kysely.schema.dropTable(plan.joinTable).ifExists().cascade().execute()
   }

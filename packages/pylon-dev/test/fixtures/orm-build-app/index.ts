@@ -10,6 +10,9 @@ export class Product extends Model {
   // Hidden via the {hidden} option with a NORMAL name — Pylon's $-regex can't
   // catch this, so only the ORM's exposed:false (via the contribution) hides it.
   internalCode = text({hidden: true, nullable: true})
+  // Hidden via TS `private` with a NORMAL name — the RUNTIME contribution can't see
+  // the erased modifier, so the AST pass (hidePrivateOrmMembers) must drop it.
+  private secretRank = text({nullable: true})
 }
 
 export default new Pylon({

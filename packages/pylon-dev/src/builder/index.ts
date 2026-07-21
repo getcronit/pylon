@@ -43,7 +43,17 @@ export const build = async (options: BuildOptions) => {
   // models) and merge it authoritatively into the schema. `undefined` when the
   // project has no ORM. Loaded here (not per-rebuild) to avoid re-running the
   // models inside the bundler hot loop.
-  const contributeIR = await introspectViaRunner(cwd, options.sfiFilePath).catch(() => undefined)
+  // A project with no ORM legitimately has no contribution. But if the ORM IS present and
+  // its introspection THROWS (e.g. a model module fails to load), silently dropping it
+  // yields a subtly-wrong analyzer-only schema (STI interfaces don't collapse, etc.). Warn
+  // loudly so the real cause is visible instead of surfacing downstream as odd type errors.
+  const contributeIR = await introspectViaRunner(cwd, options.sfiFilePath).catch((e) => {
+    console.warn(
+      `[pylon] ORM introspection failed — building schema WITHOUT the ORM contribution. ` +
+        `This usually means a model module failed to load:\n${e?.stack ?? e}`
+    )
+    return undefined
+  })
 
   const bundler = new Bundler(options.sfiFilePath, options.outputFilePath)
 

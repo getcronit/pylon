@@ -6,6 +6,7 @@ import {
   isEnumType,
   isInterfaceType,
   isListType,
+  isNonNullType,
   isObjectType,
   isScalarType,
   type GraphQLType
@@ -46,7 +47,15 @@ function describeObject(
     const desc: FieldDesc = {type: named.name}
     if (isListAnywhere(field.type)) desc.list = true
     if (isScalarType(named) || isEnumType(named)) desc.scalar = true
-    if (field.args.length > 0) desc.callable = true
+    if (field.args.length > 0) {
+      desc.callable = true
+      // An arg is optional if it's nullable (not NonNull) or carries a default.
+      // All-optional → the field is dual-mode (bare read OR call); see wrap.ts.
+      const allOptional = field.args.every(
+        a => !isNonNullType(a.type) || a.defaultValue !== undefined
+      )
+      if (allOptional) desc.optionalArgs = true
+    }
     out[field.name] = desc
   }
   return out

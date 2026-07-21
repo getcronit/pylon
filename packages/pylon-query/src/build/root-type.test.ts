@@ -10,6 +10,7 @@ const schema = buildSchema(/* GraphQL */ `
   type User {
     id: ID!
     role: Role
+    avatarUrl(transform: String): String!
   }
   type Ticket {
     id: ID!
@@ -46,5 +47,13 @@ describe('generateRootType — enums', () => {
     // output field → the enum type (union); arg → same
     expect(out).toMatch(/role: Role \| null/)
     expect(out).toMatch(/status\?: Status \| null/)
+  })
+
+  it('emits a scalar all-optional-arg field as a dual-mode intersection', () => {
+    // Bare-readable (so `src={user.avatarUrl}` typechecks as a string) AND callable
+    // in the authoring style (`user.avatarUrl({transform})`).
+    expect(out).toContain(
+      'avatarUrl: string & ((args?: { transform?: string | null }) => string)'
+    )
   })
 })

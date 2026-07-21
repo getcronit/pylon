@@ -17,6 +17,12 @@ export interface FieldDesc {
   scalar?: boolean
   /** True if the field declares arguments → callable as `data.field(args)`. */
   callable?: boolean
+  /**
+   * True if the field is callable but EVERY argument is optional. Such a field is
+   * dual-mode: readable as a bare property (`data.field`, no args) OR called
+   * (`data.field(args)`). A callable with any required arg is call-only.
+   */
+  optionalArgs?: boolean
 }
 
 export interface SchemaDescriptor {

@@ -58,6 +58,14 @@ export interface CompileOptions {
   fillObjectLeaves?: boolean
 }
 
+/** One arg-branch of a root field read with multiple different-args call sites. */
+export interface ArgAliasBranch {
+  /** Response field name: the base field for branch 0, else `field__pqArg__N`. */
+  alias: string
+  /** argName → variable name — lets the runtime match a call's args to this branch. */
+  args: Record<string, string>
+}
+
 export interface CompiledOperation {
   name: string
   /** GraphQL operation source sent over the wire. */
@@ -68,6 +76,12 @@ export interface CompiledOperation {
   variables: CompiledVariable[]
   /** Present iff `options.connection` was given. */
   connection?: ConnectionMeta
+  /**
+   * Root fields read with MULTIPLE different-args call sites — each emitted as its own
+   * aliased field. fieldName → branches, so the runtime can resolve `data.field(args)`
+   * to the branch whose args match. Absent when no field has multiple arg-branches.
+   */
+  argAliases?: Record<string, ArgAliasBranch[]>
 }
 
 const DEFAULT_SCALARS: Record<string, string> = {
@@ -174,7 +188,8 @@ export function compileOperation(
     connectionOpt: options.connection,
     connectionPath: options.connection?.path,
     connectionMeta: undefined,
-    fillObjectLeaves: options.fillObjectLeaves ?? false
+    fillObjectLeaves: options.fillObjectLeaves ?? false,
+    argAliases: {}
   }
 
   // Root operation type is not an entity → no __typename/id injection.
@@ -194,7 +209,8 @@ export function compileOperation(
     body,
     resultType: ts,
     variables: ctx.variables.map(v => ({name: v.name, expr: v.expr})),
-    connection: ctx.connectionMeta
+    connection: ctx.connectionMeta,
+    argAliases: Object.keys(ctx.argAliases).length ? ctx.argAliases : undefined
   }
 }
 
@@ -215,6 +231,8 @@ interface Ctx {
   connectionMeta?: ConnectionMeta
   /** op: expand bare-object returns to allScalars (see CompileOptions). */
   fillObjectLeaves: boolean
+  /** Accumulated per root-field arg-branch aliases (see CompiledOperation.argAliases). */
+  argAliases: Record<string, ArgAliasBranch[]>
 }
 
 function pathsEqual(a: string[], b: string[]): boolean {
@@ -283,8 +301,42 @@ function compileObject(
     selected.add(key)
 
     const value = effectiveNode[key]
-    const merged = mergeBranches(value)
     const fieldPath = [...currentPath, key]
+
+    // ROOT field read at MULTIPLE different-args call sites → the analyzer models it as an
+    // array of arg-branches. Emit one aliased field per branch (branch 0 keeps the base
+    // name) instead of collapsing to first-args, and record the arg→variable map so the
+    // runtime can route `data.field(args)` to the matching branch. Scoped to root fields
+    // (where the collisions occur) and skipped for connection/runtime-arg fields.
+    const branches =
+      currentPath.length === 0 && Array.isArray(value)
+        ? (value.filter(b => b && typeof b === 'object') as SelectorNode[])
+        : null
+    const isConnField =
+      !!ctx.connectionPath && pathsEqual(fieldPath, ctx.connectionPath)
+    const isRuntimeArgsField =
+      !!ctx.runtimeArgsField && key === ctx.runtimeArgsField
+    // Only ARG-branches alias: every branch must carry a DISTINCT, defined `__args`.
+    // No-args / conditional branches (`cond ? data.me.name : data.me.age`) still merge.
+    const isArgBranchSet =
+      !!branches &&
+      branches.length > 1 &&
+      branches.every(b => b.__args !== undefined) &&
+      new Set(branches.map(b => b.__args)).size === branches.length
+    if (branches && isArgBranchSet && !isConnField && !isRuntimeArgsField) {
+      const meta: ArgAliasBranch[] = []
+      branches.forEach((branch, i) => {
+        const alias = i === 0 ? key : `${key}__pqArg__${i}`
+        const {sdl, ts, argVars} = compileField(ctx, field, branch, fieldPath)
+        selections.push(i === 0 ? `${key}${sdl}` : `${alias}: ${key}${sdl}`)
+        if (i === 0) tsMembers.push(`${key}: ${ts}`) // TS type needs the base only once
+        meta.push({alias, args: argVars ?? {}})
+      })
+      ctx.argAliases[key] = meta
+      continue
+    }
+
+    const merged = mergeBranches(value)
 
     // Terminal connection field (top-level or nested at any depth).
     if (ctx.connectionPath && pathsEqual(fieldPath, ctx.connectionPath)) {
@@ -331,9 +383,25 @@ function compileField(
   field: GraphQLField<any, any>,
   node: SelectorNode | boolean,
   currentPath: string[]
-): {sdl: string; ts: string} {
-  const argsSdl =
-    typeof node === 'object' ? compileArgs(ctx, field, node.__args) : ''
+): {sdl: string; ts: string; argVars?: Record<string, string>} {
+  // Terminal connection field, reached via ANY path — a concrete object OR an abstract
+  // (interface/union) member. Connection detection must live here too, not only in
+  // `compileObject`, so a connection selected THROUGH an interface field still gets
+  // recognised (e.g. an STI base: `contact` is `interface Contact`, and
+  // `contact.ticketAttachments` is the connection). Otherwise the hook-only feed props
+  // (loadNext/isLoadingMore/…) leak into the selection and fail schema validation.
+  if (
+    ctx.connectionPath &&
+    typeof node === 'object' &&
+    pathsEqual(currentPath, ctx.connectionPath)
+  ) {
+    return compileConnectionField(ctx, field, node)
+  }
+
+  const {sdl: argsSdl, argVars} =
+    typeof node === 'object'
+      ? compileArgs(ctx, field, node.__args)
+      : {sdl: '', argVars: {} as Record<string, string>}
   const named = getNamedType(field.type)
 
   let innerSdl = ''
@@ -374,21 +442,24 @@ function compileField(
 
   return {
     sdl: `${argsSdl}${innerSdl}`,
-    ts: applyWrappers(field.type, innerTs)
+    ts: applyWrappers(field.type, innerTs),
+    argVars
   }
 }
 
-/** Build the `(arg: $vN, …)` SDL and register variables for a field's args. */
+/** Build the `(arg: $vN, …)` SDL, register variables, and return the arg→variable map
+ *  (used to build per-branch `argAliases` metadata for same-field/different-args reads). */
 function compileArgs(
   ctx: Ctx,
   field: GraphQLField<any, any>,
   rawArgs: string | undefined
-): string {
-  if (rawArgs == null) return ''
+): {sdl: string; argVars: Record<string, string>} {
+  const argVars: Record<string, string> = {}
+  if (rawArgs == null) return {sdl: '', argVars}
   // Lazy import to keep the parser self-contained.
   const parsed = parseArgsOrThrow(rawArgs, field.name)
   const keys = Object.keys(parsed)
-  if (keys.length === 0) return ''
+  if (keys.length === 0) return {sdl: '', argVars}
 
   const parts: string[] = []
   for (const argName of keys) {
@@ -400,9 +471,10 @@ function compileArgs(
       )
     }
     const varName = allocVar(ctx, argDef.type.toString(), parsed[argName])
+    argVars[argName] = varName
     parts.push(`${argName}: $${varName}`)
   }
-  return `(${parts.join(', ')})`
+  return {sdl: `(${parts.join(', ')})`, argVars}
 }
 
 /**

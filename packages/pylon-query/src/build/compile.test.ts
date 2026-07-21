@@ -69,6 +69,32 @@ describe('compileOperation', () => {
     expect(op.resultType).toBe('{ count: number | null }')
   })
 
+  it('emits distinct aliased fields for the SAME root field read with DIFFERENT args', () => {
+    // The analyzer models multiple different-args reads of one field as an array of
+    // arg-branches. They must NOT collapse into one field (first-args-wins) — that made
+    // `data.count({filter:"a"})` and `data.count({filter:"b"})` return the same value.
+    const op = compile({
+      count: [{__args: '{ filter: a }'}, {__args: '{ filter: b }'}]
+    })
+    // Two variables (one per branch), each keeping its own call-site expr.
+    expect(op.variables).toEqual([
+      {name: 'v0', expr: 'a'},
+      {name: 'v1', expr: 'b'}
+    ])
+    // Branch 0 keeps the base field name; branch 1 gets a deterministic arg-alias.
+    expect(op.body).toBe(
+      'query Test($v0: String, $v1: String) ' +
+        '{ count(filter: $v0) count__pqArg__1: count(filter: $v1) }'
+    )
+    // Metadata so the runtime can map a call's args → the right alias (by arg→variable).
+    expect(op.argAliases).toEqual({
+      count: [
+        {alias: 'count', args: {filter: 'v0'}},
+        {alias: 'count__pqArg__1', args: {filter: 'v1'}}
+      ]
+    })
+  })
+
   it('aliases a conflicting union-member field; merges same-typed ones', () => {
     const s = buildSchema(/* GraphQL */ `
       type Query { hit: Thing }
@@ -166,6 +192,37 @@ describe('compileOperation', () => {
     expect(op.body).toContain('node { title __typename id }')
     // hook controls are not GraphQL fields → never selected
     expect(op.body).not.toContain('loadNext')
+    expect(op.body).not.toContain('isLoadingMore')
+  })
+
+  it('recognises a connection nested UNDER an interface field (STI base)', () => {
+    // `party` returns an interface; the connection `attachments` is a common field on
+    // it. The terminal-connection detection must fire on the abstract path too, else
+    // the hook controls (isLoadingMore) leak and fail validation. Regression for STI
+    // bases whose relations are reached through `interface Contact`.
+    const ifaceSchema = buildSchema(/* GraphQL */ `
+      type Query { party: Party }
+      interface Party { id: ID! attachments(first: Int): AssetConnection! }
+      type Person implements Party { id: ID! attachments(first: Int): AssetConnection! }
+      type AssetConnection { edges: [AssetEdge!]! pageInfo: PageInfo! totalCount: Int }
+      type AssetEdge { cursor: String! node: Asset! }
+      type Asset { id: ID! name: String }
+      type PageInfo { hasNextPage: Boolean! hasPreviousPage: Boolean! startCursor: String endCursor: String }
+    `)
+    const op = compileOperation(
+      ifaceSchema,
+      {
+        party: {
+          attachments: {
+            nodes: {name: true},
+            isLoadingMore: true,
+            pageInfo: {hasNextPage: true}
+          }
+        } as any
+      },
+      {name: 'Test', connection: {path: ['party', 'attachments']}}
+    )
+    expect(op.body).toContain('node { name __typename id }')
     expect(op.body).not.toContain('isLoadingMore')
   })
 

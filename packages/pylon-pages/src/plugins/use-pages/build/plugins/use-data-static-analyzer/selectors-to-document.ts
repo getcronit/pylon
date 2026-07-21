@@ -66,12 +66,15 @@ export function lowerQuery(
   const connectionMeta = compiled.connection
     ? `,\n  connection: ${JSON.stringify(compiled.connection)}`
     : ''
+  const argAliasesMeta = compiled.argAliases
+    ? `,\n  argAliases: ${JSON.stringify(compiled.argAliases)}`
+    : ''
 
   const docDeclaration =
     `const ${constName} = ${docFn}<${compiled.resultType}>({\n` +
     `  id: ${JSON.stringify(id)},\n` +
     `  name: ${JSON.stringify(compiled.name)},\n` +
-    `  body: ${JSON.stringify(compiled.body)}${connectionMeta}\n` +
+    `  body: ${JSON.stringify(compiled.body)}${connectionMeta}${argAliasesMeta}\n` +
     `})`
 
   let variablesThunk: string | undefined

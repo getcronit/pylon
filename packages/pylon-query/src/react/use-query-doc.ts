@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useRef, useSyncExternalStore} from 'react'
 import {opKey, type TypedDoc} from '../runtime/doc'
+import {buildArgAliasMap, type ArgAliasMap} from '../runtime/wrap'
 import {usePylonQueryClient} from './context'
 
 export interface UseQueryDocOptions {
@@ -78,6 +79,10 @@ export function useQueryDoc<TResult, TVars extends Record<string, unknown>>(
   // cache miss it throws the in-flight promise → Suspense.
   let resolved = false
   let rootData: unknown
+  // Arg-alias routing (same field / different args at multiple call sites) is built from
+  // the doc metadata + the resolved variables — computed here where the (lazy, TDZ-safe)
+  // thunk is finally evaluated, and read back through a thunk inside each field call.
+  let argAliasMap: ArgAliasMap | undefined
   const getRoot = (): unknown => {
     if (resolved) return rootData
     const vars = variablesThunk ? variablesThunk() : undefined
@@ -86,8 +91,22 @@ export function useQueryDoc<TResult, TVars extends Record<string, unknown>>(
     if (read.promise) throw read.promise
     rootData = read.data
     resolved = true
+    argAliasMap = doc.argAliases
+      ? buildArgAliasMap(doc.argAliases, vars as Record<string, unknown> | undefined)
+      : undefined
     return rootData
   }
 
-  return client.wrapData<WithRefetch<TResult>>(getRoot, {$refetch: refetch}, undefined, doc.name)
+  return client.wrapData<WithRefetch<TResult>>(
+    getRoot,
+    {$refetch: refetch},
+    undefined,
+    doc.name,
+    doc.argAliases
+      ? () => {
+          getRoot() // ensure variables resolved + map built (may suspend)
+          return argAliasMap
+        }
+      : undefined
+  )
 }

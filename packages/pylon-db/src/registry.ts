@@ -174,6 +174,22 @@ export interface ModelDefinition {
   /** Per-model query/filter configuration — virtual fields + public allowlist
    *  (`@model({query})`). Consumed by the Query Schema. */
   query?: QueryConfig
+  /** Single-table inheritance: this model is an STI **base** — its subclasses
+   *  share this table, discriminated by the named column. Projected as a GraphQL
+   *  interface named after the class (see `toIR`). */
+  inheritance?: {discriminator: string}
+  /** Single-table inheritance: this model is an STI **subclass** — the value of
+   *  the base's discriminator column that selects it. */
+  discriminatorValue?: string | number
+  /** Single-table inheritance: resolved subclass binding (base ctor + the
+   *  discriminator property/column/value). Set at finalize; drives query scoping,
+   *  create-time discriminator, and base→subclass materialisation. */
+  sti?: {
+    baseCtor: Function
+    property: string
+    column: string
+    value: string | number
+  }
 }
 
 /** Columns are accumulated per-constructor before @model finalizes the model. */
@@ -263,6 +279,12 @@ export function finalizeModel(
     trigram?: {columns: string[]}
     /** Query/filter config — virtual fields + public allowlist (`@model({query})`). */
     query?: QueryConfig
+    /** STI base: subclasses share this table, discriminated by the named column. */
+    inheritance?: {discriminator: string}
+    /** STI subclass: the discriminator value that selects it. */
+    discriminatorValue?: string | number
+    /** STI subclass: resolved binding (base ctor + discriminator property/column/value). */
+    sti?: {baseCtor: Function; property: string; column: string; value: string | number}
   }
 ): ModelDefinition {
   const merged = new Map<string, ColumnDefinition>()
@@ -356,7 +378,10 @@ export function finalizeModel(
     tenantColumn: options.tenant ? merged.get(options.tenant)?.columnName : undefined,
     secure: options.secure,
     trigramColumns: trigramColumns.length ? trigramColumns : undefined,
-    query: options.query
+    query: options.query,
+    inheritance: options.inheritance,
+    discriminatorValue: options.discriminatorValue,
+    sti: options.sti
   }
 
   if (!options.abstract) {
