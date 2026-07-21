@@ -22,7 +22,7 @@ import type {
   RelationDefinition,
   SqlType
 } from './registry.js'
-import {allModels, resolveColumnSqlType} from './registry.js'
+import {allModels, globalIdsEnabled, resolveColumnSqlType} from './registry.js'
 
 /**
  * Map a SQL column to a GraphQL scalar. The ORM knows precise intent the raw
@@ -365,16 +365,91 @@ function applySingleTableInheritance(ir: PylonIR, defs: ModelDefinition[]): void
   }
 }
 
+/** GraphQL-native `ID!`. */
+const ID_NON_NULL = {kind: 'scalar', name: 'ID', nullable: false} as const
+
+/**
+ * Opt-in Relay-style global-object-identity layer. Adds an `interface Node { id:
+ * ID! }`, makes every entity/interface that exposes an `id` field implement it
+ * (normalizing that `id` to `ID!` so the SDL is valid even for text/cuid PKs),
+ * and adds a root `node(id: ID!): Node` refetch field. The wire `id` is
+ * gid-encoded on output and decoded by the `node` resolver — see `gid.ts`. The
+ * type dispatch is by `__typename`, handled by the universal `__resolveType` the
+ * builder already attaches to every SDL interface.
+ */
+function applyNodeInterface(ir: PylonIR): void {
+  const NODE = 'Node'
+  const exposedId = (fields: {name: string; exposed: boolean; type: unknown}[]) =>
+    fields.find(f => f.name === 'id' && f.exposed)
+
+  ir.interfaces[NODE] = {
+    name: NODE,
+    description: 'An object with a globally-unique id, refetchable via `node`.',
+    fields: [
+      {
+        name: 'id',
+        type: {...ID_NON_NULL},
+        exposed: true,
+        description: 'A globally-unique, opaque object identifier (`gid://…`).'
+      }
+    ]
+  }
+
+  const wireUpNode = (
+    holder: {implements?: string[]; fields: {name: string; exposed: boolean; type: unknown}[]},
+    ensureImplements: (name: string) => void
+  ) => {
+    const idField = exposedId(holder.fields)
+    if (!idField) return
+    idField.type = {...ID_NON_NULL}
+    ensureImplements(NODE)
+  }
+
+  for (const entity of Object.values(ir.entities)) {
+    if (!entity.primaryKey) continue // needs a single PK to be looked up by id
+    wireUpNode(entity, name => {
+      if (!entity.implements.includes(name)) entity.implements.push(name)
+    })
+  }
+  // STI base interfaces expose an `id` too — implement Node so a subclass's
+  // `id: ID!` stays consistent with every interface it declares.
+  for (const iface of Object.values(ir.interfaces)) {
+    if (iface.name === NODE) continue
+    wireUpNode(iface, name => {
+      iface.implements = iface.implements ?? []
+      if (!iface.implements.includes(name)) iface.implements.push(name)
+    })
+  }
+
+  if (!ir.scalars.includes('ID')) ir.scalars.push('ID')
+  ir.operations.push({
+    root: 'Query',
+    name: 'node',
+    description: 'Fetch any object by its global id.',
+    args: [{name: 'id', type: {...ID_NON_NULL}, exposed: true}],
+    returns: {kind: 'ref', name: NODE, nullable: true}
+  })
+}
+
 /**
  * Build the `entities` slice of a Pylon IR from the ORM registry. Defaults to
  * every registered (concrete) model. Returns a full `PylonIR` so it can be
  * `mergeIR`'d with the type-checker's base IR.
+ *
+ * `options.node` opts into the Relay `Node` interface + `node(id): Node` refetch
+ * field (global-object identity). Off by default — enabling it changes the wire
+ * shape of `id` (raw → gid).
  */
-export function toIR(defs: ModelDefinition[] = allModels()): PylonIR {
+export function toIR(
+  defs: ModelDefinition[] = allModels(),
+  options: {node?: boolean} = {}
+): PylonIR {
   const ir = emptyIR()
   for (const def of defs) {
     ir.entities[def.ctor.name] = entityFromDefinition(def)
   }
   applySingleTableInheritance(ir, defs)
+  // Explicit `node` wins (tests); otherwise follow the app's `db.globalIds` opt-in.
+  if (options.node ?? globalIdsEnabled()) applyNodeInterface(ir)
   return ir
 }

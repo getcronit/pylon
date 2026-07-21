@@ -8,10 +8,12 @@ import {
   ColumnDefinition,
   getModelDefinitionOrThrow,
   ModelDefinition,
+  normalizedCtorName,
   RelationDefinition
 } from './registry.js'
 import {ValidationError, uniqueViolation, validateInstance} from './validation.js'
 import {NotFoundError} from './errors.js'
+import {decodeId, isGid} from './gid.js'
 import {ForbiddenError} from './features.js'
 import {type FilterAction, getAppPolicy, getPolicy, policyContext} from './policies.js'
 // Runtime cycle with keyed-query.ts (which imports QuerySet) — safe: neither uses the
@@ -515,6 +517,37 @@ function compileRelation(
 }
 
 /** Compile a whole `WhereInput` (fields + relations + AND/OR/NOT) to one expression. */
+/**
+ * The GraphQL type a global id filtered on `col` must belong to — the model's own
+ * type for its primary key, or a foreign key's target type — else undefined (not
+ * an id column). Used to type-check + strip gids on input (`where: {id}` etc.).
+ */
+function idFilterType(def: ModelDefinition, col: ColumnDefinition): string | undefined {
+  if (col.primaryKey) return normalizedCtorName(def.ctor)
+  const rel = def.relations.find(r => r.fkColumn === col.columnName)
+  return rel ? normalizedCtorName(rel.target()) : undefined
+}
+
+/**
+ * Rewrite gids to raw local ids inside a PK/FK filter value (the API hands out
+ * gids, so clients pass them back), validating the embedded type. Applies to the
+ * bare value, `equals`/`not` scalars, and `in`/`notIn` arrays; raw ids and
+ * non-string values pass through untouched.
+ */
+function decodeIdsIn(value: unknown, expectedType: string): unknown {
+  const decode = (v: unknown) => (typeof v === 'string' && isGid(v) ? decodeId(v, expectedType) : v)
+  if (typeof value === 'string') return decode(value)
+  if (Array.isArray(value)) return value.map(decode)
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {...(value as Record<string, unknown>)}
+    for (const k of ['equals', 'not', 'in', 'notIn']) {
+      if (k in out) out[k] = decodeIdsIn(out[k], expectedType)
+    }
+    return out
+  }
+  return value
+}
+
 function compileWhere(
   eb: ExpressionBuilder<any, any>,
   scope: Scope,
@@ -539,7 +572,12 @@ function compileWhere(
     } else {
       const rel = def.relations.find(r => r.propertyKey === key)
       if (rel) terms.push(compileRelation(eb, scope, rel, value, counter))
-      else terms.push(compileField(eb, scope, columnFor(def, key), value))
+      else {
+        const col = columnFor(def, key)
+        // Tolerate the gids the API emits on any PK/FK filter (type-checked).
+        const idType = idFilterType(def, col)
+        terms.push(compileField(eb, scope, col, idType ? decodeIdsIn(value, idType) : value))
+      }
     }
   }
   if (terms.length === 0) return TRUE()

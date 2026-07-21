@@ -25,3 +25,13 @@ export class NotFoundError extends Error {
     this.name = 'NotFoundError'
   }
 }
+
+/** Client sent something malformed — e.g. an unparseable or wrong-type global id. */
+export class BadRequestError extends Error {
+  readonly code = 'BAD_REQUEST'
+  readonly statusCode = 400
+  constructor(message: string) {
+    super(message)
+    this.name = 'BadRequestError'
+  }
+}

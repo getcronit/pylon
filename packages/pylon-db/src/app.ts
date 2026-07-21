@@ -19,7 +19,7 @@
 import path from 'node:path'
 import type {Resolvers, PylonOptions} from '@getcronit/pylon'
 import {finalizeProxyModel} from './fields.js'
-import {recordApp} from './registry.js'
+import {enableGlobalIds, recordApp} from './registry.js'
 import {defineAppPolicy, type AppPolicy} from './policies.js'
 import {defineAbilities, type AbilitiesFn} from './abilities.js'
 
@@ -49,6 +49,14 @@ export interface AppModelOptions {
    * project root. There is no central migrations folder for apps.
    */
   migrations?: string
+  /**
+   * Opt into Relay-style global object ids for this app's models: every model
+   * gains a `gid://pylon/<Type>/<id>` handle, implements a shared `Node`
+   * interface, and a root `node(id): Node` refetch field is added. NOTE: this
+   * changes the wire shape of every `id` (raw → gid). Project-wide once any
+   * composed app enables it (the `Node` interface is a singleton).
+   */
+  globalIds?: boolean
   /** App-wide fallback policy for any model/action a per-model `definePolicy` omits. */
   policy?: AppPolicy
   /**
@@ -136,6 +144,7 @@ function processModels(app: any): void {
   if (!models?.length) return
   const name = appName(app)
   if (name) register(app, name)
+  if (opts.globalIds) enableGlobalIds()
   const store = modelStore.get(app) ?? []
   for (const Ctor of models) {
     finalizeProxyModel(Ctor, {app: name, tenant: opts.tenant, secure: opts.secure})

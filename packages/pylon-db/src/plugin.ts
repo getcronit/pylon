@@ -24,7 +24,10 @@ import type {Plugin} from '@getcronit/pylon'
 import {GraphQLError} from 'graphql'
 import {runWithAppContext} from './app-context.js'
 import {connect, type Database, databaseForKysely} from './database.js'
-import {NotFoundError} from './errors.js'
+import {BadRequestError, NotFoundError} from './errors.js'
+import {setGidNamespace} from './gid.js'
+import {leaseNodeId, type NodeLease} from './node-lease.js'
+import {setSnowflakeNodeId} from './snowflake.js'
 import {ForbiddenError, FeatureDisabledError, type FeatureState} from './features.js'
 import {PRINCIPAL_KEY} from '@getcronit/pylon-auth/contract'
 import {ValidationError, type ValidationIssue} from './validation.js'
@@ -44,6 +47,25 @@ export const defaultValidationErrorMapper: ValidationErrorMapper = issues => ({
 export interface UseDatabaseOptions {
   /** Defaults to `process.env.DATABASE_URL` (else standard `PG*` env vars). */
   connectionString?: string
+  /**
+   * Snowflake node id (0..1023) for `id({snowflake: true})` primary keys — the
+   * per-process identity that keeps ids from different instances from colliding.
+   * Give each concurrently-writing replica a DISTINCT value. Configured here, not
+   * via env.
+   *
+   * - a `number` → use it as-is (single instance, or you assign them yourself).
+   * - `'lease'` → claim a unique slot from the database at boot and hold it with a
+   *   heartbeat (multi-instance / PM2 cluster: collision-free, zero config; a
+   *   crashed instance's slot is reclaimed after the TTL).
+   * - omitted → `0` (fine for a single writer).
+   */
+  nodeId?: number | 'lease'
+  /**
+   * Namespace segment for global ids: `gid://<gidNamespace>/<Type>/<id>`. Defaults
+   * to `'pylon'`. Set it to your app/vendor name (Shopify-style) so gids are
+   * self-identifying. Applies to both encoding and decoding.
+   */
+  gidNamespace?: string
   /**
    * Run each request inside a single transaction, bound as the ambient
    * connection — committed when the handler resolves, rolled back if it throws.
@@ -100,14 +122,29 @@ export function useDatabase(options: UseDatabaseOptions = {}): Plugin {
   // plugin, and bouncing the handle through the module global here would be a
   // needless coupling (and a worse error if `setup` somehow hadn't run).
   let db: Database | undefined
+  let nodeLease: NodeLease | undefined
 
   return {
     name: 'database',
     // Bind the ORM Context AFTER identity (so the principal is on the request).
     // Ignored if no `identity` plugin is present (raw ORM, no auth).
     dependsOn: ['identity'],
-    setup() {
+    async setup() {
       db = connect({connectionString: options.connectionString ?? process.env.DATABASE_URL})
+      // Apply id/gid config from the plugin (not env) before the app serves — so
+      // the first inserted snowflake and every gid encode/decode use these.
+      setGidNamespace(options.gidNamespace ?? 'pylon')
+      if (options.nodeId === 'lease') {
+        nodeLease = await leaseNodeId(db)
+        setSnowflakeNodeId(nodeLease.nodeId)
+        // Free the slot on graceful shutdown (PM2 sends SIGINT/SIGTERM); a crash
+        // is covered by the lease TTL. Best-effort — don't block or alter exit.
+        const onShutdown = () => void nodeLease?.release()
+        process.once('SIGINT', onShutdown)
+        process.once('SIGTERM', onShutdown)
+      } else if (typeof options.nodeId === 'number') {
+        setSnowflakeNodeId(options.nodeId)
+      }
     },
 
     async middleware(c, next) {
@@ -188,6 +225,15 @@ export function useDatabase(options: UseDatabaseOptions = {}): Plugin {
                 nodes: err.nodes,
                 path: err.path,
                 extensions: {code: 'NOT_FOUND', entity: original.entity}
+              })
+            }
+            // BadRequestError (e.g. a malformed/wrong-type global id) → BAD_REQUEST.
+            if (original instanceof BadRequestError) {
+              changed = true
+              return new GraphQLError(original.message, {
+                nodes: err.nodes,
+                path: err.path,
+                extensions: {code: 'BAD_REQUEST'}
               })
             }
             return err

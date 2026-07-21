@@ -45,6 +45,28 @@ export {
 } from './fields.js'
 export {createId, uuidv4} from './id.js'
 export {
+  snowflake,
+  decodeSnowflake,
+  snowflakeDefault,
+  setSnowflakeNodeId,
+  snowflakeNodeId,
+  isSnowflakeString,
+  DEFAULT_SNOWFLAKE_EPOCH,
+  type SnowflakeOptions,
+  type DecodedSnowflake
+} from './snowflake.js'
+export {
+  toGid,
+  fromGid,
+  isGid,
+  decodeId,
+  setGidNamespace,
+  GID_NAMESPACE,
+  type ParsedGid
+} from './gid.js'
+export {resolveNode} from './node-resolve.js'
+export {leaseNodeId, type NodeLease, type NodeLeaseOptions} from './node-lease.js'
+export {
   RelatedManager,
   ManyToManyManager,
   HasManyThroughManager,
@@ -143,7 +165,7 @@ export {
   type ValidationIssue,
   type ValidationCode
 } from './validation.js'
-export {NotFoundError} from './errors.js'
+export {NotFoundError, BadRequestError} from './errors.js'
 export {
   validateWithSchema,
   type StandardSchemaV1,
@@ -258,6 +280,7 @@ import {Model as ModelClass} from './model.js'
 import * as fields from './fields.js'
 import * as policyApi from './policies.js'
 import {createId as createIdFn, uuidv4 as uuidv4Fn} from './id.js'
+import {snowflake as snowflakeFn} from './snowflake.js'
 import {
   ManyToManyManager as ManyToManyManagerClass,
   RelatedManager as RelatedManagerClass
@@ -307,9 +330,10 @@ const modelBuilders = {
   ManyToMany: fields.manyToMany,
   RelatedManager: RelatedManagerClass,
   ManyToManyManager: ManyToManyManagerClass,
-  /** Client-side id generators for text PKs (`default: createId`/`uuidv4`). */
+  /** Client-side id generators for text PKs (`default: createId`/`uuidv4`/`snowflake()`). */
   createId: createIdFn,
-  uuidv4: uuidv4Fn
+  uuidv4: uuidv4Fn,
+  snowflake: snowflakeFn
 }
 
 /**

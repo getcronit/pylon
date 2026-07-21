@@ -7,6 +7,7 @@ import {
 } from './manager.js'
 import {registerModelAbilities, type ModelAbilitiesFn} from './abilities.js'
 import {ForbiddenError} from './features.js'
+import {isSnowflakeString, snowflakeDefault} from './snowflake.js'
 import type {QueryConfig} from './query-schema.js'
 import {
   asPaginated,
@@ -126,7 +127,23 @@ function field(
 }
 
 /** Auto-incrementing integer primary key. */
-export function id(options: FieldOptions = {}): number {
+/** A snowflake PK is a client-generated numeric STRING, so it types as `string`. */
+export function id(options: FieldOptions & {snowflake: true}): string
+export function id(options?: FieldOptions & {snowflake?: false}): number
+export function id(options: FieldOptions & {snowflake?: boolean} = {}): number | string {
+  if (options.snowflake) {
+    // A client-generated snowflake id: a `text` PK (so the 64-bit value round-trips
+    // as a string — no JS-number precision loss), filled by the process generator
+    // whose node id `useDatabase({nodeId})` sets, and format-validated on write.
+    const {snowflake: _snowflake, ...rest} = options
+    // `default` (a function → client-side generator) + `validate` go through the
+    // OPTIONS arg, the same path as `text({default: createId})`.
+    return field(
+      'text',
+      {primaryKey: true},
+      {default: snowflakeDefault, validate: isSnowflakeString, ...rest}
+    ) as string
+  }
   return field('bigint', {primaryKey: true, autoIncrement: true}, options) as number
 }
 

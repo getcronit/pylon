@@ -136,6 +136,51 @@ function attachUniversalResolveType(
 }
 
 /**
+ * Attach the runtime resolvers for the opt-in `Node` global-id layer, when the
+ * merged IR declares the `Node` interface (i.e. an app set `db.globalIds`):
+ *
+ *  - `Query.node(id)` → `resolveNode(id)` from pylon-db. Reached via a dynamic
+ *    `import()` because `resolvers.js` inlines each function's SOURCE with no
+ *    imports in scope — a `new Function` body is the only closure-free way to
+ *    call into the ORM at runtime.
+ *  - each `Node` type's `id` → a `gid://pylon/<Type>/<id>` string. The encoder is
+ *    pure concatenation, so it's inlined (synchronous, import-free). The literal
+ *    prefix MUST match `GID_NAMESPACE` in pylon-db's `gid.ts`.
+ *
+ * Injected into the build resolver map (merged one level deep over the app's own
+ * resolvers at runtime), so user `Query` fields and any hand-written entity field
+ * resolvers are preserved.
+ */
+function attachNodeResolvers(resolvers: ResolverMap, ir: PylonIR): void {
+  if (!ir.interfaces?.Node) return
+
+  resolvers.Query = {
+    ...(resolvers.Query as Record<string, unknown>),
+    node: new Function(
+      '_parent',
+      'args',
+      "return import('@getcronit/pylon-db').then(function (m) { return m.resolveNode(args.id) })"
+    ) as never
+  }
+
+  for (const entity of Object.values(ir.entities)) {
+    if (!entity.implements.includes('Node')) continue
+    // The type segment is known at build; the `gid://<ns>/` prefix is read at
+    // runtime from the process global that `useDatabase({gidNamespace})` sets
+    // (default `gid://pylon/`), so encode and decode share one configurable
+    // namespace without baking it into the serialized source.
+    resolvers[entity.name] = {
+      ...(resolvers[entity.name] as Record<string, unknown>),
+      id: new Function(
+        'src',
+        `return src == null || src.id == null ? null : ` +
+          `((globalThis.__PYLON_GID_PREFIX__ || 'gid://pylon/') + ${JSON.stringify(entity.name)} + '/' + src.id)`
+      ) as never
+    }
+  }
+}
+
+/**
  * Hide ORM entity members declared `private` (or `#`-private) from the generated API.
  *
  * The ORM contributes its field list via RUNTIME introspection (`introspectViaRunner`),
@@ -373,6 +418,8 @@ export class SchemaBuilder {
     const resolvers = options.contributeIR
       ? attachUniversalResolveType(parser.getResolvers(), typeDefs)
       : parser.getResolvers()
+    // Global-id (`Node`) resolvers: `node(id)` refetch + per-type `id`→gid encoding.
+    if (options.contributeIR) attachNodeResolvers(resolvers, ir)
 
     return {
       typeDefs,

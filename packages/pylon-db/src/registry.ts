@@ -416,7 +416,7 @@ export function resolveColumnSqlType(
  * graph may see `_Foo` and another `Foo`. (An intentional `_Foo` mangles to `__Foo`, so
  * stripping exactly ONE leading underscore round-trips it.)
  */
-function normalizedCtorName(ctor: Function): string {
+export function normalizedCtorName(ctor: Function): string {
   const n = (ctor as {name?: string}).name ?? ''
   return /^_[A-Za-z]/.test(n) ? n.slice(1) : n
 }
@@ -461,6 +461,32 @@ export function getModelDefinitionOrThrow(ctor: Function): ModelDefinition {
 /** All concrete (non-abstract) registered models. */
 export function allModels(): ModelDefinition[] {
   return Array.from(models.values())
+}
+
+// Project-wide global-id opt-in. Set when any app is constructed with
+// `db: {globalIds: true}`; read by `toIR()` to project the `Node` interface. A
+// singleton because the `Node` interface + `node` field are one per schema.
+let globalIds = false
+/** Turn on Relay-style global ids for the whole schema (idempotent). */
+export function enableGlobalIds(): void {
+  globalIds = true
+}
+/** Whether any app opted into global ids. */
+export function globalIdsEnabled(): boolean {
+  return globalIds
+}
+
+/**
+ * Resolve a GraphQL type name back to its model definition. A model's
+ * (underscore-normalized) class name IS its GraphQL type name and is unique
+ * project-wide (the SDL requires it), so this is the reverse of that mapping —
+ * the dispatch used by global-id (`gid://…/<TypeName>/…`) resolution.
+ */
+export function modelForTypeName(typeName: string): ModelDefinition | undefined {
+  for (const def of models.values()) {
+    if (normalizedCtorName(def.ctor) === typeName) return def
+  }
+  return undefined
 }
 
 /**

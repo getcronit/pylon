@@ -35,6 +35,28 @@ const resolveLazyObject = <T>(obj: MaybeLazyObject<T>): T => {
   return typeof obj === 'function' ? (obj as () => T)() : obj
 }
 
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/**
+ * Merge two resolver maps ONE level deep: for a type present in both, combine its
+ * field resolvers (`b` wins on conflict) rather than letting `b`'s type object
+ * replace `a`'s wholesale. Lets build-side additions (interface `__resolveType`,
+ * the `Node` layer's `Query.node` + per-type `id`) coexist with the app's own
+ * `Query`/`Mutation`/entity resolvers instead of clobbering them.
+ */
+export const mergeResolverMaps = (
+  a: Record<string, any> = {},
+  b: Record<string, any> = {}
+): Record<string, any> => {
+  const out: Record<string, any> = {...a}
+  for (const [key, bv] of Object.entries(b)) {
+    const av = out[key]
+    out[key] = isPlainObject(av) && isPlainObject(bv) ? {...av, ...bv} : bv
+  }
+  return out
+}
+
 const loadPluginsMiddleware = async (plugins: Plugin[], target: Pylon<any>) => {
   // Order by declared `dependsOn` (stable — a no-op when none declared), then load.
   for (const [i, plugin] of topoSortPlugins(plugins).entries()) {
@@ -143,8 +165,11 @@ export const handler = (options: PylonHandlerOptions, target: Pylon<any> = app) 
   const schema = createSchema<Context>({
     typeDefs,
     resolvers: {
-      ...graphqlResolvers,
-      ...resolvers,
+      // One level deep: build-side type maps (interface `__resolveType`, the ORM
+      // `Node` layer's `Query.node` + per-type `id`) merge INTO the app's own
+      // resolvers for the same type, instead of replacing the whole type object.
+      // Build-defined fields win on conflict; user fields are preserved.
+      ...mergeResolverMaps(graphqlResolvers, resolvers),
       // Transforms a date object to a timestamp
       Date: new GraphQLScalarType({
         name: 'Date',
