@@ -18,6 +18,7 @@ export {
 
 import '../globals.css'
 
+export * from './gid'
 export * from './http'
 export * from './use-data'
 export * from './use-mutation'
