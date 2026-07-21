@@ -89,6 +89,26 @@ describe.skipIf(!runDb)('gid-on-input (Postgres)', () => {
     expect(rows.map(r => r.id)).toEqual([bookId])
   })
 
+  it('decodes a gid FK on CREATE (write path) so the FK resolves', async () => {
+    // A separate author so the FK-filter tests above keep their exact counts.
+    const bob = await GiAuthor.objects.create({name: 'Bob'})
+    // The API hands out gids, so a client passes an author gid straight into create.
+    const b = await GiBook.objects.create({
+      title: 'Written',
+      authorId: toGid('GiAuthor', bob.id) as never
+    })
+    // Stored as the RAW local id (else the FK would violate), and re-readable.
+    expect(b.authorId).toBe(bob.id)
+    const reloaded = await GiBook.objects.get({id: b.id})
+    expect(reloaded.authorId).toBe(bob.id)
+  })
+
+  it('rejects a wrong-type gid FK on create', async () => {
+    await expect(
+      GiBook.objects.create({title: 'x', authorId: toGid('GiBook', authorId) as never})
+    ).rejects.toThrow(/Expected a GiAuthor id but received a GiBook id/)
+  })
+
   it('rejects a wrong-type gid with BAD_REQUEST', async () => {
     // A GiAuthor gid where a GiBook id is expected → type guard fires.
     await expect(GiBook.objects.get({id: toGid('GiAuthor', bookId)})).rejects.toThrow(

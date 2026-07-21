@@ -529,6 +529,22 @@ function idFilterType(def: ModelDefinition, col: ColumnDefinition): string | und
 }
 
 /**
+ * Decode the gids the API hands out to raw local ids on an instance's PK/FK
+ * columns, before it's written — so a client can pass a `gid://…` FK straight
+ * back into a create/update. Type-checked (a wrong-type gid throws); raw ids and
+ * non-strings pass through untouched.
+ */
+function decodeInstanceIds(def: ModelDefinition, instance: object): void {
+  const rec = instance as Record<string, unknown>
+  for (const col of def.columns) {
+    const type = idFilterType(def, col)
+    if (!type) continue
+    const v = rec[col.propertyKey]
+    if (typeof v === 'string' && isGid(v)) rec[col.propertyKey] = decodeId(v, type)
+  }
+}
+
+/**
  * Rewrite gids to raw local ids inside a PK/FK filter value (the API hands out
  * gids, so clients pass them back), validating the embedded type. Applies to the
  * bare value, `equals`/`not` scalars, and `in`/`notIn` arrays; raw ids and
@@ -1645,6 +1661,12 @@ export async function saveInstance(instance: object): Promise<object> {
 
   const isCreate = !persisted.has(instance)
   if (isCreate) applyCreateDefaults(def, instance)
+
+  // Client-supplied PK/FK values arrive as the gids the API hands out — decode
+  // them to raw local ids (type-checked) before the write, or the insert would
+  // store a `gid://…` string and violate the foreign key. Mirrors the where-clause
+  // decode, which only covers reads.
+  decodeInstanceIds(def, instance)
 
   // Validate before touching the DB — fail fast with structured, translatable
   // issues instead of a raw Postgres constraint error. On UPDATE the primary key
