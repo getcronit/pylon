@@ -65,8 +65,11 @@ useDatabase(opts?)
 | `features` | `string[] \| (c) => string[]` | Active feature set for the request |
 | `validationErrors` | `boolean` | Surface model validation failures as GraphQL errors |
 | `transactionPerRequest` | `boolean` | Wrap each request in a single database transaction |
+| `nodeId` | `number \| 'lease'` | Snowflake node id for `id({snowflake:true})` PKs; `'lease'` claims a unique slot from the DB (multi-instance safe). Default `0` |
+| `gidNamespace` | `string` | Namespace segment for global ids — `gid://<gidNamespace>/…`. Default `'pylon'` |
 
-See [Multi-tenancy & Features](/docs/data/multi-tenancy).
+See [Multi-tenancy & Features](/docs/data/multi-tenancy) and
+[IDs & Global IDs](/docs/data/ids).
 
 ### useIdentity
 

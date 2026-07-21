@@ -74,6 +74,7 @@ the columns they produce:
 | Builder | Column | TypeScript |
 | --- | --- | --- |
 | `id()` | auto-incrementing `bigint` primary key | `number` |
+| `id({snowflake: true})` | time-ordered snowflake `text` primary key | `string` |
 | `uuid()` | UUID (pass `{primaryKey: true}` for a UUID PK) | `string` |
 | `text()` | unbounded text | `string` |
 | `varchar(n)` | `varchar(n)` | `string` |
@@ -88,6 +89,9 @@ the columns they produce:
 | `json<T>()` | `jsonb`, typed | `T` |
 | `enumOf(values)` | text + `CHECK` constraint | enum value |
 | `array(text())` | Postgres array | `string[]` |
+
+For client-generated primary keys — snowflakes, cuid, uuid — and opt-in global
+ids (`gid://…`), see [IDs & Global IDs](/docs/data/ids).
 
 ```ts
 import {Pylon} from '@getcronit/pylon'
