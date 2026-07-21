@@ -7,7 +7,7 @@ import {
 } from './manager.js'
 import {registerModelAbilities, type ModelAbilitiesFn} from './abilities.js'
 import {ForbiddenError} from './features.js'
-import {snowflakeDefault} from './snowflake.js'
+import {isSnowflakeString, snowflakeDefault} from './snowflake.js'
 import type {QueryConfig} from './query-schema.js'
 import {
   asPaginated,
@@ -134,14 +134,15 @@ export function id(options: FieldOptions & {snowflake?: boolean} = {}): number |
   if (options.snowflake) {
     // A client-generated snowflake id: a `text` PK (so the 64-bit value round-trips
     // as a string — no JS-number precision loss), filled by the process generator
-    // whose node id `useDatabase({nodeId})` sets when no id is supplied. A SUPPLIED
-    // id is accepted as-is (like any text PK) so seeds/imports/legacy migrations can
-    // use fixed or non-snowflake ids; opt into format-checking with
-    // `validate: isSnowflakeString` if you want it.
+    // whose node id `useDatabase({nodeId})` sets, and format-validated on write so
+    // every id in the table really is a snowflake — seeds/imports mint new snowflake
+    // ids rather than carrying fixed or legacy values.
     const {snowflake: _snowflake, ...rest} = options
-    // `default` (a function → client-side generator) goes through the OPTIONS arg,
-    // the same path as `text({default: createId})`.
-    return field('text', {primaryKey: true}, {default: snowflakeDefault, ...rest}) as string
+    return field(
+      'text',
+      {primaryKey: true},
+      {default: snowflakeDefault, validate: isSnowflakeString, ...rest}
+    ) as string
   }
   return field('bigint', {primaryKey: true, autoIncrement: true}, options) as number
 }

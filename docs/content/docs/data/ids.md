@@ -67,9 +67,9 @@ class Order extends Model {
 
 `id({snowflake: true})` is a `text` primary key (the 64-bit value round-trips as
 a string, so there's no JavaScript number-precision loss), filled by the process
-generator when no id is supplied. A supplied id is accepted as-is — so seeds,
-imports, and legacy migrations can use fixed or non-snowflake ids. The generated
-value looks like `"1780219977399508992"`.
+generator and format-validated on write — so every id in the table really is a
+snowflake. Seeds and imports mint new snowflake ids rather than carrying fixed or
+legacy values. The value looks like `"1780219977399508992"`.
 
 Decode one back into its parts — handy for recovering an entity's creation time
 straight from its id:

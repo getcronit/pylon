@@ -103,3 +103,19 @@ describe('primary-key validation on create vs update', () => {
     expect(validateInstance(codedDef, {id: bad.id, title: ''}, {created: false}).length).toBeGreaterThan(0)
   })
 })
+
+class SnowflakePk extends Model {
+  id = id({snowflake: true})
+  title = text()
+}
+new Pylon({db: {models: [SnowflakePk]}})
+const snowflakeDef = getModelDefinitionOrThrow(SnowflakePk)
+
+describe('id({snowflake:true}) validates a supplied id on create', () => {
+  it('rejects a non-snowflake id (mint a new one instead of carrying a legacy value)', () => {
+    expect(validateInstance(snowflakeDef, {id: 'legacy-cuid', title: 'x'}).find(i => i.path === 'id')).toBeDefined()
+  })
+  it('accepts a well-formed snowflake', () => {
+    expect(validateInstance(snowflakeDef, {id: '1780219977399508992', title: 'x'}).find(i => i.path === 'id')).toBeUndefined()
+  })
+})
