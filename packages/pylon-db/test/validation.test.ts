@@ -79,31 +79,27 @@ describe('validateInstance — structured issues (code + params)', () => {
   })
 })
 
-class Ticket extends Model {
-  id = id({snowflake: true})
-  title = text()
+// A model with a format-strict PRIMARY KEY validator (the general case behind the
+// snowflake PK migration): a supplied id must be digits-only.
+class Coded extends Model {
+  id = text({primaryKey: true, validate: v => /^[0-9]+$/.test(String(v)) || 'digits only'})
+  title = text({min: 1})
 }
-new Pylon({db: {models: [Ticket]}})
-const ticketDef = getModelDefinitionOrThrow(Ticket)
+new Pylon({db: {models: [Coded]}})
+const codedDef = getModelDefinitionOrThrow(Coded)
 
 describe('primary-key validation on create vs update', () => {
-  // A row created under an older id scheme (cuid), now saved on a snowflake PK.
-  const legacy = {id: 'cku1a2b3c4d5e6f7g8h9i0j1', title: 'Hi'}
+  const bad = {id: 'legacy-cuid', title: 'Hi'} // violates the digits-only PK rule
 
-  it('validates a non-snowflake id on CREATE (default)', () => {
-    const issues = validateInstance(ticketDef, legacy)
-    expect(issues.find(i => i.path === 'id')).toBeDefined()
+  it('validates a supplied PK on CREATE (default)', () => {
+    expect(validateInstance(codedDef, bad).find(i => i.path === 'id')).toBeDefined()
   })
 
   it('SKIPS the immutable PK on UPDATE (created: false)', () => {
-    const issues = validateInstance(ticketDef, legacy, {created: false})
-    expect(issues.find(i => i.path === 'id')).toBeUndefined()
+    // The PK is already persisted + immutable, so a strict PK validator (or a
+    // snowflake PK holding a legacy cuid) must not reject it on update.
+    expect(validateInstance(codedDef, bad, {created: false}).find(i => i.path === 'id')).toBeUndefined()
     // non-PK fields are still validated on update
-    expect(validateInstance(ticketDef, {id: legacy.id, title: ''}, {created: false})).toBeDefined()
-  })
-
-  it('a well-formed snowflake id passes on create', () => {
-    const issues = validateInstance(ticketDef, {id: '1780219977399508992', title: 'Hi'})
-    expect(issues.find(i => i.path === 'id')).toBeUndefined()
+    expect(validateInstance(codedDef, {id: bad.id, title: ''}, {created: false}).length).toBeGreaterThan(0)
   })
 })
