@@ -13,6 +13,7 @@ import {
   foreignKey,
   id,
   manager,
+  manyToMany,
   Model,
   setDefaultDatabase,
   syncSchema,
@@ -20,6 +21,7 @@ import {
   toGid,
   type Relation
 } from '../../src/index'
+import {joinTableName} from '@getcronit/pylon-ir'
 
 class GiAuthor extends Model {
   static config = {table: 'gi_author'} satisfies ModelConfig<GiAuthor>
@@ -29,6 +31,15 @@ class GiAuthor extends Model {
 }
 new Pylon({db: {models: [GiAuthor]}})
 
+class GiTag extends Model {
+  static config = {table: 'gi_tag'} satisfies ModelConfig<GiTag>
+  static objects = manager(GiTag)
+  id = id({snowflake: true})
+  label = text()
+  books = manyToMany(() => GiBook)
+}
+new Pylon({db: {models: [GiTag]}})
+
 class GiBook extends Model {
   static config = {table: 'gi_book'} satisfies ModelConfig<GiBook>
   static objects = manager(GiBook)
@@ -36,6 +47,7 @@ class GiBook extends Model {
   title = text()
   authorId = foreignKey(() => GiAuthor)
   declare author: Relation<GiAuthor>
+  tags = manyToMany(() => GiTag)
 }
 new Pylon({db: {models: [GiBook]}})
 
@@ -82,7 +94,7 @@ describe.skipIf(!runDb)('gid-on-input (Postgres)', () => {
 
   beforeAll(async () => {
     db = connect({connectionString})
-    for (const t of ['gi_invoice', 'gi_book', 'gi_author', 'gi_party']) {
+    for (const t of [joinTableName('gi_book', 'gi_tag'), 'gi_invoice', 'gi_book', 'gi_tag', 'gi_author', 'gi_party']) {
       await db.kysely.schema.dropTable(t).ifExists().cascade().execute()
     }
     await syncSchema()
@@ -93,7 +105,7 @@ describe.skipIf(!runDb)('gid-on-input (Postgres)', () => {
   })
   afterAll(async () => {
     if (db) {
-      for (const t of ['gi_invoice', 'gi_book', 'gi_author', 'gi_party']) {
+      for (const t of [joinTableName('gi_book', 'gi_tag'), 'gi_invoice', 'gi_book', 'gi_tag', 'gi_author', 'gi_party']) {
         await db.kysely.schema.dropTable(t).ifExists().cascade().execute()
       }
       await db.destroy()
@@ -164,5 +176,25 @@ describe.skipIf(!runDb)('gid-on-input (Postgres)', () => {
   it('a raw id that is not a gid still passes through on an FK filter', async () => {
     const rows = await GiBook.objects.filter({authorId}).all()
     expect(rows.map(r => r.id)).toEqual([bookId])
+  })
+
+  it('decodes a gid on a MANY-TO-MANY link (join-row FK) so add() resolves', async () => {
+    const tag = await GiTag.objects.create({label: 'fiction'})
+    const book = await GiBook.objects.get({id: bookId})
+    // The API hands out gids, so a client links by the tag's gid, not its raw id.
+    await book.tags.add(toGid('GiTag', tag.id))
+    // The join row stored the RAW local id (else the join FK would violate).
+    const linked = await book.tags.all()
+    expect(linked.map(t => t.id)).toEqual([tag.id])
+    // remove() decodes the gid too.
+    await book.tags.remove(toGid('GiTag', tag.id))
+    expect((await book.tags.all()).length).toBe(0)
+  })
+
+  it('rejects a wrong-type gid on a many-to-many link', async () => {
+    const book = await GiBook.objects.get({id: bookId})
+    await expect(book.tags.add(toGid('GiAuthor', authorId))).rejects.toThrow(
+      /Expected a GiTag id but received a GiAuthor id/
+    )
   })
 })

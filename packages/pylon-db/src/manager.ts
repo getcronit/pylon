@@ -548,7 +548,7 @@ function idTypeMatches(gidType: string, expectedType: string): boolean {
 }
 
 /** Decode a gid to its raw local id, requiring a same-family type; else throw. */
-function decodeIdOfFamily(value: string, expectedType: string): string {
+export function decodeIdOfFamily(value: string, expectedType: string): string {
   const {type, id} = fromGid(value)
   if (!idTypeMatches(type, expectedType)) {
     throw new BadRequestError(`Expected a ${expectedType} id but received a ${type} id (${value})`)
