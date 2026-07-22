@@ -19,7 +19,7 @@
 import path from 'node:path'
 import type {Resolvers, PylonOptions} from '@getcronit/pylon'
 import {finalizeProxyModel} from './fields.js'
-import {enableGlobalIds, recordApp} from './registry.js'
+import {recordApp, setNodeDefault} from './registry.js'
 import {defineAppPolicy, type AppPolicy} from './policies.js'
 import {defineAbilities, type AbilitiesFn} from './abilities.js'
 
@@ -49,14 +49,6 @@ export interface AppModelOptions {
    * project root. There is no central migrations folder for apps.
    */
   migrations?: string
-  /**
-   * Opt into Relay-style global object ids for this app's models: every model
-   * gains a `gid://pylon/<Type>/<id>` handle, implements a shared `Node`
-   * interface, and a root `node(id): Node` refetch field is added. NOTE: this
-   * changes the wire shape of every `id` (raw → gid). Project-wide once any
-   * composed app enables it (the `Node` interface is a singleton).
-   */
-  globalIds?: boolean
   /** App-wide fallback policy for any model/action a per-model `definePolicy` omits. */
   policy?: AppPolicy
   /**
@@ -72,6 +64,19 @@ declare module '@getcronit/pylon' {
   interface PylonOptions<G extends Resolvers = {}> {
     /** The app's database aspect — models + their ORM config. See {@link AppModelOptions}. */
     db?: AppModelOptions
+    /**
+     * Opt into Relay-style global object ids (an API-shape decision, NOT a database
+     * one — hence a top-level option, not under `db`). Every model in scope gains a
+     * `gid://pylon/<Type>/<id>` handle, implements a shared `Node` interface, and a
+     * root `node(id): Node` refetch field is added. This changes the wire shape of
+     * `id` (raw → gid).
+     *
+     * Resolution is per model: a model uses its own `static config.node`, else its
+     * app's `node`, else the PROJECT DEFAULT. Set it once on the composition root
+     * (which constructs last, so it wins as the default) to turn it on everywhere;
+     * a leaf app can override with `node: false` to keep its models on raw ids.
+     */
+    node?: boolean
   }
 }
 
@@ -144,10 +149,14 @@ function processModels(app: any): void {
   if (!models?.length) return
   const name = appName(app)
   if (name) register(app, name)
-  if (opts.globalIds) enableGlobalIds()
+  // `node` is a TOP-LEVEL app option (an API-shape decision, not a `db` one). An
+  // app that sets it becomes the project default (the root constructs last → wins);
+  // it also tags this app's own models so a leaf can override the root per app.
+  const node = (app.pylonOptions?.node as boolean | undefined) ?? undefined
+  if (node !== undefined) setNodeDefault(node)
   const store = modelStore.get(app) ?? []
   for (const Ctor of models) {
-    finalizeProxyModel(Ctor, {app: name, tenant: opts.tenant, secure: opts.secure})
+    finalizeProxyModel(Ctor, {app: name, tenant: opts.tenant, secure: opts.secure, node})
     store.push(Ctor)
   }
   modelStore.set(app, store)

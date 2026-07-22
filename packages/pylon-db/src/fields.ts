@@ -689,6 +689,14 @@ export interface ModelOptions {
    */
   secure?: boolean
   /**
+   * Relay `Node` opt-in for this model: expose a `gid://<Type>/<id>` global id and
+   * implement the shared `Node` interface. Usually set once at the app level (the
+   * top-level `node` option) or project-wide on the root; set it here (in a model's
+   * `static config`) only to override for a single model. `undefined` inherits the
+   * app / project default.
+   */
+  node?: boolean
+  /**
    * Composite (multi-column) secondary indexes. `columns` are property names.
    * Single-column indexes use the field option `{index: true}`; a composite
    * unique constraint is `{columns: [...], unique: true}`.
@@ -1310,7 +1318,9 @@ export function finalizeProxyModel(Ctor: Function, options: ModelOptions = {}): 
     ...staticConfig,
     ...options,
     tenant: staticConfig.tenant ?? options.tenant,
-    secure: staticConfig.secure ?? options.secure
+    secure: staticConfig.secure ?? options.secure,
+    // A model's own `static config.node` wins over the app-level default.
+    node: staticConfig.node ?? options.node
   }
 
   // A self-referential model (`static objects = manager(Author)`) compiles, under
@@ -1364,6 +1374,7 @@ export function finalizeProxyModel(Ctor: Function, options: ModelOptions = {}): 
     indexes: options.indexes,
     tenant: options.tenant,
     secure: options.secure,
+    node: options.node,
     search: options.search,
     trigram: options.trigram,
     query: options.query,

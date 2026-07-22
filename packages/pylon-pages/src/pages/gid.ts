@@ -1,7 +1,7 @@
 /**
  * `Gid` — a value object for global ids, modelled on `URL`.
  *
- * When an app enables `db.globalIds`, the API returns every `id` as a
+ * When an app enables `node: true`, the API returns every `id` as a
  * `gid://<namespace>/<Type>/<localId>` handle. That's the canonical id (cache
  * keys, `node(id)` refetch, mutation args), but it contains `/` and `:`, so it
  * can't go straight into a route path. Like Shopify's admin, you route on the
@@ -88,7 +88,7 @@ export class Gid {
   /**
    * The local id to route/display on — a gid's last segment, or the value itself
    * if it isn't a gid. Tolerant, so `` `/tickets/${Gid.id(ticket.id)}` `` works
-   * whether `globalIds` is on (strips the gid) or off (passes the raw id through).
+   * whether `node` is on (strips the gid) or off (passes the raw id through).
    */
   static id(value: string): string {
     return Gid.parse(value)?.id ?? value

@@ -137,7 +137,9 @@ function attachUniversalResolveType(
 
 /**
  * Attach the runtime resolvers for the opt-in `Node` global-id layer, when the
- * merged IR declares the `Node` interface (i.e. an app set `db.globalIds`):
+ * merged IR declares the `Node` interface (i.e. an app set `node: true`). Only the
+ * entities that opted in carry `implements Node`, so the `id`→gid encoder below is
+ * attached exactly to those — per-model, matching the IR:
  *
  *  - `Query.node(id)` → `resolveNode(id)` from pylon-db. Reached via a dynamic
  *    `import()` because `resolvers.js` inlines each function's SOURCE with no

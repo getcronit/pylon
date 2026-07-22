@@ -22,7 +22,7 @@ import type {
   RelationDefinition,
   SqlType
 } from './registry.js'
-import {allModels, globalIdsEnabled, resolveColumnSqlType} from './registry.js'
+import {allModels, nodeEnabledFor, resolveColumnSqlType} from './registry.js'
 
 /**
  * Map a SQL column to a GraphQL scalar. The ORM knows precise intent the raw
@@ -30,8 +30,13 @@ import {allModels, globalIdsEnabled, resolveColumnSqlType} from './registry.js'
  * numeric is a `Float` — so the IR carries that intent instead of collapsing
  * everything `number`-shaped to one scalar.
  */
-function scalarForColumn(col: ColumnDefinition): ScalarName {
-  if (col.primaryKey) return 'ID'
+function scalarForColumn(col: ColumnDefinition, isForeignKey = false): ScalarName {
+  // A primary key IS an id; a foreign key REFERENCES one — both surface as `ID`
+  // so the `ID` scalar's gid-decode covers them on input (a client hands back the
+  // gid it was given for a relation). Output is unchanged: `ID` serializes as the
+  // plain id string, and only the dedicated `id` field resolver emits a gid, so a
+  // FK field still serializes as its raw local id.
+  if (col.primaryKey || isForeignKey) return 'ID'
   return scalarForSqlType(col.sqlType)
 }
 
@@ -87,11 +92,15 @@ function fieldName(propertyKey: string): string {
   return propertyKey.startsWith('$') ? propertyKey.slice(1) : propertyKey
 }
 
-function columnField(col: ColumnDefinition): Field {
+function columnField(col: ColumnDefinition, isForeignKey = false): Field {
   // Enum columns emit a `String` placeholder; the type-checker contributes the
   // real GraphQL enum (with its name), and `mergeFields` keeps that type because
   // the column is flagged `enum` (see columnSpec).
-  const scalar: TypeRef = {kind: 'scalar', name: scalarForColumn(col), nullable: false}
+  const scalar: TypeRef = {
+    kind: 'scalar',
+    name: scalarForColumn(col, isForeignKey),
+    nullable: false
+  }
   // An array column surfaces as a GraphQL list of the element type.
   const type: TypeRef = col.array
     ? {kind: 'list', of: scalar, nullable: col.nullable}
@@ -177,6 +186,10 @@ function relationField(rel: RelationDefinition, def: ModelDefinition): Field {
 
 /** Convert one model definition into an IR `Entity`. */
 export function entityFromDefinition(def: ModelDefinition): Entity {
+  // FK columns (those backing a belongsTo) surface as `ID` so gid input decodes.
+  const fkColumnNames = new Set(
+    def.relations.map(rel => rel.fkColumn).filter((c): c is string => !!c)
+  )
   // Single-column secondary indexes from `{index: true}` field options.
   const columnFor = (prop: string) =>
     def.columns.find(c => c.propertyKey === prop)?.columnName ?? prop
@@ -231,9 +244,13 @@ export function entityFromDefinition(def: ModelDefinition): Entity {
     implements: [],
     fields: [
       // Resolve FK column types against their target PK (cuid `text` PKs etc.)
-      // before projecting — the stored type is a `bigint` fallback.
+      // before projecting — the stored type is a `bigint` fallback. A FK column
+      // (backs a belongsTo relation) surfaces as `ID` so gid input decodes.
       ...def.columns.map(col =>
-        columnField({...col, sqlType: resolveColumnSqlType(def, col)})
+        columnField(
+          {...col, sqlType: resolveColumnSqlType(def, col)},
+          fkColumnNames.has(col.columnName)
+        )
       ),
       // Paginated relations surface as callable fields (Relay `Connection` +
       // args), which the type-checker reads off the field type and emits — so the
@@ -367,17 +384,21 @@ function applySingleTableInheritance(ir: PylonIR, defs: ModelDefinition[]): void
 
 /** GraphQL-native `ID!`. */
 const ID_NON_NULL = {kind: 'scalar', name: 'ID', nullable: false} as const
+/** A whole `gid://…` (type-carrying), the input to `node`. Distinct from `ID`,
+ *  which is stripped to a raw local id on input — `node` dispatches on the type. */
+const GID_NON_NULL = {kind: 'scalar', name: 'GID', nullable: false} as const
 
 /**
  * Opt-in Relay-style global-object-identity layer. Adds an `interface Node { id:
  * ID! }`, makes every entity/interface that exposes an `id` field implement it
  * (normalizing that `id` to `ID!` so the SDL is valid even for text/cuid PKs),
- * and adds a root `node(id: ID!): Node` refetch field. The wire `id` is
- * gid-encoded on output and decoded by the `node` resolver — see `gid.ts`. The
+ * and adds a root `node(id: GID!): Node` refetch field (`GID` = a whole
+ * type-carrying gid, unlike `ID` which is stripped to a local id on input). The
+ * wire `id` is gid-encoded on output and decoded by the `node` resolver. The
  * type dispatch is by `__typename`, handled by the universal `__resolveType` the
  * builder already attaches to every SDL interface.
  */
-function applyNodeInterface(ir: PylonIR): void {
+function applyNodeInterface(ir: PylonIR, nodeNames: Set<string>): void {
   const NODE = 'Node'
   const exposedId = (fields: {name: string; exposed: boolean; type: unknown}[]) =>
     fields.find(f => f.name === 'id' && f.exposed)
@@ -407,14 +428,16 @@ function applyNodeInterface(ir: PylonIR): void {
 
   for (const entity of Object.values(ir.entities)) {
     if (!entity.primaryKey) continue // needs a single PK to be looked up by id
+    if (!nodeNames.has(entity.name)) continue // per-model opt-in (app / project default)
     wireUpNode(entity, name => {
       if (!entity.implements.includes(name)) entity.implements.push(name)
     })
   }
-  // STI base interfaces expose an `id` too — implement Node so a subclass's
-  // `id: ID!` stays consistent with every interface it declares.
+  // STI base interfaces expose an `id` too — implement Node (only if that base's
+  // model opted in) so a subclass's `id: ID!` stays consistent with every interface.
   for (const iface of Object.values(ir.interfaces)) {
     if (iface.name === NODE) continue
+    if (!nodeNames.has(iface.name)) continue
     wireUpNode(iface, name => {
       iface.implements = iface.implements ?? []
       if (!iface.implements.includes(name)) iface.implements.push(name)
@@ -422,11 +445,14 @@ function applyNodeInterface(ir: PylonIR): void {
   }
 
   if (!ir.scalars.includes('ID')) ir.scalars.push('ID')
+  if (!ir.scalars.includes('GID')) ir.scalars.push('GID')
   ir.operations.push({
     root: 'Query',
     name: 'node',
     description: 'Fetch any object by its global id.',
-    args: [{name: 'id', type: {...ID_NON_NULL}, exposed: true}],
+    // `GID`, not `ID`: `node` needs the whole `gid://ns/Type/local` to dispatch on
+    // the type — the `ID` scalar would strip it to a bare local id first.
+    args: [{name: 'id', type: {...GID_NON_NULL}, exposed: true}],
     returns: {kind: 'ref', name: NODE, nullable: true}
   })
 }
@@ -449,7 +475,15 @@ export function toIR(
     ir.entities[def.ctor.name] = entityFromDefinition(def)
   }
   applySingleTableInheritance(ir, defs)
-  // Explicit `node` wins (tests); otherwise follow the app's `db.globalIds` opt-in.
-  if (options.node ?? globalIdsEnabled()) applyNodeInterface(ir)
+  // Which entities expose global ids. An explicit `options.node` forces all/none
+  // (a test / whole-schema override); otherwise resolve PER MODEL — the model's own
+  // `node` (app-level / `static config`) or the project default. The `Node`
+  // interface + `node()` field are added iff at least one entity opts in.
+  const nodeNames = new Set(
+    defs
+      .filter(def => (options.node === undefined ? nodeEnabledFor(def) : options.node))
+      .map(def => def.ctor.name)
+  )
+  if (nodeNames.size) applyNodeInterface(ir, nodeNames)
   return ir
 }

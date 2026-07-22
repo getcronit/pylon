@@ -1,4 +1,4 @@
-// An ORM-backed entry that opts into global ids via `db.globalIds`.
+// An ORM-backed entry that opts into global ids via the top-level `node` option.
 import {Pylon} from '@getcronit/pylon'
 import {Model, id, text} from '@getcronit/pylon-db'
 
@@ -13,7 +13,8 @@ export class Category extends Model {
 }
 
 export default new Pylon({
-  db: {models: [Product, Category], globalIds: true},
+  db: {models: [Product, Category]},
+  node: true,
   graphql: {
     Query: {
       // A user-defined root field — must survive the Node `Query.node` injection.

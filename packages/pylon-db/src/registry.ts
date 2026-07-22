@@ -168,6 +168,10 @@ export interface ModelDefinition {
   /** Deny-by-default: an action with no matching policy rule is rejected
    *  (`@model({secure: true})`). Without it, an action with no rule is allowed. */
   secure?: boolean
+  /** Relay `Node` opt-in for THIS model: expose a `gid://…` id + implement `Node`.
+   *  Set from the app's top-level `node` option (or the model's `static config.node`);
+   *  `undefined` falls back to the project default. See `nodeEnabledFor`. */
+  node?: boolean
   /** Column names that get a `gin_trgm_ops` index for substring (`contains`)
    *  search (`@model({trigram})`). */
   trigramColumns?: string[]
@@ -271,6 +275,8 @@ export function finalizeModel(
     tenant?: string
     /** Deny-by-default for policy actions with no matching rule. */
     secure?: boolean
+    /** Relay `Node` opt-in for this model (else the project default applies). */
+    node?: boolean
     /** Full-text search: synthesize hidden generated tsvector column(s) + GIN. */
     search?:
       | {columns: string[]; language?: string; name?: string}
@@ -377,6 +383,7 @@ export function finalizeModel(
     // such column (lets non-tenant lookup tables live in a tenant-scoped app).
     tenantColumn: options.tenant ? merged.get(options.tenant)?.columnName : undefined,
     secure: options.secure,
+    node: options.node,
     trigramColumns: trigramColumns.length ? trigramColumns : undefined,
     query: options.query,
     inheritance: options.inheritance,
@@ -463,17 +470,30 @@ export function allModels(): ModelDefinition[] {
   return Array.from(models.values())
 }
 
-// Project-wide global-id opt-in. Set when any app is constructed with
-// `db: {globalIds: true}`; read by `toIR()` to project the `Node` interface. A
-// singleton because the `Node` interface + `node` field are one per schema.
-let globalIds = false
-/** Turn on Relay-style global ids for the whole schema (idempotent). */
-export function enableGlobalIds(): void {
-  globalIds = true
+// Project-wide DEFAULT for the Relay `Node` layer, set by the constructing app's
+// top-level `node` option. Because the composition ROOT constructs last (its leaf
+// apps are imported — hence constructed — first), the root's `node` wins as the
+// default; a leaf app (or a model's own `static config.node`) overrides it per
+// model. Read by `toIR()` to decide which entities expose `gid://…` ids +
+// implement `Node`. `undefined` = "no app set it" (treated as off).
+let nodeDefault: boolean | undefined = undefined
+/** Set the project-wide `node` default (an app's top-level `node` option). */
+export function setNodeDefault(value: boolean): void {
+  nodeDefault = value
 }
-/** Whether any app opted into global ids. */
-export function globalIdsEnabled(): boolean {
-  return globalIds
+/** The project-wide `node` default (undefined if no app set one). */
+export function nodeDefaultValue(): boolean | undefined {
+  return nodeDefault
+}
+/** Whether a specific model exposes global ids: its own `node` (per-app / per-model
+ *  `static config`) if set, else the project default. */
+export function nodeEnabledFor(def: ModelDefinition): boolean {
+  return def.node ?? nodeDefault ?? false
+}
+/** Whether any registered model has the `Node` layer on (the interface + `node()`
+ *  field are added to the schema iff at least one entity opts in). */
+export function anyNodeEnabled(): boolean {
+  return allModels().some(nodeEnabledFor)
 }
 
 /**

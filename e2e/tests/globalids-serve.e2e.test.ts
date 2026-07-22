@@ -39,7 +39,14 @@ async function gql(query: string, variables?: Record<string, unknown>) {
 async function resetSchema() {
   const db: Database = connect({connectionString})
   try {
-    for (const t of ['note', '_pylon_nodes', '_pylon_migrations']) {
+    for (const t of [
+      'note_tag',
+      'note',
+      'author',
+      'tag',
+      '_pylon_nodes',
+      '_pylon_migrations'
+    ]) {
       await db.kysely.schema.dropTable(t).ifExists().cascade().execute()
     }
   } finally {
@@ -138,13 +145,47 @@ describe.skipIf(!dockerAvailable)('global ids live — Node interface over HTTP'
     expect(r.data.node.title).toBe('hello')
   })
 
-  it('a hand-written resolver get(gid) works — the ORM decodes the gid on input', async () => {
+  it('a hand-written resolver get(gid) works — the ID scalar decodes the gid on input', async () => {
     const r = await gql(
       '{ note(id:$id){ id title } }'.replace('$id', JSON.stringify(firstGid))
     )
     expect(r.errors).toBeUndefined()
     expect(r.data.note.id).toBe(firstGid) // round-trips back to the same gid on output
     expect(r.data.note.title).toBe('hello')
+  })
+
+  it('foreign key: create-by-gid decodes the author gid so the FK resolves', async () => {
+    const a = await gql('mutation($n:String!){addAuthor(name:$n){id name}}', {n: 'Ada'})
+    expect(a.errors).toBeUndefined()
+    const authorGid: string = a.data.addAuthor.id
+    expect(authorGid).toMatch(/^gid:\/\/shop\/Author\/\d+$/)
+    // Hand the author's gid straight back into a foreign-key input — decoded to
+    // the raw local id before the insert, so the FK resolves (no gid string
+    // stored, no constraint violation).
+    const r = await gql(
+      'mutation($t:String!,$a:ID!){addNoteFor(title:$t,authorId:$a){ id author { id name } }}',
+      {t: 'by-ada', a: authorGid}
+    )
+    expect(r.errors).toBeUndefined()
+    expect(r.data.addNoteFor.author.id).toBe(authorGid) // FK resolved + re-encoded
+    expect(r.data.addNoteFor.author.name).toBe('Ada')
+  })
+
+  it('many-to-many: link-by-gid decodes the tag gid before the join-row write', async () => {
+    const t = await gql('mutation($l:String!){addTag(label:$l){id label}}', {l: 'urgent'})
+    expect(t.errors).toBeUndefined()
+    const tagGid: string = t.data.addTag.id
+    expect(tagGid).toMatch(/^gid:\/\/shop\/Tag\/\d+$/)
+    // firstGid is the 'hello' Note; link the tag by its gid — the join-row FK
+    // gets the raw local id, not the `gid://…` string that broke it before.
+    const r = await gql(
+      'mutation($n:ID!,$g:ID!){linkTag(noteId:$n,tagId:$g){ id tags { id label } }}',
+      {n: firstGid, g: tagGid}
+    )
+    expect(r.errors).toBeUndefined()
+    const ids = r.data.linkTag.tags.map((x: any) => x.id)
+    expect(ids).toContain(tagGid)
+    expect(r.data.linkTag.tags.find((x: any) => x.id === tagGid).label).toBe('urgent')
   })
 
   it('node(gid) returns null for a well-formed but absent id', async () => {

@@ -39,6 +39,26 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
 
 /**
+ * Strip a Shopify-style global id (`gid://namespace/Type/localId`) back to its
+ * raw local id; any non-gid value (a raw id, a number) passes through untouched,
+ * so a client may hand back either form. This is the SINGLE place a gid is
+ * decoded: the `ID` scalar below runs it on every `ID`-typed input (primary
+ * keys, foreign keys, `node(id)`), so the ORM never sees a gid and needs no
+ * per-write-path decoding. Output encoding is the symmetric per-type `id` field
+ * resolver the compiler attaches. Decode is intentionally lenient — a scalar
+ * can't know a field's expected model type, and globally-unique ids (snowflake,
+ * cuid, uuid) make a wrong-type gid a harmless "not found" rather than a
+ * cross-table collision.
+ */
+export const decodeGidInput = (value: unknown): unknown => {
+  if (typeof value === 'string' && value.startsWith('gid://')) {
+    const local = value.slice(value.lastIndexOf('/') + 1)
+    return local || value
+  }
+  return value
+}
+
+/**
  * Merge two resolver maps ONE level deep: for a type present in both, combine its
  * field resolvers (`b` wins on conflict) rather than letting `b`'s type object
  * replace `a`'s wholesale. Lets build-side additions (interface `__resolveType`,
@@ -170,6 +190,37 @@ export const handler = (options: PylonHandlerOptions, target: Pylon<any> = app) 
       // resolvers for the same type, instead of replacing the whole type object.
       // Build-defined fields win on conflict; user fields are preserved.
       ...mergeResolverMaps(graphqlResolvers, resolvers),
+      // Global-id boundary: decode `gid://…` back to the raw local id on EVERY
+      // `ID`-typed input (primary keys, foreign keys), so the ORM stays gid-free.
+      // Output stays as-is — only the compiler's per-type `id` field resolver
+      // emits a gid; this scalar's `serialize` is the plain ID string coercion.
+      ID: new GraphQLScalarType({
+        name: 'ID',
+        description:
+          'A global id (`gid://namespace/Type/localId`) or a raw local id. Decoded to the raw local id on input.',
+        serialize: value => (value == null ? value : String(value)),
+        parseValue: decodeGidInput,
+        parseLiteral: ast =>
+          ast.kind === Kind.STRING || ast.kind === Kind.INT
+            ? decodeGidInput(ast.value)
+            : null
+      }),
+      // The `node(id: GID!)` refetch field is the ONE input that must keep the
+      // WHOLE gid — it dispatches on the embedded type (`gid://ns/Type/local`),
+      // which the stripping `ID` scalar would tear off. So global ids get a
+      // dedicated passthrough scalar, used only by `node`. Bound only when the
+      // schema declares it (i.e. an app opted into `node: true`).
+      ...(typeDefs?.includes('scalar GID')
+        ? {
+            GID: new GraphQLScalarType({
+              name: 'GID',
+              description: 'A global id (`gid://namespace/Type/localId`), passed through verbatim.',
+              serialize: value => (value == null ? value : String(value)),
+              parseValue: value => value,
+              parseLiteral: ast => ('value' in ast ? ast.value : null)
+            })
+          }
+        : {}),
       // Transforms a date object to a timestamp
       Date: new GraphQLScalarType({
         name: 'Date',

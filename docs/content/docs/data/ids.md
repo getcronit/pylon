@@ -127,11 +127,13 @@ gid://pylon/Order/1780219977399508992
       ns    type  raw primary key
 ```
 
-Enable them per app with `db.globalIds`:
+Enable them with the top-level **`node`** option (it's an API-shape decision, not
+a database one — so it lives beside `db`, not inside it):
 
 ```ts
 export default new Pylon({
-  db: {models: [Order], globalIds: true}
+  db: {models: [Order]},
+  node: true
 })
 ```
 
@@ -143,8 +145,19 @@ With that on, three things happen automatically:
   global id.
 
 :::note
-Enabling `globalIds` changes the wire shape of every `id` (raw → gid). It's a
-per-app choice: an app with `db.globalIds` participates; others are unchanged.
+`node` changes the wire shape of `id` (raw → gid). Resolution is **per model**: a
+model uses its own `static config.node`, else its app's `node`, else the project
+default. Set it once on your **composition root** (it constructs last, so it wins
+as the default) to turn it on everywhere; a leaf app can override with
+`node: false` to keep its models on raw ids.
+
+```ts
+// root: on for the whole project
+export default new Pylon({ node: true }).compose(catalog, legacy)
+
+// a leaf that keeps raw integer ids:
+export const legacy = new Pylon({ db: {models: [LegacyRow]}, node: false })
+```
 :::
 
 ### Refetching with `node`
@@ -199,7 +212,7 @@ export default {
 :::tip
 Snowflakes and global ids pair naturally: a snowflake is globally unique, so the
 gid needs only `type + id` (no tenant leak), and the id is time-ordered and
-client-mintable. Use `id({snowflake: true})` + `db.globalIds` + `useDatabase({nodeId: 'lease'})`
+client-mintable. Use `id({snowflake: true})` + `node: true` + `useDatabase({nodeId: 'lease'})`
 for a distributed, collision-free, self-describing id scheme.
 :::
 

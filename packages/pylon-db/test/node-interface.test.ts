@@ -5,7 +5,7 @@
 import {toSDL} from '@getcronit/pylon-ir'
 import {describe, expect, it} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
-import {Model, id, text} from '../src/index'
+import {Model, foreignKey, id, text, type Relation} from '../src/index'
 import {toIR} from '../src/ir'
 
 class Author extends Model {
@@ -34,7 +34,7 @@ describe('Node interface (opt-in)', () => {
     expect(sdl).toMatch(/type Author implements Node/)
     expect(sdl).toMatch(/type Book implements Node/)
     // Root refetch field.
-    expect(sdl).toMatch(/node\(id: ID!\): Node/)
+    expect(sdl).toMatch(/node\(id: GID!\): Node/)
   })
 
   it('keeps every entity`s id typed ID!', () => {
@@ -44,6 +44,28 @@ describe('Node interface (opt-in)', () => {
       expect(idField.type).toEqual({kind: 'scalar', name: 'ID', nullable: false})
       expect(ir.entities[name].implements).toContain('Node')
     }
+  })
+})
+
+describe('foreign keys surface as ID', () => {
+  it('types a FK column `ID` (so the ID scalar decodes gids on input)', () => {
+    class Shelf extends Model {
+      id = id()
+      name = text()
+    }
+    class Volume extends Model {
+      id = id()
+      title = text()
+      shelfId = foreignKey(() => Shelf)
+      declare shelf: Relation<Shelf>
+    }
+    new Pylon({db: {models: [Shelf, Volume]}})
+
+    const ir = toIR()
+    const fk = ir.entities.Volume.fields.find(f => f.name === 'shelfId')!
+    // A FK references a primary key → surfaces as `ID`, not the physical `String`.
+    expect(fk.type).toEqual({kind: 'scalar', name: 'ID', nullable: false})
+    expect(toSDL(ir)).toMatch(/shelfId: ID!/)
   })
 })
 
@@ -65,21 +87,53 @@ describe('id({snowflake: true})', () => {
   })
 })
 
-describe('db: {globalIds: true} opt-in wiring', () => {
+describe('top-level `node` opt-in wiring', () => {
   it('turns on the Node projection for a bare `toIR()`', async () => {
-    // Fresh module graph so the global-ids flag starts off, then an app enables it.
+    // Fresh module graph so the node default starts off, then an app enables it.
     const reg = await import('../src/registry')
-    expect(reg.globalIdsEnabled()).toBe(false)
+    expect(reg.nodeDefaultValue()).toBeUndefined()
     expect(toSDL(toIR())).not.toMatch(/interface Node/)
 
     class Widget extends Model {
       id = id()
       name = text()
     }
-    new Pylon({db: {models: [Widget], globalIds: true}})
+    new Pylon({db: {models: [Widget]}, node: true})
 
-    expect(reg.globalIdsEnabled()).toBe(true)
+    expect(reg.nodeDefaultValue()).toBe(true)
     expect(toSDL(toIR())).toMatch(/interface Node/)
-    expect(toSDL(toIR())).toMatch(/node\(id: ID!\): Node/)
+    expect(toSDL(toIR())).toMatch(/node\(id: GID!\): Node/)
+  })
+
+  it('a leaf `node: false` opts its models out while the root default stays on', () => {
+    // Root default on (a prior app set it / the project root); a leaf overrides off.
+    class Rooted extends Model {
+      id = id()
+      title = text()
+    }
+    new Pylon({db: {models: [Rooted]}, node: true})
+
+    class RawApp extends Model {
+      id = id()
+      name = text()
+    }
+    // Leaf opts OUT: its models keep raw ids, no `implements Node`.
+    new Pylon({db: {models: [RawApp]}, node: false})
+
+    const sdl = toSDL(toIR())
+    expect(sdl).toMatch(/type Rooted implements Node/)
+    expect(sdl).not.toMatch(/type RawApp implements Node/)
+  })
+
+  it('a single model can override via `static config.node`', () => {
+    class OptedIn extends Model {
+      static config = {node: true}
+      id = id()
+      label = text()
+    }
+    // No app-level node; the model itself opts in.
+    new Pylon({db: {models: [OptedIn]}})
+
+    expect(toSDL(toIR())).toMatch(/type OptedIn implements Node/)
   })
 })

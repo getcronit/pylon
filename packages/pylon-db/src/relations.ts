@@ -9,7 +9,6 @@ import {
   applyPolicyWhere,
   applyTenantWhere,
   decodeCursor,
-  decodeIdOfFamily,
   deleteManyInstances,
   type Edge,
   encodeCursor,
@@ -25,12 +24,7 @@ import {appContextKey} from './app-context.js'
 import {batchLoad, createRealm} from './batch-loader.js'
 import {keyedQuery} from './keyed-query.js'
 import {noteQuery} from './n-plus-one.js'
-import {
-  getModelDefinitionOrThrow,
-  type ModelDefinition,
-  normalizedCtorName
-} from './registry.js'
-import {isGid} from './gid.js'
+import {getModelDefinitionOrThrow, type ModelDefinition} from './registry.js'
 import {parseSearchQuery} from './query-parser.js'
 
 /** Return type of a `belongsTo` accessor. */
@@ -544,20 +538,16 @@ export class ManyToManyManager<T extends object> {
         this.targetColumn ?? joinColumn(targetDef.tableName, targetPk.columnName),
       targetTable: targetDef.tableName,
       targetPkColumn: targetPk.columnName,
-      targetPkProperty: targetPk.propertyKey,
-      targetType: normalizedCtorName(this.targetCtor)
+      targetPkProperty: targetPk.propertyKey
     }
   }
 
   // Link ops only need the target's PRIMARY KEY (they write join rows, never the
   // target table), so accept the bare key, a `{id}` object, or a full instance —
-  // a scalar is the key itself; an object yields its PK property. The API hands
-  // out gids, so a client may pass a `gid://…` here → decode it to the raw local
-  // id (type-checked, STI-family aware) before it lands in the join table, else
-  // the join-row FK would violate.
-  private keyOf(item: Linkable<T>, prop: string, targetType: string): unknown {
-    const key = typeof item === 'object' && item !== null ? (item as any)[prop] : item
-    return isGid(key) ? decodeIdOfFamily(key, targetType) : key
+  // a scalar is the key itself; an object yields its PK property. (Gids are
+  // decoded at the GraphQL `ID` scalar boundary, so a raw local id arrives here.)
+  private keyOf(item: Linkable<T>, prop: string): unknown {
+    return typeof item === 'object' && item !== null ? (item as any)[prop] : item
   }
 
   /** All related rows, via a join (re-scoped by the target's READ policy). */
@@ -654,7 +644,7 @@ export class ManyToManyManager<T extends object> {
     const s = this.spec()
     const values = items.map(i => ({
       [s.localColumn]: this.ownerPk,
-      [s.targetColumn]: this.keyOf(i, s.targetPkProperty, s.targetType)
+      [s.targetColumn]: this.keyOf(i, s.targetPkProperty)
     }))
     await getDatabase()
       .kysely.insertInto(s.joinTable)
@@ -673,7 +663,7 @@ export class ManyToManyManager<T extends object> {
       .where(
         s.targetColumn as any,
         'in',
-        items.map(i => this.keyOf(i, s.targetPkProperty, s.targetType)) as any
+        items.map(i => this.keyOf(i, s.targetPkProperty)) as any
       )
       .execute()
   }

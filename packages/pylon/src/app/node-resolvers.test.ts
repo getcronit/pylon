@@ -8,7 +8,7 @@
  * and the pylon-db `resolveNode` integration test proves dispatch against a DB.)
  */
 import {describe, expect, it} from 'vitest'
-import {mergeResolverMaps} from './pylon-handler'
+import {decodeGidInput, mergeResolverMaps} from './pylon-handler'
 
 describe('mergeResolverMaps', () => {
   it('merges same-type fields one level deep (b wins on conflict)', () => {
@@ -28,5 +28,24 @@ describe('mergeResolverMaps', () => {
     expect(mergeResolverMaps({Date: {a: 1}}, {Date: 'scalar'})).toEqual({Date: 'scalar'})
     expect(mergeResolverMaps({}, {Query: {node: 1}})).toEqual({Query: {node: 1}})
     expect(mergeResolverMaps({Query: {a: 1}}, {})).toEqual({Query: {a: 1}})
+  })
+})
+
+describe('decodeGidInput (the ID scalar boundary decode)', () => {
+  it('strips a gid to its raw local id', () => {
+    expect(decodeGidInput('gid://pylon/Note/12345')).toBe('12345')
+    expect(decodeGidInput('gid://shop/Product/abc-def')).toBe('abc-def')
+  })
+
+  it('passes a raw local id (snowflake, cuid, uuid, int) through untouched', () => {
+    expect(decodeGidInput('867530999999')).toBe('867530999999')
+    expect(decodeGidInput('p0cbf9qq3m8ou7je2yvpz4t7')).toBe('p0cbf9qq3m8ou7je2yvpz4t7')
+    expect(decodeGidInput(42)).toBe(42)
+  })
+
+  it('leaves non-gid strings and non-strings alone', () => {
+    expect(decodeGidInput('not-a-gid')).toBe('not-a-gid')
+    expect(decodeGidInput(null)).toBeNull()
+    expect(decodeGidInput(undefined)).toBeUndefined()
   })
 })
