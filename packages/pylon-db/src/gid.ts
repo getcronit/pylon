@@ -23,7 +23,7 @@ import {BadRequestError} from './errors.js'
 /** Default URI scheme host segment — Pylon's analogue of Shopify's `shopify`. */
 export const GID_NAMESPACE = 'pylon'
 
-// The active namespace, configurable via `useDatabase({gidNamespace})`. Kept in a
+// The active namespace, configurable via `the node option's namespace`. Kept in a
 // process global (not just a module var) so the build-serialized `id` encoder in
 // `resolvers.js` — which has no imports in scope — can read the same value.
 const GID_PREFIX_GLOBAL = '__PYLON_GID_PREFIX__'
@@ -33,7 +33,7 @@ function currentPrefix(): string {
 
 /**
  * Set the process-wide gid namespace (`gid://<namespace>/…`). Called by
- * `useDatabase({gidNamespace})`. Also seeds the process global the emitted `id`
+ * `the node option's namespace`. Also seeds the process global the emitted `id`
  * encoder reads, so encode (build-serialized) and decode (here) always agree.
  */
 export function setGidNamespace(namespace: string): void {

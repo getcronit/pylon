@@ -66,7 +66,11 @@ useDatabase(opts?)
 | `validationErrors` | `boolean` | Surface model validation failures as GraphQL errors |
 | `transactionPerRequest` | `boolean` | Wrap each request in a single database transaction |
 | `nodeId` | `number \| 'lease'` | Snowflake node id for `id({snowflake:true})` PKs; `'lease'` claims a unique slot from the DB (multi-instance safe). Default `0` |
-| `gidNamespace` | `string` | Namespace segment for global ids — `gid://<gidNamespace>/…`. Default `'pylon'` |
+
+The global-id **namespace** is not a `useDatabase` option — it's part of the
+global-id feature, set on the top-level `node` option:
+`new Pylon({ node: {namespace: 'acme'} })` → `gid://acme/…` (default `pylon`).
+See [IDs & Global IDs](/docs/data/ids).
 
 See [Multi-tenancy & Features](/docs/data/multi-tenancy) and
 [IDs & Global IDs](/docs/data/ids).

@@ -19,6 +19,7 @@
 import path from 'node:path'
 import type {Resolvers, PylonOptions} from '@getcronit/pylon'
 import {finalizeProxyModel} from './fields.js'
+import {setGidNamespace} from './gid.js'
 import {recordApp, setNodeDefault} from './registry.js'
 import {defineAppPolicy, type AppPolicy} from './policies.js'
 import {defineAbilities, type AbilitiesFn} from './abilities.js'
@@ -67,16 +68,20 @@ declare module '@getcronit/pylon' {
     /**
      * Opt into Relay-style global object ids (an API-shape decision, NOT a database
      * one — hence a top-level option, not under `db`). Every model in scope gains a
-     * `gid://pylon/<Type>/<id>` handle, implements a shared `Node` interface, and a
-     * root `node(id): Node` refetch field is added. This changes the wire shape of
-     * `id` (raw → gid).
+     * `gid://<namespace>/<Type>/<id>` handle, implements a shared `Node` interface,
+     * and a root `node(id): Node` refetch field is added. This changes the wire
+     * shape of `id` (raw → gid).
+     *
+     * `true` enables it with the default `pylon` namespace; `{namespace}` enables it
+     * with a custom one (`gid://<namespace>/…`, Shopify-style so gids self-identify).
+     * The namespace is project-wide — set it on the composition root.
      *
      * Resolution is per model: a model uses its own `static config.node`, else its
      * app's `node`, else the PROJECT DEFAULT. Set it once on the composition root
      * (which constructs last, so it wins as the default) to turn it on everywhere;
      * a leaf app can override with `node: false` to keep its models on raw ids.
      */
-    node?: boolean
+    node?: boolean | {namespace?: string}
   }
 }
 
@@ -145,15 +150,21 @@ const register = (app: any, name: string): void => {
  */
 function processModels(app: any): void {
   const opts = config(app)
+  // The `node` project option is handled FIRST — before the models check — because
+  // it's a TOP-LEVEL API-shape decision (not a `db` one) that's typically set on the
+  // composition ROOT, which has NO models of its own. The root constructs last, so
+  // its value wins as the project default. `true` | `{namespace}` enable;
+  // `{namespace}` also sets the project-wide gid prefix (`gid://<namespace>/…`);
+  // `false` disables; `undefined` inherits. A leaf can override per app.
+  const nodeOpt = app.pylonOptions?.node as boolean | {namespace?: string} | undefined
+  const node = nodeOpt === undefined ? undefined : nodeOpt !== false
+  if (nodeOpt !== undefined) setNodeDefault(node!)
+  if (typeof nodeOpt === 'object' && nodeOpt?.namespace) setGidNamespace(nodeOpt.namespace)
+
   const models = opts.models
   if (!models?.length) return
   const name = appName(app)
   if (name) register(app, name)
-  // `node` is a TOP-LEVEL app option (an API-shape decision, not a `db` one). An
-  // app that sets it becomes the project default (the root constructs last → wins);
-  // it also tags this app's own models so a leaf can override the root per app.
-  const node = (app.pylonOptions?.node as boolean | undefined) ?? undefined
-  if (node !== undefined) setNodeDefault(node)
   const store = modelStore.get(app) ?? []
   for (const Ctor of models) {
     finalizeProxyModel(Ctor, {app: name, tenant: opts.tenant, secure: opts.secure, node})

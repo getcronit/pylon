@@ -168,7 +168,7 @@ function attachNodeResolvers(resolvers: ResolverMap, ir: PylonIR): void {
   for (const entity of Object.values(ir.entities)) {
     if (!entity.implements.includes('Node')) continue
     // The type segment is known at build; the `gid://<ns>/` prefix is read at
-    // runtime from the process global that `useDatabase({gidNamespace})` sets
+    // runtime from the process global that the `node` option's namespace sets
     // (default `gid://pylon/`), so encode and decode share one configurable
     // namespace without baking it into the serialized source.
     resolvers[entity.name] = {

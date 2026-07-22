@@ -35,7 +35,8 @@ export class Note extends models.Model {
 
 export default new Pylon({
   db: {models: [Note, Author, Tag]},
-  node: true,
+  // Enable global ids with a custom namespace → `gid://shop/<Type>/<id>`.
+  node: {namespace: 'shop'},
   graphql: {
     Query: {
       notes: (): Promise<Note[]> => Note.objects.all(),

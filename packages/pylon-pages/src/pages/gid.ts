@@ -20,13 +20,13 @@
 const GID_RE = /^gid:\/\/([^/]+)\/([^/]+)\/(.+)$/
 
 // The namespace used when REBUILDING a gid (`Gid.from`). Parsing never needs it —
-// the namespace is read out of the string — so this only matters for apps that
-// customised `useDatabase({gidNamespace})` and reconstruct a gid from a bare
-// local id. Defaults to Pylon's default namespace.
+// the namespace is read out of the string — so this only matters for apps that set
+// a custom `node: {namespace}` and reconstruct a gid from a bare local id. Defaults
+// to Pylon's default namespace.
 let defaultNamespace = 'pylon'
 
 export class Gid {
-  /** URI namespace segment (e.g. `pylon`, or the app's `gidNamespace`). */
+  /** URI namespace segment (e.g. `pylon`, or the app's node namespace). */
   readonly namespace: string
   /** GraphQL type name the id belongs to. */
   readonly type: string
@@ -72,7 +72,7 @@ export class Gid {
 
   /**
    * Set the namespace `Gid.from` uses when rebuilding gids — call once at client
-   * startup with the same value as the server's `useDatabase({gidNamespace})`.
+   * startup with the same value as the server's `node: {namespace}`.
    * Only needed if the app customised the namespace AND reconstructs gids from
    * bare local ids; parsing works with any namespace without this.
    */

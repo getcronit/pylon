@@ -180,32 +180,35 @@ manager, so tenant scoping and [policies](/docs/data/policies) still apply.
 
 ### gids on input
 
-Because the API hands out gids, you can pass them straight back into any
-primary-key or foreign-key filter — the ORM decodes them to the raw local id,
-type-checked. Raw ids keep working too, so nothing breaks:
+Because the API hands out gids, a client can pass them straight back into any
+`ID`-typed input — a primary key, a foreign key, a filter. The **`ID` scalar
+decodes** the gid to the raw local id at the GraphQL boundary, so your resolvers
+and the ORM only ever see raw ids. Raw ids keep working too (they pass through
+untouched), so nothing breaks:
 
-```ts
-// All three resolve the same row:
-await Order.objects.get({id: order.id})                          // raw id
-await Order.objects.get({id: 'gid://pylon/Order/1780219977399508992'}) // a gid
-await Order.objects.filter({id: {in: [someGid]}}).all()
+```graphql
+# both resolve the same row — the ID scalar strips the gid on the way in:
+{ order(id: "1780219977399508992") { id } }              # raw id
+{ order(id: "gid://pylon/Order/1780219977399508992") { id } }  # a gid
 ```
 
-The decode is type-checked against the target model: passing a `User` gid where
-an `Order` id is expected raises a `BAD_REQUEST` error rather than silently
-matching the wrong row. Everything past the query boundary sees the raw id —
-your resolver code never has to think about gids.
+Decode is **lenient** — the scalar strips the wrapper without checking the
+embedded type. That's safe because snowflake/cuid/uuid ids are globally unique, so
+a wrong-type gid can't collide with another table's row (it simply resolves to
+"not found"). The one exception is the polymorphic `node(id)` field, which keeps
+the whole type-carrying gid (via a dedicated `GID` scalar) — it dispatches on the
+type. The ORM itself is gid-free: a direct `Order.objects.get({id})` call takes a
+raw local id.
 
-### Namespace: `useDatabase({ gidNamespace })`
+### Namespace: `node: { namespace }`
 
 The `pylon` segment is configurable — set it to your app or vendor name
-(Shopify-style) so gids are self-identifying. It applies to both encoding and
-decoding:
+(Shopify-style) so gids are self-identifying. Because the namespace is part of the
+global-id feature (not the database), it lives on the same `node` option, on the
+composition root:
 
-```ts title="pylon.config.ts"
-export default {
-  plugins: [useDatabase({gidNamespace: 'acme'})]
-}
+```ts title="index.ts"
+export default new Pylon({ node: {namespace: 'acme'} }).compose(orders, billing)
 // → gid://acme/Order/1780219977399508992
 ```
 

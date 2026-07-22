@@ -25,7 +25,6 @@ import {GraphQLError} from 'graphql'
 import {runWithAppContext} from './app-context.js'
 import {connect, type Database, databaseForKysely} from './database.js'
 import {BadRequestError, NotFoundError} from './errors.js'
-import {setGidNamespace} from './gid.js'
 import {leaseNodeId, type NodeLease} from './node-lease.js'
 import {setSnowflakeNodeId} from './snowflake.js'
 import {ForbiddenError, FeatureDisabledError, type FeatureState} from './features.js'
@@ -60,12 +59,6 @@ export interface UseDatabaseOptions {
    * - omitted → `0` (fine for a single writer).
    */
   nodeId?: number | 'lease'
-  /**
-   * Namespace segment for global ids: `gid://<gidNamespace>/<Type>/<id>`. Defaults
-   * to `'pylon'`. Set it to your app/vendor name (Shopify-style) so gids are
-   * self-identifying. Applies to both encoding and decoding.
-   */
-  gidNamespace?: string
   /**
    * Run each request inside a single transaction, bound as the ambient
    * connection — committed when the handler resolves, rolled back if it throws.
@@ -131,9 +124,9 @@ export function useDatabase(options: UseDatabaseOptions = {}): Plugin {
     dependsOn: ['identity'],
     async setup() {
       db = connect({connectionString: options.connectionString ?? process.env.DATABASE_URL})
-      // Apply id/gid config from the plugin (not env) before the app serves — so
-      // the first inserted snowflake and every gid encode/decode use these.
-      setGidNamespace(options.gidNamespace ?? 'pylon')
+      // Apply the snowflake node id before the app serves, so the first inserted
+      // snowflake uses it. (The gid namespace is set from the `node` option — an
+      // API-shape concern — not here.)
       if (options.nodeId === 'lease') {
         nodeLease = await leaseNodeId(db)
         setSnowflakeNodeId(nodeLease.nodeId)
