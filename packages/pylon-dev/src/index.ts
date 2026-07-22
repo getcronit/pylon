@@ -19,7 +19,7 @@ import {appModelToDDL, appModelToSDL, inspectApp} from './inspect'
 import {verifyApp} from './verify'
 import {startMcpServer} from './mcp'
 import {runEval, formatReport, SdkRunner} from './eval'
-import {fileURLToPath} from 'node:url'
+import {fileURLToPath, pathToFileURL} from 'node:url'
 import {createRequire} from 'node:module'
 import {buildClient} from './builder/build-client'
 import {startDevReloadServer} from './builder/dev-reload-server'
@@ -37,22 +37,30 @@ const requireFromHere = createRequire(import.meta.url)
  * tsconfig (`useDefineForClassFields:false`), and Node's module cache gives one instance
  * per file (no bundling, no duplication).
  */
-function tsxCli(): string {
-  const pkgPath = requireFromHere.resolve('tsx/package.json')
-  const pkg = requireFromHere(pkgPath) as {bin: string | {tsx: string}}
-  const bin = typeof pkg.bin === 'string' ? pkg.bin : pkg.bin.tsx
-  return path.join(path.dirname(pkgPath), bin)
+/**
+ * Run `entry` with the tsx loader IN-PROCESS — the exact hooks `tsx <file>` injects
+ * (`--require preflight.cjs --import loader.mjs`), but WITHOUT going through the tsx
+ * CLI. The CLI forks a SECOND node process that owns the listening socket; that
+ * grandchild escapes both Ctrl-C and the dev restart's tree-kill (reparented /
+ * separate group), leaving the port held → `EADDRINUSE` on the next rebuild and an
+ * un-killable server. One process = one killable listener.
+ */
+function tsxRun(entry: string): string {
+  const dir = path.dirname(requireFromHere.resolve('tsx/package.json'))
+  const preflight = path.join(dir, 'dist', 'preflight.cjs')
+  const loader = pathToFileURL(path.join(dir, 'dist', 'loader.mjs')).href
+  return `node --require ${preflight} --import ${loader} ${entry}`
 }
 
 /** Default dev runner: the loader on the generated bootstrap. Override with `-c`. */
 function defaultDevCommand(outputDir = '.pylon'): string {
-  return `node ${tsxCli()} ${outputDir}/server.mjs`
+  return tsxRun(`${outputDir}/server.mjs`)
 }
 
 /** Default worker runner: the loader on the worker entry (unbundled). Override with `-c`
  *  (e.g. prod: `node .pylon/src/worker.js` after `pylon build`). */
 function defaultWorkerCommand(entry: string): string {
-  return `node ${tsxCli()} ${entry}`
+  return tsxRun(entry)
 }
 
 /** The app entry that, when imported, constructs your `Pylon` and registers its models. */
@@ -666,7 +674,10 @@ program
         }
         proc.once('exit', finish)
         try {
-          treeKillSync(proc.pid)
+          // SIGKILL (not the default SIGTERM): a dev restart wants the port freed
+          // NOW — no graceful-shutdown handler can delay the exit and race the
+          // next spawn for the port.
+          treeKillSync(proc.pid, 'SIGKILL')
         } catch (e: any) {
           consola.error('Failed to kill server process', e)
           finish()
