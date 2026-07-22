@@ -13,6 +13,17 @@ import {
 
 type ColumnType = string | Expression<any>
 
+/** A JS array default (`[]`, `['a','b']`) → a Postgres array literal (`'{}'`,
+ *  `'{"a","b"}'`). Kysely can't render a JS array as an immediate default value,
+ *  so array columns need the SQL literal. Each element is double-quoted + escaped,
+ *  which Postgres accepts for text[] and numeric[] alike; empty is the common case. */
+function pgArrayLiteral(arr: readonly unknown[]): string {
+  const body = arr
+    .map(v => `"${String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`)
+    .join(',')
+  return `'{${body}}'`
+}
+
 // Postgres-specific (dialect override point). This is the `db push` (kysely)
 // type renderer — the runtime parallel to the migration DDL renderer in
 // `@getcronit/pylon-ir` (`dialect.ts`/`ddl.ts`). A non-Postgres adapter would
@@ -56,14 +67,6 @@ function pgColumnType(col: ColumnDefinition): ColumnType {
 async function createTable(db: Database, def: ModelDefinition): Promise<void> {
   let builder = db.kysely.schema.createTable(def.tableName).ifNotExists()
 
-  // Map each FK column to its belongsTo relation so we can add a REFERENCES.
-  const fkByColumn = new Map<string, RelationDefinition>()
-  for (const rel of def.relations) {
-    if (rel.kind === 'belongsTo' && rel.fkColumn) {
-      fkByColumn.set(rel.fkColumn, rel)
-    }
-  }
-
   for (const col of def.columns) {
     // Resolve FK column types against the target PK (e.g. cuid `text`) — the
     // stored type is a `bigint` fallback.
@@ -84,28 +87,55 @@ async function createTable(db: Database, def: ModelDefinition): Promise<void> {
         if (!col.autoIncrement) {
           if (!col.nullable && !col.primaryKey) c = c.notNull()
           if (col.defaultSql) c = c.defaultTo(sql.raw(col.defaultSql))
-          else if (col.default !== undefined) c = c.defaultTo(col.default as any)
+          else if (col.default !== undefined) {
+            // A JS array default (`default: []`) can't be rendered as a Kysely
+            // immediate value → compile it to a Postgres array literal (`'{}'`,
+            // `'{"a","b"}'`). Everything else passes straight through.
+            c =
+              col.array && Array.isArray(col.default)
+                ? c.defaultTo(sql.raw(pgArrayLiteral(col.default)))
+                : c.defaultTo(col.default as any)
+          }
         }
 
         if (col.check) c = c.check(sql.raw(col.check))
-
-        const rel = fkByColumn.get(col.columnName)
-        if (rel) {
-          const targetDef = getModelDefinition(rel.target())
-          if (targetDef?.primaryKey) {
-            c = c
-              .references(
-                `${targetDef.tableName}.${targetDef.primaryKey.columnName}`
-              )
-              .onDelete(rel.onDelete ?? (col.nullable ? 'set null' : 'cascade'))
-          }
-        }
         return c
       }
     )
   }
 
   await builder.execute()
+}
+
+/**
+ * Add each model's belongsTo foreign keys as a SECOND pass, after every table
+ * exists. Inline `REFERENCES` in `CREATE TABLE` can't express a FK CYCLE (e.g.
+ * `Product.groupOptionId → ProductOption.productId → Product`) — no table order
+ * satisfies both — so the constraints are deferred to `ALTER TABLE`. Idempotent:
+ * a duplicate constraint on a re-run of `push` is ignored.
+ */
+async function addForeignKeys(db: Database, def: ModelDefinition): Promise<void> {
+  for (const rel of def.relations) {
+    if (rel.kind !== 'belongsTo' || !rel.fkColumn) continue
+    const targetDef = getModelDefinition(rel.target())
+    if (!targetDef?.primaryKey) continue
+    const col = def.columns.find(c => c.columnName === rel.fkColumn)
+    try {
+      await db.kysely.schema
+        .alterTable(def.tableName)
+        .addForeignKeyConstraint(
+          pgIdent(`${def.tableName}_${rel.fkColumn}_fkey`),
+          [rel.fkColumn],
+          targetDef.tableName,
+          [targetDef.primaryKey.columnName]
+        )
+        .onDelete(rel.onDelete ?? (col?.nullable ? 'set null' : 'cascade'))
+        .execute()
+    } catch (e) {
+      // Re-run of `push`: the constraint already exists (duplicate_object). Ignore.
+      if ((e as {code?: string})?.code !== '42710') throw e
+    }
+  }
 }
 
 /** The synthesized join table backing one `manyToMany` relation, or null. */
@@ -273,8 +303,13 @@ export async function syncSchema(
 ): Promise<void> {
   const db = getDatabase()
   models = foldSingleTableInheritance(models)
+  // 1. All tables first (no FKs) — so a FK cycle between two tables can't wedge
+  //    the create order. 2. Then the FK constraints, once every table exists.
   for (const def of orderByDependencies(models)) {
     await createTable(db, def)
+  }
+  for (const def of models) {
+    await addForeignKeys(db, def)
   }
   // m2m join tables reference both sides, so create them after all base tables.
   for (const plan of joinTablePlans(models)) {

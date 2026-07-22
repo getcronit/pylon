@@ -26,6 +26,7 @@ class Org extends Model {
   name = text()
   features = array(text()) // text[]
   scores = array(int(), {nullable: true}) // integer[] nullable
+  tags = array(text(), {default: []}) // text[] with a JS-array DB default
 }
 new Pylon({db: {models: [Org]}})
 
@@ -64,6 +65,15 @@ describe('array columns', () => {
       const fetched = await Org.objects.get({id: org.id})
       expect(fetched.features).toEqual(['products', 'invoicing'])
       expect(fetched.scores).toEqual([1, 2, 3])
+    })
+
+    it('compiles a JS-array default (`default: []`) to a Postgres array literal', async () => {
+      // Regression: `defaultTo([])` is an invalid Kysely immediate — an array
+      // column must emit `DEFAULT '{}'`. A create that omits `tags` reads back `[]`.
+      const org = await Org.objects.create({name: 'defaulted', features: ['x']})
+      expect(org.tags).toEqual([])
+      const fetched = await Org.objects.get({id: org.id})
+      expect(fetched.tags).toEqual([])
     })
 
     it('the underlying column type is text[]', async () => {
