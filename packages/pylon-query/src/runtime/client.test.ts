@@ -77,9 +77,32 @@ describe('PylonQueryClient', () => {
     expect(fetcher).toHaveBeenCalledTimes(1) // still fresh → no refetch
   })
 
-  it('surfaces GraphQL errors', async () => {
+  it('surfaces GraphQL errors when NO data comes back (total failure)', async () => {
     const fetcher = vi.fn(async () => ({errors: [{message: 'boom'}]}))
     const client = createPylonQueryClient({fetcher: fetcher as any})
     await expect(client.fetch(D)).rejects.toThrow('boom')
+  })
+
+  it('tolerates partial data alongside field errors (feature gating)', async () => {
+    // A gated field (`tickets`) throws while its siblings resolve — GraphQL
+    // returns partial `data` + `errors`. The op must NOT fail: good data is
+    // cached and the errored field is simply `null`.
+    const M = doc<{tasks: {id: string} | null; tickets: {id: string} | null}>({
+      id: 'q_partial',
+      body: 'query Partial { tasks { id } tickets { id } }',
+      name: 'Partial'
+    })
+    const fetcher = vi.fn(async () => ({
+      data: {tasks: {id: 't1'}, tickets: null},
+      errors: [{message: 'Feature "tickets" is not enabled for this tenant.'}]
+    }))
+    const client = createPylonQueryClient({fetcher: fetcher as any})
+    const res = (await client.fetch(M)) as any
+    expect(res.tasks).toEqual({id: 't1'})
+    expect(res.tickets).toBeNull()
+    // Cached and readable without throwing.
+    const read = client.ensure(M)
+    expect('error' in read).toBe(false)
+    expect((read as any).data.tasks).toEqual({id: 't1'})
   })
 })

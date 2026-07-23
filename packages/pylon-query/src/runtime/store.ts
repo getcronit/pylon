@@ -13,6 +13,14 @@ export interface StoreEntry {
   data?: unknown
   /** Terminal error, if the operation failed. */
   error?: unknown
+  /**
+   * Non-fatal field errors that rode alongside partial `data` (GraphQL allows
+   * `data` and `errors` to coexist — e.g. a feature-gated field throws while its
+   * siblings resolve). The operation is NOT failed: `data` holds the good fields
+   * and reading a nulled-out errored field just yields `null`. Kept for surfacing
+   * (dev warnings / debugging), never thrown from `ensure`.
+   */
+  partialErrors?: Array<{message: string}>
   /** In-flight fetch; present iff the operation is pending. */
   promise?: Promise<unknown>
   /** When `data` was written (ms epoch). Drives freshness decisions. */

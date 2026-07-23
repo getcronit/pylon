@@ -67,10 +67,31 @@ export class PylonQueryClient {
       this.options
     ).then(
       res => {
-        if (res.errors && res.errors.length) {
-          const err = new GraphQLResultError(res.errors)
+        // Partial results are legal GraphQL: `data` and `errors` coexist when a
+        // field resolver throws but its (nullable) siblings resolve. The prime
+        // case is FEATURE GATING — a statically-compiled `useData` document can't
+        // know which features a tenant has, so it always selects gated fields; a
+        // disabled one throws FEATURE_DISABLED (that field comes back `null`, the
+        // rest come back fine). Only when NO usable data came back is it a true
+        // total failure (auth on the whole request, network error, a non-null
+        // field nulling the root) — then keep the old fail-loud behavior.
+        const hasErrors = !!(res.errors && res.errors.length)
+        const hasData =
+          res.data != null &&
+          (typeof res.data !== 'object' ||
+            Object.keys(res.data as Record<string, unknown>).length > 0)
+        if (hasErrors && !hasData) {
+          const err = new GraphQLResultError(res.errors!)
           this.store.patch(key, {error: err, promise: undefined})
           throw err
+        }
+        // Surface the swallowed field errors in dev so a genuine resolver bug
+        // (as opposed to an expected feature gate) doesn't vanish silently.
+        if (hasErrors && typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production') {
+          console.warn(
+            `[pylon-query] "${d.name ?? 'query'}" returned partial data with ${res.errors!.length} field error(s):`,
+            res.errors!.map(e => e.message).join('; ')
+          )
         }
         // Normalize: hoist entities into the canonical table, store the ref tree
         // as the operation's data. Cross-query consistency falls out of this —
@@ -94,6 +115,7 @@ export class PylonQueryClient {
         this.store.patch(key, {
           data,
           error: undefined,
+          partialErrors: hasErrors ? res.errors : undefined,
           promise: undefined,
           writtenAt: Date.now(),
           stale: false
