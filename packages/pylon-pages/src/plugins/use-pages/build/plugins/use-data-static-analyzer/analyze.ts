@@ -1901,6 +1901,27 @@ export function extractQueries(
   )
   const processedFunctions = new Set<Node>()
 
+  // Per `__target_N`, the RETURN PROPS a hook reconstructs into a plain object literal — the
+  // `__prop_X` at the head of that hook's return paths. A DIFFERENT function that receives such
+  // a prop (e.g. `getInitials(owner)`) and reads a field off it yields a path shaped
+  // `[__target_N, owner, name]` — no `__prop_` prefix, no data field between target and `owner`.
+  // Merging that raw invents a bogus `owner` field directly under the query root. It's also
+  // redundant: the hook's OWN return path already selected `contactAddressHint.owner.name`.
+  // Accumulated as functions are dequeued (the reconstructing hook is always processed before
+  // any callee it prop-drills into).
+  const targetReconstructedProps = new Map<string, Set<string>>()
+  const recordReconstructedProps = (retPaths: Path[]) => {
+    for (const p of retPaths) {
+      if (!p[0]?.name.startsWith('__prop_')) continue
+      const prop = p[0].name.replace(/^__prop_/, '')
+      const tgt = p.find(s => s.name.startsWith('__target_'))
+      if (!tgt) continue
+      let set = targetReconstructedProps.get(tgt.name)
+      if (!set) targetReconstructedProps.set(tgt.name, (set = new Set()))
+      set.add(prop)
+    }
+  }
+
   let directImporterGraph = projectImporterGraphCache.get(project)
 
   function buildImporterGraph() {
@@ -2016,6 +2037,7 @@ export function extractQueries(
     const targetPaths = paths.filter(p =>
       p.some(step => step.name.startsWith('__target_'))
     )
+    recordReconstructedProps(paths)
     if (targetPaths.length === 0) continue
 
     buildImporterGraph()
@@ -2198,6 +2220,20 @@ export function extractQueries(
 
           const targetKey = tp[targetIdx].name
           const subPath = tp.slice(targetIdx + 1)
+
+          // Drop a redundant reconstruction re-derivation: no `__prop_` prefix and the first
+          // real step after the target is a prop the target's owner reconstructs into a plain
+          // object. Writing it would invent a bogus field under the query root; the data is
+          // already selected via that hook's own return path.
+          if (prefixes.length === 0) {
+            const firstReal = subPath.find(s => !s.name.startsWith('__'))
+            if (
+              firstReal &&
+              targetReconstructedProps.get(targetKey)?.has(firstReal.name)
+            ) {
+              continue
+            }
+          }
 
           let currentLevel: any = result[targetKey] || (result[targetKey] = {})
           let parent: any = result
