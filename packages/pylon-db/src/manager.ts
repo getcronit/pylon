@@ -32,6 +32,35 @@ export type ModelCtor<T> = {new (): T}
 /** Tracks which instances came from / have been written to the database. */
 const persisted = new WeakSet<object>()
 
+/**
+ * Column values as last loaded/persisted from the DB — the baseline the `postSave` `changes`
+ * diff is computed against. Set on `hydrate` (and refreshed after each `saveInstance`), WeakMap
+ * so it's GC'd with the instance.
+ */
+const baseline = new WeakMap<object, Record<string, unknown>>()
+
+function snapshotColumns(def: ModelDefinition, instance: any): Record<string, unknown> {
+  const snap: Record<string, unknown> = {}
+  for (const col of def.columns) snap[col.propertyKey] = instance[col.propertyKey]
+  return snap
+}
+
+/** Diff the instance's current column values against its DB baseline. Undefined = no baseline
+ *  (fresh `new Model()`) or nothing changed. */
+function diffAgainstBaseline(
+  def: ModelDefinition,
+  instance: any
+): Record<string, {from: unknown; to: unknown}> | undefined {
+  const prev = baseline.get(instance)
+  if (!prev) return undefined
+  let changes: Record<string, {from: unknown; to: unknown}> | undefined
+  for (const col of def.columns) {
+    const k = col.propertyKey
+    if (!Object.is(prev[k], instance[k])) (changes ??= {})[k] = {from: prev[k], to: instance[k]}
+  }
+  return changes
+}
+
 export function columnFor(
   def: ModelDefinition,
   propertyKey: string
@@ -104,6 +133,7 @@ export function hydrate<T extends object>(ctor: ModelCtor<T>, row: any): T {
   // for an STI base, so this is the concrete type.
   stampTypename(instance, def.ctor.name)
   persisted.add(instance)
+  baseline.set(instance, snapshotColumns(def, instance))
   return instance
 }
 
@@ -1628,6 +1658,10 @@ export async function saveInstance(instance: object): Promise<object> {
     }
   }
 
+  // Field-level diff for `postSave` receivers (audit). Computed after the write refreshes the
+  // instance from RETURNING, so it reflects DB-applied values too. Undefined on INSERT.
+  let changes: Record<string, {from: unknown; to: unknown}> | undefined
+
   // Atomic: preSave → write → postSave commit or roll back together, so a failing
   // hook (e.g. a postSave audit/outbox write) undoes the row. `transaction()` is
   // reentrant — a save nested inside an outer `transaction()` joins it rather than
@@ -1665,6 +1699,7 @@ export async function saveInstance(instance: object): Promise<object> {
         throw new ForbiddenError(`Not permitted to update "${def.tableName}".`)
       }
       if (row) copyRowOnto(def, instance, row)
+      changes = diffAgainstBaseline(def, instance)
     } else {
       const data = rowFromInstance(def, instance, {includePrimaryKey: true})
       const insert = db.kysely.insertInto(def.tableName)
@@ -1686,8 +1721,11 @@ export async function saveInstance(instance: object): Promise<object> {
      throw err
    }
 
-   if (!db.skipSignals) await signals.postSave.emit({instances: [instance], created, model})
+   if (!db.skipSignals) await signals.postSave.emit({instances: [instance], created, model, changes})
   })
+  // Re-baseline to the just-persisted state, so a subsequent `$save` on this instance diffs
+  // against what's now in the DB (not the value it had two saves ago).
+  baseline.set(instance, snapshotColumns(def, instance))
   return instance
 }
 

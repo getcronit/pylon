@@ -36,6 +36,17 @@ export interface SaveSignalPayload<T = unknown> {
   /** true on INSERT, false on UPDATE (homogeneous for the batch). */
   created: boolean
   model: Function
+  /**
+   * UPDATE only: the columns whose value changed vs the baseline captured when the instance
+   * was loaded from the DB (`hydrate`), as `{propertyKey: {from, to}}`. Absent on INSERT and
+   * when nothing changed. Enables field-level audit diffs from a plain `postSave` receiver.
+   *
+   * Caveats: only single-instance `$save` updates carry it (set-based `.update()` never loads
+   * rows); a field set on a fresh `new Model()` (no baseline) won't appear; and an IN-PLACE
+   * mutation of a JSON/object field won't diff (it shares the baseline reference) — assign a
+   * new value to have it registered.
+   */
+  changes?: Readonly<Record<string, {from: unknown; to: unknown}>>
 }
 
 export interface DeleteSignalPayload<T = unknown> {
