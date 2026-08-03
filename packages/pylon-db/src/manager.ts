@@ -1053,12 +1053,35 @@ export class QuerySet<T extends object> {
   }
 
   /** Delete every row matching the current filter. Returns the count deleted. */
-  async delete(): Promise<number> {
-    const db = getDatabase()
-    let q: any = db.kysely.deleteFrom(this.def.tableName)
-    q = this.applyWhere(q, 'delete')
-    const res = await q.executeTakeFirst()
-    return Number(res?.numDeletedRows ?? 0)
+  /**
+   * Set-based DELETE. Signals fire by DEFAULT: the deleted rows are captured via `RETURNING`
+   * (one statement, no separate SELECT), hydrated, and handed to `postDelete` — so audit /
+   * realtime sync see the real rows (with their labels). Runs in a transaction so a failing
+   * receiver rolls the delete back. Pass `{signals: false}` to opt a genuinely large bulk delete
+   * out (skips RETURNING + emit — the old fast path). Only POST signals fire for set-based ops:
+   * `preDelete` is a before-write hook, incompatible with a single RETURNING statement.
+   */
+  async delete(opts?: {signals?: boolean}): Promise<number> {
+    const wantSignals = (opts?.signals ?? true) && !getDatabase().skipSignals
+    if (!wantSignals) {
+      const db = getDatabase()
+      let q: any = db.kysely.deleteFrom(this.def.tableName)
+      q = this.applyWhere(q, 'delete')
+      const res = await q.executeTakeFirst()
+      return Number(res?.numDeletedRows ?? 0)
+    }
+    return getDatabase().transaction(async () => {
+      const db = getDatabase()
+      let q: any = db.kysely.deleteFrom(this.def.tableName)
+      q = this.applyWhere(q, 'delete')
+      const rows: any[] = await q.returningAll().execute()
+      if (rows.length === 0) return 0
+      const model = this.ctor as Function
+      const instances = rows.map(r => hydrate(this.ctor, r))
+      for (const i of instances) persisted.delete(i as object)
+      await signals.postDelete.emit({instances, model})
+      return rows.length
+    })
   }
 
   /**
@@ -1399,18 +1422,43 @@ export class QuerySet<T extends object> {
   }
 
   /** Update every row matching the current filter with `values`. */
-  async update(values: Partial<Record<keyof T, unknown>>): Promise<number> {
-    const db = getDatabase()
+  /**
+   * Set-based UPDATE. Signals fire by DEFAULT: the updated rows are captured via `RETURNING`,
+   * hydrated, and handed to `postSave` (created: false) — so audit / realtime sync see the new
+   * state. In a transaction so a failing receiver rolls the update back. `{signals: false}` opts
+   * a large bulk update out (old fast path). Set-based carries no per-row baseline, so the
+   * `postSave` `changes` diff is omitted (bulk field diffs would need a SELECT of the old rows);
+   * only POST signals fire (no `preSave`).
+   */
+  async update(
+    values: Partial<Record<keyof T, unknown>>,
+    opts?: {signals?: boolean}
+  ): Promise<number> {
     const data: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(values)) {
       // `undefined` = "don't touch this column" (Prisma semantics); `null` sets null.
       if (value !== undefined) data[columnFor(this.def, key).columnName] = value
     }
     if (Object.keys(data).length === 0) return 0 // nothing to set → no-op
-    let q: any = db.kysely.updateTable(this.def.tableName).set(data)
-    q = this.applyWhere(q, 'update')
-    const res = await q.executeTakeFirst()
-    return Number(res?.numUpdatedRows ?? 0)
+    const wantSignals = (opts?.signals ?? true) && !getDatabase().skipSignals
+    if (!wantSignals) {
+      const db = getDatabase()
+      let q: any = db.kysely.updateTable(this.def.tableName).set(data)
+      q = this.applyWhere(q, 'update')
+      const res = await q.executeTakeFirst()
+      return Number(res?.numUpdatedRows ?? 0)
+    }
+    return getDatabase().transaction(async () => {
+      const db = getDatabase()
+      let q: any = db.kysely.updateTable(this.def.tableName).set(data)
+      q = this.applyWhere(q, 'update')
+      const rows: any[] = await q.returningAll().execute()
+      if (rows.length === 0) return 0
+      const model = this.ctor as Function
+      const instances = rows.map(r => hydrate(this.ctor, r))
+      await signals.postSave.emit({instances, created: false, model})
+      return rows.length
+    })
   }
 }
 
