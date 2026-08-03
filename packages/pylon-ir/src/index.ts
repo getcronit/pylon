@@ -25,7 +25,13 @@ export {emptyIR, tableSpecOf, joinTableName, joinColumn, pgIdent} from './ir.js'
 export {toSDL, renderType} from './sdl.js'
 export {toDDL, columnDDL, sqlTypeDDL} from './ddl.js'
 export {postgres, type Dialect} from './dialect.js'
-export {mergeIR, mergeFields, pruneUnreferencedEnums, collapseInterfaceTwins} from './merge.js'
+export {
+  mergeIR,
+  mergeFields,
+  pruneUnreferencedEnums,
+  pruneUnreferencedObjectTypes,
+  collapseInterfaceTwins
+} from './merge.js'
 export {
   diffEntities,
   diffSchema,

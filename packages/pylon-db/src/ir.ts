@@ -83,7 +83,10 @@ function columnSpec(col: ColumnDefinition): ColumnSpec {
     array: col.array,
     generatedAs: col.generatedAs,
     requires: col.requires,
-    enum: col.enumValues?.length ? true : undefined
+    enum: col.enumValues?.length ? true : undefined,
+    // `models.Struct<T>`: keep the parser's structured object type on the wire instead of
+    // collapsing this jsonb column to the `JSON` scalar (see mergeFields). Storage is unchanged.
+    struct: col.struct ? true : undefined
   }
 }
 

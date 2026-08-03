@@ -11,6 +11,7 @@ import {
   collapseInterfaceTwins,
   mergeIR,
   pruneUnreferencedEnums,
+  pruneUnreferencedObjectTypes,
   toSDL,
   type PylonIR
 } from '@getcronit/pylon-ir'
@@ -412,6 +413,10 @@ export class SchemaBuilder {
       // TS-only modifier). Runs BEFORE pruning so a now-orphaned enum is removed too.
       hidePrivateOrmMembers(ir, this.program)
       ir = pruneUnreferencedEnums(ir)
+      // Drop object types the parser reflected for a `models.JSON<T>` column the ORM collapsed to
+      // the `JSON` scalar — otherwise `T` (and its nested types) leak into the SDL as orphans (or a
+      // duplicate entity type). A `models.Struct<T>` column keeps `T` referenced, so it survives.
+      ir = pruneUnreferencedObjectTypes(ir)
     }
 
     const typeDefs = options.contributeIR ? toSDL(ir) : parser.toString()

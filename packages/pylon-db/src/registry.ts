@@ -26,6 +26,12 @@ export interface ColumnDefinition {
   unique: boolean
   nullable: boolean
   /**
+   * A `jsonb` column whose GraphQL type is the STRUCTURED generic (`models.Struct<T>`), not the
+   * opaque `JSON` scalar. The runtime column is identical to `models.JSON`; this only tells the
+   * schema layer to expose `T` (the parser's reflected object type) rather than collapse to `JSON`.
+   */
+  struct?: boolean
+  /**
    * Hidden from the GraphQL layer ($-prefixed properties). The column is still
    * persisted — it is only omitted from the generated API. Reserved for the
    * Phase 3 GraphQL integration; carried here so the model is the single

@@ -249,6 +249,29 @@ export function json<T = unknown>(options: FieldOptions = {}): T | null {
   return field('jsonb', {}, options) as T | null
 }
 
+/**
+ * A `jsonb` column exposed on the wire as its STRUCTURED generic `T` — a real GraphQL object type
+ * with selectable subfields — rather than the opaque `JSON` scalar that {@link json} produces.
+ *
+ * Same storage as `models.JSON` (one `jsonb` column, whole-value read/write); the only difference
+ * is the GraphQL surface. Reach for it when clients need to select into the shape:
+ *
+ * ```ts
+ * interface AuditMeta { v: number; target?: { id: string; label?: string | null } }
+ * metadata = models.Struct<AuditMeta | null>({schema: auditMetaSchema, nullable: true})
+ * //  → GraphQL `metadata: AuditMeta` (object type), queryable as `metadata { v target { id } }`
+ * ```
+ *
+ * The exposed type name + fields are reflected from `T` by the build's type-checker (the ORM only
+ * flags the column `struct`); pass a concrete interface/`z.infer` generic, not `unknown`. Prefer
+ * {@link json} when the value is genuinely opaque — a struct type is a schema-visible contract.
+ */
+export function struct<T = unknown>(options: NullableOpts): T | null
+export function struct<T = unknown>(options?: FieldOptions): T
+export function struct<T = unknown>(options: FieldOptions = {}): T | null {
+  return field('jsonb', {struct: true}, options) as T | null
+}
+
 /** A string-valued TS enum object (`enum X { A = 'a' }` compiles to this). */
 type StringEnum = Record<string, string>
 
@@ -913,7 +936,8 @@ function buildColumn(key: string, b: FieldBuilder): ColumnDefinition {
     enumValues: b.options.enumValues,
     validate: b.options.validate,
     schema: b.options.schema,
-    array: b.options.array
+    array: b.options.array,
+    struct: b.base.struct
   }
 }
 

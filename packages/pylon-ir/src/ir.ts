@@ -71,6 +71,11 @@ export interface ColumnSpec {
    *  enum the type-checker names. Signals `mergeFields` to keep the parser's
    *  enum type rather than the ORM's `String`. */
   enum?: boolean
+  /** A `jsonb` column (`models.Struct<T>`) whose GraphQL type is the STRUCTURED object
+   *  type `T` the type-checker names — not the opaque `JSON` scalar. Signals `mergeFields`
+   *  to keep the parser's reflected type rather than the ORM's `JSON` placeholder. Same
+   *  storage as a plain `models.JSON` column (`serialize: 'json'`); differs only on the wire. */
+  struct?: boolean
   /** Requires a specific dialect (e.g. `tsvector`/GIN need Postgres). A future
    *  non-Postgres adapter reads this to reimplement or reject the feature. */
   requires?: 'postgres'

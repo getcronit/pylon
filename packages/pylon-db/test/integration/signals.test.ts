@@ -36,6 +36,17 @@ class Audit extends Model {
 }
 new Pylon({db: {models: [Audit]}})
 
+// A model with a generated `tsvector` (fts) column + a hidden `$secret` column — to prove the
+// `changes` diff excludes both (they aren't user-authored public fields).
+class Doc extends Model {
+  static config = {table: 'sig_doc', search: {columns: ['title']}} satisfies ModelConfig<Doc>
+  static objects = manager(Doc)
+  id = id()
+  title = text()
+  $secret = text({nullable: true})
+}
+new Pylon({db: {models: [Doc]}})
+
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'
 const runDb = process.env.DATABASE_URL || process.env.PYLON_ORM_IT
@@ -45,17 +56,21 @@ describe.skipIf(!runDb)('model signals (Postgres)', () => {
   const disconnects: Array<() => void> = []
   beforeAll(async () => {
     db = connect({connectionString})
-    for (const t of ['sig_widget', 'sig_audit']) {
+    for (const t of ['sig_widget', 'sig_audit', 'sig_doc']) {
       await db.kysely.schema.dropTable(t).ifExists().cascade().execute()
     }
-    await syncSchema([getModelDefinitionOrThrow(Widget), getModelDefinitionOrThrow(Audit)])
+    await syncSchema([
+      getModelDefinitionOrThrow(Widget),
+      getModelDefinitionOrThrow(Audit),
+      getModelDefinitionOrThrow(Doc)
+    ])
   })
   afterEach(() => {
     while (disconnects.length) disconnects.pop()!()
   })
   afterAll(async () => {
     if (db) {
-      for (const t of ['sig_widget', 'sig_audit']) {
+      for (const t of ['sig_widget', 'sig_audit', 'sig_doc']) {
         await db.kysely.schema.dropTable(t).ifExists().cascade().execute()
       }
       await db.destroy()
@@ -203,6 +218,23 @@ describe.skipIf(!runDb)('model signals (Postgres)', () => {
     })
     // both pokes deferred past the single outer commit, in registration order
     expect(order).toEqual(['body-end', 'commit:outer', 'commit:inner'])
+  })
+
+  it('postSave `changes` excludes generated (fts) and hidden columns', async () => {
+    const {saveInstance} = await import('../../src/manager')
+    let seen: Record<string, {from: unknown; to: unknown}> | undefined
+    disconnects.push(
+      signals.postSave.connect(Doc, ({changes, created}) => {
+        if (!created) seen = changes
+      })
+    )
+    const d = await Doc.objects.create({title: 'hello', $secret: 's1'})
+    d.title = 'hello world' // authored change — also recomputes the fts tsvector under the hood
+    d.$secret = 's2' // hidden change — must NOT surface (raw values could be sensitive)
+    await saveInstance(d as object)
+    // Only the authored, public column is in the changeset — no `fts`, no `secret`.
+    expect(Object.keys(seen ?? {})).toEqual(['title'])
+    expect(seen?.title).toEqual({from: 'hello', to: 'hello world'})
   })
 
   it('createMany({signals:false}) skips lifecycle hooks', async () => {

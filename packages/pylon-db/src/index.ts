@@ -321,6 +321,7 @@ const modelBuilders = {
   CreatedAt: fields.createdAt,
   UpdatedAt: fields.updatedAt,
   JSON: fields.json,
+  Struct: fields.struct,
   Enum: fields.enumOf,
   Array: fields.array,
   ForeignKey: fields.foreignKey,

@@ -55,6 +55,13 @@ function diffAgainstBaseline(
   if (!prev) return undefined
   let changes: Record<string, {from: unknown; to: unknown}> | undefined
   for (const col of def.columns) {
+    // Skip columns that aren't user-authored public fields:
+    //  • generated (`@model({search})`'s `tsvector` fts column, other `GENERATED ALWAYS AS`):
+    //    DB-computed, so they "change" on every text edit — pure noise in a changeset.
+    //  • hidden (`$`-prefixed / private): not part of the API contract, and their raw before/after
+    //    values (e.g. a `$passwordHash`) must never leak into a diff that's commonly persisted
+    //    (audit logs). A consumer that wants "password changed" emits that event explicitly.
+    if (col.generatedAs || col.hidden) continue
     const k = col.propertyKey
     if (!Object.is(prev[k], instance[k])) (changes ??= {})[k] = {from: prev[k], to: instance[k]}
   }

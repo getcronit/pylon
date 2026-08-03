@@ -30,6 +30,14 @@ export function mergeFields(base: Field[], extra: Field[]): Field[] {
     if (f.column?.enum && prev.type) {
       merged.type = {...prev.type, nullable: f.type.nullable}
     }
+    // Struct columns (`models.Struct<T>`): same split as enums. The ORM owns persistence
+    // (a `jsonb` column) but the type-checker owns the exposed STRUCTURED type `T`. Keep the
+    // parser's reflected object type instead of the ORM's `JSON` placeholder, taking NULL-ability
+    // from the ORM column. (A plain `models.JSON` column has no `struct` flag, so its `JSON`
+    // scalar wins here and the parser's reflected type is left dangling — see the orphan prune.)
+    if (f.column?.struct && prev.type) {
+      merged.type = {...prev.type, nullable: f.type.nullable}
+    }
     // A HIDDEN many-to-many relation must never shadow an EXPOSED field of the same
     // (stripped) name. Two cases:
     //  - the paginated m2m: the checker emits a callable Relay Connection (with args);
@@ -148,6 +156,63 @@ export function pruneUnreferencedEnums(ir: PylonIR): PylonIR {
     Object.entries(ir.enums).filter(([name]) => referenced.has(name))
   )
   return {...ir, enums}
+}
+
+/**
+ * Drop plain OBJECT types nothing reaches. A `models.JSON<T>` column reflects its generic `T` as
+ * an object type via the type-checker, but the ORM collapses the column to the `JSON` scalar — so
+ * `T` (and anything only `T` referenced, e.g. a nested `Target`) is left dangling in the SDL as an
+ * orphan (in a fuller build it surfaces as a DUPLICATE entity type — invalid SDL). This prunes
+ * exactly those: object types unreachable from any entity/interface/input/operation/union, followed
+ * transitively through objects. A sibling `models.Struct<T>` column DOES reference `T` (mergeFields
+ * keeps the structured type), so its object types stay referenced and survive.
+ *
+ * ONLY `objects` are pruned. Entities, interfaces, unions, enums, and scalars are untouched — an
+ * entity is a schema type regardless of reachability, and interface/union possible-types are honored
+ * (union members + any object that `implements` an interface are treated as roots), so this never
+ * removes a type another type still needs.
+ */
+export function pruneUnreferencedObjectTypes(ir: PylonIR): PylonIR {
+  const referenced = new Set<string>()
+  const collect = (t?: TypeRef): void => {
+    if (!t) return
+    if (t.kind === 'ref') referenced.add(t.name)
+    else if (t.kind === 'list') collect(t.of)
+  }
+  const collectFields = (fields: Field[]): void => {
+    for (const f of fields) {
+      collect(f.type)
+      if (f.args) for (const a of f.args) collect(a.type)
+    }
+  }
+  // Roots: everything a non-object schema member references keeps its target alive.
+  for (const e of Object.values(ir.entities)) collectFields(e.fields)
+  for (const i of Object.values(ir.interfaces)) collectFields(i.fields)
+  for (const inp of Object.values(ir.inputs)) collectFields(inp.fields)
+  for (const op of ir.operations) {
+    for (const a of op.args) collect(a.type)
+    collect(op.returns)
+  }
+  for (const u of Object.values(ir.unions)) for (const m of u.members) referenced.add(m)
+  // An object that implements an interface is a possible-type — keep it even if no field names it.
+  for (const [name, obj] of Object.entries(ir.objects)) {
+    if (obj.implements?.length) referenced.add(name)
+  }
+  // Follow references THROUGH reachable objects (object → object) to a fixpoint, so a type used
+  // only by another live object is kept, while a chain of pure orphans is dropped whole.
+  for (let changed = true; changed; ) {
+    changed = false
+    for (const [name, obj] of Object.entries(ir.objects)) {
+      if (!referenced.has(name)) continue
+      const before = referenced.size
+      collectFields(obj.fields)
+      if (referenced.size !== before) changed = true
+    }
+  }
+  const objects = Object.fromEntries(
+    Object.entries(ir.objects).filter(([name]) => referenced.has(name))
+  )
+  return {...ir, objects}
 }
 
 /** Rewrite one type name → another everywhere in an IR (refs + implements + union members). */
