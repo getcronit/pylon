@@ -16,7 +16,6 @@ import {Plugin, PylonConfig} from '..'
 import {Context} from '../context'
 import {topoSortPlugins} from './plugin-order'
 import {resolversToGraphQLResolvers} from '../define-pylon'
-import {useSentry} from '../plugins/use-sentry'
 import {useUnhandledRoute} from '../plugins/use-unhandled-route'
 import {useViewer} from '../plugins/use-viewer'
 
@@ -113,7 +112,10 @@ export const executeConfig = async (
   target.installBasePipeline()
   target.realize()
 
-  const plugins = [useSentry(), useViewer(), ...(config?.plugins || [])]
+  // Sentry is no longer auto-installed — apps opt in with `useSentry({dsn})` in their
+  // config `plugins` (it now owns the HTTP middleware too). `useViewer` stays: it is
+  // core plumbing, not vendor-specific.
+  const plugins = [useViewer(), ...(config?.plugins || [])]
 
   if (config?.landingPage ?? true) {
     plugins.push(useUnhandledRoute())

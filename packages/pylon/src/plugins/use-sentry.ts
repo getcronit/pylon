@@ -8,7 +8,11 @@ import {
 } from '@envelop/core'
 import * as Sentry from '@sentry/node'
 import type {Span, TraceparentData} from '@sentry/types'
+import {sentry} from '@hono/sentry'
 import {Plugin} from '..'
+
+/** Options accepted by the @hono/sentry HTTP middleware (dsn, environment, …). */
+type SentryMiddlewareOptions = NonNullable<Parameters<typeof sentry>[0]>
 
 export type SentryPluginOptions<PluginContext extends Record<string, any>> = {
   /**
@@ -81,7 +85,7 @@ export type SentryPluginOptions<PluginContext extends Record<string, any>> = {
    * By default, this plugin skips all `GraphQLError` errors and does not report it to Sentry.
    */
   skipError?: (args: Error) => boolean
-}
+} & Partial<SentryMiddlewareOptions>
 
 export const defaultSkipError = isOriginalGraphQLError
 
@@ -112,7 +116,33 @@ export const useSentry = <PluginContext extends Record<string, any> = {}>(
     return err
   }
 
+  // Split the options: GraphQL-instrumentation keys drive the envelop hooks below;
+  // everything else (dsn, environment, …) configures the @hono/sentry HTTP middleware.
+  const graphqlKeys = new Set<keyof SentryPluginOptions<PluginContext>>([
+    'startTransaction',
+    'renameTransaction',
+    'includeRawResult',
+    'includeExecuteVariables',
+    'eventIdKey',
+    'appendTags',
+    'configureScope',
+    'transactionName',
+    'traceparentData',
+    'operationName',
+    'skip',
+    'skipError'
+  ])
+  const middlewareOptions = Object.fromEntries(
+    Object.entries(options).filter(([k]) => !graphqlKeys.has(k as never))
+  ) as SentryMiddlewareOptions
+
   return {
+    // A named Pylon plugin: it owns BOTH the HTTP Sentry middleware (per-request
+    // context, error capture on plain routes) and the GraphQL-layer instrumentation
+    // below. Opt in by adding `useSentry({dsn})` to `plugins` — it is no longer
+    // auto-installed by the framework.
+    name: 'sentry',
+    middleware: sentry(middlewareOptions),
     onExecute({args}) {
       if (skipOperation(args)) {
         return

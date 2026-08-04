@@ -1,4 +1,3 @@
-import {sentry} from '@hono/sentry'
 import {Hono, MiddlewareHandler} from 'hono'
 import {except} from 'hono/combine'
 import {compress} from 'hono/compress'
@@ -257,7 +256,7 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
     const bus = (globalThis as Record<symbol, any>)[Symbol.for('@getcronit/pylon.extend')]
     if (bus?.constructHooks) for (const hook of bus.constructHooks) hook(this)
 
-    // NB: the base request pipeline (compress / sentry / async-context / logger /
+    // NB: the base request pipeline (compress / async-context / logger /
     // plugin chain / error mapping) is intentionally NOT installed in the
     // constructor. It's a per-served-ROOT concern, installed once by
     // `installBasePipeline()` (from `compose()` and from the serve path). See that
@@ -265,7 +264,7 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
   }
 
   /**
-   * Install the served root's once-per-request middleware: compress, sentry, the
+   * Install the served root's once-per-request middleware: compress, the
    * async-context bind, the request logger, the plugin chain (binds the per-request
    * DB/tenant/principal), and HTTP error mapping for plain routes.
    *
@@ -280,7 +279,6 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
     this.basePipelineInstalled = true
 
     this.use('*', compress())
-    this.use('*', sentry())
 
     this.use('*', async (c, next) => {
       return new Promise((resolve, reject) => {
