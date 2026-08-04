@@ -45,9 +45,29 @@ const off = signals.postDelete.connect(({instances, model}) => {
 | `instances` | the affected instances (typed when you pass a model) |
 | `created` | `true` on insert, `false` on update — save signals only |
 | `model` | the model constructor, for global receivers |
+| `changes` | save signals, UPDATE only: the fields that changed, as `{key: {from, to}}` |
 
 `$save()` / `$delete()` fire once with a one-element `instances` array;
 `createMany` fires once with the whole batch.
+
+### Field-level changes
+
+On an UPDATE, a save payload carries `changes` — the columns whose value differs
+from the baseline loaded from the DB — so a plain `postSave` receiver can write
+audit diffs without re-reading the row:
+
+```ts
+signals.postSave.connect(Order, ({instances, created, changes}) => {
+  if (created || !changes?.status) return
+  const {from, to} = changes.status // { from: 'pending', to: 'shipped' }
+  console.log(`order ${instances[0].id}: ${from} → ${to}`)
+})
+```
+
+It's present only on single-instance `$save` updates: set-based
+[`.update()`](/docs/data/queries#writes) never loads rows, a field set on a fresh
+`new Model()` has no baseline to diff, and an **in-place** mutation of a JSON/object
+field won't register — assign a new value so the change is seen.
 
 ## When signals fire
 
@@ -60,17 +80,50 @@ Signals run for instance writes and batch creates:
 `postSave` receivers see DB-generated values (defaults, identities) reflected on
 the instances.
 
-:::warning
-Set-based [`.update()` / `.delete()`](/docs/data/queries#writes) run as a single
-SQL statement and **never load instances**, so they do not fire signals — that's
-the trade for their throughput. Use `$save()` / `$delete()` (or `createMany`)
-when a hook must run per row.
+:::note
+Set-based [`.update()` / `.delete()`](/docs/data/queries#writes) fire **post**
+signals by default — the rows are captured via `RETURNING`, hydrated, and handed to
+`postSave(created: false)` / `postDelete`. Only the **pre** hooks are skipped (a
+single statement has no per-row before-phase), and set-based UPDATE carries no
+`changes` diff. Pass `{signals: false}` to opt a large bulk op out; use `$save()` /
+`$delete()` when a **pre** hook must run per row.
 :::
 
 Skip signals for a specific batch — seeds, imports — with `{signals: false}`:
 
 ```ts
 await User.objects.createMany(rows, {signals: false})
+```
+
+## Transactions, veto, and `afterCommit`
+
+By default a receiver runs **inside the write's transaction**. Two consequences:
+
+- **A `preSave` / `preDelete` receiver that throws vetoes the write** — the
+  transaction rolls back. This makes pre-signals a validation gate: throw to reject.
+- **A receiver's own ORM writes are atomic** with the triggering write — an audit
+  row written from `postSave` commits or rolls back together with it.
+
+```ts
+// reject the write from a pre-signal
+signals.preSave.connect(Account, ({instances}) => {
+  for (const a of instances) {
+    if (a.balance < 0) throw new Error('balance cannot go negative') // rolls back
+  }
+})
+```
+
+For side effects that must **not** run on rollback and must **never** break the
+write — realtime pokes, cache invalidation, webhooks, external notifications —
+connect with `{afterCommit: true}`. The receiver is deferred until after the
+transaction commits and runs outside it, so its errors are isolated:
+
+```ts
+signals.postSave.connect(
+  Order,
+  ({instances}) => invalidateCache(instances.map(o => o.id)),
+  {afterCommit: true}
+)
 ```
 
 ## Enqueue work from a signal

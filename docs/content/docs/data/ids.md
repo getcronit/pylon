@@ -219,5 +219,30 @@ client-mintable. Use `id({snowflake: true})` + `node: true` + `useDatabase({node
 for a distributed, collision-free, self-describing id scheme.
 :::
 
+### Working with gids in code
+
+The `ID` scalar encodes and decodes gids at the GraphQL boundary automatically, so
+resolvers rarely touch them. When you do need to build or read one by hand — a
+webhook that emits a gid, a link, a custom scalar — three helpers are exported from
+`@getcronit/pylon-db`:
+
+```ts
+import {toGid, fromGid, isGid} from '@getcronit/pylon-db'
+
+toGid('Order', 1780219977399508992n)
+// → 'gid://pylon/Order/1780219977399508992'
+
+fromGid('gid://pylon/Order/1780219977399508992')
+// → { namespace: 'pylon', type: 'Order', id: '1780219977399508992' }
+// throws a BAD_REQUEST error on a malformed gid
+
+isGid('gid://pylon/Order/1')   // → true   (well-formed, active namespace)
+isGid('1780219977399508992')   // → false  (a raw id, never throws)
+```
+
+`fromGid` returns the raw primary key as a **string** (never coerced to a number,
+so 64-bit ids stay exact). Use `isGid` to branch before decoding, since it's the
+only one of the three that never throws.
+
 Next: connect models with [relations](/docs/data/relations), or configure the
 plugin in the [config reference](/docs/reference/config).

@@ -1,6 +1,6 @@
 ---
 title: CLI Reference
-description: Every pylon command — dev, build, worker, pull, db, and project scaffolding.
+description: Every pylon command — dev, build, worker, pull, inspect, verify, mcp, db, and project scaffolding.
 section: Reference
 order: 0
 ---
@@ -76,6 +76,72 @@ pylon pull https://api.example.com/graphql -n example -o ./src/generated
 | `-n, --name <name>` | — | Name for the generated registry |
 | `-o, --output <dir>` | `./src/generated` | Output directory |
 
+## pylon inspect
+
+Serialize the **app model** — the canonical, machine-readable description of your app:
+its GraphQL schema, persisted entities (columns, relations, indexes), queues, and
+per-model authorization. `inspect` is static: it type-introspects and runs the app's
+build-safe hooks (models, plugin manifest), so it never connects to the database or
+starts a server. The output is canonicalized (sorted), so it is byte-stable and
+diffable across builds.
+
+```bash
+pylon inspect            # full AppModel as JSON (default)
+pylon inspect --sdl      # GraphQL schema only
+pylon inspect --ddl      # Postgres DDL only
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--json` | on | Emit the full `AppModel` as JSON |
+| `--sdl` | — | Emit the GraphQL schema (SDL) |
+| `--ddl` | — | Emit the Postgres DDL |
+| `-e, --entry <path>` | `./src/index.ts` | Entry that constructs your app / registers models (`-m, --models` is a deprecated alias) |
+
+Use it to snapshot your API surface in CI, feed a diff tool, or drive code generation
+from a single source of truth.
+
+## pylon verify
+
+Run the layered checks — build, typecheck, and migration check — and print a
+**stratified verdict**: `pass`, `review`, or `fail`. This is the one-command contract
+for "is this app in a shippable state?", designed for CI and agents.
+
+```bash
+pylon verify
+pylon verify --json     # { verdict, checks } — lean payload for agents
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--json` | — | Emit the verdict and per-check results as JSON |
+| `-e, --entry <path>` | `./src/index.ts` | Entry that constructs your app / registers models (`-m, --models` is a deprecated alias) |
+
+Exits non-zero on a `fail` verdict (a `review` still exits 0). The default output lists
+each check with a pass/fail/warn mark; `--json` returns `{ verdict, checks }` — the
+full app model is a separate [`inspect`](#pylon-inspect) call.
+
+## pylon mcp
+
+Run the Pylon [MCP](https://modelcontextprotocol.io) server over stdio, exposing the app
+model to an agent as four tools: `describe_app`, `get_entity`, `get_operation`, and
+`verify`. Point an MCP client (e.g. Claude Code) at `pylon mcp` so the agent can read
+your real schema, entities, and authorization instead of guessing — and self-check its
+work with `verify`.
+
+```bash
+pylon mcp
+pylon mcp -c ./packages/api    # inspect a project in another directory
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `-c, --cwd <dir>` | `.` | Project root to inspect — resolved independently of the launch directory, so an MCP client config never depends on where it was started |
+| `-e, --entry <path>` | `./src/index.ts` | Entry that constructs your app / registers models (`-m, --models` is a deprecated alias) |
+
+`stdout` carries the MCP protocol stream, so run it as a server your client spawns, not
+interactively.
+
 ## pylon db
 
 Database migrations and schema management. See [Migrations](/docs/data/migrations)
@@ -91,6 +157,7 @@ for the full workflow.
 | `pylon db deploy` | Production apply — refuses to run on uncaptured model changes |
 | `pylon db rollback [--steps n]` | Reverse the last `n` migrations (default 1) |
 | `pylon db resolve <name> [--rolled-back]` | Mark a migration applied / rolled-back without running SQL |
+| `pylon db rename-app <old=new>` | Re-point the migration ledger after renaming an [app](/docs/apps/overview) in code (run once per database, before `migrate`) |
 | `pylon db seed [--seed path]` | Run the seed script (default `./src/seed.ts`) |
 | `pylon db baseline [name]` | Adopt an existing database into migrations |
 | `pylon db merge` | Reconverge divergent migration heads |

@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "pylon dev -c \"node --enable-source-maps .pylon/index.js\"",
     "build": "pylon build",
-    "start": "node --enable-source-maps .pylon/index.js"
+    "start": "node --enable-source-maps .pylon/index.js",
+    "check:coverage": "node coverage/check.mjs",
+    "check:examples": "node coverage/check-examples.mjs"
   },
   "dependencies": {
     "@getcronit/pylon": "workspace:*",

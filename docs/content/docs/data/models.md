@@ -87,8 +87,26 @@ the columns they produce:
 | `createdAt()` | timestamp, set on insert | `Date` |
 | `updatedAt()` | timestamp, set on insert and every update | `Date` |
 | `json<T>()` | `jsonb`, typed | `T` |
+| `struct<T>()` | `jsonb`, typed | `T` |
 | `enumOf(values)` | text + `CHECK` constraint | enum value |
 | `array(text())` | Postgres array | `string[]` |
+
+`json<T>()` and `struct<T>()` both persist as `jsonb`; they differ on the wire.
+`json` is an opaque `JSON` scalar — the client gets the whole blob and can't select
+into it. `struct` reflects `T` into a real **nested GraphQL object type**, so the
+shape is part of the schema and clients select individual sub-fields:
+
+```ts
+class Product extends Model {
+  static objects = manager(Product)
+
+  id = id()
+  // opaque JSON scalar — { "width": 10, "height": 4 } as one value
+  raw = json<{width: number; height: number}>()
+  // a typed `ProductDimensions` object in the schema — query `dimensions { width }`
+  dimensions = struct<{width: number; height: number}>()
+}
+```
 
 For client-generated primary keys — snowflakes, cuid, uuid — and opt-in global
 ids (`gid://…`), see [IDs & Global IDs](/docs/data/ids).
@@ -128,7 +146,7 @@ text({
   nullable: true,            // allow null (types the field as string | null)
   primaryKey: true,          // make this column the primary key
   default: 'unknown',        // literal default applied on insert
-  defaultSql: 'now()',       // raw SQL default expression
+  defaultSql: 'now()',       // raw SQL default expression (evaluated by the DB)
   check: "char_length(name) > 3", // raw column CHECK expression
 
   // Validation — runs before the write (see /docs/data/validation)
@@ -147,6 +165,23 @@ text({
 Assigning `undefined` to a field means "leave this column untouched" (Prisma
 semantics). Assigning `null` writes a real `NULL`.
 :::
+
+`default` also accepts a **function** — a client-side generator run per insert
+(and never serialized into the schema), which is how text primary keys get
+client-minted ids:
+
+```ts
+import {createId, uuidv4, snowflake} from '@getcronit/pylon-db'
+
+class ApiKey extends Model {
+  id = text({primaryKey: true, default: createId})   // cuid per row
+  token = text({default: () => uuidv4()})
+  issuedAt = timestamp({default: () => new Date()})
+}
+```
+
+Use `defaultSql` instead when the database should compute it (`now()`,
+`gen_random_uuid()`), so the default lives in the DDL rather than in app code.
 
 ## Hidden fields
 
@@ -201,6 +236,30 @@ class Article extends Model {
   body = text()
 }
 ```
+
+For **several independent** search vectors on one model, pass an array and give each
+a `name` (the generated column), then target one at query time with
+`.search(text, {column})`:
+
+```ts
+class Product extends Model {
+  static objects = manager(Product)
+  static config = {
+    search: [
+      {name: 'nameFts', columns: ['name']},
+      {name: 'descFts', columns: ['description'], language: 'english'}
+    ]
+  } satisfies ModelConfig<Product>
+  id = id()
+  name = text()
+  description = text()
+}
+
+await Product.objects.search('wireless', {column: 'nameFts'}).all()
+```
+
+`name` defaults to `fts` for a single set, and is **required** once there's more
+than one.
 
 For substring matching inside a token (SKUs, handles, emails), add a trigram
 index with `static config = {trigram: {columns: ['sku']}} satisfies ModelConfig<Product>` —
@@ -296,7 +355,8 @@ class Person extends Model {
     indexes: [...],      // composite indexes
     search: {...},       // full-text search
     trigram: {...},      // substring search
-    query: {...}         // the search-query DSL configuration
+    query: {...},        // the search-query DSL configuration
+    inheritance: {...}   // single-table inheritance base (see below)
   } satisfies ModelConfig<Person>
   // ...fields
 }
@@ -304,6 +364,47 @@ class Person extends Model {
 
 The migration group / app is set by the owning `Pylon`'s `name`, not on the
 model — there's no per-model `app` key.
+
+## Single-table inheritance
+
+When several types share most of their columns — a media library of images and
+videos, a feed of different post kinds — you can store them in **one table** and
+tell them apart by a discriminator column. The base model declares `inheritance`
+with the discriminator; each subclass `extends` it and sets its
+`discriminatorValue`:
+
+```ts
+enum AssetKind {
+  IMAGE = 'IMAGE',
+  VIDEO = 'VIDEO'
+}
+
+class Asset extends Model {
+  static objects = manager(Asset)
+  static config = {
+    inheritance: {discriminator: 'kind'} // this column selects the subclass
+  } satisfies ModelConfig<Asset>
+
+  id = id()
+  kind = enumOf(AssetKind)
+  url = text()
+}
+
+class Video extends Asset {
+  // the 2nd generic ('kind') type-checks discriminatorValue against that field
+  static config = {discriminatorValue: AssetKind.VIDEO} satisfies ModelConfig<Video, 'kind'>
+  durationSeconds = int()
+}
+```
+
+All subclasses share the base's table; a query on `Asset.objects` returns every
+kind, while `Video.objects` is automatically filtered to `kind = 'VIDEO'`. On the
+GraphQL side the base projects to an **`interface Asset`** (no `I` prefix) that each
+subclass implements — so it composes with everything on
+[Interfaces & unions](/docs/core-concepts/interfaces-unions). Pass the discriminator
+key as `ModelConfig`'s second generic (`<Video, 'kind'>`) to have
+`discriminatorValue` type-checked against the field instead of a loose
+`string | number`.
 
 ## The namespaced API
 

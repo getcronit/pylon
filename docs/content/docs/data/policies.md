@@ -219,6 +219,19 @@ export const crm = new Pylon({
 `FeatureDisabledError`. Use `requireFeature('crm')` to gate inside a resolver,
 and `defineFeatures` to declare the flag set.
 
+To **branch** on a flag instead of throwing, read it: `isFeatureEnabled('crm')`
+returns a boolean, and `featureValue('seatLimit', 5)` returns a typed value with a
+fallback. To read the actor directly — for a custom check or an audit column —
+`currentPrincipal()` returns the request's bound `Principal` (or `null`):
+
+```ts
+import {isFeatureEnabled, featureValue, currentPrincipal} from '@getcronit/pylon-db'
+
+if (isFeatureEnabled('exports')) { /* show the export button data */ }
+const limit = featureValue('seatLimit', 5)   // typed, with a fallback
+const who = currentPrincipal()               // Principal | null
+```
+
 ## Bypassing
 
 Trusted server code — background jobs, admin tooling, migrations — runs with full

@@ -124,6 +124,27 @@ A mutation's result normalizes into the entity store, so a field you change in
 place updates everywhere it's read without any tag. Tags cover what the store
 can't infer — **list membership** after a create or delete.
 
+### Imperative refetch
+
+When one component just needs to refresh its own query — a "reload" button, a
+poll, a refetch after some event — the `useData` result carries a `$refetch()`
+method. It re-runs only that query, no tags required:
+
+```tsx
+export default function Feed() {
+  const data = useData()
+  return (
+    <>
+      <button onClick={() => data.$refetch()}>Refresh</button>
+      <ul>{data.posts.map(p => <li key={p.id}>{p.title}</li>)}</ul>
+    </>
+  )
+}
+```
+
+Use `$refetch()` for a single component's own data; use `dataRefetch(tags)` when a
+write elsewhere should refresh every list carrying a tag.
+
 :::tip
 For lists you scroll or page through, reach for
 [`usePaginatedData`](/docs/frontend/pagination) instead of `useData`. For

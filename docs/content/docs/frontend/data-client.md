@@ -73,7 +73,11 @@ Each `op.query(cb)` / `op.mutation(cb)` is rewritten by the analyzer into a
 compiled document plus the projection callback — the callback's field access
 defines what the operation selects, and it then runs against the normalized
 result. A mutation run through `op` updates every reader the same way
-`useMutation` does.
+`useMutation` does — for **fields** it changes in place.
+
+Unlike `useMutation`, `op.mutation` takes no `refetch` option, so it can't refresh
+tagged **lists** on its own. After an imperative create or delete, call
+`dataRefetch(tags)` yourself to update list membership.
 
 :::tip[When to reach for which]
 Render-time reads → [`useData`](/docs/frontend/use-data). Paginated lists →

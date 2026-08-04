@@ -137,6 +137,35 @@ side reads and writes the join table the canonical side owns, but doesn't try to
 create it — so each app's migrations stay independent.
 :::
 
+## Through relations
+
+`manyToMany` hides the join table. When the "join" is a real model you also want to
+query — carrying its own columns, like a `role` on a membership or a `quantity` on
+an order line — use `hasManyThrough` instead. It reaches the far side **through** an
+intermediate model you define normally:
+
+```ts
+class Ticket extends Model {
+  static objects = manager(Ticket)
+  id = id()
+  // every Comment reachable via this ticket's messages
+  comments = hasManyThrough(() => Comment, {through: () => TicketMessage})
+}
+
+class TicketMessage extends Model {
+  static objects = manager(TicketMessage)
+  id = id()
+  ticketId = foreignKey(() => Ticket)
+  commentId = foreignKey(() => Comment)
+  authoredAt = createdAt()   // the extra column you keep on the join
+}
+```
+
+`through` is the intermediate model. The two foreign keys are auto-detected from
+its `foreignKey` fields; pass `foreignKey` / `via` explicitly only when the
+intermediate has more than one FK to either end (ambiguous). Like any to-many, add
+`{paginate: true}` to expose it as a Relay `Connection`.
+
 ## Relation managers as `Manager`s
 
 A relation manager exposes the full query surface: `.all`, `.filter`, `.create`,

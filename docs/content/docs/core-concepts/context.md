@@ -98,3 +98,32 @@ declare module '@getcronit/pylon' {
 For the authenticated caller specifically, reach for the helpers in
 [Authentication](/docs/authentication/overview) rather than reading the context by
 hand.
+
+## Decorators — run logic before a resolver
+
+`createDecorator` wraps a callback that runs **before** a function, sharing its
+arguments — a compact way to factor out a cross-cutting check (auth, logging,
+rate-limiting) and reuse it across resolvers. The callback reads the request
+context directly, so it needs no extra wiring; throw from it to stop the call:
+
+```ts
+import {Pylon, createDecorator, getContext} from '@getcronit/pylon'
+
+const requireAdmin = createDecorator(async () => {
+  if (getContext().req.header('x-role') !== 'admin') {
+    throw new Error('Admins only')
+  }
+})
+
+export default new Pylon({
+  graphql: {
+    Query: {
+      // the guard runs first; if it throws, deleteUser never runs
+      deleteUser: requireAdmin((id: string): boolean => true)
+    }
+  }
+})
+```
+
+It applies two ways: wrapping a function inline (above), or as a TypeScript method
+decorator (`@requireAdmin`) on a class method.

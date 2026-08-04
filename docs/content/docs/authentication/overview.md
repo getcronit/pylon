@@ -88,7 +88,16 @@ export default {
 ```
 
 `zitadelAuth` maps verified OIDC claims onto the `Principal` — subject to `id`,
-the organization to `tenant`, and granted roles to `roles`.
+the organization to `tenant`, and granted roles to `roles`. That mapping is exposed
+on its own as `zitadelPrincipal(sub, roles, user, options)`, which builds a
+`Principal` from raw claims with no OIDC server involved — handy for unit tests or a
+custom token flow:
+
+```ts
+import {zitadelPrincipal} from '@getcronit/pylon-auth/zitadel'
+
+const principal = zitadelPrincipal('user-1', ['admin'], oidcUser, {issuer})
+```
 
 ## Read the principal
 

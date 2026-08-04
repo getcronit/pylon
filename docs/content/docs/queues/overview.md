@@ -230,6 +230,16 @@ When `@getcronit/pylon-db` is present, each job runs inside the database context
 so your models, [policies](/docs/data/policies), and tenant scoping apply inside
 processors exactly as they do in resolvers.
 
+`outbox: true` installs the Postgres-backed outbox driver — `createPgOutbox()`,
+which creates its table on first use — via `setOutboxDriver`. Outside the plugin
+(a custom entry, a test) you can wire it yourself:
+
+```ts
+import {setOutboxDriver, createPgOutbox} from '@getcronit/pylon-queues'
+
+setOutboxDriver(await createPgOutbox())
+```
+
 ## Run workers in production
 
 In production, run a dedicated worker process. The worker entry imports your app

@@ -39,6 +39,19 @@ Scalar operators: `gt`, `gte`, `lt`, `lte`, `in`, `notIn`, `contains`,
 `startsWith`, `endsWith`, `not`, and `mode: 'insensitive'` for case-insensitive
 string matches.
 
+**Array columns** (`array(text())`, `int[]`, …) take their own operator set:
+
+```ts
+await Post.objects.filter({
+  tags: {has: 'urgent'},          // the array contains this element
+  labels: {hasSome: ['a', 'b']},  // overlaps any of these  (Postgres &&)
+  flags: {hasEvery: ['x', 'y']},  // contains all of these  (Postgres @>)
+  notes: {isEmpty: true}          // zero-length array
+}).all()
+```
+
+Use `{equals: [...]}` to match the whole array exactly.
+
 Combine clauses with `AND` / `OR` / `NOT`:
 
 ```ts
@@ -73,6 +86,7 @@ await Post.objects.orderBy('-createdAt').limit(10).all()
 | `.first()` | `T \| null` — the first row, or null |
 | `.get(where?)` | `T` — exactly one row; throws `NotFoundError` if missing |
 | `.count()` | `number` — matching rows |
+| `.exists()` | `boolean` — true if any row matches |
 | `.paginate(args?)` | `Connection<T>` — a Relay page |
 
 ```ts
@@ -96,7 +110,20 @@ page.nodes        // Post[]
 page.edges        // {node, cursor}[]
 page.pageInfo     // {hasNextPage, hasPreviousPage, startCursor, endCursor}
 page.totalCount   // total matching the filter, ignoring the window
+page.startIndex   // absolute index of nodes[0] in the full ordered list (see anchor)
 ```
+
+`paginate` takes a few more args beyond the cursors:
+
+- **`orderBy`** also accepts an **array** for a composite keyset — `['-type',
+  'name']` groups by one column then sorts within it (the primary key is appended
+  as a tiebreaker so the cursor stays stable).
+- **`skip`** is an offset fallback (forward only), applied before the limit.
+- **`anchor`** seeks to a row by primary key and pages from its **absolute index**
+  (returned as `startIndex`), so a virtualized list can SSR already scrolled to it —
+  no client jump after hydration. An explicit cursor/`skip` wins over it, and it
+  can't be combined with relevance ordering (`.search({rank: true})`).
+- **`query`** applies a [search-DSL](#the-search-query-dsl) string to the page.
 
 Return a `Connection` straight from a resolver and Pylon generates the Relay
 connection type. On the frontend, drive it with
@@ -112,8 +139,32 @@ It's a plain scalar — no per-model filter-input type required:
 await Ticket.objects.query('status:OPEN -isRead:true "needs review"').all()
 ```
 
-`field:value` matches, `-field:value` negates, and a quoted `"phrase"` does a
-free-text match across the searchable columns.
+The grammar is Shopify's Admin-API search syntax:
+
+| Construct | Meaning |
+| --- | --- |
+| `field:value` | equality, coerced to the column type |
+| `field:>10` `field:<=5` | comparators (numbers / dates) |
+| `field:val*` | prefix match (case-insensitive) |
+| `field:*` | the column is non-null (exists) |
+| `value` / `val*` | default search — contains / prefix over the model's text columns |
+| `"a phrase"` | a verbatim value; specials inside are literal |
+| `-term` / `NOT term` | negation |
+| `a b` / `a AND b` / `a OR b` | connectives — space means AND; **OR binds tighter** |
+| `(a OR b) c` | grouping |
+| `vendor.name:nike` | a dotted path filters across a relation |
+| `\:` `\(` `\*` | backslash-escapes a special character |
+
+Precedence follows Shopify: `a OR b AND c` parses as `(a OR b) AND c`. Unknown
+fields are **skipped** (lenient) by default, so a frontend typo degrades to "no
+constraint" rather than an error.
+
+:::note
+When you expose the DSL on a public GraphQL argument, call
+`.query(str, {scope: 'public'})` — it rejects unknown/internal fields with a
+`QueryParseError` and caps the boolean-node count, instead of silently ignoring
+them. Which fields are queryable is set per model via `static config.query`.
+:::
 
 ## Full-text search
 
@@ -124,6 +175,10 @@ column declared by [`static config`'s `search`](/docs/data/models#full-text-sear
 ```ts
 await Article.objects.search('postgres indexes', {rank: true}).limit(20).all()
 ```
+
+On a model with more than one `tsvector` column, target one with `{column:
+'bodyFts'}`; override the text-search language (default `english`) with
+`{language: 'simple'}`.
 
 ## Writes
 
@@ -150,11 +205,23 @@ const archived = await Task.objects.filter({status: 'DONE'}).update({status: 'AR
 const removed = await Session.objects.filter({expiresAt: {lt: new Date()}}).delete()
 ```
 
-:::warning
-Set-based `.update()` / `.delete()` use Django semantics — they run as a single
-SQL statement and **do not load instances or fire
-[lifecycle signals](/docs/data/signals)**. Use `$save()` / `$delete()` (or
-`createMany`) when you need hooks to run per row.
+Set-based writes still fire **post** [signals](/docs/data/signals) by default: the
+affected rows are captured with `RETURNING` (one statement, no extra `SELECT`),
+hydrated, and handed to `postSave(created: false)` / `postDelete`, inside a
+transaction — so audit and realtime receivers see bulk changes too. Only the
+**pre** hooks (`preSave` / `preDelete`) are skipped, since they run before a write
+and a single `RETURNING` statement has no per-row "before" phase. A set-based
+UPDATE also omits the `changes` diff (there's no per-row baseline).
+
+```ts
+// fires postSave for every archived task; opt a large bulk op out with {signals: false}
+await Task.objects.filter({status: 'DONE'}).update({status: 'ARCHIVED'})
+await Session.objects.filter({expiresAt: {lt: new Date()}}).delete({signals: false})
+```
+
+:::note
+Reach for `$save()` / `$delete()` (or `createMany`) when you need a **pre** hook —
+a `preSave` validation gate, say — to run per row.
 :::
 
 ## Bypassing scope

@@ -56,6 +56,7 @@ HTTP status. The `@getcronit/pylon-db` errors carry the right status out of the 
 
 | Thrown error | HTTP status |
 | --- | --- |
+| `BadRequestError` | 400 |
 | `ForbiddenError` | 403 |
 | `FeatureDisabledError` | 403 |
 | `NotFoundError` | 404 |
