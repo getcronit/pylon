@@ -1589,7 +1589,15 @@ function rowFromInstance(
     if (col.generatedAs) continue
     if (col.primaryKey && !includePrimaryKey) continue
     const value = instance[col.propertyKey]
-    if (value !== undefined) data[col.columnName] = value
+    if (value === undefined) continue
+    // jsonb columns: serialize the value ourselves. node-pg's implicit serialization
+    // is asymmetric — it `JSON.stringify`s plain OBJECTS (valid jsonb) but renders
+    // ARRAYS as Postgres ARRAY literals (`{…}`), which a jsonb column rejects:
+    // `[{…}]` → "invalid input syntax for type json", `[]` → silently stored as `{}`.
+    // Stringifying here makes objects AND arrays round-trip correctly (pg casts the
+    // text param to jsonb on insert). `null` stays SQL NULL.
+    data[col.columnName] =
+      col.sqlType === 'jsonb' && value !== null ? JSON.stringify(value) : value
   }
   return data
 }
