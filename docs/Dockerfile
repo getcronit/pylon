@@ -54,12 +54,24 @@ RUN npm_config_inject_workspace_packages=true \
 # server entry into the pruned tree so the runner can start it.
 RUN cp -r docs/.pylon /prod/.pylon
 
-# ---- runner: serve the pruned deployment ----
-FROM base AS runner
+# ---- runner: distroless (no shell / no package manager, runs as non-root) ----
+FROM gcr.io/distroless/nodejs20-debian12:nonroot AS runner
 ENV NODE_ENV=production PORT=3000
 WORKDIR /app
-COPY --from=build /prod /app
+# Copy ONLY the runtime closure, dropping all app source (pages/components/src/lib),
+# build tooling and configs that `pnpm deploy` copied along:
+#   package.json  — "type":"module" so .pylon/**/*.js load as ESM
+#   node_modules  — pruned production deps
+#   .pylon        — the built server (server.mjs) + client + baked public assets
+#                   (pylon build copies public/ into .pylon/__pylon/static)
+#   content       — markdown READ FROM cwd per request by src/lib/content.ts;
+#                   NOT baked into the bundle, so it must ship
+COPY --from=build --chown=65532:65532 /prod/package.json ./package.json
+COPY --from=build --chown=65532:65532 /prod/node_modules ./node_modules
+COPY --from=build --chown=65532:65532 /prod/.pylon ./.pylon
+COPY --from=build --chown=65532:65532 /prod/content ./content
 EXPOSE 3000
-# `pylon build` emits the Node server entry as .pylon/server.mjs — it boots the
-# config, mounts the GraphQL handler + usePages catch-all, then binds node:http.
-CMD ["node", "--enable-source-maps", ".pylon/server.mjs"]
+# The distroless nodejs image's ENTRYPOINT is already `/nodejs/bin/node`, so CMD
+# passes only args. server.mjs boots the config, mounts the GraphQL handler +
+# usePages catch-all, then binds node:http (PORT || 3000).
+CMD ["--enable-source-maps", ".pylon/server.mjs"]
