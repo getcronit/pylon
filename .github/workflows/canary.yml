@@ -1,14 +1,11 @@
 name: Canary Release
 
 # Publishes a snapshot of the changed packages (+ their workspace dependents) on
-# every PR, under a PER-CHANNEL npm dist-tag so long-lived branches never clobber
-# each other:
-#   - feat/v3-fullstack  ->  @getcronit/pylon@v3          (stable, memorable)
-#   - any other PR        ->  @getcronit/pylon@pr-<number>
+# every PR, under a PER-PR npm dist-tag `canary-pr-<number>` (e.g.
+# `@getcronit/pylon@canary-pr-142`) so PRs never clobber each other's canaries.
 # Snapshot VERSIONS are globally unique (see .changeset/config.json
 # `prereleaseTemplate: {tag}-{datetime}.{commit}`), so a publish can never
-# overwrite an existing version — only the moving dist-tag differs, and each
-# channel owns its own. Result: the v3 canary set is never overridden by other PRs.
+# overwrite an existing version — each PR owns its own moving dist-tag.
 on:
   pull_request:
     paths-ignore:
@@ -51,14 +48,9 @@ jobs:
       - name: Build packages
         run: pnpm build
 
-      - name: Resolve channel dist-tag
+      - name: Resolve PR dist-tag
         id: channel
-        run: |
-          if [ "${{ github.head_ref }}" = "feat/v3-fullstack" ]; then
-            echo "tag=v3" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=pr-${{ github.event.number }}" >> "$GITHUB_OUTPUT"
-          fi
+        run: echo "tag=canary-pr-${{ github.event.number }}" >> "$GITHUB_OUTPUT"
 
       - name: Version snapshot + publish under channel tag
         env:
