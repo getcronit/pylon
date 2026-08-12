@@ -25,6 +25,7 @@ export {
   createdAt,
   updatedAt,
   json,
+  vector,
   enumOf,
   array,
   foreignKey,
@@ -97,14 +98,19 @@ export {
   QuerySet,
   createManager,
   createMany,
+  upsertMany,
   deleteManyInstances,
   type BulkOptions,
+  type UpsertOptions,
   type ModelCtor,
   type Connection,
   type Edge,
   type PageInfo,
   type PaginateArgs,
-  type WhereInput
+  type WhereInput,
+  type Match,
+  type NearestMetric,
+  type NearestQuerySet
 } from './manager.js'
 export {syncSchema, dropTables} from './schema-sync.js'
 export {useDatabase, type UseDatabaseOptions} from './plugin.js'
@@ -322,6 +328,7 @@ const modelBuilders = {
   UpdatedAt: fields.updatedAt,
   JSON: fields.json,
   Struct: fields.struct,
+  Vector: fields.vector,
   Enum: fields.enumOf,
   Array: fields.array,
   ForeignKey: fields.foreignKey,

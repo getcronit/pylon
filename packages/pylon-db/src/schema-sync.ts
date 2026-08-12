@@ -1,4 +1,4 @@
-import {joinColumn, joinTableName, pgIdent} from '@getcronit/pylon-ir'
+import {joinColumn, joinTableName, pgIdent, postgres} from '@getcronit/pylon-ir'
 import {sql, type Expression} from 'kysely'
 import {Database, getDatabase} from './database.js'
 import {entityFromDefinition} from './ir.js'
@@ -61,6 +61,8 @@ function pgColumnType(col: ColumnDefinition): ColumnType {
       return 'uuid'
     case 'tsvector':
       return sql.raw('tsvector')
+    case 'vector':
+      return sql.raw(`vector(${col.dim})`)
   }
 }
 
@@ -303,6 +305,13 @@ export async function syncSchema(
 ): Promise<void> {
   const db = getDatabase()
   models = foldSingleTableInheritance(models)
+  // pgvector: the `vector(N)` column type needs its extension to EXIST before any
+  // CREATE TABLE references it (unlike pg_trgm, which an index needs later — see
+  // the index loop below). Install it up-front when any model declares a vector
+  // column. Idempotent (`IF NOT EXISTS`).
+  if (models.some(def => def.columns.some(c => c.sqlType === 'vector'))) {
+    await sql`CREATE EXTENSION IF NOT EXISTS vector`.execute(db.kysely)
+  }
   // 1. All tables first (no FKs) — so a FK cycle between two tables can't wedge
   //    the create order. 2. Then the FK constraints, once every table exists.
   for (const def of orderByDependencies(models)) {
@@ -328,7 +337,10 @@ export async function syncSchema(
         }
         const method = ix.method && ix.method !== 'btree' ? sql.raw(` USING ${ix.method}`) : sql.raw('')
         const cols = sql.join(ix.columns.map(c => sql`${sql.ref(c)} ${sql.raw(ix.ops!)}`))
-        await sql`CREATE INDEX IF NOT EXISTS ${sql.ref(ix.name)} ON ${sql.ref(ix.table)}${method} (${cols})`.execute(
+        // Storage params (HNSW `m`/`ef_construction`, …) via the shared, validated
+        // dialect renderer — same clause the migration DDL emits.
+        const withClause = sql.raw(postgres.indexWith(ix.with))
+        await sql`CREATE INDEX IF NOT EXISTS ${sql.ref(ix.name)} ON ${sql.ref(ix.table)}${method} (${cols})${withClause}`.execute(
           db.kysely
         )
         continue

@@ -180,6 +180,36 @@ On a model with more than one `tsvector` column, target one with `{column:
 'bodyFts'}`; override the text-search language (default `english`) with
 `{language: 'simple'}`.
 
+## Vector search
+
+`.nearest(vec)` runs a pgvector k-nearest-neighbour search against a
+[`vector`](/docs/data/models#vector-embeddings) column — rows ordered by their
+embedding's distance to `vec`, closest first. It composes with `.filter()` and the
+tenant scope (a pre-filter before the ANN scan), and returns a narrow query with two
+terminals: `.matches()` for rows **with** their similarity score, `.all()` for just
+the rows.
+
+```ts
+// { item, score }[] — score is the similarity (higher = closer); item excludes the vector
+const hits = await Doc.objects
+  .filter({workspaceId})            // pre-filter, tenant-scoped as usual
+  .nearest(queryEmbedding, {k: 5})  // top 5 by distance
+  .matches()
+
+hits[0].item.title // the closest document
+hits[0].score      // e.g. 0.91
+```
+
+`k` caps the result (a `LIMIT`). The vector column is auto-discovered when the model
+has exactly one; otherwise pass `{column: 'embedding'}`. `metric` defaults to the
+column's ANN-index metric (`'cosine'`, else `'l2'` / `'ip'`) and must match the index
+to use it. Distance ordering has no seekable cursor, so `.nearest()` **can't** be
+combined with `.paginate()` — raise `k` instead.
+
+Hybrid search (dense + full-text) is composed in application code by fusing a
+`.nearest()` and a `.search()` result list — the framework supplies both ranked
+inputs.
+
 ## Writes
 
 Create through the manager:
@@ -187,6 +217,20 @@ Create through the manager:
 ```ts
 const user = await User.objects.create({email: 'ada@example.com', name: 'Ada'})
 const many = await User.objects.createMany([{name: 'A'}, {name: 'B'}])
+```
+
+**Upsert** — insert a row, or update it if it conflicts — is a single atomic
+`INSERT … ON CONFLICT DO UPDATE`. `onConflict` names the property keys of a unique
+index (the conflict target); `update` the keys to overwrite (default: every provided
+column except the conflict target and primary key). It's tenant-safe: the ambient
+tenant is stamped on insert and a conflict can never touch another tenant's row.
+
+```ts
+await Embedding.objects.upsert(
+  {objectRef: 'artikel/HEL-20L', model: 'voyage-3', embedding, contentHash},
+  {onConflict: ['tenantId', 'objectRef', 'model'], update: ['embedding', 'contentHash']}
+)
+await Embedding.objects.upsertMany(rows, {onConflict: ['objectRef', 'model'], update: ['embedding']})
 ```
 
 Update or delete an instance you've loaded:

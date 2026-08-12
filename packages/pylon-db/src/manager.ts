@@ -745,6 +745,62 @@ export function decodeCursor(cursor: string): unknown {
   return JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'))
 }
 
+/** ANN distance metric for `.nearest()`. */
+export type NearestMetric = 'cosine' | 'l2' | 'ip'
+
+/** One kNN result: the row (WITHOUT its vector — see `selectableColumns`) paired
+ *  with its similarity score. Higher = closer, per metric (see below). */
+export interface Match<T> {
+  item: T
+  score: number
+}
+
+/**
+ * The result of `.nearest()` — a distance-ordered query exposing ONLY the terminals
+ * that make sense for kNN: `.matches()` (rows + score), `.all()` (rows, no score),
+ * `.first()` (the single nearest). It deliberately does NOT surface `.paginate()`
+ * (distance has no seekable keyset cursor), `.filter()`, or the bulk writers — so the
+ * type can't express an unsupported operation. The runtime is a `QuerySet` under the
+ * hood; this interface just narrows what the API offers.
+ */
+export interface NearestQuerySet<T extends object> {
+  /** kNN results as `{item, score}` — `item` WITHOUT its vector; higher score = closer. */
+  matches(): Promise<Match<T>[]>
+  /** The rows in nearest-first order (score dropped). */
+  all(): Promise<T[]>
+  /** The single nearest row, or null. */
+  first(): Promise<T | null>
+}
+
+/** pgvector distance operator per metric (`<=>` cosine, `<->` L2, `<#>` inner-product). */
+const NEAREST_OP: Record<NearestMetric, string> = {cosine: '<=>', l2: '<->', ip: '<#>'}
+
+/** A `number[]` → pgvector text literal (`[1,2,3]`), bound as a param + cast `::vector`. */
+function vectorLiteral(vec: readonly number[]): string {
+  return `[${vec.join(',')}]`
+}
+
+/** `col <op> $vec::vector` — the ANN distance expression (used in ORDER BY). */
+function nearestDistance(n: {ref: string; vec: readonly number[]; metric: NearestMetric}) {
+  return sql`${sql.ref(n.ref)} ${sql.raw(NEAREST_OP[n.metric])} ${vectorLiteral(n.vec)}::vector`
+}
+
+/** Similarity score expression (higher = closer): cosine `1 - dist`; L2/IP negate the
+ *  operator result (`<#>` is already the negative inner product, so `-` recovers it). */
+function nearestScore(n: {ref: string; vec: readonly number[]; metric: NearestMetric}) {
+  const d = nearestDistance(n)
+  return n.metric === 'cosine' ? sql`1 - (${d})` : sql`- (${d})`
+}
+
+/** The distance metric of an ANN index declared on `propertyKey`, if any (the
+ *  default `.nearest()` metric — it must match the index or the ANN index is unused). */
+function annMetricFor(def: ModelDefinition, propertyKey: string): NearestMetric | undefined {
+  const ix = (def.indexes ?? []).find(
+    i => (i.method === 'hnsw' || i.method === 'ivfflat') && i.columns.includes(propertyKey)
+  )
+  return ix?.metric
+}
+
 interface QueryState {
   /** Structured filter fragments (ANDed with each other + the tenant scope). */
   where: WhereInput<any>[]
@@ -753,6 +809,8 @@ interface QueryState {
   orderBy: {column: string; dir: 'asc' | 'desc'}[]
   /** Relevance ordering from `.search(q, {rank:true})` (applied before orderBy). */
   rank?: {ref: string; language: string; query: string}
+  /** kNN ordering from `.nearest(vec)` — distance ASC, before rank/orderBy. */
+  nearest?: {ref: string; vec: number[]; metric: NearestMetric}
   limit?: number
   /** Skip tenant auto-scoping for this query (cross-tenant / admin). */
   unscoped?: boolean
@@ -760,11 +818,13 @@ interface QueryState {
 
 export class QuerySet<T extends object> {
   constructor(
-    private readonly ctor: ModelCtor<T>,
-    private readonly state: QueryState = {where: [], raw: [], orderBy: []}
+    // `protected` so the `NearestQuerySet` subclass (its `.matches()` terminal) can
+    // reach the ctor + state + build without re-plumbing them.
+    protected readonly ctor: ModelCtor<T>,
+    protected readonly state: QueryState = {where: [], raw: [], orderBy: []}
   ) {}
 
-  private get def(): ModelDefinition {
+  protected get def(): ModelDefinition {
     return getModelDefinitionOrThrow(this.ctor)
   }
 
@@ -774,6 +834,7 @@ export class QuerySet<T extends object> {
       raw: patch.raw ?? this.state.raw,
       orderBy: patch.orderBy ?? this.state.orderBy,
       rank: patch.rank ?? this.state.rank,
+      nearest: patch.nearest ?? this.state.nearest,
       limit: patch.limit ?? this.state.limit,
       unscoped: patch.unscoped ?? this.state.unscoped
     })
@@ -901,10 +962,60 @@ export class QuerySet<T extends object> {
     return this.clone(patch)
   }
 
-  private build() {
+  /**
+   * pgvector k-nearest-neighbour search: order rows by their embedding's distance
+   * to `vec` (closest first), composing with `.filter()` / tenant scope like any
+   * predicate (the scope ANDs into a WHERE *before* the ANN scan — an HNSW
+   * post-filter). Returns a {@link NearestQuerySet}: `.all()` yields the rows,
+   * `.matches()` yields `{item, score}`. The vector column is auto-discovered when
+   * the model has exactly one; otherwise pass `{column}`. `metric` defaults to the
+   * column's ANN-index metric (else `cosine`) and MUST match it, or the index is
+   * unused. `k` caps the result (`LIMIT`). POSTGRES-ONLY. Not combinable with
+   * keyset `.paginate()` (distance has no seekable cursor).
+   */
+  nearest(
+    vec: number[],
+    options: {column?: string; metric?: NearestMetric; k?: number} = {}
+  ): NearestQuerySet<T> {
+    const col = this.resolveVectorColumn(options.column)
+    const metric = options.metric ?? annMetricFor(this.def, col.propertyKey) ?? 'cosine'
+    return new NearestQuerySetImpl<T>(this.ctor, {
+      ...this.state,
+      nearest: {ref: col.columnName, vec, metric},
+      ...(options.k !== undefined ? {limit: options.k} : {})
+    })
+  }
+
+  /** Resolve the `.nearest()` target vector column: explicit `{column}` (must be a
+   *  vector), else the model's sole vector column (throws on none / ambiguity). */
+  private resolveVectorColumn(column?: string): ColumnDefinition {
+    if (column) {
+      const col = columnFor(this.def, column)
+      if (col.sqlType !== 'vector') {
+        throw new Error(`${this.def.tableName}.${column} is not a vector column.`)
+      }
+      return col
+    }
+    const vecs = this.def.columns.filter(c => c.sqlType === 'vector')
+    if (vecs.length === 0) {
+      throw new Error(`${this.def.tableName}: .nearest() needs a vector column (see models.Vector).`)
+    }
+    if (vecs.length > 1) {
+      throw new Error(
+        `${this.def.tableName}: multiple vector columns — pass {column} to .nearest().`
+      )
+    }
+    return vecs[0]
+  }
+
+  protected build() {
     const db = getDatabase()
     let q: any = db.kysely.selectFrom(this.def.tableName).select(selectableColumns(this.def))
     q = this.applyWhere(q)
+    // kNN distance is the PRIMARY ordering (closest first), ahead of rank/orderBy.
+    if (this.state.nearest) {
+      q = q.orderBy(nearestDistance(this.state.nearest) as any, 'asc')
+    }
     if (this.state.rank) {
       const {ref, language, query} = this.state.rank
       // Relevance first, then any explicit orderBy as a tiebreak.
@@ -1194,6 +1305,16 @@ export class QuerySet<T extends object> {
   }
 
   async paginate(args: PaginateArgs = {}): Promise<Connection<T>> {
+    // Defensive: kNN distance ordering has no seekable keyset cursor (same reason
+    // relevance rank doesn't — see anchorSeek). The typed API already prevents this
+    // (`.nearest()` returns the narrow `NearestQuerySet`, which has no `.paginate()`),
+    // so this only fires if the state was reached by other means.
+    if (this.state.nearest) {
+      throw new Error(
+        `${this.def.tableName}: .paginate() is not supported with .nearest() — ` +
+          `distance ordering has no seekable cursor. Use {k} to limit, or .all()/.matches().`
+      )
+    }
     // The `query` DSL is merged into the filter, then we re-enter without it
     // (one level — the keyset logic below is unchanged).
     if (args.query) {
@@ -1444,7 +1565,9 @@ export class QuerySet<T extends object> {
     const data: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(values)) {
       // `undefined` = "don't touch this column" (Prisma semantics); `null` sets null.
-      if (value !== undefined) data[columnFor(this.def, key).columnName] = value
+      if (value === undefined) continue
+      const col = columnFor(this.def, key)
+      data[col.columnName] = dbValueForColumn(col, value)
     }
     if (Object.keys(data).length === 0) return 0 // nothing to set → no-op
     const wantSignals = (opts?.signals ?? true) && !getDatabase().skipSignals
@@ -1465,6 +1588,28 @@ export class QuerySet<T extends object> {
       const instances = rows.map(r => hydrate(this.ctor, r))
       await signals.postSave.emit({instances, created: false, model})
       return rows.length
+    })
+  }
+}
+
+/**
+ * Runtime backing for {@link NearestQuerySet}: a real `QuerySet` (for scope + kNN
+ * order + limit via `build()`) plus the `.matches()` terminal. `.nearest()` returns
+ * it typed as the narrow `NearestQuerySet` interface, so callers never see
+ * `.paginate()`/`.filter()`/writers — the score lives on a `Match<T>` envelope
+ * rather than polluting the row type `T` (as `.paginate()` returns `Connection<T>`).
+ */
+class NearestQuerySetImpl<T extends object> extends QuerySet<T> implements NearestQuerySet<T> {
+  /** kNN results as `{item, score}` — `item` is the hydrated row WITHOUT its vector
+   *  (excluded from the SELECT), `score` the similarity (higher = closer). */
+  async matches(): Promise<Match<T>[]> {
+    const n = this.state.nearest!
+    noteQuery(this.ctor, 'matches', this.state.where) // un-batched → N+1 advisory (dev-only)
+    // build() already applies scope + kNN order + limit; add the score projection.
+    const rows: any[] = await this.build().select(nearestScore(n).as('__score')).execute()
+    return rows.map(r => {
+      const {__score, ...rest} = r
+      return {item: hydrate(this.ctor, rest), score: Number(__score)}
     })
   }
 }
@@ -1495,6 +1640,14 @@ export class Manager<T extends object> {
     options?: {column?: string; language?: string; rank?: boolean}
   ): QuerySet<T> {
     return this.qs().search(query, options)
+  }
+
+  /** pgvector k-nearest-neighbour search (see `QuerySet.nearest`). */
+  nearest(
+    vec: number[],
+    options?: {column?: string; metric?: NearestMetric; k?: number}
+  ): NearestQuerySet<T> {
+    return this.qs().nearest(vec, options)
   }
 
   all(): Promise<T[]> {
@@ -1561,6 +1714,20 @@ export class Manager<T extends object> {
   createMany(values: Partial<T>[], options?: BulkOptions): Promise<T[]> {
     return createMany(this.ctor, values, options)
   }
+
+  /**
+   * Insert a row, or UPDATE it if it conflicts — native `INSERT … ON CONFLICT
+   * DO UPDATE`. Tenant-safe; the atomic counterpart to a read-then-write
+   * get-or-create. See {@link upsertMany}.
+   */
+  upsert(values: Partial<T>, options: UpsertOptions<T>): Promise<T> {
+    return upsertMany(this.ctor, [values], options).then(r => r[0])
+  }
+
+  /** Bulk {@link upsert} — one `INSERT … ON CONFLICT DO UPDATE` for all rows. */
+  upsertMany(values: Partial<T>[], options: UpsertOptions<T>): Promise<T[]> {
+    return upsertMany(this.ctor, values, options)
+  }
 }
 
 /** Options for bulk instance ops. */
@@ -1573,6 +1740,27 @@ export function createManager<T extends object>(
   ctor: ModelCtor<T>
 ): Manager<T> {
   return new Manager(ctor)
+}
+
+/**
+ * Serialize a JS value for a column write. THE single choke point for every write
+ * path (insert AND update) so column-type quirks are handled in one place.
+ *
+ * jsonb columns: we serialize the value ourselves because node-pg's implicit
+ * serialization is asymmetric — it `JSON.stringify`s plain OBJECTS (valid jsonb)
+ * but renders ARRAYS as Postgres ARRAY literals (`{…}`), which a jsonb column
+ * rejects: `[{…}]` → "invalid input syntax for type json", `[]` → silently stored
+ * as `{}`. Stringifying here makes objects AND arrays round-trip (pg casts the text
+ * param to jsonb). `null` stays SQL NULL; everything else passes through untouched.
+ *
+ * vector columns: same hazard — node-pg would render the `number[]` as a Postgres
+ * array literal (`{…}`); pgvector wants `[…]`. Emit the bracketed text (pg casts it
+ * to `vector`). A vector is never a top-level array to jsonb, so order is moot.
+ */
+function dbValueForColumn(col: ColumnDefinition, value: unknown): unknown {
+  if (col.sqlType === 'jsonb' && value !== null) return JSON.stringify(value)
+  if (col.sqlType === 'vector' && value !== null) return `[${(value as number[]).join(',')}]`
+  return value
 }
 
 function rowFromInstance(
@@ -1590,14 +1778,7 @@ function rowFromInstance(
     if (col.primaryKey && !includePrimaryKey) continue
     const value = instance[col.propertyKey]
     if (value === undefined) continue
-    // jsonb columns: serialize the value ourselves. node-pg's implicit serialization
-    // is asymmetric — it `JSON.stringify`s plain OBJECTS (valid jsonb) but renders
-    // ARRAYS as Postgres ARRAY literals (`{…}`), which a jsonb column rejects:
-    // `[{…}]` → "invalid input syntax for type json", `[]` → silently stored as `{}`.
-    // Stringifying here makes objects AND arrays round-trip correctly (pg casts the
-    // text param to jsonb on insert). `null` stays SQL NULL.
-    data[col.columnName] =
-      col.sqlType === 'jsonb' && value !== null ? JSON.stringify(value) : value
+    data[col.columnName] = dbValueForColumn(col, value)
   }
   return data
 }
@@ -1616,23 +1797,24 @@ function copyRowOnto(def: ModelDefinition, instance: any, row: any): void {
 
 /**
  * Column names to SELECT for a model — every column EXCEPT internal DB-managed
- * generated ones (the hidden `tsvector` from `@model({search})`). Those are
- * large, hidden from the API, write-only by the DB, and never read as an
- * instance value — `.search()` references them in the WHERE clause directly — so
- * fetching them just wastes wire + CPU on every read. Optionally qualified by a
+ * generated ones (the hidden `tsvector` from `@model({search})`) and `vector`
+ * embedding columns. Those are large, hidden from the API, write-only by the DB,
+ * and never read as an instance value — `.search()` / `.nearest()` reference them
+ * in the WHERE / ORDER BY directly — so fetching them just wastes wire + CPU on
+ * every read (a 1024-dim embedding is ~4–8 KB/row). Optionally qualified by a
  * table/alias for joined queries. Replaces `selectAll()` on the read paths.
  */
 export function selectableColumns(def: ModelDefinition, table?: string): string[] {
-  const names = new Set(
-    def.columns.filter(c => !(c.generatedAs && c.hidden)).map(c => c.columnName)
-  )
+  // A column excluded from the default read projection.
+  const excluded = (c: ColumnDefinition) => (c.generatedAs && c.hidden) || c.sqlType === 'vector'
+  const names = new Set(def.columns.filter(c => !excluded(c)).map(c => c.columnName))
   // STI base: also select every subclass's own columns (they live on the shared
   // table), so a base query can materialise the concrete subclass with all its fields.
   if (def.inheritance) {
     for (const m of allModels()) {
       if (m.sti?.baseCtor !== def.ctor) continue
       for (const c of m.columns) {
-        if (!(c.generatedAs && c.hidden)) names.add(c.columnName)
+        if (!excluded(c)) names.add(c.columnName)
       }
     }
   }
@@ -1888,6 +2070,125 @@ export async function createMany<T extends object>(
   })
 
   if (emit) await signals.postSave.emit({instances, created: true, model})
+  return instances
+}
+
+export interface UpsertOptions<T> {
+  /** Property keys forming the conflict target — must match a UNIQUE index/constraint
+   *  (e.g. `['tenantId', 'objectRef', 'model']`). */
+  onConflict: (keyof T & string)[]
+  /** Property keys to overwrite when a row conflicts. Default: every provided column
+   *  except the conflict target and the primary key. Must be non-empty. */
+  update?: (keyof T & string)[]
+  /** Fire lifecycle signals (default true). */
+  signals?: boolean
+}
+
+/**
+ * Insert rows, or UPDATE the ones that conflict — a native
+ * `INSERT … ON CONFLICT (<onConflict>) DO UPDATE SET <update> = excluded.<update>`.
+ * The atomic, single-statement counterpart to a read-then-write get-or-create.
+ *
+ * Tenant-safe like every write: the ambient tenant is stamped on insert
+ * (`applyCreateDefaults`), and — as defense when the conflict target itself doesn't
+ * carry the tenant column — a `WHERE <table>.<tenant> = $bound` guard on the DO
+ * UPDATE means a conflict can never clobber another tenant's row. Values are
+ * validated + serialized (incl. jsonb/vector) through the same paths as `create`.
+ * Returns the resulting rows (post-insert/update state), matched back by conflict key.
+ */
+export async function upsertMany<T extends object>(
+  ctor: ModelCtor<T>,
+  values: Partial<T>[],
+  options: UpsertOptions<T>
+): Promise<T[]> {
+  if (values.length === 0) return []
+  const def = getModelDefinitionOrThrow(ctor)
+  const emit = options.signals ?? !getDatabase().skipSignals
+  const model = ctor as Function
+
+  const conflictCols = options.onConflict.map(k => columnFor(def, k).columnName)
+  if (conflictCols.length === 0) {
+    throw new Error(`${def.tableName}: upsert needs at least one onConflict column.`)
+  }
+
+  const instances = values.map(v => {
+    // Finalized class — see `hydrate` (resilient to duplicate bundle copies).
+    const inst = new (def.ctor as typeof ctor)()
+    assignDefined(inst, v)
+    applyCreateDefaults(def, inst as any) // tenant stamp + default generators
+    const issues = validateInstance(def, inst as object)
+    if (issues.length > 0) throw new ValidationError(issues)
+    stampTypename(inst as object, def.ctor.name)
+    return inst
+  })
+
+  const rows = instances.map(i => rowFromInstance(def, i, {includePrimaryKey: true}))
+
+  // Default update set: every provided column except the conflict target + PK.
+  const pkCol = def.primaryKey?.columnName
+  const provided = new Set<string>(rows.flatMap(r => Object.keys(r)))
+  const updateCols =
+    options.update?.map(k => columnFor(def, k).columnName) ??
+    [...provided].filter(c => !conflictCols.includes(c) && c !== pkCol)
+  if (updateCols.length === 0) {
+    throw new Error(
+      `${def.tableName}: upsert has no columns to update on conflict — pass {update: [...]}.`
+    )
+  }
+
+  if (emit) await signals.preSave.emit({instances, created: true, model})
+
+  const tenantCol = def.tenantColumn
+  const tenant = tenantCol ? currentTenant() : undefined
+  let returned: any[]
+  try {
+    returned = await getDatabase()
+      .kysely.insertInto(def.tableName)
+      .values(rows as any)
+      .onConflict(oc => {
+        let b = oc
+          .columns(conflictCols)
+          .doUpdateSet(
+            Object.fromEntries(updateCols.map(c => [c, (eb: any) => eb.ref(`excluded.${c}`)]))
+          )
+        // Never clobber another tenant's row (redundant when the conflict target
+        // includes the tenant column, load-bearing when it doesn't).
+        if (tenantCol && tenant !== undefined && tenant !== null) {
+          b = (b as any).where(`${def.tableName}.${tenantCol}`, '=', tenant)
+        }
+        return b as any
+      })
+      // `xmax = 0` ⇒ this row was INSERTed (not updated) by this statement — lets
+      // postSave report `created` accurately per row.
+      .returningAll()
+      .returning(sql<boolean>`(xmax = 0)`.as('__created'))
+      .execute()
+  } catch (err) {
+    const ve = uniqueViolation(def, err)
+    if (ve) throw ve
+    throw err
+  }
+
+  // Match returned rows back by conflict key (robust to the tenant guard dropping a
+  // cross-tenant no-op row, which would misalign a positional map).
+  const keyOf = (r: Record<string, unknown>) => conflictCols.map(c => String(r[c])).join(' ')
+  const byKey = new Map(returned.map(r => [keyOf(r), r]))
+  const createdInsts: object[] = []
+  const updatedInsts: object[] = []
+  instances.forEach((inst, idx) => {
+    const row = byKey.get(keyOf(rows[idx]))
+    if (!row) return // dropped by the tenant guard (cross-tenant) — not written
+    for (const col of def.columns) {
+      if (col.columnName in row) (inst as any)[col.propertyKey] = row[col.columnName]
+    }
+    persisted.add(inst as object)
+    ;(row.__created ? createdInsts : updatedInsts).push(inst as object)
+  })
+
+  if (emit) {
+    if (createdInsts.length) await signals.postSave.emit({instances: createdInsts, created: true, model})
+    if (updatedInsts.length) await signals.postSave.emit({instances: updatedInsts, created: false, model})
+  }
   return instances
 }
 

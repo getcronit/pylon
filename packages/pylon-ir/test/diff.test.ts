@@ -604,3 +604,113 @@ describe('operator-class indexes (pg_trgm substring search)', () => {
     expect(changes.map(c => c.kind).sort()).toEqual(['addIndex', 'dropIndex'])
   })
 })
+
+describe('pgvector extension (vector column)', () => {
+  const vecEntity = (): Entity => ({
+    name: 'Embedding',
+    table: 'embedding',
+    abstract: false,
+    primaryKey: 'id',
+    implements: [],
+    fields: [
+      idField,
+      field('objectRef', col({name: 'object_ref', sqlType: 'text'})),
+      field('embedding', col({name: 'embedding', sqlType: 'vector', dim: 1024}))
+    ]
+  })
+
+  it('ensures the extension BEFORE the CREATE TABLE that uses vector(N)', () => {
+    // Unlike pg_trgm (needed AFTER the table, for an index), the `vector(N)` type
+    // needs its extension to exist before the table references it.
+    const m = makeMigration({}, {Embedding: vecEntity()})
+    const ext = m.up.findIndex(s => /CREATE EXTENSION IF NOT EXISTS vector/.test(s))
+    const create = m.up.findIndex(s => /CREATE TABLE "embedding"/.test(s))
+    expect(ext).toBeGreaterThanOrEqual(0)
+    expect(ext).toBeLessThan(create)
+    expect(m.up.join('\n')).toMatch(/"embedding" vector\(1024\)/)
+  })
+
+  it('down drops the table but never the extension (others may depend on it)', () => {
+    const m = makeMigration({}, {Embedding: vecEntity()})
+    expect(m.down).toEqual(['DROP TABLE "embedding"'])
+    expect(m.down.join('\n')).not.toMatch(/EXTENSION/)
+  })
+
+  it('adding a vector column ensures the extension before ALTER … ADD COLUMN', () => {
+    const noVec = vecEntity()
+    const before = {Embedding: {...noVec, fields: noVec.fields.filter(f => f.name !== 'embedding')}}
+    const m = makeMigration(before, {Embedding: vecEntity()})
+    expect(m.changes.map(c => c.kind)).toEqual(['addColumn'])
+    const ext = m.up.findIndex(s => /CREATE EXTENSION IF NOT EXISTS vector/.test(s))
+    const add = m.up.findIndex(s => /ADD COLUMN "embedding"/.test(s))
+    expect(ext).toBeGreaterThanOrEqual(0)
+    expect(ext).toBeLessThan(add)
+  })
+
+  it('emits no vector extension when no column is a vector', () => {
+    const m = makeMigration({}, entity('User', [idField, field('email', col({name: 'email', sqlType: 'text'}))]))
+    expect(m.up.join('\n')).not.toMatch(/EXTENSION IF NOT EXISTS vector/)
+  })
+
+  it('round-trips with no spurious diff', () => {
+    const schema = physicalSchemaOf({Embedding: vecEntity()})
+    expect(diffSchema(schema, physicalSchemaOf({Embedding: vecEntity()}))).toEqual([])
+  })
+})
+
+describe('pgvector ANN index (hnsw + operator class + storage params)', () => {
+  const annEntity = (ops = 'vector_cosine_ops', withP?: Record<string, number>): Entity => ({
+    name: 'Embedding',
+    table: 'embedding',
+    abstract: false,
+    primaryKey: 'id',
+    implements: [],
+    fields: [idField, field('embedding', col({name: 'embedding', sqlType: 'vector', dim: 1024}))],
+    indexes: [
+      {
+        name: 'embedding_embedding_hnsw',
+        table: 'embedding',
+        columns: ['embedding'],
+        method: 'hnsw',
+        ops,
+        ...(withP ? {with: withP} : {})
+      }
+    ]
+  })
+
+  it('renders USING hnsw, the per-column operator class, and the WITH clause', () => {
+    const up = makeMigration({}, {Embedding: annEntity('vector_cosine_ops', {m: 16, ef_construction: 64})}).up.join('\n')
+    expect(up).toMatch(
+      /CREATE INDEX "embedding_embedding_hnsw" ON "embedding" USING hnsw \("embedding" vector_cosine_ops\) WITH \(m = 16, ef_construction = 64\)/
+    )
+  })
+
+  it('omits the WITH clause when there are no storage params', () => {
+    const up = makeMigration({}, {Embedding: annEntity('vector_cosine_ops')}).up.join('\n')
+    expect(up).toMatch(/USING hnsw \("embedding" vector_cosine_ops\)/)
+    expect(up).not.toMatch(/WITH \(/)
+  })
+
+  it('round-trips with no spurious diff (ops + with are compared)', () => {
+    const a = physicalSchemaOf({Embedding: annEntity('vector_cosine_ops', {m: 16, ef_construction: 64})})
+    const b = physicalSchemaOf({Embedding: annEntity('vector_cosine_ops', {m: 16, ef_construction: 64})})
+    expect(diffSchema(a, b)).toEqual([])
+  })
+
+  it('a metric (operator-class) change drops + re-adds the index', () => {
+    const before = physicalSchemaOf({Embedding: annEntity('vector_cosine_ops')})
+    const after = physicalSchemaOf({Embedding: annEntity('vector_l2_ops')})
+    expect(diffSchema(before, after).map(c => c.kind).sort()).toEqual(['addIndex', 'dropIndex'])
+  })
+
+  it('a storage-param (with) change drops + re-adds the index', () => {
+    const before = physicalSchemaOf({Embedding: annEntity('vector_cosine_ops', {m: 16, ef_construction: 64})})
+    const after = physicalSchemaOf({Embedding: annEntity('vector_cosine_ops', {m: 32, ef_construction: 64})})
+    expect(diffSchema(before, after).map(c => c.kind).sort()).toEqual(['addIndex', 'dropIndex'])
+  })
+
+  it('rejects an unsafe storage-param name (DDL is inlined, not bound)', () => {
+    const bad = annEntity('vector_cosine_ops', {['m); DROP TABLE x --']: 1})
+    expect(() => makeMigration({}, {Embedding: bad})).toThrow(/storage-param name/)
+  })
+})

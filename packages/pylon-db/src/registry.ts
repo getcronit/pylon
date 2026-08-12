@@ -13,6 +13,7 @@ export type SqlType =
   | 'jsonb'
   | 'uuid'
   | 'tsvector'
+  | 'vector'
 
 export interface ColumnDefinition {
   /** Name of the class property this column maps to. */
@@ -43,6 +44,8 @@ export interface ColumnDefinition {
   precision?: number
   /** `numeric(precision, scale)` — decimal scale (digits after the point). */
   scale?: number
+  /** `vector(dim)` — pgvector embedding dimensionality (fixed length). */
+  dim?: number
   /** Client-side generator re-run on every UPDATE (e.g. updatedAt timestamp). Runtime-only. */
   onUpdateFn?: () => unknown
   /** Literal default value applied client-side on insert. */
@@ -54,8 +57,12 @@ export interface ColumnDefinition {
   defaultFn?: () => unknown
   /** Raw SQL default (e.g. `now()`, `gen_random_uuid()`). */
   defaultSql?: string
-  /** Create a secondary (non-unique) btree index on this column. */
+  /** Create a secondary (non-unique) index on this column. */
   index?: boolean
+  /** Tuning for the single-column index (method/metric/storage), when `{index}` was
+   *  passed an options object rather than `true`. Runtime-only (resolved to an IR
+   *  IndexSpec by `entityFromDefinition`). */
+  indexOptions?: SingleColumnIndex
   /** A column CHECK expression (e.g. `price > 0` or an enum `IN (…)`). */
   check?: string
   /** Postgres array column (`<sqlType>[]`). */
@@ -148,12 +155,35 @@ export interface RelationDefinition {
   hidden?: boolean
 }
 
+/**
+ * Tuning for a **single-column** index declared via the `{index}` field option.
+ * `index: true` is the zero-config shorthand (btree, or HNSW/cosine on a `vector`);
+ * pass this object to tune the method/metric/storage params. Composite indexes go
+ * in `static config`'s `indexes` — they span columns, so they can't live on a field.
+ */
+export interface SingleColumnIndex {
+  /** Access method. Default: `hnsw` on a `vector` column, else `btree`. */
+  method?: 'btree' | 'hnsw' | 'ivfflat'
+  /** ANN distance metric (hnsw/ivfflat) → operator class. Default `cosine`. */
+  metric?: 'cosine' | 'l2' | 'ip'
+  /** Storage parameters, e.g. HNSW `{m: 16, ef_construction: 64}`. */
+  with?: Record<string, number>
+}
+
 /** A model-level (possibly composite) secondary index. `columns` are PROPERTY keys. */
 export interface ModelIndex {
   columns: string[]
   unique?: boolean
-  /** Index method — `gin` for full-text (`tsvector`); default btree. */
-  method?: 'gin' | 'btree'
+  /** Index method — `gin` for full-text (`tsvector`); `hnsw`/`ivfflat` for a
+   *  pgvector ANN index over a `vector` column; default btree. */
+  method?: 'gin' | 'btree' | 'hnsw' | 'ivfflat'
+  /** ANN distance metric for an `hnsw`/`ivfflat` index — resolves to the pgvector
+   *  operator class (`cosine`→`vector_cosine_ops`, `l2`→`vector_l2_ops`,
+   *  `ip`→`vector_ip_ops`). Default `cosine`. Ignored for non-ANN methods. */
+  metric?: 'cosine' | 'l2' | 'ip'
+  /** Index storage parameters, e.g. HNSW's `{m: 16, ef_construction: 64}` or
+   *  ivfflat's `{lists: 100}` → `WITH (…)`. Values must be numeric. */
+  with?: Record<string, number>
   /** Override the generated index name. */
   name?: string
 }

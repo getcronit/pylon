@@ -62,6 +62,11 @@ function scalarForSqlType(t: SqlType): ScalarName {
       // Search infrastructure; never exposed (the column is hidden), but the
       // field still needs a scalar name to be well-formed.
       return 'String'
+    case 'vector':
+      // Embedding infrastructure; write-mostly and excluded from the default
+      // SELECT (see selectableColumns), but the field still needs a well-formed
+      // scalar name. A `number[]` is JSON-shaped.
+      return 'JSON'
   }
 }
 
@@ -76,6 +81,7 @@ function columnSpec(col: ColumnDefinition): ColumnSpec {
     length: col.length,
     precision: col.precision,
     scale: col.scale,
+    dim: col.dim,
     default: col.default,
     defaultSql: col.defaultSql,
     check: col.check,
@@ -187,6 +193,13 @@ function relationField(rel: RelationDefinition, def: ModelDefinition): Field {
   }
 }
 
+/** pgvector distance metric → operator class (for `USING hnsw (col <ops>)`). */
+const VECTOR_OPS: Record<'cosine' | 'l2' | 'ip', string> = {
+  cosine: 'vector_cosine_ops',
+  l2: 'vector_l2_ops',
+  ip: 'vector_ip_ops'
+}
+
 /** Convert one model definition into an IR `Entity`. */
 export function entityFromDefinition(def: ModelDefinition): Entity {
   // FK columns (those backing a belongsTo) surface as `ID` so gid input decodes.
@@ -198,21 +211,44 @@ export function entityFromDefinition(def: ModelDefinition): Entity {
     def.columns.find(c => c.propertyKey === prop)?.columnName ?? prop
   const singleColumn = def.columns
     .filter(col => col.index)
-    .map(col => ({
-      name: pgIdent(`${def.tableName}_${col.columnName}_idx`),
-      table: def.tableName,
-      columns: [col.columnName],
-      unique: false
-    }))
+    .map(col => {
+      const opts = col.indexOptions ?? {}
+      const isVector = col.sqlType === 'vector'
+      // A `vector` column defaults to HNSW (btree is unsupported on the type);
+      // everything else defaults to btree. `{index: {method, metric, with}}` tunes it.
+      const method = opts.method ?? (isVector ? 'hnsw' : undefined)
+      const isAnn = method === 'hnsw' || method === 'ivfflat'
+      if (isAnn && !isVector) {
+        throw new Error(
+          `${def.tableName}.${col.propertyKey}: '${method}' index is only valid on a vector column.`
+        )
+      }
+      const ops = isAnn ? VECTOR_OPS[opts.metric ?? 'cosine'] : undefined
+      const suffix = isAnn ? method : 'idx'
+      return {
+        name: pgIdent(`${def.tableName}_${col.columnName}_${suffix}`),
+        table: def.tableName,
+        columns: [col.columnName],
+        unique: false,
+        ...(method ? {method} : {}),
+        ...(ops ? {ops} : {}),
+        ...(opts.with ? {with: opts.with} : {})
+      }
+    })
   // Composite (multi-column) indexes from the model-level `indexes` option.
   const composite = (def.indexes ?? []).map(ix => {
     const cols = ix.columns.map(columnFor)
+    // ANN methods resolve their distance metric to a pgvector operator class.
+    const isAnn = ix.method === 'hnsw' || ix.method === 'ivfflat'
+    const ops = isAnn ? VECTOR_OPS[ix.metric ?? 'cosine'] : undefined
     return {
       name: ix.name ?? pgIdent(`${def.tableName}_${cols.join('_')}_idx`),
       table: def.tableName,
       columns: cols,
       unique: ix.unique ?? false,
-      ...(ix.method ? {method: ix.method} : {})
+      ...(ix.method ? {method: ix.method} : {}),
+      ...(ops ? {ops} : {}),
+      ...(ix.with ? {with: ix.with} : {})
     }
   })
   // Full-text columns get a GIN index automatically (the point of a tsvector).

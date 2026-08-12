@@ -30,7 +30,10 @@ export interface Dialect {
   /** Stored generated-column clause (placed after the column type). */
   generatedColumn(expr: string): string
   /** Index access-method clause, e.g. ` USING gin` (empty for the default btree). */
-  indexMethod(method?: 'gin' | 'btree'): string
+  indexMethod(method?: 'gin' | 'btree' | 'hnsw' | 'ivfflat'): string
+  /** Index storage-parameter clause, e.g. ` WITH (m = 16, ef_construction = 64)`
+   *  (empty when no params). Values are inlined — storage params take no binds. */
+  indexWith(params?: Record<string, number>): string
 }
 
 export const postgres: Dialect = {
@@ -42,10 +45,25 @@ export const postgres: Dialect = {
         c.scale != null
           ? `numeric(${c.precision}, ${c.scale})`
           : `numeric(${c.precision})`
-    }
+    } else if (c.sqlType === 'vector' && c.dim != null) base = `vector(${c.dim})`
     return c.array ? `${base}[]` : base
   },
   autoIncrementPrimaryKey: () => 'bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY',
   generatedColumn: expr => `GENERATED ALWAYS AS (${expr}) STORED`,
-  indexMethod: method => (method && method !== 'btree' ? ` USING ${method}` : '')
+  indexMethod: method => (method && method !== 'btree' ? ` USING ${method}` : ''),
+  indexWith: params => {
+    if (!params) return ''
+    const body = Object.entries(params)
+      .map(([k, v]) => {
+        // Storage-param names + values are inlined (no bind params in WITH), so
+        // validate to keep the DDL injection-safe.
+        if (!/^[a-z_][a-z0-9_]*$/i.test(k))
+          throw new Error(`invalid index storage-param name: ${JSON.stringify(k)}`)
+        if (typeof v !== 'number' || !Number.isFinite(v))
+          throw new Error(`invalid index storage-param value for "${k}": ${String(v)}`)
+        return `${k} = ${v}`
+      })
+      .join(', ')
+    return body ? ` WITH (${body})` : ''
+  }
 }

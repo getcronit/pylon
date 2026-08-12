@@ -90,6 +90,7 @@ the columns they produce:
 | `struct<T>()` | `jsonb`, typed | `T` |
 | `enumOf(values)` | text + `CHECK` constraint | enum value |
 | `array(text())` | Postgres array | `string[]` |
+| `vector({dim})` | pgvector `vector(dim)` embedding | `number[]` |
 
 `json<T>()` and `struct<T>()` both persist as `jsonb`; they differ on the wire.
 `json` is an opaque `JSON` scalar — the client gets the whole blob and can't select
@@ -105,6 +106,25 @@ class Product extends Model {
   raw = json<{width: number; height: number}>()
   // a typed `ProductDimensions` object in the schema — query `dimensions { width }`
   dimensions = struct<{width: number; height: number}>()
+}
+```
+
+### Vector embeddings
+
+`vector({dim})` (or `models.Vector({dim})`) declares a fixed-length pgvector
+embedding column — the `vector` Postgres extension is created automatically when a
+model uses one. The value is a plain `number[]`, but it's **write-mostly**: the raw
+embedding is excluded from the default `SELECT` (a 1024-dim vector is several KB per
+row), so a loaded instance doesn't carry it back. You query by *similarity* with
+[`.nearest()`](/docs/data/queries#vector-search), and index it for speed with an
+[ANN index](#indexes) (`method: 'hnsw'`).
+
+```ts
+class Doc extends Model {
+  static objects = manager(Doc)
+  id = id()
+  title = text()
+  embedding = vector({dim: 1536, index: true}) // {index: true} → HNSW/cosine
 }
 ```
 
@@ -199,9 +219,25 @@ class Product extends Model {
 
 ## Indexes
 
-Single-column indexes use the `index` field option. Composite indexes — and
-composite unique constraints — are declared on the model with a `static config`
-block's `indexes`, where `columns` are property names:
+**Single-column** indexes live on the field via the `index` option; **composite**
+indexes — spanning several columns — go in a `static config` block's `indexes`.
+
+`index: true` is the zero-config shorthand (a btree, or an HNSW/cosine ANN index on a
+`vector`). Pass an object to tune a single-column index — `method`
+(`'hnsw'`/`'ivfflat'` for a `vector`), `metric` (`'cosine'` default, `'l2'`, `'ip'`),
+and `with` (storage parameters):
+
+```ts
+class Doc extends Model {
+  static objects = manager(Doc)
+  id = id()
+  title = text({index: true})                                          // btree
+  embedding = vector({dim: 1536, index: {metric: 'l2', with: {m: 32}}}) // tuned HNSW
+}
+```
+
+Composite indexes — and composite unique constraints — are declared on the model with
+a `static config` block's `indexes`, where `columns` are property names:
 
 ```ts
 class Person extends Model {
@@ -217,6 +253,15 @@ class Person extends Model {
   lastName = text()
   createdAt = createdAt()
 }
+```
+
+A composite index takes the same `method`/`metric`/`with` knobs — e.g. an ANN index
+would rarely be composite, but a partial covering index over several columns is:
+
+```ts
+static config = {
+  indexes: [{columns: ['orgId', 'userId'], unique: true}]
+} satisfies ModelConfig<Membership>
 ```
 
 ## Full-text search

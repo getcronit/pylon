@@ -1,6 +1,8 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector-enabled Postgres — the integration tests need the `vector` extension
+    # (see test/integration/vector-nearest.test.ts). Drop-in for `postgres:16`.
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: pylon
       POSTGRES_PASSWORD: pylon

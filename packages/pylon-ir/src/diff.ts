@@ -143,11 +143,18 @@ function indexesOf(e: Entity): Map<string, IndexSpec> {
   return new Map((e.indexes ?? []).map(ix => [ix.name, ix]))
 }
 
+function withEqual(a?: Record<string, number>, b?: Record<string, number>): boolean {
+  const ak = Object.keys(a ?? {}).sort()
+  const bk = Object.keys(b ?? {}).sort()
+  return ak.length === bk.length && ak.every(k => a![k] === b?.[k])
+}
+
 function indexEqual(a: IndexSpec, b: IndexSpec): boolean {
   return (
     !!a.unique === !!b.unique &&
     (a.method ?? 'btree') === (b.method ?? 'btree') &&
     (a.ops ?? '') === (b.ops ?? '') &&
+    withEqual(a.with, b.with) &&
     a.columns.length === b.columns.length &&
     a.columns.every((c, i) => c === b.columns[i])
   )
@@ -598,13 +605,30 @@ function dropForeignKeySQL(fk: ForeignKeyChange): string {
   return `ALTER TABLE "${fk.table}" DROP CONSTRAINT IF EXISTS "${fk.name}"`
 }
 
+/**
+ * pgvector: a `vector(N)` column needs its extension to exist BEFORE the DDL that
+ * references the type (CREATE TABLE / ADD COLUMN) — unlike `pg_trgm`, which only an
+ * index needs *after* the table (see `addIndexSQL`). Prepend an idempotent
+ * `CREATE EXTENSION` when any of these columns is a vector. Harmless to repeat
+ * (`IF NOT EXISTS`), so it stays co-located per statement rather than hoisted; and
+ * it is never reversed on `down` (other objects may depend on the extension).
+ */
+function withVectorExtension(
+  columns: readonly {sqlType: string}[],
+  stmts: string[]
+): string[] {
+  return columns.some(c => c.sqlType === 'vector')
+    ? ['CREATE EXTENSION IF NOT EXISTS vector', ...stmts]
+    : stmts
+}
+
 function addIndexSQL(ix: IndexSpec): string[] {
   const out: string[] = []
   // A `gin_trgm_ops` index needs the pg_trgm extension; ensure it (idempotent).
   if (ix.ops === 'gin_trgm_ops') out.push('CREATE EXTENSION IF NOT EXISTS pg_trgm')
   const cols = ix.columns.map(c => `"${c}"${ix.ops ? ` ${ix.ops}` : ''}`).join(', ')
   out.push(
-    `CREATE ${ix.unique ? 'UNIQUE ' : ''}INDEX "${ix.name}" ON "${ix.table}"${postgres.indexMethod(ix.method)} (${cols})`
+    `CREATE ${ix.unique ? 'UNIQUE ' : ''}INDEX "${ix.name}" ON "${ix.table}"${postgres.indexMethod(ix.method)} (${cols})${postgres.indexWith(ix.with)}`
   )
   return out
 }
@@ -685,11 +709,14 @@ function alterColumnSQL(
 function up(change: SchemaChange, unsupported: string[]): string[] {
   switch (change.kind) {
     case 'createTable':
-      return [toDDL(change.spec)]
+      return withVectorExtension(change.spec.columns, [toDDL(change.spec)])
     case 'dropTable':
       return [`DROP TABLE "${change.spec.table}"`]
     case 'addColumn':
-      return [`ALTER TABLE "${change.table}" ADD COLUMN ${columnDDL(change.column)}`]
+      return withVectorExtension(
+        [change.column],
+        [`ALTER TABLE "${change.table}" ADD COLUMN ${columnDDL(change.column)}`]
+      )
     case 'dropColumn':
       return [`ALTER TABLE "${change.table}" DROP COLUMN "${change.column.name}"`]
     case 'alterColumn':

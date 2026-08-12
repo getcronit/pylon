@@ -41,6 +41,7 @@ export type SqlType =
   | 'jsonb'
   | 'uuid'
   | 'tsvector'
+  | 'vector'
 
 export type OnDelete = 'cascade' | 'set null' | 'restrict' | 'no action'
 
@@ -57,6 +58,8 @@ export interface ColumnSpec {
   precision?: number
   /** `numeric(precision, scale)` — decimal scale (digits after the point). */
   scale?: number
+  /** `vector(dim)` — pgvector embedding dimensionality (fixed length). */
+  dim?: number
   default?: unknown
   defaultSql?: string
   /** A column CHECK expression, e.g. `price > 0` or `"status" IN ('a','b')`. */
@@ -120,12 +123,18 @@ export interface IndexSpec {
   /** Column names, in index order. */
   columns: string[]
   unique?: boolean
-  /** Index method — `gin` for full-text (`tsvector`) / trigram; default btree. */
-  method?: 'gin' | 'btree'
+  /** Index method — `gin` for full-text (`tsvector`) / trigram; `hnsw`/`ivfflat`
+   *  for a pgvector ANN index; default btree. */
+  method?: 'gin' | 'btree' | 'hnsw' | 'ivfflat'
   /** Per-column operator class, e.g. `gin_trgm_ops` for a `pg_trgm` substring
-   *  index. Applied to every column of the index. When it's `gin_trgm_ops`, the
-   *  DDL also ensures the `pg_trgm` extension exists. */
+   *  index or `vector_cosine_ops` for an HNSW vector index. Applied to every column
+   *  of the index. When it's `gin_trgm_ops`, the DDL also ensures the `pg_trgm`
+   *  extension exists (the `vector` extension is ensured at the column, see F3). */
   ops?: string
+  /** Index storage parameters → `WITH (k = v, …)`, e.g. HNSW's
+   *  `{m: 16, ef_construction: 64}`. Values are numeric and inlined (storage
+   *  params take no bind parameters). */
+  with?: Record<string, number>
 }
 
 /** A resolved foreign-key constraint — self-contained, no schema lookup needed. */

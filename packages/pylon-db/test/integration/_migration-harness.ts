@@ -91,7 +91,8 @@ const gqlName: Record<SqlType, string> = {
   date: 'String',
   jsonb: 'JSON',
   uuid: 'String',
-  tsvector: 'String'
+  tsvector: 'String',
+  vector: 'JSON'
 }
 
 /** The `bigint` auto-increment primary key every entity carries. */

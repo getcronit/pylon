@@ -26,6 +26,7 @@ import {
   getModelDefinitionOrThrow,
   ModelDefinition,
   ModelIndex,
+  SingleColumnIndex,
   OnDelete,
   registerColumn,
   registerRelation,
@@ -57,8 +58,10 @@ export interface FieldOptions {
   /** Override the column name. */
   column?: string
   unique?: boolean
-  /** Create a secondary (non-unique) index on this column. */
-  index?: boolean
+  /** Create a secondary (non-unique) index on this column. `true` = zero-config
+   *  (btree, or HNSW/cosine on a `vector`); pass a {@link SingleColumnIndex} to tune
+   *  the method/metric/storage params. Composite indexes go in `static config`. */
+  index?: boolean | SingleColumnIndex
   nullable?: boolean
   primaryKey?: boolean
   /** Literal default applied client-side on insert. */
@@ -94,7 +97,7 @@ class FieldBuilder {
   constructor(
     readonly sqlType: SqlType,
     readonly base: Partial<ColumnDefinition>,
-    readonly options: FieldOptions & {length?: number; precision?: number; scale?: number; onUpdate?: () => unknown; enumValues?: readonly string[]; array?: boolean; generatedAs?: string; ftsLanguage?: string; requires?: 'postgres'}
+    readonly options: FieldOptions & {length?: number; precision?: number; scale?: number; dim?: number; onUpdate?: () => unknown; enumValues?: readonly string[]; array?: boolean; generatedAs?: string; ftsLanguage?: string; requires?: 'postgres'}
   ) {}
 }
 
@@ -121,7 +124,7 @@ const COLUMN_STORE = Symbol('pylon.columns')
 function field(
   sqlType: SqlType,
   base: Partial<ColumnDefinition>,
-  options: FieldOptions & {length?: number; precision?: number; scale?: number; onUpdate?: () => unknown; enumValues?: readonly string[]; array?: boolean; generatedAs?: string; ftsLanguage?: string; requires?: 'postgres'}
+  options: FieldOptions & {length?: number; precision?: number; scale?: number; dim?: number; onUpdate?: () => unknown; enumValues?: readonly string[]; array?: boolean; generatedAs?: string; ftsLanguage?: string; requires?: 'postgres'}
 ): unknown {
   return new FieldBuilder(sqlType, base, options)
 }
@@ -270,6 +273,30 @@ export function struct<T = unknown>(options: NullableOpts): T | null
 export function struct<T = unknown>(options?: FieldOptions): T
 export function struct<T = unknown>(options: FieldOptions = {}): T | null {
   return field('jsonb', {struct: true}, options) as T | null
+}
+
+/**
+ * A pgvector embedding column — `vector(dim)`, storing a fixed-length `number[]`
+ * (e.g. a 1024-dim `voyage-3`/`bge-m3` embedding). Requires the `vector` extension
+ * (installed automatically when any model declares one) — hence `requires: 'postgres'`.
+ *
+ * The raw embedding is **write-mostly**: excluded from the default SELECT (see
+ * `selectableColumns`), referenced only in the `ORDER BY` of an ANN query, and read
+ * back via `.nearest(...).matches()` (which returns `{item, score}`, item WITHOUT the
+ * vector) — never surfaced as an instance value unless explicitly requested.
+ *
+ * ```ts
+ * embedding = models.Vector({dim: 1024})   // → column: vector(1024) NOT NULL
+ * ```
+ */
+export function vector(options: NullableOpts & {dim: number}): number[] | null
+export function vector(options: FieldOptions & {dim: number}): number[]
+export function vector(options: FieldOptions & {dim: number}): number[] | null {
+  const {dim} = options
+  if (!Number.isInteger(dim) || dim < 1)
+    throw new Error(`models.Vector: dim must be a positive integer, got ${String(dim)}`)
+  // `requires: 'postgres'` — the `vector` type + ANN index are Postgres-only.
+  return field('vector', {}, {...options, dim, requires: 'postgres'}) as number[] | null
 }
 
 /** A string-valued TS enum object (`enum X { A = 'a' }` compiles to this). */
@@ -830,7 +857,18 @@ export interface ModelConfig<T, D extends ColumnKey<T> = never> {
   abstract?: boolean
   secure?: boolean
   tenant?: ColumnKey<T>
-  indexes?: Array<{columns: ColumnKey<T>[]; unique?: boolean}>
+  indexes?: Array<{
+    columns: ColumnKey<T>[]
+    unique?: boolean
+    /** `hnsw`/`ivfflat` for a pgvector ANN index over a `vector` column; `gin` for
+     *  FTS; default btree. */
+    method?: 'gin' | 'btree' | 'hnsw' | 'ivfflat'
+    /** ANN distance metric (hnsw/ivfflat) → operator class. Default `cosine`. */
+    metric?: 'cosine' | 'l2' | 'ip'
+    /** Index storage params, e.g. HNSW `{m: 16, ef_construction: 64}` → `WITH (…)`. */
+    with?: Record<string, number>
+    name?: string
+  }>
   search?: ModelSearchConfig<T> | ModelSearchConfig<T>[]
   trigram?: {columns: ColumnKey<T>[]}
   query?: QueryConfig<T>
@@ -900,6 +938,14 @@ function buildColumn(key: string, b: FieldBuilder): ColumnDefinition {
   const hidden = b.options.hidden ?? key.startsWith('$')
   const exposedName = key.startsWith('$') ? key.slice(1) : key
   const columnName = b.options.column ?? snakeCase(exposedName)
+  // A field-level ANN index (`{index: {method: 'hnsw' | 'ivfflat'}}`) only makes
+  // sense on a `vector` column — fail at authoring time, not at migrate time.
+  const idxOpts = typeof b.options.index === 'object' ? b.options.index : undefined
+  if ((idxOpts?.method === 'hnsw' || idxOpts?.method === 'ivfflat') && b.sqlType !== 'vector') {
+    throw new Error(
+      `${columnName}: '${idxOpts.method}' index is only valid on a vector column.`
+    )
+  }
   // Project enum membership + numeric/string min/max (and any explicit check)
   // into a single DB CHECK — the DB-level backstop for the runtime validator.
   const check = buildCheck(columnName, b.sqlType, b.options)
@@ -912,10 +958,14 @@ function buildColumn(key: string, b: FieldBuilder): ColumnDefinition {
     unique: b.options.unique ?? b.base.unique ?? false,
     nullable: b.options.nullable ?? false,
     hidden,
-    index: b.options.index ?? false,
+    // `{index}` may be a boolean shorthand or a tuning object — normalize to a flag
+    // plus the resolved options (read by `entityFromDefinition`).
+    index: !!b.options.index,
+    indexOptions: typeof b.options.index === 'object' ? b.options.index : undefined,
     length: b.options.length,
     precision: b.options.precision,
     scale: b.options.scale,
+    dim: b.options.dim,
     onUpdateFn: b.options.onUpdate,
     generatedAs: b.options.generatedAs,
     ftsLanguage: b.options.ftsLanguage,
