@@ -57,6 +57,10 @@ jobs:
         id: publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # `changeset version` runs the @changesets/changelog-github plugin
+          # (.changeset/config.json), which calls the GitHub API and requires a
+          # token — without it: "Please create a GitHub personal access token…".
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           TAG="${{ steps.channel.outputs.tag }}"
