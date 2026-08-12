@@ -57,9 +57,13 @@ function resolveFile(slug: string): string | null {
     path.join(CONTENT_DIR, rel, 'index.md')
   ]
   for (const file of candidates) {
-    // Guard against path traversal — resolved file must stay under CONTENT_DIR.
+    // Guard against path traversal — resolved file must stay strictly UNDER
+    // CONTENT_DIR. The trailing separator matters: a bare `startsWith(CONTENT_DIR)`
+    // would also accept sibling dirs whose name merely begins with "content"
+    // (e.g. `<cwd>/content-secret/x.md` via a `../content-secret/...` slug).
     const resolved = path.resolve(file)
-    if (!resolved.startsWith(CONTENT_DIR)) continue
+    if (resolved !== CONTENT_DIR && !resolved.startsWith(CONTENT_DIR + path.sep))
+      continue
     if (fs.existsSync(resolved) && fs.statSync(resolved).isFile())
       return resolved
   }
