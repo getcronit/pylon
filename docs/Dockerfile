@@ -71,6 +71,11 @@ COPY --from=build --chown=65532:65532 /prod/node_modules ./node_modules
 COPY --from=build --chown=65532:65532 /prod/.pylon ./.pylon
 COPY --from=build --chown=65532:65532 /prod/content ./content
 EXPOSE 3000
+# Health check. Distroless has no curl/wget, so probe with node's global fetch.
+# Yoga serves a liveness endpoint at /health (200 "alive") as a global middleware
+# BEFORE the usePages catch-all, so it's a cheap check that the server is up.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD ["/nodejs/bin/node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
 # The distroless nodejs image's ENTRYPOINT is already `/nodejs/bin/node`, so CMD
 # passes only args. server.mjs boots the config, mounts the GraphQL handler +
 # usePages catch-all, then binds node:http (PORT || 3000).
