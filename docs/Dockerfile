@@ -32,17 +32,34 @@ RUN pnpm fetch
 # Now bring the full monorepo — a workspace install/build needs every package.
 COPY . .
 RUN pnpm install --frozen-lockfile --offline
-RUN pnpm build                                   # builds ./packages/* dist
-RUN pnpm --filter @getcronit/pylon-docs build    # `pylon build` -> docs/.pylon/index.js
+RUN pnpm build                                   # builds ./packages/* dist (incl. pylon-dev's `pylon` CLI)
+# pnpm couldn't link docs' `pylon` bin during install: pylon-dev's dist is
+# gitignored and only produced by `pnpm build` above, so the bin target didn't
+# exist at install time (ENOENT skip). Invoke the freshly-built CLI directly —
+# cwd = docs so `pylon build` picks up docs/pylon.config.ts and emits docs/.pylon.
+RUN cd docs && node node_modules/@getcronit/pylon-dev/dist/index.js build
+# Prune to a standalone deployment of JUST the docs app: its built files
+# (.pylon, public, ...) plus a flat node_modules of only its PRODUCTION deps,
+# with the workspace packages (@getcronit/pylon, pylon-pages, pylon-query, ...)
+# copied in rather than symlinked. This is what keeps the runner image small —
+# the whole monorepo + every dev dependency stays behind in the build stage.
+# The env var satisfies pnpm 10's deploy gate for this one command (without
+# switching the repo-wide install to injected mode); --legacy uses the
+# copy-from-node_modules implementation, which matches our symlinked install.
+RUN npm_config_inject_workspace_packages=true \
+    pnpm --filter=@getcronit/pylon-docs deploy --legacy --prod /prod
+# pnpm deploy selects files by npm-publish rules, which honor .gitignore — and
+# docs/.gitignore excludes the built `.pylon` (docs has no `files` field, unlike
+# the workspace deps whose `files:["dist"]` keeps their dist). Copy the built
+# server entry into the pruned tree so the runner can start it.
+RUN cp -r docs/.pylon /prod/.pylon
 
-# ---- runner: serve the built app ----
+# ---- runner: serve the pruned deployment ----
 FROM base AS runner
 ENV NODE_ENV=production PORT=3000
-# Carry over the built workspace (node_modules symlinks + docs/.pylon + public).
-# TODO(optimize): once we confirm `pylon build` bundles react/react-dom, the
-# runner can copy only docs/.pylon + docs/public and drop node_modules, or use
-# `pnpm deploy --filter @getcronit/pylon-docs` for a pruned image.
-COPY --from=build /app /app
-WORKDIR /app/docs
+WORKDIR /app
+COPY --from=build /prod /app
 EXPOSE 3000
-CMD ["node", "--enable-source-maps", ".pylon/index.js"]
+# `pylon build` emits the Node server entry as .pylon/server.mjs — it boots the
+# config, mounts the GraphQL handler + usePages catch-all, then binds node:http.
+CMD ["node", "--enable-source-maps", ".pylon/server.mjs"]
