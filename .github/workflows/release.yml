@@ -13,6 +13,10 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # changesets/action opens the Version Packages PR + pushes tags
+      pull-requests: write # ...and manages that release PR
+      id-token: write # OIDC trusted publishing to npm (no stored NPM_TOKEN)
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,6 +34,11 @@ jobs:
         with:
           node-version: 20
           cache: 'pnpm'
+          registry-url: 'https://registry.npmjs.org'
+
+      # OIDC trusted publishing needs npm >= 11.5.1; node 20 ships npm 10.
+      - name: Upgrade npm for OIDC publishing
+        run: npm i -g npm@latest
 
       - name: Setup pnpm store
         run: |
@@ -58,4 +67,5 @@ jobs:
           version: pnpm ci:version
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # No NPM_TOKEN: publish authenticates via OIDC trusted publishing
+          # (id-token: write + npm >= 11.5.1 + a Trusted Publisher per package).

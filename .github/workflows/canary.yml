@@ -25,6 +25,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write # post the canary-versions report comment
+      id-token: write # OIDC trusted publishing to npm (no stored NPM_TOKEN)
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -43,6 +44,10 @@ jobs:
           cache: 'pnpm'
           registry-url: 'https://registry.npmjs.org'
 
+      # OIDC trusted publishing needs npm >= 11.5.1; node 20 ships npm 10.
+      - name: Upgrade npm for OIDC publishing
+        run: npm i -g npm@latest
+
       - name: Install dependencies
         run: pnpm i --frozen-lockfile
 
@@ -56,10 +61,11 @@ jobs:
       - name: Version snapshot + publish under PR tag
         id: publish
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # No NPM_TOKEN: `changeset publish` authenticates to npm via OIDC
+          # trusted publishing (id-token: write above + npm >= 11.5.1). Requires
+          # a Trusted Publisher configured for this repo+workflow on each package.
           # `changeset version` runs the @changesets/changelog-github plugin
-          # (.changeset/config.json), which calls the GitHub API and requires a
-          # token — without it: "Please create a GitHub personal access token…".
+          # (.changeset/config.json), which calls the GitHub API and needs a token.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
