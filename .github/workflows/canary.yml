@@ -1,5 +1,14 @@
 name: Canary Release
 
+# Publishes a snapshot of the changed packages (+ their workspace dependents) on
+# every PR, under a PER-CHANNEL npm dist-tag so long-lived branches never clobber
+# each other:
+#   - feat/v3-fullstack  ->  @getcronit/pylon@v3          (stable, memorable)
+#   - any other PR        ->  @getcronit/pylon@pr-<number>
+# Snapshot VERSIONS are globally unique (see .changeset/config.json
+# `prereleaseTemplate: {tag}-{datetime}.{commit}`), so a publish can never
+# overwrite an existing version — only the moving dist-tag differs, and each
+# channel owns its own. Result: the v3 canary set is never overridden by other PRs.
 on:
   pull_request:
     paths-ignore:
@@ -11,13 +20,61 @@ on:
 
 jobs:
   release-canary:
-    uses: the-guild-org/shared-config/.github/workflows/release-snapshot.yml@main
+    name: Publish snapshot under channel dist-tag
+    runs-on: ubuntu-latest
     if:
       ${{ github.actor != 'dependabot[bot]' && github.actor !=
       'dependabot-preview[bot]' && github.actor != 'renovate[bot]' }}
-    with:
-      packageManager: pnpm
-      npmTag: canary
-    secrets:
-      githubToken: ${{ secrets.GITHUB_TOKEN }}
-      npmToken: ${{ secrets.NPM_TOKEN }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4.0.0
+        with:
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: pnpm i --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Resolve channel dist-tag
+        id: channel
+        run: |
+          if [ "${{ github.head_ref }}" = "feat/v3-fullstack" ]; then
+            echo "tag=v3" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=pr-${{ github.event.number }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Version snapshot + publish under channel tag
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.channel.outputs.tag }}"
+          echo "Publishing canary channel: $TAG"
+          # `--snapshot $TAG` stamps unique versions via the config's
+          # prereleaseTemplate; `--tag $TAG` points a per-channel dist-tag at them.
+          pnpm changeset version --snapshot "$TAG"
+          pnpm changeset publish --tag "$TAG" --no-git-tag
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Canary published under \`${{ steps.channel.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Install e.g. \`pnpm add @getcronit/pylon@${{ steps.channel.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
