@@ -64,4 +64,22 @@ describe.skipIf(!runDb)('Struct jsonb — top-level array (Postgres)', () => {
     expect(read.items).toEqual([])
     expect(read.meta).toBeNull()
   })
+
+  // The set-based `QuerySet.update()` path shares the same jsonb-serialization
+  // hazard as create — setting a top-level array must not hit node-pg's array-literal
+  // path. Before the fix this threw "invalid input syntax for type json".
+  it('set-based update round-trips a top-level array', async () => {
+    const row = await Bag.objects.create({
+      label: 'c',
+      items: [{k: 'x'}],
+      meta: null
+    })
+    const n = await Bag.objects
+      .filter({id: row.id})
+      .update({items: [{k: 'p'}, {k: 'q'}], meta: {a: 2}})
+    expect(n).toBe(1)
+    const read = await Bag.objects.get({id: row.id})
+    expect(read.items).toEqual([{k: 'p'}, {k: 'q'}])
+    expect(read.meta).toEqual({a: 2})
+  })
 })
