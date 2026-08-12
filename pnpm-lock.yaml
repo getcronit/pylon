@@ -668,6 +668,12 @@ importers:
 
   packages/pylon-queues:
     dependencies:
+      '@bull-board/api':
+        specifier: '*'
+        version: 8.6.0(@bull-board/ui@8.6.0(bullmq@5.78.0))(bullmq@5.78.0)
+      '@bull-board/hono':
+        specifier: '*'
+        version: 8.6.0(bullmq@5.78.0)(hono@4.11.9)
       bullmq:
         specifier: ^5.0.0
         version: 5.78.0
@@ -787,6 +793,26 @@ packages:
   '@bramus/specificity@2.4.2':
     resolution: {integrity: sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw==}
     hasBin: true
+
+  '@bull-board/api@8.6.0':
+    resolution: {integrity: sha512-tJLkYszUJhvDzTexLT+6/OEUYCWrR5QBKXk+SNlNsxHw8WClSRFEirXMrKwrei3LlMVxPV5lvbBOC7LNNymibQ==}
+    peerDependencies:
+      '@bull-board/ui': 8.6.0
+      bull: ^4.16.5
+      bullmq: ^5.79.2 || ^6.0.0
+    peerDependenciesMeta:
+      bull:
+        optional: true
+      bullmq:
+        optional: true
+
+  '@bull-board/hono@8.6.0':
+    resolution: {integrity: sha512-cj8ou8IZ7Pk9fuvYmFI3mY39F/MgosJFrfEBTNFE73DuvM5pKf4pIQkNj+6L0yPSguhBC5hVul2kGJuYCyZYoA==}
+    peerDependencies:
+      hono: ^4
+
+  '@bull-board/ui@8.6.0':
+    resolution: {integrity: sha512-Qb/HYNU2JhRYKoyeJhXgeu1ZL4VK5RANmLC/cpzbtZPz5b9b260d0J0Af0L0zGdP6ORYg2XpPQKwrIy7n96AwQ==}
 
   '@changesets/apply-release-plan@7.0.14':
     resolution: {integrity: sha512-ddBvf9PHdy2YY0OUiEl3TV78mH9sckndJR14QAt87KLEbIov81XO0q0QAmvooBxXlqRRP8I9B7XOzZwQG7JkWA==}
@@ -1021,11 +1047,11 @@ packages:
 
   '@esbuild-kit/core-utils@3.3.2':
     resolution: {integrity: sha512-sPRAnw9CdSsRmEtnsl2WXWdyquogVpB3yZ3dgwJfe8zrOzTsV7cJvmwrKVa+0ma5BoiGJ+BoqkMvawbayKUsqQ==}
-    deprecated: 'Merged into tsx: https://tsx.is'
+    deprecated: 'Merged into tsx: https://tsx.hirok.io'
 
   '@esbuild-kit/esm-loader@2.6.5':
     resolution: {integrity: sha512-FxEMIkJKnodyA1OaCUoEvbYRkoZlLZ4d/eXFu9Fh8CbBBgP5EmZxrfTRyN0qpXZ4vOvqnE5YdRdcrmUUXuU+dA==}
-    deprecated: 'Merged into tsx: https://tsx.is'
+    deprecated: 'Merged into tsx: https://tsx.hirok.io'
 
   '@esbuild-plugins/node-globals-polyfill@0.2.3':
     resolution: {integrity: sha512-r3MIryXDeXDOZh7ih1l/yE9ZLORCd5e8vWg02azWRGj5SPTuoh69A2AIyn0Z31V/kHBfZ4HgWJ+OK3GTTwLmnw==}
@@ -3611,6 +3637,7 @@ packages:
   cron-parser@4.9.0:
     resolution: {integrity: sha512-p0SaNjrHOnQeR8/VnfGbmg9te2kfyYSQ7Sc/j/6DtPL3JQvKxmjO9TSjNFpujqV3vEYYBvNNvXSxzyksBWAx1Q==}
     engines: {node: '>=12.0.0'}
+    deprecated: v4 is no longer maintained, upgrade to v5
 
   cross-inspect@1.0.1:
     resolution: {integrity: sha512-Pcw1JTvZLSJH83iiGWt6fRcT+BjZlCDRVwYLbUcHzv/CRpB7r0MlSrGbIyQvVSNyGnbt7G4AXuyCiDR3POvZ1A==}
@@ -3851,6 +3878,11 @@ packages:
 
   effect@3.18.4:
     resolution: {integrity: sha512-b1LXQJLe9D11wfnOKAk3PKxuqYshQ0Heez+y5pnkd3jLj1yx9QhM72zZ9uUrOQyNvrs2GZZd/3maL0ZV18YuDA==}
+
+  ejs@6.0.1:
+    resolution: {integrity: sha512-UaaM14yby8U3k02ihS1Bmj5Kz2d7CCQM1scxpgs4Mhkq8F1wR2gl3+Ts4h5Ne4Mnt7M9m4Dw7jsuMr3+xO4vZA==}
+    engines: {node: '>=0.12.18'}
+    hasBin: true
 
   electron-to-chromium@1.5.286:
     resolution: {integrity: sha512-9tfDXhJ4RKFNerfjdCcZfufu49vg620741MNs26a9+bhLThdB+plgMeou98CAaHu/WATj2iHOOHTp1hWtABj2A==}
@@ -5708,6 +5740,9 @@ packages:
     resolution: {integrity: sha512-1qny3OExCf0UvUV/5wpYKf2YwPcOqXzkwKKSmKHiE6ZMQs5heeE/c8eXK+PNllPvmjgAbfnsbpkGZWy8cBpn9w==}
     engines: {node: '>=4'}
 
+  redis-info@3.1.0:
+    resolution: {integrity: sha512-ER4L9Sh/vm63DkIE0bkSjxluQlioBiBgf5w1UuldaW/3vPcecdljVDisZhmnCMvsxHNiARTTDDHGg9cGwTfrKg==}
+
   redis-parser@3.0.0:
     resolution: {integrity: sha512-DJnGAeenTdpMEH6uAJRK/uiyEIH9WVsUmoLwzudwGJUwZPp80PDBWPHXSAGNPwNvIXAbe7MSUB1zQFugFml66A==}
     engines: {node: '>=4'}
@@ -6717,6 +6752,30 @@ snapshots:
     dependencies:
       css-tree: 3.1.0
     optional: true
+
+  '@bull-board/api@8.6.0(@bull-board/ui@8.6.0(bullmq@5.78.0))(bullmq@5.78.0)':
+    dependencies:
+      '@bull-board/ui': 8.6.0(bullmq@5.78.0)
+      redis-info: 3.1.0
+    optionalDependencies:
+      bullmq: 5.78.0
+
+  '@bull-board/hono@8.6.0(bullmq@5.78.0)(hono@4.11.9)':
+    dependencies:
+      '@bull-board/api': 8.6.0(@bull-board/ui@8.6.0(bullmq@5.78.0))(bullmq@5.78.0)
+      '@bull-board/ui': 8.6.0(bullmq@5.78.0)
+      ejs: 6.0.1
+      hono: 4.11.9
+    transitivePeerDependencies:
+      - bull
+      - bullmq
+
+  '@bull-board/ui@8.6.0(bullmq@5.78.0)':
+    dependencies:
+      '@bull-board/api': 8.6.0(@bull-board/ui@8.6.0(bullmq@5.78.0))(bullmq@5.78.0)
+    transitivePeerDependencies:
+      - bull
+      - bullmq
 
   '@changesets/apply-release-plan@7.0.14':
     dependencies:
@@ -9558,6 +9617,8 @@ snapshots:
       fast-check: 3.23.2
     optional: true
 
+  ejs@6.0.1: {}
+
   electron-to-chromium@1.5.286: {}
 
   emoji-regex-xs@1.0.0: {}
@@ -11666,6 +11727,10 @@ snapshots:
   readdirp@4.1.2: {}
 
   redis-errors@1.2.0: {}
+
+  redis-info@3.1.0:
+    dependencies:
+      lodash: 4.17.23
 
   redis-parser@3.0.0:
     dependencies:
