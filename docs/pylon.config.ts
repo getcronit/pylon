@@ -1,21 +1,10 @@
-import {type Plugin, type PylonConfig} from '@getcronit/pylon'
+import {type PylonConfig} from '@getcronit/pylon'
 import {usePages} from '@getcronit/pylon-pages/plugin'
-import {serve} from '@hono/node-server'
 
-// Serving is the app's job now — the framework only boots. This 'last'-strategy
-// plugin starts listening after every route (incl. usePages' catch-all) is
-// mounted, so keep it last in the plugins array.
-const serveLast = (): Plugin => ({
-  name: 'serve',
-  strategy: 'last',
-  setup: app => {
-    serve(
-      {fetch: app.fetch, port: Number(process.env.PORT) || 3000},
-      info => console.log(`Pylon docs running at http://localhost:${info.port}`)
-    )
-  }
-})
-
+// The generated `.pylon/server.mjs` self-serves on Node — it binds a node:http
+// server (PORT || 3000) AFTER every route is mounted. So the config only wires
+// plugins; it must NOT add its own serve plugin, or the two double-bind the port
+// (EADDRINUSE). See packages/pylon-dev/src/builder/bundler/emit-server-glue.ts.
 export default {
-  plugins: [usePages(), serveLast()]
+  plugins: [usePages()]
 } satisfies PylonConfig
