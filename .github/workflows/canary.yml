@@ -24,6 +24,7 @@ jobs:
       'dependabot-preview[bot]' && github.actor != 'renovate[bot]' }}
     permissions:
       contents: read
+      pull-requests: write # post the canary-versions report comment
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -52,21 +53,61 @@ jobs:
         id: channel
         run: echo "tag=canary-pr-${{ github.event.number }}" >> "$GITHUB_OUTPUT"
 
-      - name: Version snapshot + publish under channel tag
+      - name: Version snapshot + publish under PR tag
+        id: publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
           TAG="${{ steps.channel.outputs.tag }}"
           echo "Publishing canary channel: $TAG"
-          # `--snapshot $TAG` stamps unique versions via the config's
-          # prereleaseTemplate; `--tag $TAG` points a per-channel dist-tag at them.
-          pnpm changeset version --snapshot "$TAG"
-          pnpm changeset publish --tag "$TAG" --no-git-tag
+          # Invoke the changeset BINARY directly via `pnpm exec`. Plain
+          # `pnpm changeset ...` runs the repo's `"changeset": "changeset --"`
+          # script, so args land as `changeset -- version --snapshot ...` →
+          # "Too many arguments" (and it exited 0, so the step went green while
+          # publishing nothing). `--snapshot $TAG` stamps unique versions via the
+          # config's prereleaseTemplate; `--tag $TAG` sets the per-PR dist-tag.
+          pnpm exec changeset version --snapshot "$TAG"
+          pnpm exec changeset publish --tag "$TAG" --no-git-tag | tee changeset-publish.log
+          # Collect what was actually published (name@version) for the PR comment.
+          grep -oE '(@[a-z0-9-]+/[a-z0-9-]+|create-pylon)@[0-9][A-Za-z0-9.-]*' \
+            changeset-publish.log | sort -u > published.txt || true
+          echo "published-count=$(wc -l < published.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
 
-      - name: Summary
-        if: always()
-        run: |
-          echo "### Canary published under \`${{ steps.channel.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Install e.g. \`pnpm add @getcronit/pylon@${{ steps.channel.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+      - name: Report canary versions on the PR
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const tag = '${{ steps.channel.outputs.tag }}';
+            const marker = '<!-- canary-report -->';
+            let pkgs = [];
+            try {
+              pkgs = fs.readFileSync('published.txt', 'utf8').split('\n').filter(Boolean);
+            } catch {}
+            const sha = (context.payload.pull_request?.head?.sha || context.sha || '').slice(0, 7);
+            // Lead with the EXACT immutable versions (these carry the datetime.commit
+            // hash and are what this run actually published). The `${tag}` channel is a
+            // moving pointer — same string every push — so it goes second as a convenience.
+            const exact = pkgs.map(p => `npm install ${p}`);
+            const channel = [...new Set(pkgs.map(p => p.replace(/@[0-9].*$/, '') + '@' + tag))]
+              .map(i => `npm install ${i}`);
+            const body = pkgs.length
+              ? `${marker}\n### 🦋 Canary published${sha ? ` from \`${sha}\`` : ''}\n\n` +
+                `**Pinned to this build** (immutable — reproducible):\n` +
+                '```bash\n' + exact.join('\n') + '\n```\n\n' +
+                `<details><summary>Or track the latest on this PR — <code>${tag}</code> (moves every push)</summary>\n\n` +
+                '```bash\n' + channel.join('\n') + '\n```\n</details>'
+              : `${marker}\n### 🦋 Canary (\`${tag}\`)\n` +
+                `No packages were published (no pending changeset touched a publishable package, ` +
+                `or the publish step failed — check the job log).`;
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
