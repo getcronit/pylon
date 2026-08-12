@@ -25,7 +25,10 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16-alpine
+        # pgvector-enabled image: the pylon-db suite includes pgvector tests
+        # (upsert/vector-nearest) that `CREATE EXTENSION vector`, which stock
+        # postgres:16-alpine doesn't ship. This image is postgres:16 + pgvector.
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: pylon
           POSTGRES_PASSWORD: pylon
