@@ -88,8 +88,11 @@ export async function transpileApp(
     target: 'node18',
     logLevel: 'silent',
     plugins: [preserveRelativeWithExt],
+    // `useDefineForClassFields: false` keeps field-builder initializers (`id = id()`)
+    // running as assignments the model proxy can harvest — NOT hoisted `defineProperty`
+    // slots. The ORM is decorator-free, so no `experimentalDecorators` is needed.
     tsconfigRaw: {
-      compilerOptions: {useDefineForClassFields: false, experimentalDecorators: true}
+      compilerOptions: {useDefineForClassFields: false}
     }
   })
 

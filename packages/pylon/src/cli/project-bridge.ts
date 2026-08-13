@@ -85,7 +85,7 @@ export interface ProjectApp {
   connect(opts: {connectionString: string}): unknown
   /** Deep-introspect a live DB into a full PhysicalSchema (for `baseline`). */
   introspectPhysical(db?: unknown): Promise<PhysicalSchema>
-  /** Generate editable `@model()` class stubs from an introspected schema. */
+  /** Generate editable model class stubs from an introspected schema. */
   generateModelSource(schema: PhysicalSchema): string
   /** Presence-level drift between the live DB and the current models. */
   schemaDrift(db?: unknown): Promise<{

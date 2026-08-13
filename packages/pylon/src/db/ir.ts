@@ -261,7 +261,7 @@ export function entityFromDefinition(def: ModelDefinition): Entity {
       unique: false,
       method: 'gin' as const
     }))
-  // Trigram (`@model({trigram})`) columns get a `gin_trgm_ops` GIN index so a
+  // Trigram (`static config {trigram}`) columns get a `gin_trgm_ops` GIN index so a
   // `contains` (`ILIKE '%x%'`) substring filter is index-backed, not a seq scan.
   const trgmIndexes = (def.trigramColumns ?? []).map(colName => ({
     name: `${def.tableName}_${colName}_trgm`,

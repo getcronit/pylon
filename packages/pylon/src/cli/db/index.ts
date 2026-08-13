@@ -1,8 +1,8 @@
 /**
  * `pylon db` — schema migrations driven by the ORM's IR.
  *
- * The crux is loading the user's models so their `@model()` decorators populate
- * the registry, then driving the migration runner on the SAME
+ * The crux is loading the user's models so constructing their `new Pylon({db: {models}})`
+ * populates the registry, then driving the migration runner on the SAME
  * `@getcronit/pylon/db` instance the models registered into. We do this
  * in-process: bundle the models entry to a temp ESM file *inside the project*
  * (so its bare imports resolve against the project's node_modules), import it,
@@ -36,8 +36,11 @@ function createMigrationLoader(cwd: string) {
       format: 'esm',
       packages: 'external',
       logLevel: 'silent',
+      // Field-builder models need class-field initializers to run as assignments
+      // (`useDefineForClassFields: false`); the ORM is decorator-free, so no
+      // `experimentalDecorators`.
       tsconfigRaw: {
-        compilerOptions: {experimentalDecorators: true, useDefineForClassFields: false}
+        compilerOptions: {useDefineForClassFields: false}
       }
     })
     try {

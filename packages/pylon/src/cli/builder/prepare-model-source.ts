@@ -15,10 +15,10 @@ function importedNames(clause: ts.ImportClause): string[] {
  * Produce a side-effect-free view of a Pylon entry, for loading ORM models
  * without running the app.
  *
- * The build needs the model metadata (which only exists once `@model()`
- * decorators execute), but importing the entry would also run its top-level
- * `serve(app)` / `Deno.serve(...)` and evaluate `export default app`. So we keep
- * declarations + imports (running `@model()` on class declarations) and drop:
+ * The build needs the model metadata (which only exists once the entry's
+ * `new Pylon({db: {models}})` constructs and registers them), but importing the
+ * entry would also run its top-level `serve(app)` / `Deno.serve(...)`. So we keep
+ * declarations + imports (whose side effects register the models) and drop:
  *   - top-level expression statements  (serve(app), Deno.serve(...), app.use(...))
  *   - the default export               (export default app)
  *

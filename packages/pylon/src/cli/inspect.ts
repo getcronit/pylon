@@ -7,8 +7,8 @@
  * every downstream tool (diff, verify, the MCP's `describe_app`) consumes.
  *
  * Harvest is cheap because the model is already complete: loading the project for
- * the ORM IR runs EVERY `@model()`/`@queue()` decorator (discovery guarantees it),
- * so the registries are populated by the time we read them.
+ * the ORM IR constructs EVERY Pylon app (discovery guarantees it), which registers
+ * its models and queues, so the registries are populated by the time we read them.
  */
 import path from 'node:path'
 import {toDDL, tableSpecOf, toSDL, type PylonIR} from '../ir'

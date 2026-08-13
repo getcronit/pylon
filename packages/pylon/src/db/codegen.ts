@@ -1,7 +1,8 @@
 /**
  * Model-source generation from a `PhysicalSchema` — the codegen half of
  * `pylon db baseline`. Given a schema reconstructed by `introspectPhysical`, emit
- * editable `@model()` class stubs so an existing database can be adopted without
+ * editable model class stubs (plain `class X extends Model`, table pinned via
+ * `static config`) so an existing database can be adopted without
  * hand-transcribing every table. The output is a STARTING POINT a human reviews:
  * defaults, CHECK constraints and non-unique indexes are noted but not
  * reconstructed (FK columns are, as `foreignKey(() => …)`).
@@ -264,9 +265,9 @@ function classFor(
   names: Map<string, string>,
   m2m: M2MInjection[]
 ): string {
-  used.add('model')
   used.add('Model')
   used.add('manager')
+  used.add('ModelConfig')
   const cls = names.get(table.table) ?? pascal(table.table)
   const fkByColumn = new Map<string, ForeignKeyChange>()
   for (const fk of table.foreignKeys ?? []) fkByColumn.set(fk.column, fk)
@@ -280,15 +281,15 @@ function classFor(
 
   const indexNote =
     table.indexes && table.indexes.length
-      ? `  // Review: ${table.indexes.length} unique constraint(s)/index(es) — add via @model({indexes: [...]}).\n`
+      ? `  // Review: ${table.indexes.length} unique constraint(s)/index(es) — add via static config {indexes: [...]}.\n`
       : ''
   const pkNote = hasPk
     ? ''
     : `  // Review: no single-column primary key detected (composite PK?).\n`
 
   return (
-    `@model({table: ${JSON.stringify(table.table)}})\n` +
     `export class ${cls} extends Model {\n` +
+    `  static config = {table: ${JSON.stringify(table.table)}} satisfies ModelConfig<${cls}>\n` +
     `  static objects = manager(${cls})\n` +
     pkNote +
     indexNote +
@@ -315,7 +316,7 @@ export function generateModelSource(schema: PhysicalSchema): string {
     .join('\n\n')
 
   // Stable import order: core first, then field builders alphabetically.
-  const core = ['Model', 'model', 'manager'].filter(n => used.has(n))
+  const core = ['Model', 'manager', 'ModelConfig'].filter(n => used.has(n))
   const builders = [...used]
     .filter(n => !core.includes(n))
     .sort()

@@ -202,17 +202,17 @@ export interface ModelDefinition {
   /** Column name to auto-scope by tenant (resolved from `models.app(name,{tenant})`). */
   tenantColumn?: string
   /** Deny-by-default: an action with no matching policy rule is rejected
-   *  (`@model({secure: true})`). Without it, an action with no rule is allowed. */
+   *  (`static config {secure: true}`). Without it, an action with no rule is allowed. */
   secure?: boolean
   /** Relay `Node` opt-in for THIS model: expose a `gid://…` id + implement `Node`.
    *  Set from the app's top-level `node` option (or the model's `static config.node`);
    *  `undefined` falls back to the project default. See `nodeEnabledFor`. */
   node?: boolean
   /** Column names that get a `gin_trgm_ops` index for substring (`contains`)
-   *  search (`@model({trigram})`). */
+   *  search (`static config {trigram}`). */
   trigramColumns?: string[]
   /** Per-model query/filter configuration — virtual fields + public allowlist
-   *  (`@model({query})`). Consumed by the Query Schema. */
+   *  (`static config {query}`). Consumed by the Query Schema. */
   query?: QueryConfig
   /** Single-table inheritance: this model is an STI **base** — its subclasses
    *  share this table, discriminated by the named column. Projected as a GraphQL
@@ -232,7 +232,7 @@ export interface ModelDefinition {
   }
 }
 
-/** Columns are accumulated per-constructor before @model finalizes the model. */
+/** Columns are accumulated per-constructor before the model is finalized. */
 const pendingColumns = new WeakMap<Function, Map<string, ColumnDefinition>>()
 const pendingRelations = new WeakMap<
   Function,
@@ -319,7 +319,7 @@ export function finalizeModel(
       | Array<{columns: string[]; language?: string; name?: string}>
     /** Trigram substring search: `gin_trgm_ops` GIN index on each named column. */
     trigram?: {columns: string[]}
-    /** Query/filter config — virtual fields + public allowlist (`@model({query})`). */
+    /** Query/filter config — virtual fields + public allowlist (`static config {query}`). */
     query?: QueryConfig
     /** STI base: subclasses share this table, discriminated by the named column. */
     inheritance?: {discriminator: string}
@@ -361,7 +361,7 @@ export function finalizeModel(
     const name = set.name ?? 'fts'
     if (merged.has(name)) {
       throw new Error(
-        `@model search on "${options.tableName}": duplicate column "${name}" — give each search set a unique \`name\`.`
+        `search config on "${options.tableName}": duplicate column "${name}" — give each search set a unique \`name\`.`
       )
     }
     const expr = `to_tsvector('${language}', ${set.columns
@@ -369,7 +369,7 @@ export function finalizeModel(
         const colName = merged.get(prop)?.columnName
         if (!colName) {
           throw new Error(
-            `@model search: unknown property "${prop}" on "${options.tableName}".`
+            `search config: unknown property "${prop}" on "${options.tableName}".`
           )
         }
         return `coalesce("${colName}", '')`
@@ -396,7 +396,7 @@ export function finalizeModel(
     const colName = merged.get(prop)?.columnName
     if (!colName) {
       throw new Error(
-        `@model trigram: unknown property "${prop}" on "${options.tableName}".`
+        `trigram config: unknown property "${prop}" on "${options.tableName}".`
       )
     }
     return colName

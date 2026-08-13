@@ -1,5 +1,5 @@
 /**
- * End-to-end proof for the Query API's @model({query}) config (Phase 3): a
+ * End-to-end proof for the Query API's static config {query} config (Phase 3): a
  * virtual/derived field compiles its custom predicate to real SQL, and the public
  * allowlist gates the public surface. Postgres-only.
  */

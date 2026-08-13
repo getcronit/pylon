@@ -687,7 +687,7 @@ function alterColumnSQL(
       // Re-point a STORED generated column's expression in place — PG17+
       // (`SET EXPRESSION`). This recomputes every row and, crucially, preserves
       // dependent objects like the column's GIN index (a DROP/ADD COLUMN would
-      // CASCADE them away). This is the path a `@model({search})` language /
+      // CASCADE them away). This is the path a `static config {search}` language /
       // column-set change takes.
       out.push(`${t} SET EXPRESSION AS (${after.generatedAs})`)
     } else {

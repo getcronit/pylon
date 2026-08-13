@@ -48,10 +48,11 @@ import {snakeCase} from './util.js'
 //   }
 //
 // Each builder returns a descriptor object at runtime, but its *type* is the
-// column's value type (`text()` is typed `string`). The `@model()` decorator
-// harvests the descriptors by probing a throwaway instance, then a wrapper
-// subclass replaces them with real values on every construction so instances
-// stay honest (`new User().email === undefined`, defaults applied).
+// column's value type (`text()` is typed `string`). The model `Proxy` (see
+// `modelHandler`) swallows the field-init assignments, harvests the descriptors
+// into the registry, and thereafter reads/writes real column values from a
+// per-instance store so instances stay honest (`new User().email === undefined`,
+// defaults applied). No decorator, no wrapper subclass — the class stays itself.
 // ===========================================================================
 
 export interface FieldOptions {
@@ -718,7 +719,7 @@ export function hasManyThrough<I extends object, R extends object>(
 }
 
 // ===========================================================================
-// @model() — harvest descriptors, install accessors, finalize the model
+// Model finalization — harvest descriptors, install accessors, finalize the model
 // ===========================================================================
 
 export interface ModelOptions {
@@ -762,11 +763,11 @@ export interface ModelOptions {
    * GIN index); target one with `.search(text, {column: 'titleFts'})`.
    *
    * ```ts
-   * @model({search: {columns: ['title', 'body'], language: 'german'}})
-   * @model({search: [
+   * static config = {search: {columns: ['title', 'body'], language: 'german'}}
+   * static config = {search: [
    *   {name: 'titleFts', columns: ['title']},
    *   {name: 'bodyFts',  columns: ['body']}
-   * ]})
+   * ]}
    * ```
    */
   search?: SearchOptions | SearchOptions[]
@@ -783,7 +784,7 @@ export interface ModelOptions {
    * to `ILIKE`, which the planner accelerates with this index).
    *
    * ```ts
-   * @model({trigram: {columns: ['sku', 'handle']}})
+   * static config = {trigram: {columns: ['sku', 'handle']}}
    * ```
    */
   trigram?: TrigramOptions
@@ -794,7 +795,7 @@ export interface ModelOptions {
    * fields a public consumer may query.
    *
    * ```ts
-   * @model({
+   * static config = {
    *   query: {
    *     fields: {
    *       vendor: {path: 'product.vendorId'},                       // alias / re-path
@@ -804,7 +805,7 @@ export interface ModelOptions {
    *     },
    *     public: ['title', 'vendor', 'inStock'],                     // curated public surface
    *   },
-   * })
+   * }
    * ```
    */
   query?: QueryConfig
@@ -819,7 +820,7 @@ export interface ModelOptions {
   discriminatorValue?: string | number
 }
 
-/** Full-text search config for `@model({search})`. */
+/** Full-text search config for `static config = {search}`. */
 export interface SearchOptions {
   /** Property names whose columns feed the search vector. */
   columns: string[]
@@ -829,7 +830,7 @@ export interface SearchOptions {
   name?: string
 }
 
-/** Trigram substring-search config for `@model({trigram})`. */
+/** Trigram substring-search config for `static config = {trigram}`. */
 export interface TrigramOptions {
   /** Property names (text columns) to give a `gin_trgm_ops` index. */
   columns: string[]
@@ -846,11 +847,10 @@ interface ModelSearchConfig<T> {
 
 /**
  * Typed model configuration, declared as `static config = {...} satisfies
- * ModelConfig<T>`. Same shape as the `@model()` decorator options, but `tenant`,
- * `indexes`, `search`, and `trigram` reference the model's OWN fields — so a mistyped
- * column name is a compile error, not a silent miss. Decorator args still work and
- * take precedence, so the two forms compose. (`app` is set by the binding —
- * `@app.model()` / `models.app(name)` — not here.)
+ * ModelConfig<T>` — the sole per-model config surface (the ORM is decorator-free).
+ * `tenant`, `indexes`, `search`, and `trigram` reference the model's OWN fields — so a
+ * mistyped column name is a compile error, not a silent miss. (`app` is set by the
+ * registration binding — `new Pylon({name, db: {models}})` — not here.)
  */
 export interface ModelConfig<T, D extends ColumnKey<T> = never> {
   table?: string
@@ -994,9 +994,8 @@ function buildColumn(key: string, b: FieldBuilder): ColumnDefinition {
 /**
  * Register the column/relation a single field initializer declares, into the pending
  * registry for `Ctor`. Returns the RelationDefinition (so the caller can install its
- * accessor) or `undefined` for a plain scalar column. Shared by the `@model` decorator
- * (probe-iteration over own props) and the decorator-free `app.model(...)` path
- * (proxy trap-capture) — both feed the SAME registry, so the IR is identical.
+ * accessor) or `undefined` for a plain scalar column. Called from the model proxy's
+ * trap-capture (`captureBuilder`) as each field initializer runs.
  */
 function harvestMember(
   Ctor: Function,
@@ -1101,11 +1100,9 @@ function harvestMember(
 }
 
 /**
- * Install the lazy relation accessors (belongsTo/hasOne/hasMany/manyToMany) on a
- * prototype. Extracted from the `@model` decorator so both paths share it: the
- * decorator installs on its `Wrapped.prototype`; the decorator-free path installs on
- * the user class's own prototype (proxy instances reach it because the trap never lets
- * the relation builder become an own prop that would shadow it).
+ * Install the lazy relation accessors (belongsTo/hasOne/hasMany/manyToMany) on the
+ * user class's OWN prototype. Proxy instances reach them because the trap never lets a
+ * relation builder become an own prop that would shadow the prototype accessor.
  */
 function installRelationAccessors(proto: any, relations: RelationDefinition[]): void {
   for (const rel of relations) {
@@ -1360,11 +1357,11 @@ export const modelHandler: ProxyHandler<any> = {
 }
 
 /**
- * Finalize a plain (undecorated) model registered via `app.model(...)`: flag it for
- * proxy construction, probe once to harvest its columns/relations through the traps,
- * `finalizeModel`, install relation accessors on its OWN prototype, wire co-located
- * `static abilities`, and assign a default manager. The structural twin of the `@model`
- * decorator — minus the binding replacement (no `Wrapped`; same class identity).
+ * Finalize a plain model registered via `new Pylon({db: {models}})`: probe once to
+ * harvest its columns/relations through the proxy traps, `finalizeModel`, install
+ * relation accessors on its OWN prototype, wire co-located `static abilities`, and
+ * assign a default manager. No decorator and no `Wrapped` subclass — the class keeps
+ * its own identity throughout.
  */
 export function finalizeProxyModel(Ctor: Function, options: ModelOptions = {}): void {
   const existing = getModelDefinition(Ctor)
@@ -1398,7 +1395,7 @@ export function finalizeProxyModel(Ctor: Function, options: ModelOptions = {}): 
   }
 
   // A self-referential model (`static objects = manager(Author)`) compiles, under
-  // `useDefineForClassFields:false` (required for the decorator path), to
+  // `useDefineForClassFields:false` (required for the field-builder path), to
   // `var Author = class _Author {…}` — so `Ctor.name` is the esbuild inner name
   // `_Author`. Strip that single leading underscore so the table/entity/GraphQL names
   // stay clean and match the TS type the compiler emits. (An intentional `_Foo` would
