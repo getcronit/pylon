@@ -1,59 +1,35 @@
 {
   "name": "@getcronit/pylon-auth",
   "version": "0.0.0",
+  "private": true,
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "deprecated": "Merged into @getcronit/pylon — import from @getcronit/pylon/auth",
+  "main": "index.js",
+  "types": "index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": "./index.js",
+      "types": "./index.d.ts"
     },
     "./contract": {
-      "import": "./dist/contract.js",
-      "types": "./dist/contract.d.ts"
+      "import": "./contract.js",
+      "types": "./contract.d.ts"
     },
     "./zitadel": {
-      "import": "./dist/zitadel.js",
-      "types": "./dist/zitadel.d.ts"
+      "import": "./zitadel.js",
+      "types": "./zitadel.d.ts"
     }
   },
-  "scripts": {
-    "build": "rimraf ./dist && node build.js && pnpm run build:declarations",
-    "build:declarations": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
-  },
   "files": [
-    "dist"
+    "index.js",
+    "index.d.ts",
+    "contract.js",
+    "contract.d.ts",
+    "zitadel.js",
+    "zitadel.d.ts"
   ],
-  "author": "Nico Schett <nico.schett@cronit.io>",
-  "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/getcronit/pylon.git",
-    "directory": "packages/pylon-auth"
-  },
-  "homepage": "https://pylon.cronit.io",
-  "peerDependencies": {
-    "@getcronit/pylon": "workspace:*",
-    "graphql": "^16.0.0",
-    "hono": "^4.0.0"
-  },
   "dependencies": {
-    "openid-client": "^6.1.7"
+    "@getcronit/pylon": "workspace:*"
   },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "devDependencies": {
-    "@getcronit/pylon": "workspace:*",
-    "@types/node": "^20.0.0",
-    "esbuild": "^0.23.1",
-    "graphql": "^16.0.0",
-    "hono": "^4.0.0",
-    "rimraf": "^6.0.1",
-    "typescript": "^5.7.3",
-    "vitest": "^2.0.0"
-  }
+  "license": "Apache-2.0"
 }

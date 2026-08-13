@@ -1,54 +1,11 @@
 {
   "name": "@getcronit/pylon-dev",
-  "type": "module",
   "version": "1.0.5",
-  "description": "CLI for creating a Pylon",
-  "scripts": {
-    "build": "rimraf ./dist && esbuild ./src/index.ts ./src/project-runner.ts --bundle --platform=node --target=node18 --format=esm --minify --outdir=./dist --sourcemap=linked --packages=external",
-    "test": "vitest run"
-  },
-  "bin": {
-    "pylon": "./dist/index.js"
-  },
-  "files": [
-    "dist"
-  ],
-  "author": "Nico Schett <nico.schett@cronit.io>",
-  "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/getcronit/pylon.git",
-    "directory": "packages/create-pylon"
-  },
-  "homepage": "https://pylon.cronit.io",
+  "private": true,
+  "type": "module",
+  "deprecated": "Merged into @getcronit/pylon — the `pylon` CLI ships with @getcronit/pylon",
   "dependencies": {
-    "@getcronit/pylon-ir": "workspace:*",
-    "@getcronit/pylon-query": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.12.0",
-    "chokidar": "^4.0.3",
-    "commander": "^12.1.0",
-    "conf": "^13.1.0",
-    "consola": "^3.2.3",
-    "dotenv": "^16.4.5",
-    "esbuild": "^0.23.1",
-    "esbuild-plugin-tsc": "^0.4.0",
-    "posthog-node": "^4.10.1",
-    "tsx": "^4.19.2"
+    "@getcronit/pylon": "workspace:*"
   },
-  "publishConfig": {
-    "access": "public"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "devDependencies": {
-    "@getcronit/pylon-db": "workspace:*",
-    "@types/node": "^20.0.0",
-    "typescript": "^5.7.3",
-    "vitest": "^2.0.0"
-  },
-  "peerDependencies": {
-    "@getcronit/pylon": "workspace:^2.0.0",
-    "graphql": "^16.9.0"
-  }
+  "license": "Apache-2.0"
 }

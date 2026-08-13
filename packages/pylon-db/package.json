@@ -1,68 +1,23 @@
 {
   "name": "@getcronit/pylon-db",
   "version": "0.0.0",
+  "private": true,
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "deprecated": "Merged into @getcronit/pylon — import from @getcronit/pylon/db",
+  "main": "index.js",
+  "types": "index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": "./index.js",
+      "types": "./index.d.ts"
     }
-  },
-  "scripts": {
-    "build": "rimraf ./dist && node build.js && pnpm run build:declarations",
-    "build:declarations": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:integration": "PYLON_ORM_IT=1 vitest run test/integration"
   },
   "files": [
-    "dist"
+    "index.js",
+    "index.d.ts"
   ],
-  "author": "Nico Schett <nico.schett@cronit.io>",
-  "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/getcronit/pylon.git",
-    "directory": "packages/pylon-db"
-  },
-  "homepage": "https://pylon.cronit.io",
   "dependencies": {
-    "@getcronit/pylon-auth": "workspace:*",
-    "@getcronit/pylon-ir": "workspace:*",
-    "kysely": "^0.27.4",
-    "pg": "^8.13.1"
+    "@getcronit/pylon": "workspace:*"
   },
-  "peerDependencies": {
-    "@getcronit/pylon": "workspace:*",
-    "graphql": "^16.0.0",
-    "zod": "^3.24.0 || ^4.0.0"
-  },
-  "peerDependenciesMeta": {
-    "@getcronit/pylon": {
-      "optional": true
-    },
-    "graphql": {
-      "optional": true
-    },
-    "zod": {
-      "optional": true
-    }
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "devDependencies": {
-    "@getcronit/pylon": "workspace:*",
-    "@getcronit/pylon-auth": "workspace:*",
-    "@types/node": "^20.0.0",
-    "@types/pg": "^8.11.10",
-    "esbuild": "^0.23.1",
-    "graphql": "^16.9.0",
-    "rimraf": "^6.0.1",
-    "typescript": "^5.7.3",
-    "vitest": "^2.0.0",
-    "zod": "^3.24.0"
-  }
+  "license": "Apache-2.0"
 }
