@@ -119,7 +119,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: release
     permissions:
-      contents: read
+      contents: write # changesets/action pushes the release git tags
       id-token: write # OIDC trusted publishing to npm (no stored NPM_TOKEN)
     steps:
       - name: Checkout
@@ -161,10 +161,16 @@ jobs:
         run: pnpm build
 
       - name: Publish to npm
-        # `changeset publish` only publishes versions not already on the registry, so
-        # it's a safe no-op if there's nothing new. OIDC: id-token: write + npm >= 11.5.1
-        # + a Trusted Publisher (repo + this workflow + environment `release`) per package.
-        run: pnpm ci:release
+        # changesets/action runs the publish command AND pushes the release git tags.
+        # With no pending changesets (the state that made shouldPublish true), it just
+        # publishes. `changeset publish` only pushes versions not already on the
+        # registry. OIDC: id-token: write + npm >= 11.5.1 + a Trusted Publisher
+        # (repo + this workflow + environment `release`) per package.
+        uses: changesets/action@v1
+        with:
+          publish: pnpm ci:release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # Per-PR canary snapshot under `canary-pr-<number>`. Uses the SAME `release`
   # environment (npm allows only one), so it's covered by the same reviewer gate.
