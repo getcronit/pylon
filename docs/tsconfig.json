@@ -10,7 +10,8 @@
     ".pylon"
   ],
   "compilerOptions": {
-    "baseUrl": ".",
+    // No baseUrl (deprecated → removed in TS 7.0); `@/*` resolves relative to this
+    // config's directory, which is what baseUrl:"." did.
     "paths": {
       "@/*": ["./*"]
     },

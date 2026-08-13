@@ -21,15 +21,16 @@
     "skipLibCheck": true,
     "experimentalDecorators": true,
     "rootDir": "./src",
-    "baseUrl": "./src",
     "outDir": "./dist",
+    // No `baseUrl` (deprecated → removed in TS 7.0): `paths` are resolved relative to
+    // THIS config file's directory, so they carry the `./src/` prefix explicitly.
     // NOTE: the @getcronit/pylon self-reference paths live in tsconfig.typecheck.json
     // (used by `tsc` for declarations), NOT here. esbuild reads THIS file per-source,
     // and if the self-refs were here it would rewrite `@getcronit/pylon/ir` into an
     // external `../ir` directory import (invalid ESM). Without them, esbuild treats
     // self-refs as external packages that resolve at runtime via the exports map.
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["src"],
