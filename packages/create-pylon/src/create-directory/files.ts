@@ -269,8 +269,9 @@ jobs:
   "type": "module",
   "description": "Generated with \`npm create pylon\`",
   "scripts": {
-    "dev": "pylon dev -c \\"bun run .pylon/index.js\\"",
-    "build": "pylon build"
+    "dev": "pylon dev -c \\"bun run .pylon/server.mjs\\"",
+    "build": "pylon build",
+    "start": "bun run .pylon/server.mjs"
   },
   "dependencies": {
     "@getcronit/pylon": "${pylonVersion}"
@@ -335,7 +336,7 @@ COPY --from=prerelease /usr/src/pylon/package.json .
 # run the app
 USER bun
 EXPOSE 3000/tcp
-ENTRYPOINT [ "bun", "run", "/usr/src/pylon/.pylon/index.js" ]
+ENTRYPOINT [ "bun", "run", "/usr/src/pylon/.pylon/server.mjs" ]
 `
     }
   ],
@@ -349,8 +350,9 @@ ENTRYPOINT [ "bun", "run", "/usr/src/pylon/.pylon/index.js" ]
   "type": "module",
   "description": "Generated with \`npm create pylon\`",
   "scripts": {
-    "dev": "pylon dev -c \\"node --enable-source-maps .pylon/index.js\\"",
-    "build": "pylon build"
+    "dev": "pylon dev",
+    "build": "pylon build",
+    "start": "node --enable-source-maps .pylon/server.mjs"
   },
   "dependencies": {
     "@getcronit/pylon": "${pylonVersion}",
@@ -410,7 +412,7 @@ COPY --from=prerelease /usr/src/pylon/package.json .
 # run the app
 USER node
 EXPOSE 3000/tcp
-ENTRYPOINT [ "node", "/usr/src/pylon/.pylon/index.js" ]
+ENTRYPOINT [ "node", "/usr/src/pylon/.pylon/server.mjs" ]
 `
     }
   ],
@@ -449,7 +451,7 @@ ENTRYPOINT [ "node", "/usr/src/pylon/.pylon/index.js" ]
       path: 'wrangler.toml',
       content: `#:schema node_modules/wrangler/config-schema.json
 name = "__PYLON_NAME__"
-main = ".pylon/index.js"
+main = ".pylon/server.mjs"
 compatibility_date = "2024-09-03"
 compatibility_flags = ["nodejs_compat_v2"]
 
@@ -583,8 +585,9 @@ compatibility_flags = ["nodejs_compat_v2"]
     "@getcronit/pylon": "npm:@getcronit/pylon@${pylonVersion}"
   },
   "tasks": {
-    "dev": "pylon dev -c \\"deno run -A .pylon/index.js --config tsconfig.json\\"",
-    "build": "pylon build"
+    "dev": "pylon dev -c \\"deno run -A --unstable-sloppy-imports .pylon/server.mjs\\"",
+    "build": "pylon build",
+    "start": "deno run -A .pylon/server.mjs"
   },
   "compilerOptions": {
     "jsx": "precompile",
