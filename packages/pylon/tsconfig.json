@@ -24,7 +24,12 @@
     "baseUrl": "./src",
     "outDir": "./dist",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      // Self-reference: the consolidated source imports itself by the public
+      // package name; resolve those to src during the package's own build
+      // (exports map handles runtime/consumer resolution). baseUrl = ./src.
+      "@getcronit/pylon": ["./index.ts"],
+      "@getcronit/pylon/*": ["./*"]
     }
   },
   "include": ["src"],
