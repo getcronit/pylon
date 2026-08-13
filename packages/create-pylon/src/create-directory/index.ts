@@ -100,12 +100,12 @@ const makeConfigFile = (_runtime: Runtime, features: Feature[]) => {
   const extraImportLines: string[] = []
 
   if (features.includes('auth')) {
-    // Auth = an identity provider that yields a Principal. Zitadel/OIDC lives in
-    // @getcronit/pylon-auth; `useIdentity` binds the Principal, `zitadelLogin`
-    // adds the browser OAuth routes. Authz then uses requireRole/authorize.
-    extraImportLines.push("import {useIdentity} from '@getcronit/pylon-auth'")
+    // Auth = an identity provider that yields a Principal. Zitadel/OIDC lives under
+    // @getcronit/pylon/auth; `useIdentity` (the plugin) binds the Principal,
+    // `zitadelLogin` adds the browser OAuth routes. Authz then uses requireRole/authorize.
+    extraImportLines.push("import {useIdentity} from '@getcronit/pylon/auth/plugin'")
     extraImportLines.push(
-      "import {zitadelAuth, zitadelLogin} from '@getcronit/pylon-auth/zitadel'"
+      "import {zitadelAuth, zitadelLogin} from '@getcronit/pylon/auth/zitadel'"
     )
     plugins.push(
       "useIdentity(zitadelAuth({issuer: 'https://test-0o6zvq.zitadel.cloud'}))",
@@ -113,8 +113,8 @@ const makeConfigFile = (_runtime: Runtime, features: Feature[]) => {
     )
   }
   if (features.includes('pages')) {
-    // The pages battery (plugin + runtime) moved to @getcronit/pylon-pages.
-    extraImportLines.push("import {usePages} from '@getcronit/pylon-pages/plugin'")
+    // The pages battery (plugin + runtime) lives under @getcronit/pylon/pages.
+    extraImportLines.push("import {usePages} from '@getcronit/pylon/pages/plugin'")
     plugins.push('usePages()')
   }
 
@@ -143,7 +143,7 @@ declare module '@getcronit/pylon' {
   if (features.includes('pages')) {
     data += `import {Data as ClientData, Mutations as ClientMutations} from './.pylon/client'
 
-declare module '@getcronit/pylon-pages' {
+declare module '@getcronit/pylon/pages' {
   interface Data extends ClientData {}
   interface Mutations extends ClientMutations {}
 }`
@@ -528,7 +528,6 @@ export {Button, buttonVariants}
 
     packageJson.dependencies = {
       ...packageJson.dependencies,
-      '@getcronit/pylon-query': 'latest',
       '@radix-ui/react-slot': '^1.1.2',
       'class-variance-authority': '^0.7.1',
       clsx: '^2.1.1',

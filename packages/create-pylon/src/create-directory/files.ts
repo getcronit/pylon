@@ -1,7 +1,8 @@
 import {Runtime} from '.'
 
-const pylonVersion = '^2.0.0'
-const pylonDevVersion = '^1.0.0'
+// The consolidated batteries-included package: CLI + all features + subpath
+// exports ship from @getcronit/pylon (no separate @getcronit/pylon-dev).
+const pylonVersion = '^3.0.0'
 
 export const files: {
   [key in Runtime | 'ALL']: {
@@ -272,10 +273,9 @@ jobs:
     "build": "pylon build"
   },
   "dependencies": {
-    "@getcronit/pylon": "${pylonVersion}",
+    "@getcronit/pylon": "${pylonVersion}"
   },
   "devDependencies": {
-    "@getcronit/pylon-dev": "${pylonDevVersion}",
     "@types/bun": "^1.0.0"
   },
   "repository": {
@@ -356,9 +356,6 @@ ENTRYPOINT [ "bun", "run", "/usr/src/pylon/.pylon/index.js" ]
     "@getcronit/pylon": "${pylonVersion}",
     "@hono/node-server": "^1.12.2"
   },
-  "devDependencies": {
-    "@getcronit/pylon-dev": "${pylonDevVersion}"
-  },
   "repository": {
     "type": "git",
     "url": "https://github.com/getcronit/pylon.git"
@@ -432,10 +429,9 @@ ENTRYPOINT [ "node", "/usr/src/pylon/.pylon/index.js" ]
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
-    "@getcronit/pylon": "${pylonVersion}",
+    "@getcronit/pylon": "${pylonVersion}"
   },
   "devDependencies": {
-    "@getcronit/pylon-dev": "${pylonDevVersion}",
     "@cloudflare/vitest-pool-workers": "^0.4.5",
     "@cloudflare/workers-types": "^4.20240903.0",
     "typescript": "^5.5.2",
@@ -584,7 +580,6 @@ compatibility_flags = ["nodejs_compat_v2"]
       path: 'deno.json',
       content: `{
   "imports": {
-    "@getcronit/pylon-dev": "npm:@getcronit/pylon-dev@${pylonDevVersion}",
     "@getcronit/pylon": "npm:@getcronit/pylon@${pylonVersion}"
   },
   "tasks": {
