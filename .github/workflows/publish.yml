@@ -96,10 +96,17 @@ jobs:
     # Snapshot VERSIONS are globally unique (see .changeset/config.json
     # `prereleaseTemplate: {tag}-{datetime}.{commit}`), so a publish can never
     # overwrite an existing version — each PR owns its own moving dist-tag.
+    # SECURITY: only run for PRs whose HEAD is a branch IN THIS repo (trusted
+    # collaborators with push access). Fork PRs have head.repo.full_name =
+    # "<fork-owner>/<repo>" != github.repository, so this job is SKIPPED entirely for
+    # them — untrusted fork code never runs `pnpm build`/`changeset publish` and never
+    # gets near the OIDC id-token. (`pull_request` already withholds secrets + gives a
+    # read-only token to forks; this is the explicit, defense-in-depth gate on top.)
     if:
-      ${{ github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
-      && github.actor != 'dependabot-preview[bot]' && github.actor != 'renovate[bot]'
-      }}
+      ${{ github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]' && github.actor != 'dependabot-preview[bot]'
+      && github.actor != 'renovate[bot]' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
