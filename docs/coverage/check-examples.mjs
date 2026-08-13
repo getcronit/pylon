@@ -39,7 +39,7 @@ const p = (...s) => join(ROOT, ...s)
 // Package/subpath → shipped declaration file. Matches the `exports` map of the
 // consolidated @getcronit/pylon package.
 const PATHS = {
-  '@getcronit/pylon': ['packages/pylon/dist/index.d.ts'],
+  '@getcronit/pylon': ['packages/pylon/dist/core/index.d.ts'],
   '@getcronit/pylon/db': ['packages/pylon/dist/db/index.d.ts'],
   '@getcronit/pylon/db/plugin': ['packages/pylon/dist/db/plugin.d.ts'],
   '@getcronit/pylon/ir': ['packages/pylon/dist/ir/index.d.ts'],

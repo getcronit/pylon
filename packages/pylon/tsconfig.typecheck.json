@@ -7,7 +7,7 @@
   "compilerOptions": {
     "paths": {
       "@/*": ["./*"],
-      "@getcronit/pylon": ["./index.ts"],
+      "@getcronit/pylon": ["./core/index.ts"],
       "@getcronit/pylon/*": ["./*"]
     }
   }

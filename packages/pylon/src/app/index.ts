@@ -6,8 +6,8 @@ import {logger} from 'hono/logger'
 import type {ContentfulStatusCode} from 'hono/utils/http-status'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
-import {asyncContext, Env} from '../context'
-import type {PylonConfig} from '../index'
+import {asyncContext, Env} from '../core/context'
+import type {PylonConfig} from '../core/index'
 
 type ResolverMap = Record<string, (...args: any[]) => any>
 

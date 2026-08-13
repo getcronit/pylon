@@ -1,7 +1,7 @@
 import {Env} from './context.js'
 
 export {createPubSub as experimentalCreatePubSub} from 'graphql-yoga'
-export {executeConfig, handler} from './app/pylon-handler.js'
+export {executeConfig, handler} from '../app/pylon-handler.js'
 export {
   asyncContext,
   Bindings,
@@ -19,11 +19,11 @@ export {getEnv} from './get-env.js'
 // (OIDC/Zitadel via @getcronit/pylon/auth/zitadel); authz reads the Principal there.
 // The frontend pages battery (usePages + the runtime) lives in @getcronit/pylon/pages.
 export {getResolveInfo} from './resolve-info.js'
-export {useSentry, type SentryPluginOptions} from './plugins/use-sentry.js'
+export {useSentry, type SentryPluginOptions} from '../plugins/use-sentry.js'
 export {pylonApp as app, Pylon}
-export type {Gate, Resolvers, PylonOptions} from './app/index.js'
+export type {Gate, Resolvers, PylonOptions} from '../app/index.js'
 
-import {app as pylonApp, Pylon} from './app/index.js'
+import {app as pylonApp, Pylon} from '../app/index.js'
 
 import {BuildContext, BuildOptions} from 'esbuild'
 import type {Plugin as YogaPlugin} from 'graphql-yoga'

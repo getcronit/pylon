@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest'
 import {topoSortPlugins} from './plugin-order'
-import type {Plugin} from '..'
+import type {Plugin} from '../core'
 
 const p = (name?: string, dependsOn?: string[]): Plugin => ({name, dependsOn}) as Plugin
 const names = (ps: Plugin[]) => ps.map(x => x.name)

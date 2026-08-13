@@ -9,7 +9,7 @@
  */
 import {describe, expect, it} from 'vitest'
 import {buildSchema, graphql, type GraphQLInterfaceType} from 'graphql'
-import {resolversToGraphQLResolvers} from './define-pylon'
+import {resolversToGraphQLResolvers} from './core/define-pylon'
 
 /** Stamp `__typename` the way the ORM's `hydrate`/`create` do — readonly + NON-enumerable. */
 const stamp = <T extends object>(o: T, name: string): T => {

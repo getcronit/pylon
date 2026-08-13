@@ -25,7 +25,7 @@ const alias = [
   {find: /^@getcronit\/pylon\/pages$/, replacement: src('pages/index.ts')},
   {find: /^@getcronit\/pylon\/query\/build$/, replacement: src('query/build/index.ts')},
   {find: /^@getcronit\/pylon\/query$/, replacement: src('query/index.ts')},
-  {find: /^@getcronit\/pylon$/, replacement: src('index.ts')}
+  {find: /^@getcronit\/pylon$/, replacement: src('core/index.ts')}
 ]
 
 export default defineConfig({

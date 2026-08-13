@@ -530,7 +530,7 @@ class PylonGateway<
  *
  * ```typescript
  * import { createGateway } from '@getcronit/pylon';
- * import { RemoteRegistry } from './generated/remote';
+ * import { RemoteRegistry } from '../generated/remote';
  *
  * const gateway = createGateway<RemoteRegistry>().configure({
  * url: '[https://api.example.com/graphql](https://api.example.com/graphql)',

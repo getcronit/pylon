@@ -29,7 +29,7 @@ export const CONFIG_DOC = 'docs/content/docs/reference/config.md'
 export const PACKAGES = {
   '@getcronit/pylon': {
     // Small, mostly-public export list → denylist mode (all exports − internal).
-    entries: ['packages/pylon/src/index.ts'],
+    entries: ['packages/pylon/src/core/index.ts'],
     mode: 'all-minus-internal',
     // Build/runtime plumbing the docs intentionally don't teach as features.
     internal: [
@@ -167,5 +167,5 @@ export const CLI_INTERNAL = [
 ]
 
 // Config: the type whose keys the config reference must document.
-export const CONFIG_SOURCE = 'packages/pylon/src/index.ts'
+export const CONFIG_SOURCE = 'packages/pylon/src/core/index.ts'
 export const CONFIG_TYPE = 'PylonConfig'

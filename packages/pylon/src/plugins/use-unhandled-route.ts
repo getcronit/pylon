@@ -1,5 +1,5 @@
 import {html} from 'hono/html'
-import {type Plugin} from '../index'
+import {type Plugin} from '../core/index'
 import {version} from '../../package.json'
 
 export function useUnhandledRoute(): Plugin {

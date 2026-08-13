@@ -9,7 +9,7 @@ import {
 import * as Sentry from '@sentry/node'
 import type {Span, TraceparentData} from '@sentry/types'
 import {sentry} from '@hono/sentry'
-import {Plugin} from '..'
+import {Plugin} from '../core'
 
 /** Options accepted by the @hono/sentry HTTP middleware (dsn, environment, …). */
 type SentryMiddlewareOptions = NonNullable<Parameters<typeof sentry>[0]>

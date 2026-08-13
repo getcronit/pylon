@@ -33,7 +33,7 @@ const common = {
 // Library node entries — built WITH splitting so shared modules (e.g. the model
 // registry, imported by db/index + db/plugin) land in one chunk = one instance.
 const libNodeEntries = [
-  'src/index.ts', // . (core)
+  'src/core/index.ts', // . (core)
   'src/db/index.ts',
   'src/db/plugin.ts',
   'src/ir/index.ts',

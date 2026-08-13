@@ -1,4 +1,4 @@
-import type {Plugin} from '..'
+import type {Plugin} from '../core'
 
 /**
  * Stable topological sort of plugins by `dependsOn` (referencing plugin `name`s).

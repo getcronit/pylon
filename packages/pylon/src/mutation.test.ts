@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest'
-import {ServiceError} from './define-pylon'
-import {mutation} from './mutation'
+import {ServiceError} from './core/define-pylon'
+import {mutation} from './core/mutation'
 
 describe('mutation() — Shopify-style userErrors', () => {
   it('on success: returns the payload + an empty userErrors array', async () => {
