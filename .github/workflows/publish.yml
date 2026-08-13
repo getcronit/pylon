@@ -1,15 +1,20 @@
 name: Publish
 
-# ONE workflow file for BOTH npm publish paths, because npm's Trusted Publisher
-# (OIDC) binds to a single repo + workflow filename per package. Splitting release
-# and canary across two files means only one of them can ever authenticate via OIDC.
+# ONE workflow file for every npm publish path, because npm's Trusted Publisher
+# (OIDC) binds to a single repo + workflow filename (+ at most ONE environment) per
+# package. Splitting publishing across files/environments means only one of them can
+# authenticate.
 #
-#   • push to main      → `release` job  (changesets: open the Version PR, or publish)
-#   • pull_request       → `canary` job  (per-PR snapshot under `canary-pr-<n>`)
+#   push to main   → `version` job  (open/update the Version PR — UNGATED)
+#                  → `publish` job  (publish `latest` — GATED by the `release` env,
+#                                    runs only when a release is actually pending)
+#   pull_request    → `canary` job  (per-PR snapshot; same `release` env)
 #
-# The two jobs are mutually exclusive (different events), gated by `github.event_name`.
-# NOTE: configure the npm Trusted Publisher for each package to reference THIS file
-# (.github/workflows/publish.yml).
+# The `release` GitHub Environment is the human gate: add Required Reviewers in
+# Settings → Environments → release. Because npm allows only one environment on the
+# Trusted Publisher, `publish` and `canary` BOTH use it (so both are covered by the
+# same reviewer gate). Point each package's Trusted Publisher at this file
+# (.github/workflows/publish.yml), environment `release`.
 on:
   push:
     paths-ignore:
@@ -27,26 +32,99 @@ on:
       - main
 
 jobs:
-  release:
-    name: Release
+  # Version management — UNGATED. Opens/updates the "Version Packages" PR from pending
+  # changesets (never publishes). Also reports whether a publishable version is not yet
+  # on npm → a real release is pending (i.e. the Version PR was just merged), which is
+  # what arms the gated publish job. Reading versions BEFORE changesets/action runs so
+  # we see committed `main`, not the action's in-tree bumps.
+  version:
+    name: Version
     if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
-    # Deployment-gated: this job runs (and can `npm publish`) only after a required
-    # reviewer approves it in the `release` Environment. Configure the gate in
-    # Settings → Environments → release → "Required reviewers" (nothing here runs
-    # until you do — until then GitHub auto-creates the env with no protection, so
-    # ADD the reviewers). The OIDC id-token also carries an `environment: release`
-    # claim, so you can additionally scope the npm Trusted Publisher to it.
-    environment: release
     permissions:
       contents: write # changesets/action opens the Version Packages PR + pushes tags
       pull-requests: write # ...and manages that release PR
+    outputs:
+      shouldPublish: ${{ steps.pending.outputs.shouldPublish }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history so Changesets can generate changelogs with the correct commits
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4.0.0
+        with:
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Setup pnpm store
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install Dependencies
+        run: pnpm i --frozen-lockfile
+
+      # BEFORE changesets/action mutates the tree: is any publishable package's
+      # committed version missing from npm? Only then does `publish` need approval —
+      # so the gate never fires for the Version-PR-open run or for no-op pushes.
+      - name: Detect pending release
+        id: pending
+        run: |
+          set -euo pipefail
+          should=false
+          for pj in packages/*/package.json; do
+            [ -f "$pj" ] || continue
+            priv=$(node -p "require('./$pj').private === true" 2>/dev/null || echo true)
+            [ "$priv" = "true" ] && continue
+            name=$(node -p "require('./$pj').name")
+            ver=$(node -p "require('./$pj').version")
+            if npm view "$name@$ver" version >/dev/null 2>&1; then
+              echo "· $name@$ver already on npm"
+            else
+              echo "· $name@$ver NOT on npm → release pending"
+              should=true
+            fi
+          done
+          echo "shouldPublish=$should" >> "$GITHUB_OUTPUT"
+
+      - name: Create/Update the Version Packages PR
+        uses: changesets/action@v1
+        with:
+          version: pnpm ci:version
+          # No `publish:` here — the gated `publish` job below does that.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Publish `latest` — GATED by the `release` Environment. Runs only when `version`
+  # reported a pending release, so a reviewer is asked to approve ONLY a real publish.
+  publish:
+    name: Publish (latest)
+    needs: version
+    if: ${{ github.event_name == 'push' && needs.version.outputs.shouldPublish == 'true' }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
       id-token: write # OIDC trusted publishing to npm (no stored NPM_TOKEN)
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # This makes Actions fetch all Git history so that Changesets can generate changelogs with the correct commits
           fetch-depth: 0
 
       - name: Setup pnpm
@@ -66,8 +144,7 @@ jobs:
         run: npm i -g npm@latest
 
       - name: Setup pnpm store
-        run: |
-          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
 
       - name: Setup pnpm cache
         uses: actions/cache@v4
@@ -83,38 +160,26 @@ jobs:
       - name: Build Packages
         run: pnpm build
 
-      - name: Create Release Pull Request or Publish to npm
-        id: changesets
-        uses: changesets/action@v1
-        with:
-          # This expects you to have a script called release which does a build for your packages and calls changeset publish
-          publish: pnpm ci:release
-          version: pnpm ci:version
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # No NPM_TOKEN: publish authenticates via OIDC trusted publishing
-          # (id-token: write + npm >= 11.5.1 + a Trusted Publisher per package).
+      - name: Publish to npm
+        # `changeset publish` only publishes versions not already on the registry, so
+        # it's a safe no-op if there's nothing new. OIDC: id-token: write + npm >= 11.5.1
+        # + a Trusted Publisher (repo + this workflow + environment `release`) per package.
+        run: pnpm ci:release
 
+  # Per-PR canary snapshot under `canary-pr-<number>`. Uses the SAME `release`
+  # environment (npm allows only one), so it's covered by the same reviewer gate.
   canary:
     name: Publish snapshot under channel dist-tag
-    # Publishes a snapshot of the changed packages (+ their workspace dependents) on
-    # every PR, under a PER-PR npm dist-tag `canary-pr-<number>` (e.g.
-    # `@getcronit/pylon@canary-pr-142`) so PRs never clobber each other's canaries.
-    # Snapshot VERSIONS are globally unique (see .changeset/config.json
-    # `prereleaseTemplate: {tag}-{datetime}.{commit}`), so a publish can never
-    # overwrite an existing version — each PR owns its own moving dist-tag.
-    # SECURITY: only run for PRs whose HEAD is a branch IN THIS repo (trusted
-    # collaborators with push access). Fork PRs have head.repo.full_name =
-    # "<fork-owner>/<repo>" != github.repository, so this job is SKIPPED entirely for
-    # them — untrusted fork code never runs `pnpm build`/`changeset publish` and never
-    # gets near the OIDC id-token. (`pull_request` already withholds secrets + gives a
-    # read-only token to forks; this is the explicit, defense-in-depth gate on top.)
+    # SECURITY: only same-repo PRs (trusted collaborators). Fork PRs have
+    # head.repo.full_name = "<fork-owner>/<repo>" != github.repository → SKIPPED, so
+    # untrusted fork code never runs build/publish or reaches the OIDC id-token.
     if:
       ${{ github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.actor != 'dependabot[bot]' && github.actor != 'dependabot-preview[bot]'
       && github.actor != 'renovate[bot]' }}
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: read
       pull-requests: write # post the canary-versions report comment
