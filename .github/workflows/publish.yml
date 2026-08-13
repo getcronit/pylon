@@ -1,12 +1,23 @@
-name: Canary Release
+name: Publish
 
-# Publishes a snapshot of the changed packages (+ their workspace dependents) on
-# every PR, under a PER-PR npm dist-tag `canary-pr-<number>` (e.g.
-# `@getcronit/pylon@canary-pr-142`) so PRs never clobber each other's canaries.
-# Snapshot VERSIONS are globally unique (see .changeset/config.json
-# `prereleaseTemplate: {tag}-{datetime}.{commit}`), so a publish can never
-# overwrite an existing version — each PR owns its own moving dist-tag.
+# ONE workflow file for BOTH npm publish paths, because npm's Trusted Publisher
+# (OIDC) binds to a single repo + workflow filename per package. Splitting release
+# and canary across two files means only one of them can ever authenticate via OIDC.
+#
+#   • push to main      → `release` job  (changesets: open the Version PR, or publish)
+#   • pull_request       → `canary` job  (per-PR snapshot under `canary-pr-<n>`)
+#
+# The two jobs are mutually exclusive (different events), gated by `github.event_name`.
+# NOTE: configure the npm Trusted Publisher for each package to reference THIS file
+# (.github/workflows/publish.yml).
 on:
+  push:
+    paths-ignore:
+      - 'docs/**'
+      - 'examples/**'
+      - '.vscode/**'
+    branches:
+      - main
   pull_request:
     paths-ignore:
       - 'docs/**'
@@ -16,12 +27,80 @@ on:
       - main
 
 jobs:
-  release-canary:
-    name: Publish snapshot under channel dist-tag
+  release:
+    name: Release
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # changesets/action opens the Version Packages PR + pushes tags
+      pull-requests: write # ...and manages that release PR
+      id-token: write # OIDC trusted publishing to npm (no stored NPM_TOKEN)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # This makes Actions fetch all Git history so that Changesets can generate changelogs with the correct commits
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4.0.0
+        with:
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+          registry-url: 'https://registry.npmjs.org'
+
+      # OIDC trusted publishing needs npm >= 11.5.1; node 20 ships npm 10.
+      - name: Upgrade npm for OIDC publishing
+        run: npm i -g npm@latest
+
+      - name: Setup pnpm store
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install Dependencies
+        run: pnpm i --frozen-lockfile
+
+      - name: Build Packages
+        run: pnpm build
+
+      - name: Create Release Pull Request or Publish to npm
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          # This expects you to have a script called release which does a build for your packages and calls changeset publish
+          publish: pnpm ci:release
+          version: pnpm ci:version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No NPM_TOKEN: publish authenticates via OIDC trusted publishing
+          # (id-token: write + npm >= 11.5.1 + a Trusted Publisher per package).
+
+  canary:
+    name: Publish snapshot under channel dist-tag
+    # Publishes a snapshot of the changed packages (+ their workspace dependents) on
+    # every PR, under a PER-PR npm dist-tag `canary-pr-<number>` (e.g.
+    # `@getcronit/pylon@canary-pr-142`) so PRs never clobber each other's canaries.
+    # Snapshot VERSIONS are globally unique (see .changeset/config.json
+    # `prereleaseTemplate: {tag}-{datetime}.{commit}`), so a publish can never
+    # overwrite an existing version — each PR owns its own moving dist-tag.
     if:
-      ${{ github.actor != 'dependabot[bot]' && github.actor !=
-      'dependabot-preview[bot]' && github.actor != 'renovate[bot]' }}
+      ${{ github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
+      && github.actor != 'dependabot-preview[bot]' && github.actor != 'renovate[bot]'
+      }}
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write # post the canary-versions report comment
