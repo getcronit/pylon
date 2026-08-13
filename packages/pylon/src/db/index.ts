@@ -113,7 +113,9 @@ export {
   type NearestQuerySet
 } from './manager.js'
 export {syncSchema, dropTables} from './schema-sync.js'
-export {useDatabase, type UseDatabaseOptions} from './plugin.js'
+// `useDatabase` is the CONFIG PLUGIN → exported from `@getcronit/pylon/db/plugin`
+// (see ./plugin.ts), not from the authoring-API root. This keeps the uniform
+// convention: `./db` = authoring API, `./db/plugin` = the plugin.
 export {gate, type GateOptions} from './gate.js'
 // Resource-tier authz (row/instance/field), enforced inside the ORM. Capability
 // authz (authorize-predicate/requireRole/hasRole) lives in pylon-auth.
