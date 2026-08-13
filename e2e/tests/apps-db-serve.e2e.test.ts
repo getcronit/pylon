@@ -16,7 +16,7 @@ import {connect, type Database} from '@getcronit/pylon/db'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const e2eRoot = path.resolve(dir, '..')
-const cliBin = path.resolve(e2eRoot, '../packages/pylon-dev/dist/index.js')
+const cliBin = path.resolve(e2eRoot, '../packages/pylon/dist/cli/index.js')
 const appDir = path.resolve(e2eRoot, 'fixtures/apps-db-app')
 const pylonDir = path.join(appDir, '.pylon')
 

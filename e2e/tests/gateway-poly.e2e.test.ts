@@ -25,7 +25,7 @@ import {afterAll, beforeAll, describe, expect, it} from 'vitest'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const e2eRoot = path.resolve(dir, '..')
-const cliBin = path.resolve(e2eRoot, '../packages/pylon-dev/dist/index.js')
+const cliBin = path.resolve(e2eRoot, '../packages/pylon/dist/cli/index.js')
 const remoteDir = path.resolve(e2eRoot, 'fixtures/gateway-poly-remote-app')
 const frontDir = path.resolve(e2eRoot, 'fixtures/gateway-poly-front-app')
 const reg = path.join(frontDir, 'src/generated/polyusers.ts')

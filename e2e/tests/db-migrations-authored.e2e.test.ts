@@ -22,7 +22,7 @@ import {afterAll, beforeAll, describe, expect, it} from 'vitest'
 import {connect, type Database} from '@getcronit/pylon/db'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
-const cliBin = path.resolve(dir, '../../packages/pylon-dev/dist/index.js')
+const cliBin = path.resolve(dir, '../../packages/pylon/dist/cli/index.js')
 const appDir = path.resolve(dir, '../fixtures/migrations-app')
 const migrationsDir = path.join(appDir, 'migrations')
 const connectionString = 'postgres://pylon:pylon@localhost:5434/pylon_e2e'

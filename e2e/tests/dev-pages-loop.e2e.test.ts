@@ -19,7 +19,7 @@ import {afterAll, beforeAll, describe, expect, it} from 'vitest'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const e2eRoot = path.resolve(dir, '..')
-const cliBin = path.resolve(e2eRoot, '../packages/pylon-dev/dist/index.js')
+const cliBin = path.resolve(e2eRoot, '../packages/pylon/dist/cli/index.js')
 const appDir = path.resolve(e2eRoot, 'fixtures/dev-pages-app')
 const pageFile = path.join(appDir, 'pages/page.tsx')
 const srcFile = path.join(appDir, 'src/index.ts')
@@ -69,7 +69,9 @@ describe('pylon dev — pages watch loop', () => {
     originalSrc = await fs.readFile(srcFile, 'utf8')
     await fs.rm(path.join(appDir, '.pylon'), {recursive: true, force: true})
 
-    dev = spawn('node', [cliBin, 'dev', '-c', 'node .pylon/index.js'], {
+    // Default runner (node + tsx loader on the generated .pylon/server.mjs, which
+    // self-serves) — no `-c` override; the old `node .pylon/index.js` entry is gone.
+    dev = spawn('node', [cliBin, 'dev'], {
       cwd: appDir,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: {

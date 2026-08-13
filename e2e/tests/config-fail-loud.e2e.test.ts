@@ -14,7 +14,7 @@ import {describe, expect, it} from 'vitest'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(dir, '../..')
-const cliBin = path.join(repoRoot, 'packages/pylon-dev/dist/index.js')
+const cliBin = path.join(repoRoot, 'packages/pylon/dist/cli/index.js')
 const appDir = path.resolve(dir, '../fixtures/badconfig-app')
 
 describe('pylon build with a throwing pylon.config', () => {

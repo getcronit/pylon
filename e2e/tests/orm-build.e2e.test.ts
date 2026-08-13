@@ -22,7 +22,7 @@ import {afterAll, beforeAll, describe, expect, it} from 'vitest'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(dir, '../..')
-const cliBin = path.join(repoRoot, 'packages/pylon-dev/dist/index.js')
+const cliBin = path.join(repoRoot, 'packages/pylon/dist/cli/index.js')
 const appDir = path.resolve(dir, '../fixtures/orm-app')
 const pylonDir = path.join(appDir, '.pylon')
 
@@ -35,7 +35,7 @@ beforeAll(async () => {
   if (!existsSync(cliBin)) {
     throw new Error(
       `pylon CLI not built at ${cliBin}. Run \`pnpm --filter pylon-e2e test\` ` +
-        `(its pretest builds the packages), or build pylon-dev first.`
+        `(its pretest builds the packages), or build @getcronit/pylon first.`
     )
   }
   await fs.rm(pylonDir, {recursive: true, force: true})

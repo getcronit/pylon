@@ -16,7 +16,7 @@ import {fileURLToPath} from 'node:url'
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
-const cliBin = path.resolve(dir, '../../packages/pylon-dev/dist/index.js')
+const cliBin = path.resolve(dir, '../../packages/pylon/dist/cli/index.js')
 const appDir = path.resolve(dir, '../fixtures/migrate-app')
 const connectionString = 'postgres://pylon:pylon@localhost:5434/pylon_e2e'
 const dockerAvailable = spawnSync('docker', ['--version'], {stdio: 'ignore'}).status === 0

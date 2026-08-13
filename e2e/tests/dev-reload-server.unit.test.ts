@@ -9,7 +9,7 @@ import {afterEach, describe, expect, it} from 'vitest'
 import {
   startDevReloadServer,
   type DevReloadServer
-} from '../../packages/pylon-dev/src/builder/dev-reload-server'
+} from '../../packages/pylon/src/cli/builder/dev-reload-server'
 
 const open: DevReloadServer[] = []
 const extra: http.Server[] = []

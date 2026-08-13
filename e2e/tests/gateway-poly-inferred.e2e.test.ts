@@ -26,7 +26,7 @@ import {afterAll, describe, expect, it} from 'vitest'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(dir, '../..')
-const cliBin = path.join(repoRoot, 'packages/pylon-dev/dist/index.js')
+const cliBin = path.join(repoRoot, 'packages/pylon/dist/cli/index.js')
 const appDir = path.resolve(dir, '../fixtures/gateway-poly-inferred-app')
 const schemaPath = path.join(appDir, '.pylon/schema.graphql')
 const env = {...process.env, PYLON_TELEMETRY_DISABLED: '1', DO_NOT_TRACK: '1'}

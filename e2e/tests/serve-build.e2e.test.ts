@@ -16,7 +16,7 @@ import {buildSchema, GraphQLObjectType, GraphQLSchema} from 'graphql'
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
-const cliBin = path.resolve(dir, '../../packages/pylon-dev/dist/index.js')
+const cliBin = path.resolve(dir, '../../packages/pylon/dist/cli/index.js')
 const appDir = path.resolve(dir, '../fixtures/serve-app')
 const pylonDir = path.join(appDir, '.pylon')
 

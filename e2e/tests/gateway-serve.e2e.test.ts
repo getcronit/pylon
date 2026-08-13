@@ -19,7 +19,7 @@ import {afterAll, beforeAll, describe, expect, it} from 'vitest'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const e2eRoot = path.resolve(dir, '..')
-const cliBin = path.resolve(e2eRoot, '../packages/pylon-dev/dist/index.js')
+const cliBin = path.resolve(e2eRoot, '../packages/pylon/dist/cli/index.js')
 const remoteDir = path.resolve(e2eRoot, 'fixtures/gateway-remote-app')
 const orgsDir = path.resolve(e2eRoot, 'fixtures/gateway-orgs-app')
 const frontDir = path.resolve(e2eRoot, 'fixtures/gateway-front-app')
