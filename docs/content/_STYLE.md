@@ -94,9 +94,12 @@ Write the **full intended framework** confidently and without caveats or
 "coming soon" labels. Present the intended public API surface as the real,
 shipping surface:
 
-- Import everything from package entry points: `@getcronit/pylon`,
-  `@getcronit/pylon-db`, `@getcronit/pylon-auth`, `@getcronit/pylon-queues`,
-  `@getcronit/pylon-pages`, `@getcronit/pylon-query`.
+- Import everything from the single package's subpaths: `@getcronit/pylon`,
+  `@getcronit/pylon/db`, `@getcronit/pylon/auth`, `@getcronit/pylon/queues`,
+  `@getcronit/pylon/pages`, `@getcronit/pylon/query`. Plugin factories live under a
+  per-feature `/plugin` subpath — `@getcronit/pylon/db/plugin` (`useDatabase`),
+  `@getcronit/pylon/auth/plugin` (`useIdentity`), `@getcronit/pylon/queues/plugin`
+  (`useQueues`), `@getcronit/pylon/pages/plugin` (`usePages`).
 - Use the **v3 entry contract** everywhere:
   - `export default new Pylon({ graphql, gate?, basePath? })`
   - Compose apps with `Pylon.compose(appA, appB)`
