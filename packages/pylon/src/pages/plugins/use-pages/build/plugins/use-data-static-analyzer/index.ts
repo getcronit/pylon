@@ -1,4 +1,5 @@
 import {Plugin, OnLoadResult} from 'esbuild'
+import type {Plugin as RolldownPlugin} from 'rolldown'
 import * as fs from 'fs'
 import {buildSchema, GraphQLSchema} from 'graphql'
 import path from 'path'
@@ -1071,6 +1072,46 @@ export function useDataStaticAnalyzer(
         // types (loader/warnings) at this adapter boundary.
         return (await core.transform(args, contents)) as OnLoadResult | null
       })
+    }
+  }
+}
+
+/**
+ * rolldown adapter — thin wrapper over the same bundler-agnostic core. rolldown
+ * reads the file for us and hands the source to the `transform` hook, so unlike
+ * the esbuild adapter there's no manual readFile. The core's transformed output
+ * is (possibly rewritten) TS/TSX, so we tag `moduleType` to have oxc re-parse it.
+ */
+export function useDataStaticAnalyzerRolldown(
+  options: UseDataStaticAnalyzerOptions & {
+    tsConfigFilePath?: string
+    entryPaths?: string[]
+  } = {}
+): RolldownPlugin {
+  const core = createUseDataAnalyzerCore(options)
+  return {
+    name: 'pylon-use-data-static-analyzer',
+    buildStart() {
+      core.start()
+      if (options.entryPaths?.length) core.addEntries(options.entryPaths)
+    },
+    transform: {
+      filter: {id: core.filter},
+      async handler(code, id) {
+        const result = await core.transform({path: id}, code)
+        if (!result) return null
+        if (result.errors?.length) {
+          this.error(result.errors[0].text ?? 'useData analysis failed')
+        }
+        for (const w of result.warnings ?? []) {
+          this.warn(w.text ?? String(w))
+        }
+        return {
+          code: result.contents,
+          moduleType: id.endsWith('.tsx') ? 'tsx' : 'ts',
+          map: null
+        }
+      }
     }
   }
 }

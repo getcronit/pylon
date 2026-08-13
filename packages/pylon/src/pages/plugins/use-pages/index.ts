@@ -1,7 +1,17 @@
 import type {Plugin} from '@getcronit/pylon'
 export type {Data, Mutations, LayoutProps, MetadataRoute, PageProps} from './types'
 
-export function usePages(): Plugin {
+export interface UsePagesOptions {
+  /**
+   * Wire `@sentry/react` into the client hydration bundle for error reporting.
+   * Opt-in — when enabled the app must have `@sentry/react` installed. Defaults
+   * to `false`; disabled apps get a plain console error handler and never import
+   * Sentry.
+   */
+  sentry?: boolean
+}
+
+export function usePages(options: UsePagesOptions = {}): Plugin {
   return {
     strategy: 'last',
     // We use async functions here so React isn't imported until setup() is called
@@ -11,7 +21,7 @@ export function usePages(): Plugin {
     },
     build: async api => {
       const {build} = await import('./build')
-      return build(api)
+      return build(api, options)
     }
   }
 }
