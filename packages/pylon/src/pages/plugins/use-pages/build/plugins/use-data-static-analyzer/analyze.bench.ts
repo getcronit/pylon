@@ -147,7 +147,7 @@ describe('extractQueries', () => {
       allowJs: true,
       jsx: 4,
       baseUrl: '/',
-      paths: {'@/*': ['./*']}
+      paths: {'@/pages/*': ['./*']}
     },
     useInMemoryFileSystem: true
   })
@@ -175,7 +175,7 @@ describe('extractQueries', () => {
     '/Parent.tsx',
     `
     import { useData } from '@getcronit/pylon/pages';
-    import { Ticket } from '@/components';
+    import { Ticket } from '@/pages/components';
     import { useTicketInfo } from './hooks';
 
     export default function Page() {
@@ -203,7 +203,7 @@ describe('extractQueries', () => {
       allowJs: true,
       jsx: 4,
       baseUrl: '/',
-      paths: {'@/*': ['./*']}
+      paths: {'@/pages/*': ['./*']}
     },
     useInMemoryFileSystem: true
   })
@@ -326,7 +326,7 @@ describe('extractQueries', () => {
       allowJs: true,
       jsx: 4,
       baseUrl: '/',
-      paths: {'@/*': ['./*']}
+      paths: {'@/pages/*': ['./*']}
     },
     useInMemoryFileSystem: true
   })

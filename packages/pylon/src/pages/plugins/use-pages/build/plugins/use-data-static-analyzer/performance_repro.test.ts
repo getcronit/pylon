@@ -10,7 +10,7 @@ describe('Performance Repro - Slow findReferences', () => {
         jsx: 4,
         baseUrl: '/',
         paths: {
-          '@/*': ['./*']
+          '@/pages/*': ['./*']
         }
       },
       useInMemoryFileSystem: true
@@ -47,7 +47,7 @@ describe('Performance Repro - Slow findReferences', () => {
     project.createSourceFile('/components/index.ts', exports)
 
     // Create the page importing all 10 arrow function components
-    const imports = Array.from({length: 10}, (_, i) => `import { Comp${i + 1} } from '@/components';`).join('\n')
+    const imports = Array.from({length: 10}, (_, i) => `import { Comp${i + 1} } from '@/pages/components';`).join('\n')
     const renders = Array.from({length: 10}, (_, i) => `<Comp${i + 1} data={data} />`).join('\n')
 
     project.createSourceFile(

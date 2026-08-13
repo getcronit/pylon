@@ -738,7 +738,7 @@ describe('Cross-File Analysis (In-Memory)', () => {
         jsx: 4,
         baseUrl: '/',
         paths: {
-          '@/*': ['./*']
+          '@/pages/*': ['./*']
         }
       },
       useInMemoryFileSystem: true
@@ -763,7 +763,7 @@ describe('Cross-File Analysis (In-Memory)', () => {
       '/Parent.tsx',
       `
       import { useData } from '@getcronit/pylon/pages';
-      import { Ticket } from '@/components';
+      import { Ticket } from '@/pages/components';
       
       export default function Page() {
         const data = useData();
@@ -800,7 +800,7 @@ describe('Cross-File Analysis (In-Memory)', () => {
         jsx: 4,
         baseUrl: '/',
         paths: {
-          '@/*': ['./*']
+          '@/pages/*': ['./*']
         }
       },
       useInMemoryFileSystem: true
@@ -825,7 +825,7 @@ describe('Cross-File Analysis (In-Memory)', () => {
       '/Parent.tsx',
       `
       import { useData } from '@getcronit/pylon/pages';
-      import { Ticket } from '@/components';
+      import { Ticket } from '@/pages/components';
       
       export default function Page() {
         const data = useData();
@@ -857,7 +857,7 @@ describe('Cross-File Analysis (In-Memory)', () => {
         jsx: 4,
         baseUrl: '/',
         paths: {
-          '@/*': ['./*']
+          '@/pages/*': ['./*']
         }
       },
       useInMemoryFileSystem: true
@@ -882,7 +882,7 @@ describe('Cross-File Analysis (In-Memory)', () => {
       '/Parent.tsx',
       `
       import { useData } from '@getcronit/pylon/pages';
-      import { Ticket } from '@/components';
+      import { Ticket } from '@/pages/components';
       
       export default function Page() {
         const data = useData();
@@ -918,7 +918,7 @@ describe('Cross-File Analysis (In-Memory)', () => {
         jsx: 4,
         baseUrl: '/',
         paths: {
-          '@/*': ['./*']
+          '@/pages/*': ['./*']
         }
       },
       useInMemoryFileSystem: true
@@ -1109,7 +1109,7 @@ describe('High-End Complexity Edge Cases', () => {
         jsx: 4,
         baseUrl: '/',
         paths: {
-          '@/*': ['./*']
+          '@/pages/*': ['./*']
         }
       },
       useInMemoryFileSystem: true
@@ -1153,7 +1153,7 @@ describe('High-End Complexity Edge Cases', () => {
         jsx: 4,
         baseUrl: '/',
         paths: {
-          '@/*': ['./*']
+          '@/pages/*': ['./*']
         }
       },
       useInMemoryFileSystem: true
@@ -1215,7 +1215,7 @@ describe('High-End Complexity Edge Cases', () => {
         jsx: 4,
         baseUrl: '/',
         paths: {
-          '@/*': ['./*']
+          '@/pages/*': ['./*']
         }
       },
       useInMemoryFileSystem: true
@@ -1261,7 +1261,7 @@ describe('High-End Complexity Edge Cases', () => {
         jsx: 4,
         baseUrl: '/',
         paths: {
-          '@/*': ['./*']
+          '@/pages/*': ['./*']
         }
       },
       useInMemoryFileSystem: true

@@ -4736,7 +4736,7 @@ describe('Realistic NextJS App with useData', () => {
     // 3. Create page with alias import
     const pageCode = `
       import { useData } from "@getcronit/pylon/pages";
-      import { UserBadge } from "@/components/UserBadge";
+      import { UserBadge } from "@/pages/components/UserBadge";
       export default function AliasPage() {
         const data = useData();
         return <UserBadge user={data.me} />;
@@ -4750,7 +4750,7 @@ describe('Realistic NextJS App with useData', () => {
         jsx: 'react-jsx',
         baseUrl: '.',
         paths: {
-          '@/*': ['./*']
+          '@/pages/*': ['./*']
         }
       }
     }
@@ -4820,7 +4820,7 @@ describe('Realistic NextJS App with useData', () => {
             jsx: 'react-jsx',
             baseUrl: '.',
             paths: {
-              '@/*': ['./*']
+              '@/pages/*': ['./*']
             }
           }
         },
@@ -4831,7 +4831,7 @@ describe('Realistic NextJS App with useData', () => {
     // 4. Create the main page that imports and uses the hook via alias
     const pageCode = `
       import { useData } from "@getcronit/pylon/pages";
-      import { useTicketInfo } from "@/hooks";
+      import { useTicketInfo } from "@/pages/hooks";
       export default function TicketsPage() {
         const data = useData();
         const {pageInfo} = data.tickets({})

@@ -5,16 +5,16 @@ export {Image} from './image'
 export {useRouteData} from './internals'
 export {Link} from './link'
 
-export * from '@/components/dev-overlay'
-export {default as GlobalErrorPage} from '@/components/global-error-page'
-export {StatusPage} from '@/components/status-page'
+export * from '@/pages/components/dev-overlay'
+export {default as GlobalErrorPage} from '@/pages/components/global-error-page'
+export {StatusPage} from '@/pages/components/status-page'
 export {
   type Data,
   type Mutations,
   type LayoutProps,
   type MetadataRoute,
   type PageProps
-} from '@/plugins/use-pages'
+} from '@/pages/plugins/use-pages'
 
 import '../globals.css'
 

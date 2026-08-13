@@ -1,4 +1,4 @@
-import Logo from '@/components/logo'
+import Logo from '@/pages/components/logo'
 import type React from 'react'
 import {useEffect, useState} from 'react'
 import {createPortal} from 'react-dom'

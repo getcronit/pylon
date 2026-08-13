@@ -1,4 +1,4 @@
-import {cn} from '@/lib/utils'
+import {cn} from '@/pages/lib/utils'
 
 const Logo: React.FC<{className?: string}> = props => {
   return (

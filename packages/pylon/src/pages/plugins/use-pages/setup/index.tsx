@@ -13,7 +13,7 @@ import {
 } from 'react-router'
 import {PassThrough, Readable} from 'stream'
 
-import ErrorPage from '@/components/global-error-page'
+import ErrorPage from '@/pages/components/global-error-page'
 import {etag} from 'hono/etag'
 import {tmpdir} from 'os'
 import {pipeline} from 'stream/promises'

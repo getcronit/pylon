@@ -1,4 +1,4 @@
-import Logo from '@/components/logo'
+import Logo from '@/pages/components/logo'
 import {useEffect} from 'react'
 
 interface GlobalErrorProps {
