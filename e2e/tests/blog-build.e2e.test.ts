@@ -46,7 +46,11 @@ beforeAll(async () => {
   })
   if (buildResult.status === 0) {
     schema = buildSchema(await fs.readFile(path.join(pylonDir, 'schema.graphql'), 'utf8'))
-    config = (await import(pathToFileURL(path.join(pylonDir, 'pylon.config.js')).href)).config
+    const configMod = await import(
+      pathToFileURL(path.join(pylonDir, 'pylon.config.js')).href
+    )
+    // The config is a default export (server.mjs reads `default ?? config`).
+    config = configMod.default ?? configMod.config
   }
 }, 180_000)
 
