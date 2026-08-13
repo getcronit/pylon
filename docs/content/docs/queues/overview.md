@@ -7,7 +7,7 @@ order: 0
 ---
 
 Some work doesn't belong in the request path — sending email, generating reports,
-syncing a third party. `@getcronit/pylon-queues` gives you **typed background jobs**:
+syncing a third party. `@getcronit/pylon/queues` gives you **typed background jobs**:
 a queue is a class typed by its payload, so enqueuing the wrong shape is a compile
 error and a schema can validate it at runtime too. Add a transactional outbox and
 you get **exactly-once enqueue-iff-commit** — a job is enqueued only when the
@@ -22,7 +22,7 @@ as a model exposes `static objects = manager(X)`), then register the class on yo
 app by passing it to `queues` on the `Pylon` constructor:
 
 ```ts title="src/queues.ts"
-import {Queue, manager, type QueueConfig} from '@getcronit/pylon-queues'
+import {Queue, manager, type QueueConfig} from '@getcronit/pylon/queues'
 
 export class SendWelcome extends Queue<{userId: string}> {
   static config = {attempts: 3} satisfies QueueConfig<SendWelcome>
@@ -71,7 +71,7 @@ runtime**:
 
 ```ts title="src/queues.ts"
 import {z} from 'zod'
-import {Queue, manager, type QueueConfig} from '@getcronit/pylon-queues'
+import {Queue, manager, type QueueConfig} from '@getcronit/pylon/queues'
 
 export class SendWelcome extends Queue.input(z.object({userId: z.string()})) {
   static config = {attempts: 3} satisfies QueueConfig<SendWelcome>
@@ -177,7 +177,7 @@ valid and is occasionally handier for one-off or dynamically named queues.
 `R`; `.process()` registers its handler:
 
 ```ts title="src/queues.ts"
-import {defineQueue} from '@getcronit/pylon-queues'
+import {defineQueue} from '@getcronit/pylon/queues'
 import {z} from 'zod'
 
 export const sendEmail = defineQueue('send-email', {
@@ -197,7 +197,7 @@ sendEmail.process(async ({data, job, log}) => {
 call:
 
 ```ts title="src/queues.ts"
-import {cron} from '@getcronit/pylon-queues'
+import {cron} from '@getcronit/pylon/queues'
 
 cron('nightly-cleanup', '0 0 * * *', async ({log}) => {
   await log('purging expired sessions')
@@ -213,7 +213,7 @@ process:
 
 ```ts title="pylon.config.ts"
 import type {PylonConfig} from '@getcronit/pylon'
-import {useQueues} from '@getcronit/pylon-queues'
+import {useQueues} from '@getcronit/pylon/queues/plugin'
 
 export default {
   plugins: [
@@ -226,7 +226,7 @@ export default {
 } satisfies PylonConfig
 ```
 
-When `@getcronit/pylon-db` is present, each job runs inside the database context,
+When `@getcronit/pylon/db` is present, each job runs inside the database context,
 so your models, [policies](/docs/data/policies), and tenant scoping apply inside
 processors exactly as they do in resolvers.
 
@@ -235,7 +235,7 @@ which creates its table on first use — via `setOutboxDriver`. Outside the plug
 (a custom entry, a test) you can wire it yourself:
 
 ```ts
-import {setOutboxDriver, createPgOutbox} from '@getcronit/pylon-queues'
+import {setOutboxDriver, createPgOutbox} from '@getcronit/pylon/queues'
 
 setOutboxDriver(await createPgOutbox())
 ```
@@ -246,7 +246,7 @@ In production, run a dedicated worker process. The worker entry imports your app
 to register the queues, then starts the workers and drains the outbox:
 
 ```ts title="src/worker.ts"
-import {startWorkers, runOutboxRelay} from '@getcronit/pylon-queues'
+import {startWorkers, runOutboxRelay} from '@getcronit/pylon/queues'
 import './index.js' // side-effect: registers queues, processors, and crons
 
 await startWorkers()
@@ -271,7 +271,7 @@ job to an outbox table in the *same* transaction instead of pushing to the queue
 A relay then drains only committed rows to the queue:
 
 ```ts
-import {getDatabase} from '@getcronit/pylon-db'
+import {getDatabase} from '@getcronit/pylon/db'
 import {SendEmail} from './src/queues'
 
 await getDatabase().transaction(async () => {

@@ -33,11 +33,11 @@ RUN pnpm fetch
 COPY . .
 RUN pnpm install --frozen-lockfile --offline
 RUN pnpm build                                   # builds ./packages/* dist (incl. pylon-dev's `pylon` CLI)
-# pnpm couldn't link docs' `pylon` bin during install: pylon-dev's dist is
+# pnpm couldn't link docs' `pylon` bin during install: @getcronit/pylon's dist is
 # gitignored and only produced by `pnpm build` above, so the bin target didn't
 # exist at install time (ENOENT skip). Invoke the freshly-built CLI directly —
 # cwd = docs so `pylon build` picks up docs/pylon.config.ts and emits docs/.pylon.
-RUN cd docs && node node_modules/@getcronit/pylon-dev/dist/index.js build
+RUN cd docs && node node_modules/@getcronit/pylon/dist/cli/index.js build
 # Prune to a standalone deployment of JUST the docs app: its built files
 # (.pylon, public, ...) plus a flat node_modules of only its PRODUCTION deps,
 # with the workspace packages (@getcronit/pylon, pylon-pages, pylon-query, ...)

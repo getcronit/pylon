@@ -62,7 +62,7 @@ exactly. Async resolvers are first-class — return a `Promise` and Pylon awaits
 
 ```ts
 import {Pylon} from '@getcronit/pylon'
-import {models, db} from '@getcronit/pylon-db'
+import {models, db} from '@getcronit/pylon/db'
 
 export class Author extends models.Model {
   static objects = db.manager(Author)

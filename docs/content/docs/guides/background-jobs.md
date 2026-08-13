@@ -24,7 +24,7 @@ out by a separate worker process — the compile-time type is gone by then, so t
 schema is what guards the boundary:
 
 ```ts title="src/queues.ts"
-import {Queue, manager, type QueueConfig} from '@getcronit/pylon-queues'
+import {Queue, manager, type QueueConfig} from '@getcronit/pylon/queues'
 import {z} from 'zod'
 
 export class SendWelcome extends Queue.input(
@@ -61,7 +61,7 @@ in the outbox in the same transaction as the row. If the signup rolls back, the
 email is never enqueued:
 
 ```ts title="src/signals.ts"
-import {signals} from '@getcronit/pylon-db'
+import {signals} from '@getcronit/pylon/db'
 import {User} from './models'
 import {SendWelcome} from './queues'
 
@@ -108,8 +108,8 @@ the app so you don't need a second process:
 
 ```ts title="pylon.config.ts"
 import type {PylonConfig} from '@getcronit/pylon'
-import {useDatabase} from '@getcronit/pylon-db'
-import {useQueues} from '@getcronit/pylon-queues'
+import {useDatabase} from '@getcronit/pylon/db/plugin'
+import {useQueues} from '@getcronit/pylon/queues/plugin'
 
 export default {
   plugins: [
@@ -132,7 +132,7 @@ In production, run a dedicated worker process. The worker entry imports your app
 register the queues, then starts the workers and drains the outbox:
 
 ```ts title="src/worker.ts"
-import {startWorkers, runOutboxRelay} from '@getcronit/pylon-queues'
+import {startWorkers, runOutboxRelay} from '@getcronit/pylon/queues'
 import './index.js' // side-effect: registers queues, processors, and signals
 
 await startWorkers()

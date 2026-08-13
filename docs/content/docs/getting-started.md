@@ -80,7 +80,7 @@ back a database table *and* a GraphQL type:
 
 ```ts title="src/index.ts"
 import {Pylon} from '@getcronit/pylon'
-import {Model, manager, id, text} from '@getcronit/pylon-db'
+import {Model, manager, id, text} from '@getcronit/pylon/db'
 
 class User extends Model {
   static objects = manager(User)

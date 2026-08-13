@@ -28,8 +28,8 @@ An app folder owns three things:
   [`static abilities`](/docs/data/policies).
 
 ```ts title="src/apps/blog/index.ts"
-import {Model, manager, id, text, gate} from '@getcronit/pylon-db'
-import {hasRole} from '@getcronit/pylon-auth'
+import {Model, manager, id, text, gate} from '@getcronit/pylon/db'
+import {hasRole} from '@getcronit/pylon/auth'
 import {Pylon} from '@getcronit/pylon'
 
 export class Post extends Model {
@@ -56,8 +56,8 @@ export const blogApp = new Pylon({
 A second app looks the same — its own name, models, resolvers, and gate:
 
 ```ts title="src/apps/shop/index.ts"
-import {Model, manager, id, text, numeric, gate} from '@getcronit/pylon-db'
-import {hasRole} from '@getcronit/pylon-auth'
+import {Model, manager, id, text, numeric, gate} from '@getcronit/pylon/db'
+import {hasRole} from '@getcronit/pylon/auth'
 import {Pylon} from '@getcronit/pylon'
 
 export class Product extends Model {

@@ -33,7 +33,7 @@ An identity provider turns a verified request into a `Principal`. Crucially, it
 sets `tenant` — that single field is what scopes the entire request.
 
 ```ts title="src/identity.ts"
-import type {IdentityProvider} from '@getcronit/pylon-auth'
+import type {IdentityProvider} from '@getcronit/pylon/auth'
 
 export const headerAuth: IdentityProvider = c => {
   const id = c.req.header('x-user-id')
@@ -54,8 +54,8 @@ action without a matching `can(...)` rule is rejected.
 
 ```ts title="apps/projects.ts"
 import {Pylon} from '@getcronit/pylon'
-import {db, models, gate} from '@getcronit/pylon-db'
-import {hasRole} from '@getcronit/pylon-auth'
+import {db, models, gate} from '@getcronit/pylon/db'
+import {hasRole} from '@getcronit/pylon/auth'
 
 export class Task extends models.Model {
   static objects = db.manager(Task)
@@ -96,7 +96,7 @@ IR-harvestable form that can name any of the app's models:
 
 ```ts title="apps/projects.ts"
 import {Pylon} from '@getcronit/pylon'
-import {hasRole} from '@getcronit/pylon-auth'
+import {hasRole} from '@getcronit/pylon/auth'
 
 const projectsApp = new Pylon({
   name: 'projects',
@@ -149,8 +149,8 @@ tenant and principal from the bound `Principal`:
 ```ts title="pylon.config.ts"
 import {serve} from '@hono/node-server'
 import type {PylonConfig} from '@getcronit/pylon'
-import {useIdentity} from '@getcronit/pylon-auth'
-import {useDatabase} from '@getcronit/pylon-db'
+import {useIdentity} from '@getcronit/pylon/auth/plugin'
+import {useDatabase} from '@getcronit/pylon/db/plugin'
 import {headerAuth} from './src/identity'
 
 export default {
@@ -190,8 +190,8 @@ identity automatically.
 
 ```ts title="apps/billing.ts"
 import {Pylon} from '@getcronit/pylon'
-import {defineFeatures, requireFeature, gate} from '@getcronit/pylon-db'
-import {hasRole} from '@getcronit/pylon-auth'
+import {defineFeatures, requireFeature, gate} from '@getcronit/pylon/db'
+import {hasRole} from '@getcronit/pylon/auth'
 import {Invoice} from './billing-models'
 
 const FEATURES = defineFeatures(['billing'] as const)
@@ -221,7 +221,7 @@ Tenancy makes seeding awkward — a fixture has no request, so no tenant is boun
 Run setup with `runAsSystem` (full access) and `unscoped()` (skip tenant scoping):
 
 ```ts
-import {runAsSystem} from '@getcronit/pylon-db'
+import {runAsSystem} from '@getcronit/pylon/db'
 
 await runAsSystem(async () => {
   await Task.objects.unscoped().create({orgId: 'org-A', ownerId: 'u1', title: 'seed'})

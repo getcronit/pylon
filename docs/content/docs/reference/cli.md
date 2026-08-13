@@ -5,7 +5,7 @@ section: Reference
 order: 0
 ---
 
-The Pylon CLI ships in `@getcronit/pylon-dev` and is invoked as `pylon`. It drives
+The Pylon CLI ships in `@getcronit/pylon/dev` and is invoked as `pylon`. It drives
 the type-introspecting build, the dev loop, queue workers, remote-API gateways,
 and database migrations. Commands that touch the database read `DATABASE_URL`.
 

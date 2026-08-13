@@ -28,7 +28,7 @@ default HNSW/cosine index:
 
 ```ts
 import {Pylon} from '@getcronit/pylon'
-import {Model, manager, id, text, vector} from '@getcronit/pylon-db'
+import {Model, manager, id, text, vector} from '@getcronit/pylon/db'
 
 class Doc extends Model {
   static objects = manager(Doc)

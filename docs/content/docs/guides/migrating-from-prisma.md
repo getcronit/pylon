@@ -50,8 +50,8 @@ model Post {
 ```
 
 ```ts title="src/models.ts"
-import {Model, manager, id, text, boolean, createdAt, foreignKey} from '@getcronit/pylon-db'
-import type {Relation} from '@getcronit/pylon-db'
+import {Model, manager, id, text, boolean, createdAt, foreignKey} from '@getcronit/pylon/db'
+import type {Relation} from '@getcronit/pylon/db'
 
 export class Post extends Model {
   static objects = manager(Post)

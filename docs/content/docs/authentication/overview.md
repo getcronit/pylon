@@ -7,7 +7,7 @@ order: 0
 ---
 
 Pylon's runtime is **auth-free**. The framework never assumes who you are — identity
-lives entirely in `@getcronit/pylon-auth`. You bind a `Principal` per request with a
+lives entirely in `@getcronit/pylon/auth`. You bind a `Principal` per request with a
 single plugin, then read it and gate on it anywhere. **Capability** authz answers
 *who you are* (roles, permissions); **resource** authz answers *what rows and fields
 you may touch*. This page covers the first. The second lives one layer down in the
@@ -43,7 +43,7 @@ binds the result for the lifetime of that request. The simplest provider reads
 trusted headers:
 
 ```ts title="src/identity.ts"
-import type {IdentityProvider} from '@getcronit/pylon-auth'
+import type {IdentityProvider} from '@getcronit/pylon/auth'
 
 export const headerAuth: IdentityProvider = c => {
   const id = c.req.header('x-user-id')
@@ -58,7 +58,7 @@ export const headerAuth: IdentityProvider = c => {
 
 ```ts title="pylon.config.ts"
 import type {PylonConfig} from '@getcronit/pylon'
-import {useIdentity} from '@getcronit/pylon-auth'
+import {useIdentity} from '@getcronit/pylon/auth/plugin'
 import {headerAuth} from './src/identity'
 
 export default {
@@ -74,8 +74,8 @@ browser OAuth routes:
 
 ```ts title="pylon.config.ts"
 import type {PylonConfig} from '@getcronit/pylon'
-import {useIdentity} from '@getcronit/pylon-auth'
-import {zitadelAuth, zitadelLogin} from '@getcronit/pylon-auth/zitadel'
+import {useIdentity} from '@getcronit/pylon/auth/plugin'
+import {zitadelAuth, zitadelLogin} from '@getcronit/pylon/auth/zitadel'
 
 const issuer = 'https://your-tenant.zitadel.cloud'
 
@@ -94,7 +94,7 @@ on its own as `zitadelPrincipal(sub, roles, user, options)`, which builds a
 custom token flow:
 
 ```ts
-import {zitadelPrincipal} from '@getcronit/pylon-auth/zitadel'
+import {zitadelPrincipal} from '@getcronit/pylon/auth/zitadel'
 
 const principal = zitadelPrincipal('user-1', ['admin'], oidcUser, {issuer})
 ```
@@ -106,7 +106,7 @@ helpers — with `getPrincipal()`:
 
 ```ts
 import {Pylon} from '@getcronit/pylon'
-import {getPrincipal} from '@getcronit/pylon-auth'
+import {getPrincipal} from '@getcronit/pylon/auth'
 
 export default new Pylon({
   graphql: {
@@ -137,7 +137,7 @@ import {
   authorize,
   requireRole,
   hasPermission
-} from '@getcronit/pylon-auth'
+} from '@getcronit/pylon/auth'
 
 export default new Pylon({
   graphql: {
@@ -160,7 +160,7 @@ export default new Pylon({
 Because a `Pylon` extends Hono, the same helpers work inside route handlers:
 
 ```ts
-import {getPrincipal, hasRole} from '@getcronit/pylon-auth'
+import {getPrincipal, hasRole} from '@getcronit/pylon/auth'
 
 app.get('/admin/export', c => {
   if (!hasRole(getPrincipal(), 'admin')) return c.json({error: 'forbidden'}, 403)
@@ -182,7 +182,7 @@ These two layers are distinct, and you'll usually use both:
 |---|---|---|
 | Question | *Who are you?* | *What may you touch?* |
 | Granularity | Operations (a mutation, a route) | Rows and fields |
-| Lives in | `@getcronit/pylon-auth` (this page) | `@getcronit/pylon-db` |
+| Lives in | `@getcronit/pylon/auth` (this page) | `@getcronit/pylon/db` |
 | Tools | `requireRole`, `authorize`, `hasRole` | [policies](/docs/data/policies), [multi-tenancy](/docs/data/multi-tenancy) |
 
 The two connect through the `Principal`. Once `useIdentity` binds it, the data

@@ -52,7 +52,7 @@ error.
 
 Plain Hono routes don't go through GraphQL, so Pylon gives them their own mapping.
 `Pylon.onError` reads a thrown error's numeric `statusCode` and turns it into the
-HTTP status. The `@getcronit/pylon-db` errors carry the right status out of the box:
+HTTP status. The `@getcronit/pylon/db` errors carry the right status out of the box:
 
 | Thrown error | HTTP status |
 | --- | --- |
@@ -68,7 +68,7 @@ So a route guard can simply throw and trust the status:
 
 ```ts
 import {Pylon} from '@getcronit/pylon'
-import {ForbiddenError} from '@getcronit/pylon-db'
+import {ForbiddenError} from '@getcronit/pylon/db'
 
 const app = new Pylon({graphql: {Query: {ping: (): string => 'pong'}}})
 

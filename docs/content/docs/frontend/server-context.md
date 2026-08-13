@@ -18,7 +18,7 @@ sides of the render.
 `context` is part of `PageProps` and `LayoutProps`:
 
 ```tsx title="pages/account/page.tsx"
-import {redirect, useData, type PageProps} from '@getcronit/pylon-pages'
+import {redirect, useData, type PageProps} from '@getcronit/pylon/pages'
 
 export default function Account({context}: PageProps) {
   if (!context.user) redirect('/login')
@@ -63,7 +63,7 @@ Shared chrome often needs identity — a header that shows the signed-in user, a
 nav that hides admin links. Read `context` in a layout exactly as in a page:
 
 ```tsx title="pages/layout.tsx"
-import {Link, type LayoutProps} from '@getcronit/pylon-pages'
+import {Link, type LayoutProps} from '@getcronit/pylon/pages'
 
 export default function RootLayout({children, context}: LayoutProps) {
   return (
@@ -90,7 +90,7 @@ threading it through props — handy in a deeply nested component that needs wha
 the route already resolved:
 
 ```tsx
-import {useRouteData} from '@getcronit/pylon-pages'
+import {useRouteData} from '@getcronit/pylon/pages'
 
 function ActiveUser() {
   const route = useRouteData()

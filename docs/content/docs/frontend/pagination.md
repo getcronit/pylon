@@ -15,7 +15,7 @@ the client.
 ## The shape
 
 ```tsx title="pages/posts/page.tsx"
-import {usePaginatedData} from '@getcronit/pylon-pages'
+import {usePaginatedData} from '@getcronit/pylon/pages'
 
 export default function PostsPage() {
   const posts = usePaginatedData(q => q.posts, {first: 20})
@@ -91,7 +91,7 @@ A connection that hangs off a parent object works the same — select through th
 parent and supply its arguments in the args object:
 
 ```tsx title="pages/posts/[id]/page.tsx"
-import {usePaginatedData, type PageProps} from '@getcronit/pylon-pages'
+import {usePaginatedData, type PageProps} from '@getcronit/pylon/pages'
 
 export default function CommentsPage({params}: PageProps) {
   const id = params.id as string

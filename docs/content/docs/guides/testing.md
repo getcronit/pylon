@@ -29,7 +29,7 @@ export async function completeTask(id: number): Promise<Task> {
 
 ```ts title="src/services/tasks.test.ts"
 import {expect, test} from 'vitest'
-import {runAsSystem} from '@getcronit/pylon-db'
+import {runAsSystem} from '@getcronit/pylon/db'
 import {Task} from '../models.js'
 import {completeTask} from './tasks.js'
 
@@ -72,7 +72,7 @@ binding doesn't throw, and assert that a *scoped* read sees only its own org:
 ```ts title="src/tasks.integration.test.ts"
 import {beforeEach, expect, test} from 'vitest'
 import {Task} from './models.js'
-import {runAsSystem, runWithAppContext} from '@getcronit/pylon-db'
+import {runAsSystem, runWithAppContext} from '@getcronit/pylon/db'
 
 beforeEach(async () => {
   await runAsSystem(async () => {

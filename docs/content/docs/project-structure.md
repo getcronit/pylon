@@ -54,8 +54,8 @@ the database, identity, queues, and frontend plugins — and the
 
 ```ts title="pylon.config.ts"
 import type {PylonConfig} from '@getcronit/pylon'
-import {useDatabase} from '@getcronit/pylon-db'
-import {useIdentity} from '@getcronit/pylon-auth'
+import {useDatabase} from '@getcronit/pylon/db/plugin'
+import {useIdentity} from '@getcronit/pylon/auth/plugin'
 import {serve} from '@hono/node-server'
 
 export default {

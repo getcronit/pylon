@@ -20,7 +20,7 @@ the fallback instead of a blank frame — no loading flag to thread through your
 component:
 
 ```tsx title="pages/posts/page.tsx"
-import {useData} from '@getcronit/pylon-pages'
+import {useData} from '@getcronit/pylon/pages'
 
 export default function Posts() {
   const data = useData() // suspends until resolved
@@ -35,7 +35,7 @@ fresh data.
 ## Control-flow helpers
 
 These functions **throw** — they never return, so call them inline and let them
-unwind the render. All import from `@getcronit/pylon-pages`:
+unwind the render. All import from `@getcronit/pylon/pages`:
 
 | Helper | Status | Use it when |
 | --- | --- | --- |
@@ -45,7 +45,7 @@ unwind the render. All import from `@getcronit/pylon-pages`:
 | `redirect(url, {status?})` | 302 (default) | the route should bounce elsewhere |
 
 ```tsx title="pages/posts/[id]/page.tsx"
-import {notFound, useData, type PageProps} from '@getcronit/pylon-pages'
+import {notFound, useData, type PageProps} from '@getcronit/pylon/pages'
 
 export default function PostPage({params}: PageProps) {
   const id = params.id as string
@@ -69,7 +69,7 @@ navigates client-side when it can, and emits a `Location` response on the
 server:
 
 ```tsx
-import {redirect} from '@getcronit/pylon-pages'
+import {redirect} from '@getcronit/pylon/pages'
 
 if (!data.session) redirect('/login', {status: 303})
 ```
@@ -83,10 +83,10 @@ When a route throws, usePages renders an error element:
 - **`GlobalErrorPage`** is the catch-all for unexpected (500-class) errors.
 
 Both are wired in automatically per route, and both are exported from
-`@getcronit/pylon-pages` if you want to render or theme them yourself:
+`@getcronit/pylon/pages` if you want to render or theme them yourself:
 
 ```tsx
-import {StatusPage, GlobalErrorPage} from '@getcronit/pylon-pages'
+import {StatusPage, GlobalErrorPage} from '@getcronit/pylon/pages'
 ```
 
 :::tip

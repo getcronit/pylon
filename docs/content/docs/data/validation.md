@@ -19,7 +19,7 @@ can have several:
 
 ```ts title="src/index.ts"
 import {Pylon} from '@getcronit/pylon'
-import {Model, manager, id, text, int} from '@getcronit/pylon-db'
+import {Model, manager, id, text, int} from '@getcronit/pylon/db'
 
 class User extends Model {
   static objects = manager(User)
@@ -68,7 +68,7 @@ a machine-readable `code`, the `path` (the field), constraint `params` for
 translation, and a default English `message`:
 
 ```ts
-import {ValidationError} from '@getcronit/pylon-db'
+import {ValidationError} from '@getcronit/pylon/db'
 
 try {
   await User.objects.create({email: 'nope', age: 200})
@@ -94,7 +94,7 @@ need a `try/catch`, and the client gets a typed, actionable response. Customize
 or disable the mapping:
 
 ```ts title="pylon.config.ts"
-import {useDatabase} from '@getcronit/pylon-db'
+import {useDatabase} from '@getcronit/pylon/db/plugin'
 
 export default {
   plugins: [

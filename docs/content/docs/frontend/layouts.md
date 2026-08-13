@@ -19,7 +19,7 @@ those appear, and it's where your stylesheet is imported — Pylon
 content-hashes the CSS and links it into the head from here:
 
 ```tsx title="pages/layout.tsx"
-import type {LayoutProps} from '@getcronit/pylon-pages'
+import type {LayoutProps} from '@getcronit/pylon/pages'
 import '../globals.css'
 
 export default function RootLayout({children}: LayoutProps) {
@@ -56,7 +56,7 @@ A `layout.tsx` deeper in the tree wraps just its section. A docs layout that add
 a sidebar around every `/docs/*` page:
 
 ```tsx title="pages/docs/layout.tsx"
-import {Link, type LayoutProps} from '@getcronit/pylon-pages'
+import {Link, type LayoutProps} from '@getcronit/pylon/pages'
 
 export default function DocsLayout({children, path}: LayoutProps) {
   return (

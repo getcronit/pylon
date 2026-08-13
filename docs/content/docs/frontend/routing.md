@@ -45,7 +45,7 @@ A page is the **default export** of `page.tsx`. It receives a typed
 `PageProps`:
 
 ```tsx title="pages/posts/[id]/page.tsx"
-import {useData, type PageProps} from '@getcronit/pylon-pages'
+import {useData, type PageProps} from '@getcronit/pylon/pages'
 
 export default function PostPage({params, searchParams, path}: PageProps) {
   const id = params.id as string
@@ -95,7 +95,7 @@ segments as an array. This is how a single route renders an entire content tree
 — the way this docs site serves every page from one route:
 
 ```tsx title="pages/docs/[...slug]/page.tsx"
-import {notFound, useData, type PageProps} from '@getcronit/pylon-pages'
+import {notFound, useData, type PageProps} from '@getcronit/pylon/pages'
 
 export default function DocPage({params}: PageProps) {
   const slug = (params.slug as string[]).join('/')
@@ -114,7 +114,7 @@ export default function DocPage({params}: PageProps) {
 (`pages/layout.tsx`) renders the HTML shell:
 
 ```tsx title="pages/layout.tsx"
-import type {LayoutProps} from '@getcronit/pylon-pages'
+import type {LayoutProps} from '@getcronit/pylon/pages'
 import '../globals.css'
 
 export default function RootLayout({children}: LayoutProps) {

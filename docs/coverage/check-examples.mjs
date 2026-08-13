@@ -36,15 +36,22 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, REPO_ROOT_FROM_HERE)
 const p = (...s) => join(ROOT, ...s)
 
-// Package/subpath → shipped declaration file. Matches the `exports` map of each package.
+// Package/subpath → shipped declaration file. Matches the `exports` map of the
+// consolidated @getcronit/pylon package.
 const PATHS = {
   '@getcronit/pylon': ['packages/pylon/dist/index.d.ts'],
-  '@getcronit/pylon-db': ['packages/pylon-db/dist/index.d.ts'],
-  '@getcronit/pylon-auth': ['packages/pylon-auth/dist/index.d.ts'],
-  '@getcronit/pylon-auth/zitadel': ['packages/pylon-auth/dist/zitadel.d.ts'],
-  '@getcronit/pylon-pages': ['packages/pylon-pages/dist/pages/index.d.ts'],
-  '@getcronit/pylon-pages/plugin': ['packages/pylon-pages/dist/index.d.ts'],
-  '@getcronit/pylon-queues': ['packages/pylon-queues/dist/index.d.ts']
+  '@getcronit/pylon/db': ['packages/pylon/dist/db/index.d.ts'],
+  '@getcronit/pylon/db/plugin': ['packages/pylon/dist/db/plugin.d.ts'],
+  '@getcronit/pylon/ir': ['packages/pylon/dist/ir/index.d.ts'],
+  '@getcronit/pylon/auth': ['packages/pylon/dist/auth/index.d.ts'],
+  '@getcronit/pylon/auth/plugin': ['packages/pylon/dist/auth/plugin.d.ts'],
+  '@getcronit/pylon/auth/contract': ['packages/pylon/dist/auth/contract.d.ts'],
+  '@getcronit/pylon/auth/zitadel': ['packages/pylon/dist/auth/zitadel.d.ts'],
+  '@getcronit/pylon/pages': ['packages/pylon/dist/pages/index.d.ts'],
+  '@getcronit/pylon/pages/plugin': ['packages/pylon/dist/pages/plugin.d.ts'],
+  '@getcronit/pylon/queues': ['packages/pylon/dist/queues/index.d.ts'],
+  '@getcronit/pylon/queues/plugin': ['packages/pylon/dist/queues/plugin.d.ts'],
+  '@getcronit/pylon/query': ['packages/pylon/dist/query/index.d.ts']
 }
 
 const ENABLE_MEMBER_CHECKS = false // TS2339/2551 — noisy against Pylon's dynamic types

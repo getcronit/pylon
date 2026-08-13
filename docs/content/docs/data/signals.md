@@ -20,7 +20,7 @@ get typed `instances`), or omit the model to receive every model's writes. It
 returns a disconnect function:
 
 ```ts title="src/signals.ts"
-import {signals} from '@getcronit/pylon-db'
+import {signals} from '@getcronit/pylon/db'
 import {AuditLog} from './models'
 
 // scoped to one model — `instances` is typed `User[]`
@@ -134,7 +134,7 @@ emit a job from a `postSave` hook, and it's enqueued only when the surrounding
 transaction commits.
 
 ```ts
-import {signals} from '@getcronit/pylon-db'
+import {signals} from '@getcronit/pylon/db'
 import {sendWelcome} from './queues'
 
 signals.postSave.connect(User, async ({instances, created}) => {

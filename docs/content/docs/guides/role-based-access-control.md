@@ -15,12 +15,12 @@ query so an author only ever sees their own posts.
 
 ## 1. Put roles on the Principal
 
-Identity lives in `@getcronit/pylon-auth`. An `IdentityProvider` turns a request
+Identity lives in `@getcronit/pylon/auth`. An `IdentityProvider` turns a request
 into a `Principal`; returning `undefined` means anonymous. Read `roles` off a
 trusted header (in production this comes from a verified token):
 
 ```ts title="src/identity.ts"
-import type {IdentityProvider} from '@getcronit/pylon-auth'
+import type {IdentityProvider} from '@getcronit/pylon/auth'
 
 export const headerAuth: IdentityProvider = c => {
   const id = c.req.header('x-user-id')
@@ -37,8 +37,8 @@ Bind it with the `useIdentity` plugin:
 
 ```ts title="pylon.config.ts"
 import type {PylonConfig} from '@getcronit/pylon'
-import {useIdentity} from '@getcronit/pylon-auth'
-import {useDatabase} from '@getcronit/pylon-db'
+import {useIdentity} from '@getcronit/pylon/auth/plugin'
+import {useDatabase} from '@getcronit/pylon/db/plugin'
 import {headerAuth} from './src/identity'
 
 export default {
@@ -58,7 +58,7 @@ form for branching:
 
 ```ts title="src/index.ts"
 import {Pylon} from '@getcronit/pylon'
-import {requireRole, hasRole, getPrincipal} from '@getcronit/pylon-auth'
+import {requireRole, hasRole, getPrincipal} from '@getcronit/pylon/auth'
 
 export default new Pylon({
   graphql: {
@@ -84,12 +84,12 @@ A request without the `editor` or `admin` role calling `publishPost` gets a
 
 When you compose features as separate `Pylon` apps, each carries a `gate` — a
 capability check that runs before any of its resolvers. The `gate({authorize})`
-helper from `@getcronit/pylon-db` builds one from a principal predicate:
+helper from `@getcronit/pylon/db` builds one from a principal predicate:
 
 ```ts title="src/apps/admin.ts"
 import {Pylon} from '@getcronit/pylon'
-import {gate} from '@getcronit/pylon-db'
-import {hasRole} from '@getcronit/pylon-auth'
+import {gate} from '@getcronit/pylon/db'
+import {hasRole} from '@getcronit/pylon/auth'
 
 export const admin = new Pylon({
   graphql: {Query: {users: () => listUsers()}},
@@ -120,7 +120,7 @@ AND-ed into **every** read of that model — queries, relation loads, pagination
 Forget a `WHERE` clause in a resolver and the rule still applies.
 
 ```ts title="src/apps/blog/models.ts"
-import {Model, manager, id, text} from '@getcronit/pylon-db'
+import {Model, manager, id, text} from '@getcronit/pylon/db'
 
 export class Post extends Model {
   static objects = manager(Post)
@@ -149,7 +149,7 @@ giving an admin everything — go on the app via the constructor's
 
 ```ts title="src/apps/blog/index.ts"
 import {Pylon} from '@getcronit/pylon'
-import {hasRole} from '@getcronit/pylon-auth'
+import {hasRole} from '@getcronit/pylon/auth'
 import {Post} from './models'
 
 export const blog = new Pylon({
@@ -190,7 +190,7 @@ For a write, enforce the rule on a specific instance with `authorize`. It throws
 `ForbiddenError` if the principal isn't allowed:
 
 ```ts title="src/index.ts"
-import {authorize} from '@getcronit/pylon-db'
+import {authorize} from '@getcronit/pylon/db'
 
 const renamePost = async (id: number, title: string) => {
   const post = await Post.objects.get({id})

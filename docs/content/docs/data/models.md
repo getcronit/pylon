@@ -17,7 +17,7 @@ codegen step.
 
 ```ts title="src/index.ts"
 import {Pylon} from '@getcronit/pylon'
-import {Model, manager, id, text, boolean, timestamp} from '@getcronit/pylon-db'
+import {Model, manager, id, text, boolean, timestamp} from '@getcronit/pylon/db'
 
 class User extends Model {
   static objects = manager(User)
@@ -133,7 +133,7 @@ ids (`gid://…`), see [IDs & Global IDs](/docs/data/ids).
 
 ```ts
 import {Pylon} from '@getcronit/pylon'
-import {Model, manager, id, json, numeric, enumOf, array, text} from '@getcronit/pylon-db'
+import {Model, manager, id, json, numeric, enumOf, array, text} from '@getcronit/pylon/db'
 
 enum Plan {
   FREE = 'FREE',
@@ -191,7 +191,7 @@ semantics). Assigning `null` writes a real `NULL`.
 client-minted ids:
 
 ```ts
-import {createId, uuidv4, snowflake} from '@getcronit/pylon-db'
+import {createId, uuidv4, snowflake} from '@getcronit/pylon/db'
 
 class ApiKey extends Model {
   id = text({primaryKey: true, default: createId})   // cuid per row
@@ -325,7 +325,7 @@ prefix its table; put shared ORM settings (tenant, secure, policy) alongside
 
 ```ts title="src/apps/blog/index.ts"
 import {Pylon} from '@getcronit/pylon'
-import {Model, manager, id, text, boolean, foreignKey, type ModelConfig} from '@getcronit/pylon-db'
+import {Model, manager, id, text, boolean, foreignKey, type ModelConfig} from '@getcronit/pylon/db'
 
 class Post extends Model {
   static objects = manager(Post)
@@ -458,7 +458,7 @@ This is the idiomatic style for [apps](/docs/apps/overview):
 
 ```ts
 import {Pylon} from '@getcronit/pylon'
-import {models, db} from '@getcronit/pylon-db'
+import {models, db} from '@getcronit/pylon/db'
 
 class User extends models.Model {
   static objects = db.manager(User)

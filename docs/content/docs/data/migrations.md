@@ -94,7 +94,7 @@ schema delta. Use `migrations.run({up, down})` for ORM-based backfills (it hands
 model is later renamed) or `migrations.runSql(up, {down})` for raw SQL:
 
 ```ts title="migrations/0002_seed-plans.ts"
-import {migrations} from '@getcronit/pylon-db'
+import {migrations} from '@getcronit/pylon/db'
 
 export default migrations.defineMigration({
   operations: [
@@ -173,7 +173,7 @@ to `<app-source-dir>/migrations`, so you don't declare anything.
 
 ```ts title="src/apps/blog/index.ts"
 import {Pylon} from '@getcronit/pylon'
-import {models, db} from '@getcronit/pylon-db'
+import {models, db} from '@getcronit/pylon/db'
 
 export class Post extends models.Model {
   static objects = db.manager(Post)

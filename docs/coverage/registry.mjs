@@ -40,11 +40,11 @@ export const PACKAGES = {
     ]
   },
 
-  '@getcronit/pylon-db': {
+  '@getcronit/pylon/db': {
     // The recommended public API is the namespace objects; the flat exports are
     // "Low-level surface, used internally and by the build bridge" (their words),
-    // so pylon-db is allowlist-driven.
-    entries: ['packages/pylon-db/src/index.ts'],
+    // so pylon/db is allowlist-driven. The plugin factory lives in db/plugin.
+    entries: ['packages/pylon/src/db/index.ts', 'packages/pylon/src/db/plugin.ts'],
     mode: 'namespaces-plus-list',
     namespaces: [
       // namespace name → the object literal to read its members from.
@@ -102,10 +102,11 @@ export const PACKAGES = {
     ]
   },
 
-  '@getcronit/pylon-auth': {
+  '@getcronit/pylon/auth': {
     entries: [
-      'packages/pylon-auth/src/index.ts',
-      'packages/pylon-auth/src/zitadel.ts'
+      'packages/pylon/src/auth/index.ts',
+      'packages/pylon/src/auth/plugin.ts', // useIdentity
+      'packages/pylon/src/auth/zitadel.ts'
     ],
     mode: 'all-minus-internal',
     internal: [
@@ -113,11 +114,11 @@ export const PACKAGES = {
     ]
   },
 
-  '@getcronit/pylon-pages': {
-    // Two entries: the plugin (`/plugin` = pkg root export) and the browser runtime.
+  '@getcronit/pylon/pages': {
+    // Two entries: the plugin (usePages) and the browser runtime.
     entries: [
-      'packages/pylon-pages/src/index.ts',
-      'packages/pylon-pages/src/pages/index.ts'
+      'packages/pylon/src/pages/plugin.ts',
+      'packages/pylon/src/pages/index.ts'
     ],
     mode: 'all-minus-internal',
     internal: [
@@ -125,8 +126,8 @@ export const PACKAGES = {
     ]
   },
 
-  '@getcronit/pylon-queues': {
-    entries: ['packages/pylon-queues/src/index.ts'],
+  '@getcronit/pylon/queues': {
+    entries: ['packages/pylon/src/queues/index.ts', 'packages/pylon/src/queues/plugin.ts'],
     mode: 'all-minus-internal',
     internal: [
       'registeredQueues', // registry read used internally
@@ -160,7 +161,7 @@ export const QUALIFY_ONLY = new Set([
 
 // CLI: source of the command registry, and commands that are internal/experimental
 // and not expected in the CLI reference page.
-export const CLI_SOURCE = 'packages/pylon-dev/src/index.ts'
+export const CLI_SOURCE = 'packages/pylon/src/cli/index.ts'
 export const CLI_INTERNAL = [
   'eval' // agent A/B eval harness — internal tooling, not a user command
 ]

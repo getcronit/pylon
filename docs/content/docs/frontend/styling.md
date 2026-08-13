@@ -7,7 +7,7 @@ order: 8
 ---
 
 usePages ships with Tailwind. You import a stylesheet once in the root layout —
-either the bundled `@getcronit/pylon-pages/index.css` or your own
+either the bundled `@getcronit/pylon/pages/index.css` or your own
 `globals.css` — and Pylon content-hashes it and links it into the document head
 at build time. Alongside styling, usePages gives you a `Link` for navigation and
 an `Image` component that serves optimized images through a media proxy.
@@ -18,8 +18,8 @@ Import your CSS in the root layout. The bundled stylesheet sets up Tailwind and
 Pylon's base styles:
 
 ```tsx title="pages/layout.tsx"
-import type {LayoutProps} from '@getcronit/pylon-pages'
-import '@getcronit/pylon-pages/index.css'
+import type {LayoutProps} from '@getcronit/pylon/pages'
+import '@getcronit/pylon/pages/index.css'
 
 export default function RootLayout({children}: LayoutProps) {
   return (
@@ -55,7 +55,7 @@ your elements and they work, server-rendered and hydrated.
 `Link` does client-side navigation. It takes an **`href`** prop (not `to`):
 
 ```tsx
-import {Link} from '@getcronit/pylon-pages'
+import {Link} from '@getcronit/pylon/pages'
 
 <Link href="/docs/overview">Read the docs</Link>
 <Link href={`/posts/${post.id}`} className="text-brand underline">
@@ -72,7 +72,7 @@ no full page reload.
 dimensions you ask for, with an optional blur placeholder:
 
 ```tsx
-import {Image} from '@getcronit/pylon-pages'
+import {Image} from '@getcronit/pylon/pages'
 
 <Image
   src="/uploads/cover.jpg"
@@ -106,5 +106,5 @@ field on the entity. usePages renders it as the placeholder, so layout doesn't
 shift when the full image arrives.
 :::
 
-Both components import from `@getcronit/pylon-pages`. For where the stylesheet
+Both components import from `@getcronit/pylon/pages`. For where the stylesheet
 gets linked and how layouts compose, see [Layouts](/docs/frontend/layouts).

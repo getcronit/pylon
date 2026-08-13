@@ -19,7 +19,7 @@ model:
 
 ```ts title="src/apps/crm/index.ts"
 import {Pylon} from '@getcronit/pylon'
-import {models, db} from '@getcronit/pylon-db'
+import {models, db} from '@getcronit/pylon/db'
 
 export class Contact extends models.Model {
   static objects = db.manager(Contact)
@@ -62,8 +62,8 @@ sets. With identity in place, the minimal wiring is two plugins:
 
 ```ts title="pylon.config.ts"
 import type {PylonConfig} from '@getcronit/pylon'
-import {useIdentity} from '@getcronit/pylon-auth'
-import {useDatabase} from '@getcronit/pylon-db'
+import {useIdentity} from '@getcronit/pylon/auth/plugin'
+import {useDatabase} from '@getcronit/pylon/db/plugin'
 import {sessionAuth} from './src/identity'
 
 export default {
@@ -97,7 +97,7 @@ Admin tooling, cross-tenant reports, and background reconciliation need to step
 outside the scope. Two escape hatches make that explicit:
 
 ```ts
-import {runAsSystem} from '@getcronit/pylon-db'
+import {runAsSystem} from '@getcronit/pylon/db'
 
 // one query, no tenant filter
 const allContacts = await Contact.objects.unscoped().all()

@@ -11,7 +11,7 @@ rules you declare apply to every query, every relation load, and every write of 
 model — so access can't be bypassed by forgetting a `WHERE` clause in one
 resolver. This is the **resource tier** of authz. The **capability tier**
 (roles, permissions, who the principal is) lives in
-[`@getcronit/pylon-auth`](/docs/authentication/overview); the two compose.
+[`@getcronit/pylon/auth`](/docs/authentication/overview); the two compose.
 
 ## `static abilities` — the co-located policy
 
@@ -22,7 +22,7 @@ argument to keep in sync and no global registration to remember:
 
 ```ts title="src/apps/blog/index.ts"
 import {Pylon} from '@getcronit/pylon'
-import {Model, manager, id, text, boolean, foreignKey} from '@getcronit/pylon-db'
+import {Model, manager, id, text, boolean, foreignKey} from '@getcronit/pylon/db'
 
 class Post extends Model {
   static objects = manager(Post)
@@ -65,7 +65,7 @@ the constructor's **`db.abilities`** config. It receives the `principal`, a
 
 ```ts title="src/apps/tasks/index.ts"
 import {Pylon} from '@getcronit/pylon'
-import {hasRole} from '@getcronit/pylon-auth'
+import {hasRole} from '@getcronit/pylon/auth'
 import {Task} from './models'
 
 const tasks = new Pylon({
@@ -127,7 +127,7 @@ For writes, call `authorize(action, instance)` to enforce the rule on a specific
 instance. It throws `ForbiddenError` (→ `403`) if the principal isn't allowed:
 
 ```ts
-import {authorize} from '@getcronit/pylon-db'
+import {authorize} from '@getcronit/pylon/db'
 
 const renameTask = async (id: number, title: string) => {
   const task = await Task.objects.get({id})
@@ -143,7 +143,7 @@ the policy scope as a `WhereInput` (or a boolean), which you can fold into a
 manual query:
 
 ```ts
-import {can, filter} from '@getcronit/pylon-db'
+import {can, filter} from '@getcronit/pylon/db'
 
 if (can('update', task)) { /* ... */ }
 
@@ -154,8 +154,8 @@ The capability form of `authorize` takes a predicate over the principal, for a
 check that isn't about a row:
 
 ```ts
-import {authorize} from '@getcronit/pylon-db'
-import {hasRole} from '@getcronit/pylon-auth'
+import {authorize} from '@getcronit/pylon/db'
+import {hasRole} from '@getcronit/pylon/auth'
 
 authorize(p => hasRole(p, 'billing')) // ForbiddenError on false
 ```
@@ -182,7 +182,7 @@ those directly with `db.definePolicy`, returning a `WhereInput` scope, `true`, o
 `false` per action:
 
 ```ts
-import {db} from '@getcronit/pylon-db'
+import {db} from '@getcronit/pylon/db'
 
 db.definePolicy(Note, {
   read:   ({principal}) => principal?.role === 'ADMIN' ? true : {ownerId: principal?.id},
@@ -206,8 +206,8 @@ principal predicate and an optional feature flag, returning a `Gate` for the
 `Pylon` constructor:
 
 ```ts
-import {gate} from '@getcronit/pylon-db'
-import {hasRole} from '@getcronit/pylon-auth'
+import {gate} from '@getcronit/pylon/db'
+import {hasRole} from '@getcronit/pylon/auth'
 
 export const crm = new Pylon({
   graphql: {Query: {contacts: () => Contact.objects.orderBy('name').all()}},
@@ -225,7 +225,7 @@ fallback. To read the actor directly — for a custom check or an audit column �
 `currentPrincipal()` returns the request's bound `Principal` (or `null`):
 
 ```ts
-import {isFeatureEnabled, featureValue, currentPrincipal} from '@getcronit/pylon-db'
+import {isFeatureEnabled, featureValue, currentPrincipal} from '@getcronit/pylon/db'
 
 if (isFeatureEnabled('exports')) { /* show the export button data */ }
 const limit = featureValue('seatLimit', 5)   // typed, with a fallback
@@ -238,7 +238,7 @@ Trusted server code — background jobs, admin tooling, migrations — runs with
 access via `runAsSystem`, and skips tenant scoping with `.unscoped()`:
 
 ```ts
-import {runAsSystem} from '@getcronit/pylon-db'
+import {runAsSystem} from '@getcronit/pylon/db'
 
 await runAsSystem(async () => {
   const everyTask = await Task.objects.unscoped().all()
@@ -251,8 +251,8 @@ Putting it together — a secure, tenant-scoped app whose resolvers are gated an
 whose rows are owner-scoped:
 
 ```ts title="src/apps/crm/index.ts"
-import {Model, manager, id, text, boolean, gate} from '@getcronit/pylon-db'
-import {hasRole} from '@getcronit/pylon-auth'
+import {Model, manager, id, text, boolean, gate} from '@getcronit/pylon/db'
+import {hasRole} from '@getcronit/pylon/auth'
 import {Pylon} from '@getcronit/pylon'
 
 export class Contact extends Model {

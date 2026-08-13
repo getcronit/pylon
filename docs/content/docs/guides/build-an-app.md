@@ -30,7 +30,7 @@ A model is a TypeScript class. It becomes a database table and a GraphQL type at
 once — there is no separate schema file to keep in sync.
 
 ```ts title="src/models.ts"
-import {Model, manager, id, text, boolean, createdAt} from '@getcronit/pylon-db'
+import {Model, manager, id, text, boolean, createdAt} from '@getcronit/pylon/db'
 
 export class Task extends Model {
   static objects = manager(Task)
@@ -108,8 +108,8 @@ every route is mounted.
 ```ts title="pylon.config.ts"
 import {serve} from '@hono/node-server'
 import type {PylonConfig} from '@getcronit/pylon'
-import {useDatabase} from '@getcronit/pylon-db'
-import {usePages} from '@getcronit/pylon-pages/plugin'
+import {useDatabase} from '@getcronit/pylon/db/plugin'
+import {usePages} from '@getcronit/pylon/pages/plugin'
 
 export default {
   plugins: [
@@ -135,7 +135,7 @@ read the fields you want — the build step compiles a GraphQL query for **exact
 the fields the page reads**, resolves it during SSR, and hydrates the result.
 
 ```tsx title="pages/page.tsx"
-import {Link, useData} from '@getcronit/pylon-pages'
+import {Link, useData} from '@getcronit/pylon/pages'
 
 export default function Home() {
   const data = useData()
@@ -166,7 +166,7 @@ To create and toggle tasks from the UI, use `useMutation` — it normalizes the
 result into the entity store so every reader updates live:
 
 ```tsx title="pages/new/page.tsx"
-import {useMutation} from '@getcronit/pylon-pages'
+import {useMutation} from '@getcronit/pylon/pages'
 
 export default function NewTask() {
   const [addTask, {loading}] = useMutation(m => m.addTask, {refetch: ['tasks']})

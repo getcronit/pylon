@@ -24,7 +24,7 @@ universal `node(id)` refetch field.
 
 ```ts
 import {Pylon} from '@getcronit/pylon'
-import {Model, manager, id, text, createId, uuidv4} from '@getcronit/pylon-db'
+import {Model, manager, id, text, createId, uuidv4} from '@getcronit/pylon/db'
 
 class User extends Model {
   static objects = manager(User)
@@ -75,7 +75,7 @@ Decode one back into its parts — handy for recovering an entity's creation tim
 straight from its id:
 
 ```ts
-import {decodeSnowflake} from '@getcronit/pylon-db'
+import {decodeSnowflake} from '@getcronit/pylon/db'
 
 const {date, nodeId, sequence} = decodeSnowflake(order.id)
 ```
@@ -88,7 +88,7 @@ instances writing to the same database from colliding. Configure it on the
 plugin — **not** via an environment variable:
 
 ```ts title="pylon.config.ts"
-import {useDatabase} from '@getcronit/pylon-db'
+import {useDatabase} from '@getcronit/pylon/db/plugin'
 
 export default {
   plugins: [useDatabase({nodeId: 3})]
@@ -224,10 +224,10 @@ for a distributed, collision-free, self-describing id scheme.
 The `ID` scalar encodes and decodes gids at the GraphQL boundary automatically, so
 resolvers rarely touch them. When you do need to build or read one by hand — a
 webhook that emits a gid, a link, a custom scalar — three helpers are exported from
-`@getcronit/pylon-db`:
+`@getcronit/pylon/db`:
 
 ```ts
-import {toGid, fromGid, isGid} from '@getcronit/pylon-db'
+import {toGid, fromGid, isGid} from '@getcronit/pylon/db'
 
 toGid('Order', 1780219977399508992n)
 // → 'gid://pylon/Order/1780219977399508992'

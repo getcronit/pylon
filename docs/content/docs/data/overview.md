@@ -6,7 +6,7 @@ section: Data — pylon-db
 order: 0
 ---
 
-`@getcronit/pylon-db` is Pylon's ORM. You define a model once, as a TypeScript
+`@getcronit/pylon/db` is Pylon's ORM. You define a model once, as a TypeScript
 class, and that single definition drives three things at once: the database
 table, the migrations that create and evolve it, and the GraphQL type your
 resolvers return. **There is no separate schema file to keep in sync** — the
@@ -21,7 +21,7 @@ type is the field's value type — so your instances are fully typed.
 
 ```ts title="src/index.ts"
 import {Pylon} from '@getcronit/pylon'
-import {Model, manager, id, text, boolean} from '@getcronit/pylon-db'
+import {Model, manager, id, text, boolean} from '@getcronit/pylon/db'
 
 class User extends Model {
   static objects = manager(User)
@@ -90,7 +90,7 @@ per-request context — the tenant, the principal, and the transaction. Add it t
 
 ```ts title="pylon.config.ts"
 import type {PylonConfig} from '@getcronit/pylon'
-import {useDatabase} from '@getcronit/pylon-db'
+import {useDatabase} from '@getcronit/pylon/db/plugin'
 
 export default {
   plugins: [useDatabase()]

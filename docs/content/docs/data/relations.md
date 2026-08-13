@@ -19,8 +19,8 @@ A `foreignKey` adds the FK scalar column on the child model. Pair it with a
 
 ```ts title="src/index.ts"
 import {Pylon} from '@getcronit/pylon'
-import {Model, manager, id, text, foreignKey, hasMany} from '@getcronit/pylon-db'
-import type {Relation} from '@getcronit/pylon-db'
+import {Model, manager, id, text, foreignKey, hasMany} from '@getcronit/pylon/db'
+import type {Relation} from '@getcronit/pylon/db'
 
 class Author extends Model {
   static objects = manager(Author)

@@ -20,7 +20,7 @@ Define the model, then expose a Relay-style connection field by returning
 
 ```ts title="src/index.ts"
 import {Pylon} from '@getcronit/pylon'
-import {db, models} from '@getcronit/pylon-db'
+import {db, models} from '@getcronit/pylon/db'
 
 export class Post extends models.Model {
   static objects = db.manager(Post)
@@ -53,7 +53,7 @@ merged `nodes`, the loaders, and `pageInfo`. The selector picks the field; the
 second argument carries the page size (`first`) plus any base arguments:
 
 ```tsx title="pages/feed/page.tsx"
-import {usePaginatedData} from '@getcronit/pylon-pages'
+import {usePaginatedData} from '@getcronit/pylon/pages'
 
 export default function FeedPage() {
   const posts = usePaginatedData(q => q.posts, {first: 20})
@@ -86,7 +86,7 @@ fire `loadNext()` whenever it enters the viewport. An IntersectionObserver on a
 
 ```tsx title="pages/feed/page.tsx"
 import {useEffect, useRef} from 'react'
-import {usePaginatedData} from '@getcronit/pylon-pages'
+import {usePaginatedData} from '@getcronit/pylon/pages'
 
 export default function FeedPage() {
   const posts = usePaginatedData(q => q.posts, {first: 20})
@@ -133,7 +133,7 @@ A connection that hangs off a parent object works the same — select through th
 parent and pass its arguments alongside `first`:
 
 ```tsx title="pages/posts/[id]/page.tsx"
-import {usePaginatedData, type PageProps} from '@getcronit/pylon-pages'
+import {usePaginatedData, type PageProps} from '@getcronit/pylon/pages'
 
 export default function CommentsPage({params}: PageProps) {
   const id = params.id as string

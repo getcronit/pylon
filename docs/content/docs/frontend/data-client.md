@@ -18,7 +18,7 @@ their results into a shared entity store — so when you change an entity, every
 `[trigger, state]` tuple:
 
 ```tsx title="pages/users/new/page.tsx"
-import {useMutation} from '@getcronit/pylon-pages'
+import {useMutation} from '@getcronit/pylon/pages'
 
 export default function NewUser() {
   const [createUser, {loading, error}] = useMutation(m => m.createUser, {
@@ -55,7 +55,7 @@ effect, not from render. That's `op` — a plain object (not a hook) with
 effects, never during SSR.
 
 ```tsx
-import {op} from '@getcronit/pylon-pages'
+import {op} from '@getcronit/pylon/pages'
 
 // In an event handler:
 async function onPick(id: string) {
@@ -87,14 +87,14 @@ Render-time reads → [`useData`](/docs/frontend/use-data). Paginated lists →
 
 ## What powers this
 
-These hooks are thin wrappers over `@getcronit/pylon-query`, Pylon's owned typed
+These hooks are thin wrappers over `@getcronit/pylon/query`, Pylon's owned typed
 client. pylon-query does the document compilation, runs operations against your
 `/graphql` endpoint, and maintains a **normalized entity store** so every result
 that touches an entity updates every component reading it. In usePages you rarely
-touch it directly — you import the wrappers from `@getcronit/pylon-pages`:
+touch it directly — you import the wrappers from `@getcronit/pylon/pages`:
 
 ```ts
-import {useData, usePaginatedData, useMutation, op} from '@getcronit/pylon-pages'
+import {useData, usePaginatedData, useMutation, op} from '@getcronit/pylon/pages'
 ```
 
 Everything — render reads, pagination, mutations, imperative ops — flows through

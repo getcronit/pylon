@@ -49,7 +49,7 @@ use to `plugins`.
 
 ### useDatabase
 
-From `@getcronit/pylon-db`. Connects the ORM and binds the per-request database
+From `@getcronit/pylon/db`. Connects the ORM and binds the per-request database
 context. A **bare** `useDatabase()` derives the tenant and principal from the bound
 [identity](/docs/authentication/overview) automatically.
 
@@ -77,7 +77,7 @@ See [Multi-tenancy & Features](/docs/data/multi-tenancy) and
 
 ### useIdentity
 
-From `@getcronit/pylon-auth`. Runs an identity provider once per request and binds
+From `@getcronit/pylon/auth`. Runs an identity provider once per request and binds
 the resulting `Principal`. Place it **before** `useDatabase` so the database can
 derive the tenant from it.
 
@@ -89,7 +89,7 @@ See [Authentication](/docs/authentication/overview).
 
 ### useQueues
 
-From `@getcronit/pylon-queues`. Enables typed background jobs and the transactional
+From `@getcronit/pylon/queues`. Enables typed background jobs and the transactional
 outbox.
 
 ```ts
@@ -106,7 +106,7 @@ See [Background Jobs](/docs/queues/overview).
 
 ### usePages
 
-From `@getcronit/pylon-pages/plugin`. Builds the typed client from your merged
+From `@getcronit/pylon/pages/plugin`. Builds the typed client from your merged
 schema and server-renders `pages/**/page.tsx`.
 
 ```ts
@@ -182,10 +182,10 @@ client there. Each plugin's `setup` is wrapped so a failure is attributed to its
 ```ts title="pylon.config.ts"
 import {serve} from '@hono/node-server'
 import type {PylonConfig} from '@getcronit/pylon'
-import {useIdentity} from '@getcronit/pylon-auth'
-import {useDatabase} from '@getcronit/pylon-db'
-import {useQueues} from '@getcronit/pylon-queues'
-import {usePages} from '@getcronit/pylon-pages/plugin'
+import {useIdentity} from '@getcronit/pylon/auth/plugin'
+import {useDatabase} from '@getcronit/pylon/db/plugin'
+import {useQueues} from '@getcronit/pylon/queues/plugin'
+import {usePages} from '@getcronit/pylon/pages/plugin'
 import {useSentry} from '@getcronit/pylon'
 import {headerAuth} from './src/identity'
 

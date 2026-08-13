@@ -38,7 +38,7 @@ A page is a default-exported React component. It reads data with `useData` —
 never a query string, just the fields:
 
 ```tsx title="pages/posts/page.tsx"
-import {Link, useData, type PageProps} from '@getcronit/pylon-pages'
+import {Link, useData, type PageProps} from '@getcronit/pylon/pages'
 
 export default function PostsPage({}: PageProps) {
   const data = useData()
@@ -86,7 +86,7 @@ usePages is a plugin. Register it in `pylon.config.ts`:
 
 ```ts title="pylon.config.ts"
 import type {PylonConfig} from '@getcronit/pylon'
-import {usePages} from '@getcronit/pylon-pages/plugin'
+import {usePages} from '@getcronit/pylon/pages/plugin'
 
 export default {
   plugins: [usePages()]
@@ -94,7 +94,7 @@ export default {
 ```
 
 The runtime — `useData`, `Link`, `PageProps`, and the rest — imports from
-`@getcronit/pylon-pages`. The plugin lives at `@getcronit/pylon-pages/plugin`.
+`@getcronit/pylon/pages`. The plugin lives at `@getcronit/pylon/pages/plugin`.
 
 :::tip[This site runs on usePages]
 The page you're reading is markdown, served through a Pylon GraphQL resolver and

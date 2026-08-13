@@ -14,7 +14,7 @@ string, never maintain a fragment, and never over- or under-fetch.
 ## The shape
 
 ```tsx title="pages/posts/page.tsx"
-import {useData, type PageProps} from '@getcronit/pylon-pages'
+import {useData, type PageProps} from '@getcronit/pylon/pages'
 
 export default function PostsPage({}: PageProps) {
   const data = useData()
@@ -105,7 +105,7 @@ matching tag. It pairs with the `refetch` option on mutations — create a post,
 refresh the list:
 
 ```tsx
-import {dataRefetch, useData, useMutation} from '@getcronit/pylon-pages'
+import {dataRefetch, useData, useMutation} from '@getcronit/pylon/pages'
 
 export default function Posts() {
   const data = useData({tags: ['posts']})
