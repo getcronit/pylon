@@ -53,12 +53,6 @@ importers:
       '@getcronit/pylon':
         specifier: workspace:*
         version: link:../packages/pylon
-      '@getcronit/pylon-pages':
-        specifier: workspace:*
-        version: link:../packages/pylon-pages
-      '@getcronit/pylon-query':
-        specifier: workspace:*
-        version: link:../packages/pylon-query
       '@hono/node-server':
         specifier: ^1.12.2
         version: 1.19.9(hono@4.11.9)
@@ -132,9 +126,6 @@ importers:
         specifier: ^5.0.0
         version: 5.1.0
     devDependencies:
-      '@getcronit/pylon-dev':
-        specifier: workspace:*
-        version: link:../packages/pylon-dev
       '@tailwindcss/postcss':
         specifier: ^4.0.6
         version: 4.1.18
@@ -156,27 +147,6 @@ importers:
       '@getcronit/pylon':
         specifier: workspace:*
         version: link:../packages/pylon
-      '@getcronit/pylon-auth':
-        specifier: workspace:*
-        version: link:../packages/pylon-auth
-      '@getcronit/pylon-db':
-        specifier: workspace:*
-        version: link:../packages/pylon-db
-      '@getcronit/pylon-dev':
-        specifier: workspace:*
-        version: link:../packages/pylon-dev
-      '@getcronit/pylon-ir':
-        specifier: workspace:*
-        version: link:../packages/pylon-ir
-      '@getcronit/pylon-pages':
-        specifier: workspace:*
-        version: link:../packages/pylon-pages
-      '@getcronit/pylon-query':
-        specifier: workspace:*
-        version: link:../packages/pylon-query
-      '@getcronit/pylon-queues':
-        specifier: workspace:*
-        version: link:../packages/pylon-queues
       '@hono/node-server':
         specifier: ^1.12.2
         version: 1.19.9(hono@4.11.9)
@@ -216,10 +186,6 @@ importers:
       bun-types:
         specifier: ^1.1.18
         version: 1.3.9
-    devDependencies:
-      '@getcronit/pylon-dev':
-        specifier: workspace:^
-        version: link:../../packages/pylon-dev
 
   examples/cloudflare-drizzle-d1:
     dependencies:
@@ -236,9 +202,6 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^4.20240903.0
         version: 4.20260213.0
-      '@getcronit/pylon-dev':
-        specifier: workspace:^
-        version: link:../../packages/pylon-dev
       drizzle-kit:
         specifier: ^0.24.2
         version: 0.24.2
@@ -259,10 +222,6 @@ importers:
       bun-types:
         specifier: ^1.1.18
         version: 1.3.9
-    devDependencies:
-      '@getcronit/pylon-dev':
-        specifier: workspace:^
-        version: link:../../packages/pylon-dev
 
   examples/graphql-resolve-info:
     dependencies:
@@ -275,10 +234,6 @@ importers:
       graphql-parse-resolve-info:
         specifier: ^4.13.0
         version: 4.14.1(graphql@16.12.0)
-    devDependencies:
-      '@getcronit/pylon-dev':
-        specifier: workspace:^
-        version: link:../../packages/pylon-dev
 
   examples/interfaces-and-unions:
     dependencies:
@@ -288,10 +243,6 @@ importers:
       bun-types:
         specifier: ^1.1.18
         version: 1.3.9
-    devDependencies:
-      '@getcronit/pylon-dev':
-        specifier: workspace:^
-        version: link:../../packages/pylon-dev
 
   examples/nodejs-subscriptions:
     dependencies:
@@ -301,10 +252,6 @@ importers:
       '@hono/node-server':
         specifier: ^1.12.2
         version: 1.19.9(hono@4.11.9)
-    devDependencies:
-      '@getcronit/pylon-dev':
-        specifier: workspace:^
-        version: link:../../packages/pylon-dev
 
   packages/create-pylon:
     dependencies:
@@ -519,48 +466,6 @@ importers:
       zod:
         specifier: ^3.24.0
         version: 3.25.76
-
-  packages/pylon-auth:
-    dependencies:
-      '@getcronit/pylon':
-        specifier: workspace:*
-        version: link:../pylon
-
-  packages/pylon-db:
-    dependencies:
-      '@getcronit/pylon':
-        specifier: workspace:*
-        version: link:../pylon
-
-  packages/pylon-dev:
-    dependencies:
-      '@getcronit/pylon':
-        specifier: workspace:*
-        version: link:../pylon
-
-  packages/pylon-ir:
-    dependencies:
-      '@getcronit/pylon':
-        specifier: workspace:*
-        version: link:../pylon
-
-  packages/pylon-pages:
-    dependencies:
-      '@getcronit/pylon':
-        specifier: workspace:*
-        version: link:../pylon
-
-  packages/pylon-query:
-    dependencies:
-      '@getcronit/pylon':
-        specifier: workspace:*
-        version: link:../pylon
-
-  packages/pylon-queues:
-    dependencies:
-      '@getcronit/pylon':
-        specifier: workspace:*
-        version: link:../pylon
 
 packages:
 

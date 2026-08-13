@@ -1,5 +1,5 @@
 ---
-'@getcronit/pylon-dev': major
+'@getcronit/pylon': major
 ---
 
 - Integrated `@getcronit/pylon-builder` directly into `@getcronit/pylon-dev`.

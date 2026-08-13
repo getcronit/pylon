@@ -9,13 +9,11 @@ on:
     branches:
       - main
     paths:
-      - 'packages/pylon-ir/**'
-      - 'packages/pylon-db/**'
+      - 'packages/pylon/**'
       - '.github/workflows/db-migrations.yml'
   pull_request:
     paths:
-      - 'packages/pylon-ir/**'
-      - 'packages/pylon-db/**'
+      - 'packages/pylon/**'
       - '.github/workflows/db-migrations.yml'
 
 jobs:
@@ -74,16 +72,16 @@ jobs:
       - name: Install dependencies
         run: pnpm i --frozen-lockfile
 
-      # The integration tests import '@getcronit/pylon-ir' from its built dist,
-      # so pylon-ir (and its deps) must be built before they run.
+      # The ir/db tests run against SOURCE (vitest aliases every @getcronit/pylon
+      # subpath to src/), so no build is needed for them. We still build so the
+      # dev/CLI-spawning tests (which exec dist/cli/index.js) work if included.
       - name: Build packages
         run: pnpm build
 
-      - name: pylon-ir unit tests (diff engine)
-        run: pnpm --filter @getcronit/pylon-ir test
-
-      - name: pylon-db integration tests (round-trip + fuzz)
-        run: pnpm --filter @getcronit/pylon-db test:integration
+      # ir diff-engine unit tests + db round-trip/fuzz integration. DATABASE_URL is
+      # set (below), so the db integration suite runs (describe.skipIf(!runDb)).
+      - name: pylon ir + db tests (diff engine + round-trip/fuzz)
+        run: pnpm --filter @getcronit/pylon test test/ir test/db
 
   cli-e2e:
     name: pylon db CLI (e2e)

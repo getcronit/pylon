@@ -1,6 +1,5 @@
 ---
 '@getcronit/pylon': minor
-'@getcronit/pylon-dev': minor
 ---
 
 Extend plugin system with setup, middleware, and build functions.

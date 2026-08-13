@@ -13,8 +13,6 @@
   },
   "dependencies": {
     "@getcronit/pylon": "workspace:*",
-    "@getcronit/pylon-pages": "workspace:*",
-    "@getcronit/pylon-query": "workspace:*",
     "@hono/node-server": "^1.12.2",
     "@radix-ui/react-slot": "^1.1.2",
     "@shikijs/rehype": "^1.24.0",
@@ -41,7 +39,6 @@
     "unist-util-visit": "^5.0.0"
   },
   "devDependencies": {
-    "@getcronit/pylon-dev": "workspace:*",
     "@tailwindcss/postcss": "^4.0.6",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.8",
