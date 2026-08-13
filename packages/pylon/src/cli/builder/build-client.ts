@@ -1,5 +1,5 @@
 import {generateClientFiles} from '../../query/build'
-import esbuild from 'esbuild'
+import {rolldown} from 'rolldown'
 import fs from 'fs/promises'
 import path from 'path'
 import {updateFileIfChanged} from './update-file-if-changed'
@@ -52,12 +52,17 @@ export const buildClient = async ({schemaChanged}: BuildClientOptions) => {
   await updateFileIfChanged(PYLON_CLIENT_TYPES, typesTs)
   await updateFileIfChanged(PYLON_CLIENT_INDEX, indexTs)
 
-  await esbuild.build({
-    entryPoints: [PYLON_CLIENT_INDEX],
-    bundle: true,
-    outfile: path.join(PYLON_CLIENT_DIR, 'index.js'),
-    packages: 'external',
-    format: 'esm',
+  const bundle = await rolldown({
+    input: {index: PYLON_CLIENT_INDEX},
+    // packages:'external' equivalent — keep node_modules + the @getcronit/pylon/query
+    // self-ref external; bundle only the relative ./types.
+    external: id => !id.startsWith('.') && !path.isAbsolute(id),
     platform: 'node'
   })
+  await bundle.write({
+    dir: PYLON_CLIENT_DIR,
+    format: 'esm',
+    entryFileNames: 'index.js'
+  })
+  await bundle.close()
 }

@@ -1,4 +1,4 @@
-import esbuild from 'esbuild'
+import {rolldown, type Plugin} from 'rolldown'
 import {existsSync} from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
@@ -42,21 +42,19 @@ async function walk(dir: string, match: (name: string) => boolean): Promise<stri
  *  `./x` → `./x.js` (file) or `./x/index.js` (dir). Resolved against the importer dir, so
  *  file-vs-dir is decided correctly. The output mirrors the source tree, so the same
  *  relative path + extension is valid at runtime. */
-const preserveRelativeWithExt: esbuild.Plugin = {
+const preserveRelativeWithExt: Plugin = {
   name: 'preserve-relative-with-ext',
-  setup(build) {
-    build.onResolve({filter: /^\.\.?(\/|$)/}, args => {
-      if (args.kind === 'entry-point') return // the files we're emitting
-      const spec = args.path
-      if (/\.(js|mjs|cjs|json|node)$/.test(spec)) return {path: spec, external: true}
-      const abs = path.resolve(args.resolveDir, spec)
-      let rewritten: string
-      if (RESOLVE_EXTS.some(x => existsSync(abs + x))) rewritten = `${spec}.js`
-      else if (RESOLVE_EXTS.some(x => existsSync(path.join(abs, `index${x}`))))
-        rewritten = `${spec.replace(/\/$/, '')}/index.js`
-      else rewritten = `${spec}.js` // best-effort: treat as a file
-      return {path: rewritten, external: true}
-    })
+  resolveId(source, importer) {
+    if (!importer) return null // entry point — the files we're emitting
+    if (!/^\.\.?(\/|$)/.test(source)) return null // bare → handled by `external` below
+    if (/\.(js|mjs|cjs|json|node)$/.test(source)) return {id: source, external: true}
+    const abs = path.resolve(path.dirname(importer), source)
+    let rewritten: string
+    if (RESOLVE_EXTS.some(x => existsSync(abs + x))) rewritten = `${source}.js`
+    else if (RESOLVE_EXTS.some(x => existsSync(path.join(abs, `index${x}`))))
+      rewritten = `${source.replace(/\/$/, '')}/index.js`
+    else rewritten = `${source}.js` // best-effort: treat as a file
+    return {id: rewritten, external: true}
   }
 }
 
@@ -76,22 +74,36 @@ export async function transpileApp(
   const entryPoints = await walk(srcDir, n => SRC_EXTS.some(x => n.endsWith(x)))
   if (configAbs && !entryPoints.includes(configAbs)) entryPoints.push(configAbs)
 
-  await esbuild.build({
-    entryPoints,
-    outbase: cwd, // mirror under `.pylon/src/…` + `.pylon/pylon.config.js`
-    outdir: outDir,
-    bundle: true, // needed for onResolve to fire; the plugin externalizes everything
-    packages: 'external',
+  // Input as an object keyed by the cwd-relative path (no ext) → mirrors the tree
+  // under `.pylon/**` via entryFileNames (the rolldown equivalent of `outbase: cwd`).
+  const inputMap = Object.fromEntries(
+    entryPoints.map(abs => [
+      path.relative(cwd, abs).replace(/\.(tsx?|mts|cts)$/, ''),
+      abs
+    ])
+  )
+
+  const bundle = await rolldown({
+    input: inputMap,
+    // packages:'external' equivalent — every bare specifier stays external; relative
+    // ones are externalized+rewritten by the plugin above. Net: a 1:1 transpiled mirror.
+    external: id => !/^\.\.?(\/|$)/.test(id) && !path.isAbsolute(id),
     platform: 'node',
-    format: 'esm',
-    sourcemap: 'inline',
-    target: 'node18',
-    logLevel: 'silent',
-    plugins: [preserveRelativeWithExt],
-    tsconfigRaw: {
-      compilerOptions: {useDefineForClassFields: false, experimentalDecorators: true}
-    }
+    // Read the project's tsconfig so oxc applies `useDefineForClassFields: false`
+    // (the ORM field-builder semantics — `id = id()` must lower to a constructor
+    // assignment, not a class-field define) AND `experimentalDecorators` (legacy
+    // decorators, still used by @model). The tsconfig drives both.
+    tsconfig: true,
+    transform: {target: 'node18'},
+    plugins: [preserveRelativeWithExt]
   })
+  await bundle.write({
+    dir: outDir,
+    format: 'esm',
+    entryFileNames: '[name].js',
+    sourcemap: 'inline'
+  })
+  await bundle.close()
 
   const toOut = (abs: string) =>
     path.join(outDir, path.relative(cwd, abs)).replace(/\.(tsx?|mts|cts|mjs|cjs|js)$/, '.js')
