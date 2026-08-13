@@ -31,4 +31,6 @@ export {
  */
 export type IdentityProvider<Ctx = Context> = IdentityProviderBase<Ctx>
 
-export {getPrincipal, authorize, requireRole, useIdentity} from './authz.js'
+// `useIdentity` is the CONFIG PLUGIN → `@getcronit/pylon/auth/plugin` (plugin.ts).
+// The root exports only the authoring API.
+export {getPrincipal, authorize, requireRole} from './authz.js'
