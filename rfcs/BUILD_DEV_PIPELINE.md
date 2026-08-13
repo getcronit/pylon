@@ -209,6 +209,39 @@ Migrate the six esbuild sites behind the seam, ordered by risk:
 If a spike fails, that site keeps its esbuild-backed `BuildController` — the seam
 means partial migration is a supported end state, not a broken one.
 
+### Spike results — `build.js` on rolldown 1.2.4 (DEFERRED)
+
+Ported `build.js` to rolldown as the first, isolated site. Invariants that HELD:
+identical entry-file set, self-refs stay external, the **model-registry singleton is
+preserved** (db/index + db/plugin share one chunk), `@/` resolves, and Tailwind CSS
+is emitted correctly. Three gaps surfaced:
+
+1. **CSS bundling removed** (`UNSUPPORTED_FEATURE`, rolldown #4271). Worked around by
+   running PostCSS in a plugin `load` hook and `emitFile`-ing the result as an asset
+   (`moduleTypes: {'.css':'js'}` so rolldown never parses it). ✅
+2. **oxc externalizes runtime helpers** to `@oxc-project/runtime` (esbuild inlines);
+   no inline option in 1.2.4. Needs it as a runtime dep — acceptable but a footprint
+   change. ✅ once added.
+3. **BLOCKER:** rolldown hoists `import {createRequire} from "node:module"` into the
+   `dist/core/index.js` ENTRY; esbuild's core didn't carry it. Any browser consumer
+   whose graph reaches core (the usePages page build does) then fails to resolve node
+   built-ins. This is a tree-shaking/hoisting behavior difference, not a toggle.
+
+**Verdict:** keep `build.js` on esbuild for now (behind the seam). Revisit rolldown
+when #3 is addressable (upstream fix, or restructuring so core is never browser-
+reachable — which the boundary guard below would also enforce). rolldown stays a
+devDep as the tracked direction.
+
+### Adjacent: enforce the self-ref boundary
+
+The build's correctness depends on cross-*feature* imports using the self-ref
+(`@getcronit/pylon/<f>`, externalized) rather than a relative path (`../auth/…`,
+which would inline a feature into every consumer and break singletons). Add a
+`check:boundaries` guard (a small src scanner, or dependency-cruiser) that fails when
+a file under `src/<A>/` has a relative import resolving into a different `src/<B>/`.
+Wire it into `typecheck`/CI. This also structurally prevents gap #3's "core reachable
+from browser" class of problem.
+
 ## 5. Pillar 3 — native dev server
 
 Today: `tsxRun` spawns `server.mjs` as a subprocess; every change kills the tree
