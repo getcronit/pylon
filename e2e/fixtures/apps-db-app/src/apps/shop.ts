@@ -1,8 +1,8 @@
 // A GATED app: capability gate (the 'shop' role) on the Pylon via the gate()
 // sugar, plus tenant-scoped models (orgId) — the two authz layers in one app.
 import {Pylon} from '@getcronit/pylon'
-import {getPrincipal, hasRole} from '@getcronit/pylon-auth'
-import {db, gate, models} from '@getcronit/pylon-db'
+import {getPrincipal, hasRole} from '@getcronit/pylon/auth'
+import {db, gate, models} from '@getcronit/pylon/db'
 
 // Decorator-free: a plain model class; the app names it (table prefix) + sets `tenant`.
 export class Product extends models.Model {

@@ -1,8 +1,8 @@
 // Exercises `pylon inspect`: a model (→ schema + authz slice) and an app-bound
 // queue class (→ queues slice), assembled into one AppModel.
 import {Pylon} from '@getcronit/pylon'
-import {models, db, type ModelConfig} from '@getcronit/pylon-db'
-import {Queue, manager, type QueueConfig} from '@getcronit/pylon-queues'
+import {models, db, type ModelConfig} from '@getcronit/pylon/db'
+import {Queue, manager, type QueueConfig} from '@getcronit/pylon/queues'
 
 export class Product extends models.Model {
   static objects = db.manager(Product)

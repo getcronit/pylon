@@ -4,7 +4,7 @@
 // a route guard can `throw` a status-carrying error (mapped to its HTTP status by
 // the core onError) while a PUBLIC route under the same prefix stays open.
 import {Pylon} from '@getcronit/pylon'
-import {ForbiddenError} from '@getcronit/pylon-db'
+import {ForbiddenError} from '@getcronit/pylon/db'
 
 // vault app: routes under /vault, contributes `vaultStatus` to the schema.
 const vault = new Pylon({

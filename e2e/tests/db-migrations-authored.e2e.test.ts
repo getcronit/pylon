@@ -19,7 +19,7 @@ import {existsSync} from 'node:fs'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
-import {connect, type Database} from '@getcronit/pylon-db'
+import {connect, type Database} from '@getcronit/pylon/db'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const cliBin = path.resolve(dir, '../../packages/pylon-dev/dist/index.js')

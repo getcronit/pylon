@@ -6,7 +6,7 @@
 // stays valid — even if those models are later renamed or deleted in the app.
 //
 // The row types are declared here for typing; the API is the usual `.objects`.
-import {migrations} from '@getcronit/pylon-db'
+import {migrations} from '@getcronit/pylon/db'
 
 interface CategoryRow {
   id: number

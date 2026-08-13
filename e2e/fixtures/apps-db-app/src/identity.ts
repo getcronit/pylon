@@ -1,6 +1,6 @@
 // Test identity: headers → Principal. x-org drives ORM tenant scoping; x-role
 // drives the app's capability gate.
-import type {IdentityProvider} from '@getcronit/pylon-auth'
+import type {IdentityProvider} from '@getcronit/pylon/auth'
 
 export const headerAuth: IdentityProvider = c => {
   const id = c.req.header('x-user-id')

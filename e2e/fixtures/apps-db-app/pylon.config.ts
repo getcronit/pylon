@@ -1,6 +1,6 @@
 import type {PylonConfig} from '@getcronit/pylon'
-import {useIdentity} from '@getcronit/pylon-auth'
-import {useDatabase} from '@getcronit/pylon-db'
+import {useIdentity} from '@getcronit/pylon/auth/plugin'
+import {useDatabase} from '@getcronit/pylon/db/plugin'
 import {headerAuth} from './src/identity'
 import {serveLast} from '../_serve-plugin'
 

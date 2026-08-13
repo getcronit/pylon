@@ -2,8 +2,8 @@
 // Models (→ schema + persistence + authz), a queue (→ queues slice), and
 // operations (→ Query/Mutation) assembled into one app the agent introspects.
 import {Pylon} from '@getcronit/pylon'
-import {models, db, type ModelConfig} from '@getcronit/pylon-db'
-import {Queue, manager, type QueueConfig} from '@getcronit/pylon-queues'
+import {models, db, type ModelConfig} from '@getcronit/pylon/db'
+import {Queue, manager, type QueueConfig} from '@getcronit/pylon/queues'
 
 export class Author extends models.Model {
   static objects = db.manager(Author)

@@ -1,4 +1,4 @@
-import {migrations} from '@getcronit/pylon-db'
+import {migrations} from '@getcronit/pylon/db'
 
 export default migrations.defineMigration({
   // Generated schema delta. Add migrations.runSql(...) / migrations.run(...)

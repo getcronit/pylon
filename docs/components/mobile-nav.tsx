@@ -1,6 +1,6 @@
 import {useEffect, useState} from 'react'
 import {createPortal} from 'react-dom'
-import {Link} from '@getcronit/pylon-pages'
+import {Link} from '@getcronit/pylon/pages'
 import {Github, Menu, X} from 'lucide-react'
 import {COLUMNS} from './mega-nav'
 

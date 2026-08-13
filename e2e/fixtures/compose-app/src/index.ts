@@ -4,8 +4,8 @@
 // the build type-introspects `default.graphql` across composed apps + merges
 // each app's ORM models. No defineApp / compose() (pylon-app) / .resolvers.
 import {Pylon} from '@getcronit/pylon'
-import {hasRole} from '@getcronit/pylon-auth'
-import {db, gate, models, type Relation} from '@getcronit/pylon-db'
+import {hasRole} from '@getcronit/pylon/auth'
+import {db, gate, models, type Relation} from '@getcronit/pylon/db'
 
 // ---- catalog app (ungated) ----
 export class Category extends models.Model {

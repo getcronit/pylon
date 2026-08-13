@@ -1,4 +1,4 @@
-import {migrations} from '@getcronit/pylon-db'
+import {migrations} from '@getcronit/pylon/db'
 
 export default migrations.defineMigration({
   dependencies: ["20260624T153827_initial"],

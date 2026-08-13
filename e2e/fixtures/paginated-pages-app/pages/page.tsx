@@ -1,4 +1,4 @@
-import {usePaginatedData} from '@getcronit/pylon-pages'
+import {usePaginatedData} from '@getcronit/pylon/pages'
 
 export default function Page() {
   const posts = usePaginatedData(q => q.posts)

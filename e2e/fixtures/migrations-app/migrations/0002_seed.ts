@@ -1,7 +1,7 @@
 // A reversible data migration: seeds two categories on `up`, removes them on
 // `down`. Demonstrates that authored `runSql` operations (not just generated
 // schema diffs) apply and roll back correctly.
-import {migrations} from '@getcronit/pylon-db'
+import {migrations} from '@getcronit/pylon/db'
 
 export default migrations.defineMigration({
   operations: [

@@ -2,8 +2,8 @@
 // with owner/shared row abilities, an instance-authorize update, and a PBAC-gated
 // export op.
 import {Pylon} from '@getcronit/pylon'
-import {hasPermission, hasRole, type Principal} from '@getcronit/pylon-auth'
-import {authorize, db, gate, models} from '@getcronit/pylon-db'
+import {hasPermission, hasRole, type Principal} from '@getcronit/pylon/auth'
+import {authorize, db, gate, models} from '@getcronit/pylon/db'
 
 // Decorator-free: plain model; the app names it (→ crm_contact) + sets tenant/secure.
 // The model's OWN owner/shared row rules are co-located in `static abilities`.

@@ -2,8 +2,8 @@
 // can import the model classes without a circular import (the classes must exist
 // at `signals.connect(Model, …)` time).
 import {Pylon} from '@getcronit/pylon'
-import {models, db} from '@getcronit/pylon-db'
-import type {Relation} from '@getcronit/pylon-db'
+import {models, db} from '@getcronit/pylon/db'
+import type {Relation} from '@getcronit/pylon/db'
 
 // Decorator-free plain models; the app (below) names them (→ blog_*) + groups migrations.
 export class Author extends models.Model {

@@ -2,8 +2,8 @@
 // The framework owns serving (the generated entry serves this default export).
 // Decorator-free: plain model classes, registered via the constructor `db.models`.
 import {Pylon} from '@getcronit/pylon'
-import {models, db} from '@getcronit/pylon-db'
-import type {Relation} from '@getcronit/pylon-db'
+import {models, db} from '@getcronit/pylon/db'
+import type {Relation} from '@getcronit/pylon/db'
 
 export class Author extends models.Model {
   static objects = db.manager(Author)

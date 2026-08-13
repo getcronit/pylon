@@ -1,6 +1,6 @@
 // Test identity: headers → Principal. x-org → tenant; x-role/x-perm → RBAC/PBAC
 // (comma lists); x-features (in pylon.config) → the tenant's feature plan.
-import type {IdentityProvider} from '@getcronit/pylon-auth'
+import type {IdentityProvider} from '@getcronit/pylon/auth'
 
 const list = (v?: string) => (v ?? '').split(',').map(s => s.trim()).filter(Boolean)
 

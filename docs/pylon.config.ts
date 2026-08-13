@@ -1,5 +1,5 @@
 import {type PylonConfig} from '@getcronit/pylon'
-import {usePages} from '@getcronit/pylon-pages/plugin'
+import {usePages} from '@getcronit/pylon/pages/plugin'
 
 // The generated `.pylon/server.mjs` self-serves on Node — it binds a node:http
 // server (PORT || 3000) AFTER every route is mounted. So the config only wires

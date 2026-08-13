@@ -1,8 +1,8 @@
 // shop app — inits its scope; Purchase has a CROSS-APP FK → blog.Author, so the
 // migration system infers `shop` depends on `blog`.
 import {Pylon} from '@getcronit/pylon'
-import {models, db} from '@getcronit/pylon-db'
-import type {Relation} from '@getcronit/pylon-db'
+import {models, db} from '@getcronit/pylon/db'
+import type {Relation} from '@getcronit/pylon/db'
 import {Author} from '../blog/index.js'
 
 // Decorator-free plain models; the app names them (→ shop_*) + groups migrations.

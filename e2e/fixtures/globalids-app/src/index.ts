@@ -8,7 +8,7 @@
 // hand a gid it was given straight back into a foreign-key or many-to-many write
 // — the paths that would otherwise store a `gid://…` string and violate a FK.
 import {Pylon, type ID} from '@getcronit/pylon'
-import {db, models, type Relation} from '@getcronit/pylon-db'
+import {db, models, type Relation} from '@getcronit/pylon/db'
 
 export class Author extends models.Model {
   static objects = db.manager(Author)

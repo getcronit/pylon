@@ -1,5 +1,5 @@
 import {useEffect} from 'react'
-import {__PYLON_ROUTER_INTERNALS_DO_NOT_USE as Router} from '@getcronit/pylon-pages'
+import {__PYLON_ROUTER_INTERNALS_DO_NOT_USE as Router} from '@getcronit/pylon/pages'
 
 /**
  * React Router does not reset scroll on client-side navigation. This restores the

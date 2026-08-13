@@ -2,7 +2,7 @@
 // declares its models; the host composes the schema by hand from each app's
 // resolver exports and mounts each app's Hono routes onto the Pylon instance.
 import {Pylon} from '@getcronit/pylon'
-import {getDatabase} from '@getcronit/pylon-db'
+import {getDatabase} from '@getcronit/pylon/db'
 
 // Importing the resolvers pulls in each app's index → registers its models.
 import * as blog from './apps/blog/resolvers.js'

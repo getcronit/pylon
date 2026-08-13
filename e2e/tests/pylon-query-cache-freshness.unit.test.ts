@@ -11,7 +11,7 @@
  * This pins that decision deterministically, without a browser, by observing how
  * many times the transport is invoked.
  */
-import {createPylonQueryClient, doc} from '@getcronit/pylon-query'
+import {createPylonQueryClient, doc} from '@getcronit/pylon/query'
 import {describe, expect, it, vi} from 'vitest'
 
 const D = doc<{hello: string}>({

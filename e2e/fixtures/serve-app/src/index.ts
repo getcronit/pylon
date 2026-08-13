@@ -2,7 +2,7 @@
 // serving (the generated entry serves the instance), so there's no top-level
 // serve() to accidentally run during the build.
 import {Pylon} from '@getcronit/pylon'
-import {models} from '@getcronit/pylon-db'
+import {models} from '@getcronit/pylon/db'
 
 export class Widget extends models.Model {
   id = models.ID()

@@ -8,7 +8,7 @@ declare module '@getcronit/pylon' {
 
 import {Data as ClientData, Mutations as ClientMutations} from './.pylon/client'
 
-declare module '@getcronit/pylon-pages' {
+declare module '@getcronit/pylon/pages' {
   interface Data extends ClientData {}
   interface Mutations extends ClientMutations {}
 }

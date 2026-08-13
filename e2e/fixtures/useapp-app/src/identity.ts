@@ -1,4 +1,4 @@
-import type {IdentityProvider} from '@getcronit/pylon-auth'
+import type {IdentityProvider} from '@getcronit/pylon/auth'
 
 export const headerAuth: IdentityProvider = c => {
   const id = c.req.header('x-user-id')

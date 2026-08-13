@@ -3,7 +3,7 @@
 // all; writable only by its owner. The principal is bound per request from
 // headers (see host index.ts + pylon.config.ts).
 import {Pylon} from '@getcronit/pylon'
-import {db, models} from '@getcronit/pylon-db'
+import {db, models} from '@getcronit/pylon/db'
 
 interface Principal {
   userId: number

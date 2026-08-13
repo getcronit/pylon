@@ -3,8 +3,8 @@
 // capability-gated admin op (inline requireRole), and role-gated routes. No
 // defineApp / .resolvers / useApp — authz primitives only.
 import {Pylon} from '@getcronit/pylon'
-import {getPrincipal, hasRole, requireRole, type Principal} from '@getcronit/pylon-auth'
-import {authorize, db, models} from '@getcronit/pylon-db'
+import {getPrincipal, hasRole, requireRole, type Principal} from '@getcronit/pylon/auth'
+import {authorize, db, models} from '@getcronit/pylon/db'
 
 // Decorator-free: plain model; the app names it (→ projects_task) + sets tenant/secure.
 // Owner/shared row rules (ABAC) are co-located in `static abilities`.

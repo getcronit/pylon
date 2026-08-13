@@ -1,4 +1,4 @@
-import {usePaginatedData} from '@getcronit/pylon-pages'
+import {usePaginatedData} from '@getcronit/pylon/pages'
 
 export default function Thread() {
   // nested connection rooted at a specific post, with a base arg

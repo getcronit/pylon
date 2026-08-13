@@ -12,7 +12,7 @@ import {existsSync, promises as fs} from 'node:fs'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
-import {connect, type Database, decodeSnowflake} from '@getcronit/pylon-db'
+import {connect, type Database, decodeSnowflake} from '@getcronit/pylon/db'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const e2eRoot = path.resolve(dir, '..')

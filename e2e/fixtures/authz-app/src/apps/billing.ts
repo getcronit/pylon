@@ -1,8 +1,8 @@
 // Billing app: a STRONGER app gate — role 'billing' AND the 'billing' FEATURE must
 // be enabled for the tenant. Tenant-scoped model; issuing needs a PBAC permission.
 import {Pylon} from '@getcronit/pylon'
-import {hasPermission, hasRole, type Principal} from '@getcronit/pylon-auth'
-import {authorize, db, gate, models} from '@getcronit/pylon-db'
+import {hasPermission, hasRole, type Principal} from '@getcronit/pylon/auth'
+import {authorize, db, gate, models} from '@getcronit/pylon/db'
 
 // Decorator-free: plain model; the app names it (→ billing_invoice) + sets tenant/secure.
 // The model's OWN rules are co-located in `static abilities` (subject implicit).

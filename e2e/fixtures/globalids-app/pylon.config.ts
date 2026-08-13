@@ -1,5 +1,5 @@
 import type {PylonConfig} from '@getcronit/pylon'
-import {useDatabase} from '@getcronit/pylon-db'
+import {useDatabase} from '@getcronit/pylon/db/plugin'
 
 // The generated `server.mjs` self-serves on Node, so the config just wires the
 // ORM. useDatabase connects from DATABASE_URL. The app opts into global ids +

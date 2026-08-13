@@ -1,7 +1,7 @@
 // One-to-one, navigable from BOTH sides: Account owns the unique FK (belongsTo →
 // single `user`); User navigates the inverse via hasOne (→ single `account`).
 import {Pylon} from '@getcronit/pylon'
-import {db, models, type Relation} from '@getcronit/pylon-db'
+import {db, models, type Relation} from '@getcronit/pylon/db'
 
 export class User extends models.Model {
   static objects = db.manager(User)

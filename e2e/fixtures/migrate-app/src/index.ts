@@ -1,7 +1,7 @@
 // App for the migration-CLI e2e. Distinct table names (mig_*).
 import {Pylon} from '@getcronit/pylon'
-import {models, type ModelConfig} from '@getcronit/pylon-db'
-import type {Relation} from '@getcronit/pylon-db'
+import {models, type ModelConfig} from '@getcronit/pylon/db'
+import type {Relation} from '@getcronit/pylon/db'
 
 export class MigAuthor extends models.Model {
   static config = {table: 'mig_author'} satisfies ModelConfig<MigAuthor>

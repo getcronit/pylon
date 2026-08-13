@@ -1,5 +1,5 @@
 /**
- * Build-only e2e for `@getcronit/pylon-app`: runs the SHIPPED `pylon build` on a
+ * Build-only e2e for `@getcronit/pylon/app`: runs the SHIPPED `pylon build` on a
  * fixture whose schema is `export const graphql = compose(appA, appB).graphql`,
  * then asserts on the generated `.pylon/schema.graphql`.
  *

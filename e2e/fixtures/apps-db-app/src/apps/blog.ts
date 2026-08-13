@@ -1,5 +1,5 @@
 import {Pylon} from '@getcronit/pylon'
-import {db, models} from '@getcronit/pylon-db'
+import {db, models} from '@getcronit/pylon/db'
 
 // Decorator-free: a plain model class, registered + named via the app constructor.
 export class Post extends models.Model {

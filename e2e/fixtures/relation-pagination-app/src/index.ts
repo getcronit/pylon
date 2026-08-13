@@ -3,7 +3,7 @@
 // plain lists; a non-paginated hasMany stays a list (control). The runtime serves
 // real cursor pages over each relation.
 import {Pylon} from '@getcronit/pylon'
-import {db, models, type Relation} from '@getcronit/pylon-db'
+import {db, models, type Relation} from '@getcronit/pylon/db'
 
 export class Author extends models.Model {
   static objects = db.manager(Author)

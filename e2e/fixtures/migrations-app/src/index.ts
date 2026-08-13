@@ -3,8 +3,8 @@
 // here match what those migrations build; `snapshot.json` is their captured
 // baseline, so `pylon db status` reports no uncaptured changes.
 import {Pylon} from '@getcronit/pylon'
-import {models, db, type ModelConfig} from '@getcronit/pylon-db'
-import type {Relation} from '@getcronit/pylon-db'
+import {models, db, type ModelConfig} from '@getcronit/pylon/db'
+import type {Relation} from '@getcronit/pylon/db'
 
 export class ShopCategory extends models.Model {
   static config = {table: 'shop_category'} satisfies ModelConfig<ShopCategory>

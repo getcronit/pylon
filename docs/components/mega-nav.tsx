@@ -1,5 +1,5 @@
 import {useEffect, useRef, useState} from 'react'
-import {Link} from '@getcronit/pylon-pages'
+import {Link} from '@getcronit/pylon/pages'
 import {
   AppWindow,
   Boxes,

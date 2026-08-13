@@ -2,7 +2,7 @@
 // shop_product.title. migrations.addIndex carries built-in reverse (down drops
 // the index), so no manual `down` is needed — same ergonomics as Django's
 // AddIndex / RemoveIndex.
-import {migrations} from '@getcronit/pylon-db'
+import {migrations} from '@getcronit/pylon/db'
 
 export default migrations.defineMigration({
   operations: [
