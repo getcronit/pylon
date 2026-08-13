@@ -244,10 +244,24 @@ These two don't bundle pylon's core, so gap #3 doesn't apply. Both migrated clea
   semantics) and `experimentalDecorators` (legacy `@model`). Docs built end-to-end;
   the server boots + serves 200.
 
-rolldown is now a runtime **dependency** (the CLI uses it at user build-time). esbuild
-still backs `build.js`, the usePages page build, and `cli/db` — both bundlers coexist,
-exactly what the seam allows. Remaining rolldown targets: the usePages page build
-(the ~7 esbuild plugins) and `cli/db`; `build.js` blocked on #3.
+- **`cli/db`** (migration-loader) — bundles a migration TS file to a temp `.mjs` and
+  imports it (so `@getcronit/pylon/db` resolves to the project's instance). Ported;
+  bare external, single-entry. rolldown has no inline `tsconfigRaw`, so it writes a
+  temp tsconfig to FORCE `experimentalDecorators` + `useDefineForClassFields: false`
+  (verified rolldown applies a `tsconfig` path globally, even to a tmpdir file).
+
+rolldown is now a runtime **dependency** (the CLI uses it at user build-time). Both
+bundlers coexist, exactly what the seam allows.
+
+**Status:** ported — `build-client`, `transpile-app`, `cli/db`. Still on esbuild:
+- `build.js` — blocked on gap #3 (node:module hoisted into core → browser break).
+- **usePages page build** — DEFERRED. It's the largest target (client+server watch
+  contexts + ~7 esbuild plugins: postcss, image, external-esm, inject-app-hydration,
+  use-data-static-analyzer, buildAppFile, writeOnEnd) and leans on the exact
+  rolldown-1.2.4 gaps that bit `build.js`: CSS bundling removed (workable via the
+  asset-emit trick), oxc runtime-helper injection into the JSX output, and
+  tree-shaking differences. Best done as its own effort once rolldown's CSS story
+  returns; until then it stays on esbuild behind the seam.
 
 ### Adjacent: enforce the self-ref boundary
 
