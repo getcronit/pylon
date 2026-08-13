@@ -1,4 +1,3 @@
-import {Plugin, OnLoadResult} from 'esbuild'
 import type {Plugin as RolldownPlugin} from 'rolldown'
 import * as fs from 'fs'
 import {buildSchema, GraphQLSchema} from 'graphql'
@@ -1036,44 +1035,6 @@ export function createUseDataAnalyzerCore(
   }
 
   return {filter, manager, project, start, addEntries, transform}
-}
-
-/** Extract entry file paths from esbuild's `entryPoints` (array or record). */
-function extractEntryPaths(
-  entries: import('esbuild').BuildOptions['entryPoints']
-): string[] {
-  if (!entries) return []
-  const out: string[] = []
-  if (Array.isArray(entries)) {
-    for (const entry of entries)
-      out.push(typeof entry === 'string' ? entry : (entry as any).in)
-  } else if (typeof entries === 'object') {
-    for (const key in entries) out.push((entries as any)[key])
-  }
-  return out
-}
-
-/** esbuild adapter — thin wrapper over the bundler-agnostic core. */
-export function useDataStaticAnalyzer(
-  options: UseDataStaticAnalyzerOptions = {}
-): Plugin {
-  return {
-    name: 'pylon-use-data-static-analyzer',
-    async setup(build) {
-      const core = createUseDataAnalyzerCore({
-        ...options,
-        tsConfigFilePath: options.manager ? undefined : build.initialOptions.tsconfig
-      })
-      build.onStart(() => core.start())
-      core.addEntries(extractEntryPaths(build.initialOptions.entryPoints))
-      build.onLoad({filter: core.filter}, async args => {
-        const contents = await fs.promises.readFile(args.path, 'utf8')
-        // The core returns the esbuild-onLoad shape; cast to esbuild's exact enum
-        // types (loader/warnings) at this adapter boundary.
-        return (await core.transform(args, contents)) as OnLoadResult | null
-      })
-    }
-  }
 }
 
 /**

@@ -1,10 +1,9 @@
 import {buildSchema} from 'graphql'
-import * as esbuild from 'esbuild'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
-import {useDataStaticAnalyzer} from '@/pages/plugins/use-pages/build/plugins/use-data-static-analyzer/index'
+import {runAnalyzer} from './_run-analyzer'
 
 const schema = buildSchema(/* GraphQL */ `
   type Query {
@@ -47,15 +46,7 @@ const tempDir = path.join(os.tmpdir(), 'pylon-doc-injection')
 async function transform(code: string): Promise<string> {
   const filePath = path.join(tempDir, `c${Math.random().toString(36).slice(2)}.tsx`)
   fs.writeFileSync(filePath, code)
-  const result = await esbuild.build({
-    entryPoints: [filePath],
-    plugins: [useDataStaticAnalyzer({schema})],
-    write: false,
-    bundle: true,
-    format: 'esm',
-    external: ['@getcronit/pylon/pages', '@getcronit/pylon/query']
-  })
-  return result.outputFiles[0].text
+  return await runAnalyzer(filePath, {schema})
 }
 
 describe('analyzer document injection (schema present)', () => {
@@ -72,7 +63,9 @@ describe('analyzer document injection (schema present)', () => {
       }
     `)
     expect(out).toContain('import { doc as __pylonDoc }')
-    expect(out).toContain('__pylonDoc(')
+    // The analyzer's raw TS output keeps the doc factory's type param
+    // (`__pylonDoc<{…}>(…)`); the old esbuild harness stripped it to `__pylonDoc(`.
+    expect(out).toContain('__pylonDoc<')
     expect(out).toContain('user(id: $v0)')
     // The call now takes the doc + a variables thunk.
     expect(out).toMatch(/useData\(__pylonDoc_\w+_0,\s*\(\)\s*=>/)

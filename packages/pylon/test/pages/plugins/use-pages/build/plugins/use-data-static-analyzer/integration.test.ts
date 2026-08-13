@@ -1,8 +1,7 @@
-import * as esbuild from 'esbuild'
 import * as fs from 'fs'
 import * as path from 'path'
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
-import {useDataStaticAnalyzer} from '@/pages/plugins/use-pages/build/plugins/use-data-static-analyzer/index'
+import {runAnalyzer} from './_run-analyzer'
 
 const tempDir = path.join(__dirname, 'temp_integration')
 
@@ -28,22 +27,11 @@ describe('Configurable Plugin Integration', () => {
     `
     fs.writeFileSync(filePath, input)
 
-    const result = await esbuild.build({
-      entryPoints: [filePath],
-      plugins: [
-        useDataStaticAnalyzer({
+    const outputCode = await runAnalyzer(filePath, {
           pylonPackage: '@my/custom-pylon',
           hookName: 'useGQL',
           debug: true
         })
-      ],
-      write: false,
-      bundle: true,
-      format: 'esm',
-      external: ['@my/custom-pylon', 'react']
-    })
-
-    const outputCode = result.outputFiles[0].text
 
     // Check that it injected the prepare function correctly
     // It should identify useGQL (aliased as query) and inject the selector.
@@ -68,16 +56,7 @@ describe('Configurable Plugin Integration', () => {
     `
     fs.writeFileSync(filePath, input)
 
-    const result = await esbuild.build({
-      entryPoints: [filePath],
-      plugins: [useDataStaticAnalyzer()], // Default options
-      write: false,
-      bundle: true,
-      format: 'esm',
-      external: ['@getcronit/pylon/pages', 'react']
-    })
-
-    const outputCode = result.outputFiles[0].text
+    const outputCode = await runAnalyzer(filePath)
     expect(outputCode.replace(/\s+/g, '')).toContain(
       'useData({prepare:({query:__pylonQuery})=>{__pylonQuery?.post?.title;}})'
     )
