@@ -330,9 +330,9 @@ class Parser {
   // like an explicit `search:term` (cross-table search with no prefix needed;
   // multi-word ANDs since the parser ANDs adjacent bare terms). Otherwise it
   // routes through the model's declared search targets, OR-ed together:
-  //   - `@model({search})` tsvector → `{search}` (`@@ websearch_to_tsquery`, or
+  //   - `static config {search}` tsvector → `{search}` (`@@ websearch_to_tsquery`, or
   //     `to_tsquery(... :*)` for a trailing `*`) — best for prose;
-  //   - `@model({trigram})` columns → `gin_trgm_ops`-indexed `ILIKE` substring —
+  //   - `static config {trigram}` columns → `gin_trgm_ops`-indexed `ILIKE` substring —
   //     best for names/emails/identifiers FTS tokenizes poorly.
   // A model can declare both (mixed prose+identifier search). With neither, it
   // falls back to un-indexed substring `contains` over every text column.

@@ -6,9 +6,8 @@ describe('prepareModelSource — strip top-level side effects for model loading'
     const out = prepareModelSource(`
       import {app} from '@getcronit/pylon'
       import {serve} from '@hono/node-server'
-      import {Model, model, id} from '@getcronit/pylon/db'
+      import {Model, id} from '@getcronit/pylon/db'
 
-      @model()
       export class User extends Model {
         id = id()
       }
@@ -21,28 +20,29 @@ describe('prepareModelSource — strip top-level side effects for model loading'
     expect(out).not.toMatch(/@hono\/node-server/) // import pruned (unused)
     expect(out).not.toMatch(/from '@getcronit\/pylon'/) // app import pruned
     // model declaration + its imports + graphql export survive
-    expect(out).toMatch(/@model\(\)/)
     expect(out).toMatch(/class User extends Model/)
+    expect(out).toMatch(/id = id\(\)/)
     expect(out).toMatch(/@getcronit\/pylon\/db/)
     expect(out).toMatch(/export const graphql/)
   })
 
-  it('drops `export default app` (Workers/Bun form)', () => {
+  it('rewrites `export default new Pylon(...)` to a kept binding (Workers/Bun form)', () => {
     const out = prepareModelSource(`
-      import {app} from '@getcronit/pylon'
-      import {Model, model} from '@getcronit/pylon/db'
-      @model() export class A extends Model {}
-      export default app
+      import {Pylon} from '@getcronit/pylon'
+      import {Model} from '@getcronit/pylon/db'
+      export class A extends Model {}
+      export default new Pylon({db: {models: [A]}})
     `)
-    expect(out).not.toMatch(/export default/)
+    expect(out).not.toMatch(/export default/) // rewritten to `export const __pylonEntry`
+    expect(out).toMatch(/__pylonEntry = new Pylon/)
     expect(out).toMatch(/class A extends Model/)
   })
 
   it('drops Deno.serve(...) (Deno form)', () => {
     const out = prepareModelSource(`
       import {app} from '@getcronit/pylon'
-      import {Model, model} from '@getcronit/pylon/db'
-      @model() export class A extends Model {}
+      import {Model} from '@getcronit/pylon/db'
+      export class A extends Model {}
       Deno.serve({port: 3000}, app.fetch)
     `)
     expect(out).not.toMatch(/Deno\.serve/)
@@ -51,9 +51,9 @@ describe('prepareModelSource — strip top-level side effects for model loading'
 
   it('keeps imports still used by surviving declarations', () => {
     const out = prepareModelSource(`
-      import {Model, model, foreignKey} from '@getcronit/pylon/db'
+      import {Model, foreignKey} from '@getcronit/pylon/db'
       import {Other} from './other'
-      @model() export class A extends Model {
+      export class A extends Model {
         otherId = foreignKey(() => Other)
       }
       export const graphql = {Query: {}}

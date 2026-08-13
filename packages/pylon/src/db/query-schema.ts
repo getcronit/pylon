@@ -33,7 +33,7 @@ export type QueryScope = 'public' | 'internal'
  *  operator + raw value. Return `null` (or `{}`) for "no constraint". */
 export type QueryFieldToWhere = (op: QueryOp, value: string) => Record<string, unknown> | null
 
-/** A field declared via `@model({query:{fields}})` — either a re-path/alias or a
+/** A field declared via `static config {query:{fields}}` — either a re-path/alias or a
  *  virtual predicate. Lets a model expose derived/relational filters under a name. */
 export type QueryFieldConfig =
   | {path: string; visibility?: FieldVisibility}
@@ -89,9 +89,9 @@ export interface RelationField {
 
 /** The bare-term search target: FTS, trigram, or the substring fallback. */
 export interface SearchTarget {
-  /** A `@model({search})` tsvector column → FTS (`@@`). */
+  /** A `static config {search}` tsvector column → FTS (`@@`). */
   fts?: {propertyKey: string; language: string}
-  /** Property keys with a `gin_trgm_ops` index (`@model({trigram})`) → index-backed
+  /** Property keys with a `gin_trgm_ops` index (`static config {trigram}`) → index-backed
    *  substring ILIKE. OR-ed with `fts` for mixed prose+identifier models. */
   trigram?: string[]
   /** Property keys of textual columns for the substring fallback (no FTS/trigram). */
@@ -194,7 +194,7 @@ function build(def: ModelDefinition, depth: number): QuerySchema {
     }
   }
 
-  // @model({query:{fields}}) — alias/re-path and virtual/derived fields. These
+  // static config {query:{fields}} — alias/re-path and virtual/derived fields. These
   // override an auto column of the same name (e.g. re-path it through a relation).
   for (const [name, cfg] of Object.entries(def.query?.fields ?? {})) {
     const field: QueryableField =
@@ -227,7 +227,7 @@ function build(def: ModelDefinition, depth: number): QuerySchema {
     byName.set(name, field)
   }
 
-  // `@model({trigram})` columns are stored as column names; resolve to property
+  // `static config {trigram}` columns are stored as column names; resolve to property
   // keys for the bare-term predicate. Only textual columns participate.
   const trigram = (def.trigramColumns ?? [])
     .map(colName => byName.get(colName))

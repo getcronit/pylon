@@ -89,10 +89,9 @@ export async function transpileApp(
     // ones are externalized+rewritten by the plugin above. Net: a 1:1 transpiled mirror.
     external: id => !/^\.\.?(\/|$)/.test(id) && !path.isAbsolute(id),
     platform: 'node',
-    // Read the project's tsconfig so oxc applies `useDefineForClassFields: false`
-    // (the ORM field-builder semantics — `id = id()` must lower to a constructor
-    // assignment, not a class-field define) AND `experimentalDecorators` (legacy
-    // decorators, still used by @model). The tsconfig drives both.
+    // Read the project's tsconfig so oxc applies `useDefineForClassFields: false` — the
+    // ORM field-builder `id = id()` must lower to a constructor assignment, not a
+    // class-field define. The ORM is decorator-free, so no experimentalDecorators.
     tsconfig: true,
     transform: {target: 'node18'},
     plugins: [preserveRelativeWithExt]

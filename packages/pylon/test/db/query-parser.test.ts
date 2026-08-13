@@ -512,7 +512,7 @@ describe('parseSearchQuery', () => {
     })
   })
 
-  // Phase 3: @model({query:{fields, public}}) — aliases, virtual fields, and a
+  // Phase 3: static config {query:{fields, public}} — aliases, virtual fields, and a
   // curated public allowlist.
   describe('virtual fields, aliases & public allowlist (phase 3)', () => {
     const parseCat = (q: string, opts?: Parameters<typeof parseSearchQuery>[2]) =>

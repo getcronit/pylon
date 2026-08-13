@@ -300,8 +300,7 @@ export class SchemaBuilder {
       esModuleInterop: true,
       skipLibCheck: false,
       forceConsistentCasingInFileNames: true,
-      noImplicitAny: true,
-      experimentalDecorators: true
+      noImplicitAny: true
     }
 
     // Find the tsconfig.json file

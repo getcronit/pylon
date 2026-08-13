@@ -1,6 +1,6 @@
 /**
  * Trigram substring search: a `pg_trgm` `gin_trgm_ops` GIN index on existing
- * text columns (`@model({trigram})`), so a `{contains}` (`ILIKE '%x%'`) filter
+ * text columns (`static config {trigram}`), so a `{contains}` (`ILIKE '%x%'`) filter
  * matches a fragment *inside* a token — which FTS (whole-word/prefix) can't —
  * and is index-backed instead of a sequential scan. Postgres-only.
  */

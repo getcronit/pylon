@@ -42,9 +42,10 @@ const schema: PhysicalSchema = {
 describe('generateModelSource', () => {
   const out = generateModelSource(schema)
 
-  it('emits a class per table with @model(table) + manager', () => {
-    expect(out).toMatch(/@model\(\{table: "author"\}\)/)
+  it('emits a decorator-free class per table with static config(table) + manager', () => {
+    expect(out).not.toMatch(/@model\(/) // no decorator — decorator-free path only
     expect(out).toMatch(/export class Author extends Model/)
+    expect(out).toMatch(/static config = \{table: "author"\} satisfies ModelConfig<Author>/)
     expect(out).toMatch(/static objects = manager\(Author\)/)
     expect(out).toMatch(/export class Book extends Model/)
   })

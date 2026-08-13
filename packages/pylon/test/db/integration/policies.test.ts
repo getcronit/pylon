@@ -2,7 +2,7 @@
  * Row-level authorization policies (`definePolicy`) against a real Postgres:
  * read scoping, write/delete authorization (→ ForbiddenError), create gating +
  * owner stamping, relation reads re-scoped by the target's read policy, the
- * `.unscoped()` bypass, and the `@model({secure})` deny-by-default flag.
+ * `.unscoped()` bypass, and the `static config {secure}` deny-by-default flag.
  */
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
@@ -177,7 +177,7 @@ describe.skipIf(!runDb)('row-level policies (Postgres)', () => {
     expect(all.length).toBeGreaterThanOrEqual(3) // sees others' rows
   })
 
-  it('@model({secure}) denies every action with no matching rule', async () => {
+  it('static config {secure} denies every action with no matching rule', async () => {
     // CREATE denied — secure model with no `create` rule fails closed.
     await expect(as({userId: 1}, () => Vault.objects.create({secret: 's'}))).rejects.toBeInstanceOf(
       ForbiddenError

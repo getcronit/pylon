@@ -22,7 +22,7 @@ export class Model {
    * const ada = await User.objects.get({email: 'a@b.c'})
    * ```
    *
-   * The `@model()` decorator assigns a working manager at runtime with no
+   * Registration assigns a working manager at runtime with no
    * boilerplate, but it's typed `Manager<any>`. To get a *typed* manager
    * (`Manager<User>`), declare one explicitly — TypeScript can't infer the
    * instance type for an inherited static property:

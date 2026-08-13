@@ -17,8 +17,10 @@
     "strict": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
-    "experimentalDecorators": true,
-    "useDefineForClassFields": false,
-    "emitDecoratorMetadata": true
+    // Field-builder models (`id = id()`) rely on class-field *initializers* running
+    // (they seed defaults / harvest schema through the model proxy), so class fields
+    // must NOT be hoisted to `defineProperty` semantics. No `experimentalDecorators`:
+    // the ORM is decorator-free (`class X extends Model` + `static config`/field builders).
+    "useDefineForClassFields": false
   }
 }

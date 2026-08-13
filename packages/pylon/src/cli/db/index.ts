@@ -1,8 +1,8 @@
 /**
  * `pylon db` — schema migrations driven by the ORM's IR.
  *
- * The crux is loading the user's models so their `@model()` decorators populate
- * the registry, then driving the migration runner on the SAME
+ * The crux is loading the user's models so constructing their `new Pylon({db: {models}})`
+ * populates the registry, then driving the migration runner on the SAME
  * `@getcronit/pylon/db` instance the models registered into. We do this
  * in-process: bundle the models entry to a temp ESM file *inside the project*
  * (so its bare imports resolve against the project's node_modules), import it,
@@ -29,14 +29,15 @@ function createMigrationLoader(cwd: string) {
   return async function loadMigrationFile(filePath: string): Promise<unknown> {
     const stem = path.join(cwd, `.pylon-migration.${process.pid}.${migrationCounter++}`)
     const tmp = `${stem}.mjs`
-    // rolldown has no inline `tsconfigRaw`; write a temp tsconfig to FORCE the ORM
-    // flags (matches esbuild's tsconfigRaw). `tsconfig` applies globally, so it works
-    // even when the migration file lives outside the project (e.g. a tmpdir in tests).
+    // rolldown has no inline `tsconfigRaw`; write a temp tsconfig to FORCE
+    // `useDefineForClassFields: false` (field-builder initializers must run as
+    // assignments the model proxy can harvest). `tsconfig` applies globally, so it
+    // works even when the migration file lives in a tmpdir. The ORM is decorator-free.
     const tsconfig = `${stem}.tsconfig.json`
     await fs.writeFile(
       tsconfig,
       JSON.stringify({
-        compilerOptions: {experimentalDecorators: true, useDefineForClassFields: false}
+        compilerOptions: {useDefineForClassFields: false}
       })
     )
     try {

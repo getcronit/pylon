@@ -221,8 +221,8 @@ export type ModelAbilitiesFn<T = any> = (
  * Wire a model's CO-LOCATED `static abilities(p, can, cannot)` into the resource-authz
  * machinery, with the subject pre-bound to that model. Equivalent to `defineAbilities`
  * scoped to one class — so a model governs itself with no `{subjects}` footgun (the
- * subject is implicit, and the class is always registered as governed). Called by the
- * `@model()` decorator when a `static abilities` is present.
+ * subject is implicit, and the class is always registered as governed). Called during
+ * model finalization when a `static abilities` is present.
  */
 export function registerModelAbilities(Ctor: ModelCtor<any>, fn: ModelAbilitiesFn): void {
   defineAbilities(

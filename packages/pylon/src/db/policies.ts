@@ -23,7 +23,7 @@
  *   server-owned columns (e.g. ownerId) so they're never trusted from input.
  *
  * A rule returning a `WhereInput<T>` scopes; `true` allows all; `false` denies
- * all. With `@model({secure: true})`, an action with NO rule denies (fail
+ * all. With `static config = {secure: true}`, an action with NO rule denies (fail
  * closed); otherwise an action with no rule is unrestricted.
  */
 import {currentFeatures, getAppContext} from './app-context.js'

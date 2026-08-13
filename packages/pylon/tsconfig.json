@@ -19,7 +19,6 @@
     "strict": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
-    "experimentalDecorators": true,
     "rootDir": "./src",
     "outDir": "./dist",
     // No `baseUrl` (deprecated → removed in TS 7.0): `paths` are resolved relative to
