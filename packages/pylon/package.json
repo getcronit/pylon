@@ -75,7 +75,7 @@
     "test:integration:queues": "PYLON_QUEUES_IT=1 vitest run test/queues/integration",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down -v",
-    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json && tsc --noEmit -p test/tsconfig.json"
   },
   "files": [
     "dist",
