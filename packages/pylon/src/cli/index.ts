@@ -6,7 +6,7 @@ import path from 'node:path'
 import chokidar from 'chokidar'
 import consola from 'consola'
 import dotenv from 'dotenv'
-import {version} from '../package.json'
+import {version} from '../../package.json'
 import {
   analytics,
   dependencies,

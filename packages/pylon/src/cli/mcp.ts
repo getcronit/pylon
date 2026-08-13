@@ -18,7 +18,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema
 } from '@modelcontextprotocol/sdk/types.js'
-import {version} from '../package.json'
+import {version} from '../../package.json'
 
 /** Post-bundle this file IS dist/index.js — so it's also the CLI we re-invoke. */
 const CLI = fileURLToPath(import.meta.url)
