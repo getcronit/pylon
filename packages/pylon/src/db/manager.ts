@@ -949,7 +949,7 @@ export class QuerySet<T extends object> {
       : this.def.columns.find(c => c.sqlType === 'tsvector')
     if (!ftsCol) {
       throw new Error(
-        `${this.def.tableName}: .search() needs a tsvector column (see @model({search})).`
+        `${this.def.tableName}: .search() needs a tsvector column (see static config = {search}).`
       )
     }
     const language = options.language ?? ftsCol.ftsLanguage ?? 'english'
