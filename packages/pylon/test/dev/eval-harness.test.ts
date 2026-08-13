@@ -13,8 +13,8 @@ import {afterAll, describe, expect, it} from 'vitest'
 import {runEval, type AgentRunner, type RunContext, type RunResult} from '@/cli/eval/index.js'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
-const repoRoot = path.resolve(dir, '../../..')
-const cliPath = path.join(repoRoot, 'packages/pylon-dev/dist/index.js')
+const repoRoot = path.resolve(dir, '../../../..')
+const cliPath = path.join(repoRoot, 'packages/pylon/dist/cli/index.js')
 const base = path.join(repoRoot, 'e2e/fixtures/mcp-demo-app')
 const runsDir = path.join(repoRoot, 'e2e/fixtures/.eval-runs')
 

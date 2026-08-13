@@ -23,7 +23,7 @@ describe('prepareModelSource — strip top-level side effects for model loading'
     // model declaration + its imports + graphql export survive
     expect(out).toMatch(/@model\(\)/)
     expect(out).toMatch(/class User extends Model/)
-    expect(out).toMatch(/@getcronit\/pylon-db/)
+    expect(out).toMatch(/@getcronit\/pylon\/db/)
     expect(out).toMatch(/export const graphql/)
   })
 

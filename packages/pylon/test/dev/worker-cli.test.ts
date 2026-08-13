@@ -1,6 +1,6 @@
 /**
  * `pylon worker` end-to-end: run a worker entry UNBUNDLED via the loader.
- * Uses the actual built CLI (`dist/index.js`) so the command wiring (default tsx
+ * Uses the actual built CLI (`dist/cli/index.js`) so the command wiring (default tsx
  * loader command) and child-process spawn are exercised — no Redis needed (the
  * trivial entry just prints a marker and exits).
  */
@@ -12,7 +12,7 @@ import {fileURLToPath} from 'node:url'
 import {afterEach, beforeEach, describe, expect, it} from 'vitest'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
-const cli = path.resolve(dir, '..', 'dist', 'index.js')
+const cli = path.resolve(dir, '..', '..', 'dist', 'cli', 'index.js')
 
 function run(
   args: string[],
