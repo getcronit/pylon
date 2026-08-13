@@ -229,8 +229,25 @@ is emitted correctly. Three gaps surfaced:
 
 **Verdict:** keep `build.js` on esbuild for now (behind the seam). Revisit rolldown
 when #3 is addressable (upstream fix, or restructuring so core is never browser-
-reachable — which the boundary guard below would also enforce). rolldown stays a
-devDep as the tracked direction.
+reachable — which the boundary guard below would also enforce).
+
+### Ported to rolldown — `build-client` + `transpile-app` (DONE)
+
+These two don't bundle pylon's core, so gap #3 doesn't apply. Both migrated cleanly:
+
+- **`build-client`** — single-entry bundle of the generated typed client (deps + the
+  `@getcronit/pylon/query` self-ref external). No `@oxc-project/runtime` leak.
+- **`transpile-app`** — the 1:1 transpile-mirror, via a `resolveId` hook that
+  externalizes + rewrites relative specifiers (`./x → ./x.js`). Reads the project
+  tsconfig (`tsconfig: true`) so oxc applies `useDefineForClassFields: false`
+  (VERIFIED: `id = id()` lowers to a constructor assignment — the ORM field-builder
+  semantics) and `experimentalDecorators` (legacy `@model`). Docs built end-to-end;
+  the server boots + serves 200.
+
+rolldown is now a runtime **dependency** (the CLI uses it at user build-time). esbuild
+still backs `build.js`, the usePages page build, and `cli/db` — both bundlers coexist,
+exactly what the seam allows. Remaining rolldown targets: the usePages page build
+(the ~7 esbuild plugins) and `cli/db`; `build.js` blocked on #3.
 
 ### Adjacent: enforce the self-ref boundary
 
