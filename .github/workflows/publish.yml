@@ -31,6 +31,13 @@ jobs:
     name: Release
     if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
+    # Deployment-gated: this job runs (and can `npm publish`) only after a required
+    # reviewer approves it in the `release` Environment. Configure the gate in
+    # Settings → Environments → release → "Required reviewers" (nothing here runs
+    # until you do — until then GitHub auto-creates the env with no protection, so
+    # ADD the reviewers). The OIDC id-token also carries an `environment: release`
+    # claim, so you can additionally scope the npm Trusted Publisher to it.
+    environment: release
     permissions:
       contents: write # changesets/action opens the Version Packages PR + pushes tags
       pull-requests: write # ...and manages that release PR
