@@ -1,4 +1,4 @@
-import {Plugin} from 'esbuild'
+import {Plugin, OnLoadResult} from 'esbuild'
 import * as fs from 'fs'
 import {buildSchema, GraphQLSchema} from 'graphql'
 import path from 'path'
@@ -551,9 +551,16 @@ export interface UseDataStaticAnalyzerOptions {
   scalarTypes?: Record<string, string>
 }
 
-export function useDataStaticAnalyzer(
-  options: UseDataStaticAnalyzerOptions = {}
-): Plugin {
+/**
+ * Bundler-agnostic core of the useData static analyzer. Holds the ts-morph project +
+ * schema + manager and exposes `start()` / `addEntries()` / `transform()`. Wrapped by
+ * a thin esbuild adapter (below) and a rolldown adapter (in the page build) so the
+ * same analysis logic backs both bundlers. `transform` returns an esbuild-onLoad-shaped
+ * result ({contents, loader, watchFiles, warnings} | null); adapters map as needed.
+ */
+export function createUseDataAnalyzerCore(
+  options: UseDataStaticAnalyzerOptions & {tsConfigFilePath?: string} = {}
+) {
   const {
     filter = /\.(ts|tsx)$/,
     pylonPackage = '@getcronit/pylon/pages',
@@ -574,50 +581,29 @@ export function useDataStaticAnalyzer(
     }
   }
 
-  return {
-    name: 'pylon-use-data-static-analyzer',
-    async setup(build) {
-      // Resolve the schema once per build session (re-read on each build start
-      // so dev-loop schema changes are picked up).
-      let schema: GraphQLSchema | undefined = loadSchema()
-      const manager =
-        options.manager ||
-        new StaticAnalysisManager({
-          tsConfigFilePath: build.initialOptions.tsconfig
-        })
-      const project = manager.getProject()
+  // Resolve the schema once per build session (re-read on each `start()` so
+  // dev-loop schema changes are picked up).
+  let schema: GraphQLSchema | undefined = loadSchema()
+  const manager =
+    options.manager ||
+    new StaticAnalysisManager({tsConfigFilePath: options.tsConfigFilePath})
+  const project = manager.getProject()
 
-      build.onStart(() => {
-        manager.resetSession()
-        clearAnalyzeCache() // Flushes internal analyze memoization
-        // Re-read the schema each build so dev-loop schema changes take effect.
-        schema = loadSchema()
-      })
+  const start = () => {
+    manager.resetSession()
+    clearAnalyzeCache() // Flushes internal analyze memoization
+    schema = loadSchema()
+  }
 
-      const entries = build.initialOptions.entryPoints
-      if (entries) {
-        const entryPaths: string[] = []
-        if (Array.isArray(entries)) {
-          for (const entry of entries) {
-            entryPaths.push(
-              typeof entry === 'string' ? entry : (entry as any).in
-            )
-          }
-        } else if (entries && typeof entries === 'object') {
-          for (const key in entries) {
-            entryPaths.push((entries as any)[key])
-          }
-        }
+  const addEntries = (entryPaths: string[]) => {
+    if (entryPaths.length > 0) {
+      project.addSourceFilesAtPaths(entryPaths)
+      // The TS compiler will only parse when asked now.
+      project.resolveSourceFileDependencies()
+    }
+  }
 
-        if (entryPaths.length > 0) {
-          project.addSourceFilesAtPaths(entryPaths)
-          // We can leave this, but the TS compiler will only parse when asked now.
-          project.resolveSourceFileDependencies()
-        }
-      }
-
-      build.onLoad({filter}, async args => {
-        const contents = await fs.promises.readFile(args.path, 'utf8')
+  const transform = async (args: {path: string}, contents: string) => {
 
         const cached = manager.getCachedResult(args.path, contents)
         if (cached) {
@@ -1046,6 +1032,44 @@ export function useDataStaticAnalyzer(
           console.error(`[Pylon] Error analyzing ${args.path}:`, err)
           return null
         }
+  }
+
+  return {filter, manager, project, start, addEntries, transform}
+}
+
+/** Extract entry file paths from esbuild's `entryPoints` (array or record). */
+function extractEntryPaths(
+  entries: import('esbuild').BuildOptions['entryPoints']
+): string[] {
+  if (!entries) return []
+  const out: string[] = []
+  if (Array.isArray(entries)) {
+    for (const entry of entries)
+      out.push(typeof entry === 'string' ? entry : (entry as any).in)
+  } else if (typeof entries === 'object') {
+    for (const key in entries) out.push((entries as any)[key])
+  }
+  return out
+}
+
+/** esbuild adapter — thin wrapper over the bundler-agnostic core. */
+export function useDataStaticAnalyzer(
+  options: UseDataStaticAnalyzerOptions = {}
+): Plugin {
+  return {
+    name: 'pylon-use-data-static-analyzer',
+    async setup(build) {
+      const core = createUseDataAnalyzerCore({
+        ...options,
+        tsConfigFilePath: options.manager ? undefined : build.initialOptions.tsconfig
+      })
+      build.onStart(() => core.start())
+      core.addEntries(extractEntryPaths(build.initialOptions.entryPoints))
+      build.onLoad({filter: core.filter}, async args => {
+        const contents = await fs.promises.readFile(args.path, 'utf8')
+        // The core returns the esbuild-onLoad shape; cast to esbuild's exact enum
+        // types (loader/warnings) at this adapter boundary.
+        return (await core.transform(args, contents)) as OnLoadResult | null
       })
     }
   }
