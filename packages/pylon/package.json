@@ -129,6 +129,7 @@
     "openid-client": "^6.1.7",
     "pg": "^8.13.1",
     "postcss-load-config": "^6.0.1",
+    "postcss-value-parser": "^4.2.0",
     "posthog-node": "^4.10.1",
     "react-router": "^7.1.5",
     "sharp": "^0.33.5",

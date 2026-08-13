@@ -1,6 +1,7 @@
 import {createHash} from 'crypto'
 import fs from 'fs/promises'
 import path from 'path'
+import valueParser from 'postcss-value-parser'
 import type {Plugin as RolldownPlugin} from 'rolldown'
 
 /**
@@ -14,11 +15,10 @@ import type {Plugin as RolldownPlugin} from 'rolldown'
  * orchestrator then concatenates the collected CSS into a single hashed
  * `app.css` after the JS bundle is written.
  *
- * Known limitation vs the old esbuild pipeline: `url()` references inside CSS
- * are NOT resolved/copied (there's no CSS-aware bundler to walk them). Tailwind
- * v4 output doesn't emit local `url()`s, so this is a no-op for the common case;
- * apps with `@font-face { src: url('./local.woff') }` would need those assets
- * copied manually. Revisit if/when rolldown restores CSS support.
+ * `url()` references inside CSS (fonts, background images) are resolved, copied
+ * into the static assets dir, and rewritten to their public URL by the
+ * `pylonCssAssets` PostCSS plugin (see `processCssFile`) — the CSS-aware step the
+ * removed bundler used to do.
  */
 
 const CSS_FILTER = /\.css$/
@@ -29,6 +29,115 @@ function shortHash(input: string | Buffer): string {
   return createHash('sha256').update(input).digest('hex').slice(0, 8)
 }
 
+/** Where CSS-referenced assets are emitted and how they're addressed at runtime. */
+export interface CssAssetOptions {
+  /** Static output root; assets are written under `<outputDir>/assets/`. */
+  outputDir: string
+  /** Public URL prefix the CSS should reference assets by (e.g. `/__pylon/static`). */
+  publicPath: string
+}
+
+/** url() refs we never rewrite: inline data, remote, or already-absolute URLs. */
+function isExternalOrInlineUrl(ref: string): boolean {
+  return (
+    ref === '' ||
+    ref.startsWith('data:') ||
+    ref.startsWith('http://') ||
+    ref.startsWith('https://') ||
+    ref.startsWith('//') ||
+    ref.startsWith('/') || // already an absolute public URL
+    ref.startsWith('#') // in-document fragment (e.g. an SVG mask/gradient ref)
+  )
+}
+
+/**
+ * PostCSS plugin: resolve relative `url()` refs, copy each asset to
+ * `<outputDir>/assets/<name>-<hash><ext>`, and rewrite the url() to
+ * `<publicPath>/assets/<name>-<hash><ext>` (preserving any `?query`/`#hash`).
+ *
+ * Runs LAST in the chain so it sees the final CSS after any `@import` inliner.
+ * Resolution is inliner-agnostic: Tailwind v4 rebases url()s to be ENTRY-relative
+ * yet keeps a node's `source` as the ORIGINAL file, while postcss-import keeps
+ * url()s original-relative. So we try the node's source dir AND the entry dir and
+ * use whichever candidate file actually exists (verified via build spikes).
+ * Missing files are left untouched with a warning — never fail the build.
+ */
+function pylonCssAssets(opts: CssAssetOptions & {entryFile: string}) {
+  const assetsDir = path.join(opts.outputDir, 'assets')
+  const cache = new Map<string, string>() // resolved abs path -> public url (no suffix)
+
+  const resolveExisting = async (
+    ref: string,
+    sourceFile: string
+  ): Promise<string | null> => {
+    const bases = [path.dirname(sourceFile), path.dirname(opts.entryFile)]
+    for (const base of bases) {
+      const abs = path.resolve(base, ref)
+      try {
+        await fs.access(abs)
+        return abs
+      } catch {
+        /* try next base */
+      }
+    }
+    return null
+  }
+
+  const emit = async (absPath: string): Promise<string> => {
+    const cached = cache.get(absPath)
+    if (cached) return cached
+    const buf = await fs.readFile(absPath)
+    const ext = path.extname(absPath)
+    const outName = `${path.basename(absPath, ext)}-${shortHash(buf)}${ext}`
+    await fs.mkdir(assetsDir, {recursive: true})
+    await fs.writeFile(path.join(assetsDir, outName), buf)
+    const url = `${opts.publicPath}/assets/${outName}`
+    cache.set(absPath, url)
+    return url
+  }
+
+  return {
+    postcssPlugin: 'pylon-css-assets',
+    async Declaration(decl: any) {
+      if (!decl.value || !decl.value.includes('url(')) return
+      const parsed = valueParser(decl.value)
+
+      // Collect url() argument nodes synchronously (walk is sync), rewrite async.
+      const args: any[] = []
+      parsed.walk((node: any) => {
+        if (node.type === 'function' && node.value.toLowerCase() === 'url') {
+          const arg = node.nodes.find(
+            (n: any) => n.type === 'string' || n.type === 'word'
+          )
+          if (arg) args.push(arg)
+          return false // don't descend into the url()'s arguments
+        }
+        return undefined
+      })
+
+      let changed = false
+      for (const arg of args) {
+        const ref: string = arg.value
+        if (isExternalOrInlineUrl(ref)) continue
+        const marker = ref.search(/[?#]/)
+        const pathPart = marker === -1 ? ref : ref.slice(0, marker)
+        const suffix = marker === -1 ? '' : ref.slice(marker)
+        const sourceFile = decl.source?.input?.file ?? opts.entryFile
+        const abs = await resolveExisting(pathPart, sourceFile)
+        if (!abs) {
+          console.warn(
+            `[Pylon] CSS asset not found: url(${ref}) (from ${sourceFile})`
+          )
+          continue
+        }
+        arg.value = (await emit(abs)) + suffix
+        changed = true
+      }
+      if (changed) decl.value = parsed.toString()
+    }
+  }
+}
+
 /**
  * Run a CSS file through the project's PostCSS config (Tailwind etc.). Falls
  * back to the raw file contents when no PostCSS config is present — the old
@@ -36,20 +145,28 @@ function shortHash(input: string | Buffer): string {
  * apps without a config; treating "no config" as "no transform" is strictly
  * more forgiving.
  */
-export async function processCssFile(filePath: string): Promise<string> {
+export async function processCssFile(
+  filePath: string,
+  assetOpts?: CssAssetOptions
+): Promise<string> {
   const css = await fs.readFile(filePath, 'utf8')
 
-  let plugins: any[] | undefined
-  let options: any
+  let userPlugins: any[] = []
+  let options: any = {}
   try {
     const loadConfig = (await import('postcss-load-config')).default
     const config = await loadConfig({}, path.dirname(filePath))
-    plugins = config.plugins as any[]
-    options = config.options
+    userPlugins = (config.plugins as any[]) ?? []
+    options = config.options ?? {}
   } catch {
-    // No PostCSS config discoverable — pass the CSS through untouched.
-    return css
+    // No PostCSS config discoverable — run with just our asset plugin (if any).
   }
+
+  const plugins = [...userPlugins]
+  // Append LAST so it sees the CSS after the user's @import inliner (Tailwind).
+  if (assetOpts) plugins.push(pylonCssAssets({...assetOpts, entryFile: filePath}))
+
+  if (plugins.length === 0) return css // nothing to do — pass through untouched
 
   const postcss = (await import('postcss')).default
   const result = await postcss(plugins).process(css, {...options, from: filePath})
@@ -63,7 +180,8 @@ export async function processCssFile(filePath: string): Promise<string> {
  * removed-CSS-bundling error.
  */
 export function cssCollectPlugin(
-  collected: Map<string, string>
+  collected: Map<string, string>,
+  assetOpts?: CssAssetOptions
 ): RolldownPlugin {
   return {
     name: 'pylon-css-collect',
@@ -71,7 +189,7 @@ export function cssCollectPlugin(
       filter: {id: CSS_FILTER},
       async handler(id) {
         if (!collected.has(id)) {
-          collected.set(id, await processCssFile(id))
+          collected.set(id, await processCssFile(id, assetOpts))
         }
         return {code: 'export default {}', moduleType: 'js', map: null}
       }

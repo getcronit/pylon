@@ -121,7 +121,10 @@ export const build = async (
           entryPaths: [appTsxAbs],
           scalarTypes
         }),
-        cssCollectPlugin(collectedCss),
+        cssCollectPlugin(collectedCss, {
+          outputDir: DIST_STATIC_DIR,
+          publicPath: PUBLIC_PATH
+        }),
         imagePlugin({mediaDir: path.join(DIST_STATIC_DIR, 'media'), publicPath: PUBLIC_PATH}),
         assetFilePlugin(PUBLIC_PATH)
       ]
@@ -202,8 +205,11 @@ export const build = async (
       }
     }
 
-    // Framework base stylesheet — already fully built, just copy (hashed).
-    const indexCss = await processCssFile(pylonCssPath)
+    // Framework base stylesheet — resolve any url() assets it references too.
+    const indexCss = await processCssFile(pylonCssPath, {
+      outputDir: DIST_STATIC_DIR,
+      publicPath: PUBLIC_PATH
+    })
     const indexName = `index-${hashCss(indexCss)}.css`
     await updateFileIfChanged(
       path.join(DIST_STATIC_DIR, indexName),
