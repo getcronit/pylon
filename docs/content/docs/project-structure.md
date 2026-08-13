@@ -84,9 +84,11 @@ dependency order. See [Migrations](/docs/data/migrations).
 
 ### `.pylon/` — generated output
 
-The build directory: `index.js` (the bundled server), `schema.graphql` (the
-derived schema), and `client/` (the typed query client). It's regenerated on every
-build and should be git-ignored — never edit it by hand.
+The build directory. Pylon does **not** bundle your server into a single file — it
+emits `server.mjs` (an unbundled entry that imports your app, mounts the GraphQL
+handler and plugins, and serves), `schema.graphql` (the derived schema), `client/`
+(the typed query client), and, from `pylon build`, `src/` (your transpiled source).
+It's regenerated on every build and should be git-ignored — never edit it by hand.
 
 ## Conventions
 

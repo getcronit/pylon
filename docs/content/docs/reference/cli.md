@@ -17,12 +17,12 @@ Live-reload is served over SSE on `PORT + 1`.
 
 ```bash
 pylon dev
-pylon dev -c "node --enable-source-maps .pylon/index.js"
+pylon dev -c "bun run .pylon/server.mjs"
 ```
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `-c, --command <cmd>` | `bun run .pylon/index.js` | Command that runs the built app (varies by runtime; set for you in new projects) |
+| `-c, --command <cmd>` | runs `.pylon/server.mjs` through the built-in tsx loader | Command that runs the app in dev. On Node, omit it and use the default; new projects set it per runtime (e.g. `bun run .pylon/server.mjs`, `deno run -A --unstable-sloppy-imports .pylon/server.mjs`, `wrangler dev`). |
 
 On each change `dev` rebuilds the server, regenerates the typed client **only when
 the schema changes**, rebuilds the page bundles, and restarts — a failed build
@@ -31,21 +31,23 @@ leaves the last good server running. See [The Pylon App](/docs/core-concepts/the
 ## pylon build
 
 Compile the project once into `./.pylon` (no watch). Use this in CI and image
-builds. The build runs in order: server bundle → generated client (when the schema
-changed) → page bundles.
+builds. The build runs in order: server glue + transpiled source → generated client
+(when the schema changed) → page bundles.
 
 ```bash
 pylon build
 ```
 
-The output is self-contained; run it with the command your serve plugin expects
-(for example `node .pylon/index.js`). See [Deployment](/docs/production/deployment).
+The output is **unbundled** — run `.pylon/server.mjs` with the command your serve
+plugin expects (for example `node .pylon/server.mjs`), alongside your production
+`node_modules`. See [Deployment](/docs/production/deployment).
 
 ## pylon worker
 
-Bundle and run a [queue worker](/docs/queues/overview). The worker entry imports
-your app to register queues and processors, then starts the workers and drains the
-outbox.
+Run a [queue worker](/docs/queues/overview). By default it runs `./src/worker.ts`
+unbundled through the loader; the worker entry imports your app to register queues
+and processors, then starts the workers and drains the outbox. Pass `-o` to emit a
+bundle instead.
 
 ```bash
 pylon worker
@@ -54,9 +56,9 @@ pylon worker -e ./src/worker.ts -o ./.pylon/worker.js
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `-e, --entry <path>` | `./src/worker.ts` | Worker entry to bundle |
-| `-o, --output <path>` | `./.pylon/worker.js` | Bundle output path |
-| `-c, --command <cmd>` | runtime default | Command that runs the bundle |
+| `-e, --entry <path>` | `./src/worker.ts` | Worker entry to run |
+| `-o, --output <path>` | _(none)_ | If set, bundle the worker to this path instead of running unbundled |
+| `-c, --command <cmd>` | runtime default | Command that runs the worker |
 
 Run it alongside your app — same image, different command.
 

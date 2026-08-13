@@ -254,7 +254,7 @@ runOutboxRelay()
 ```
 
 ```bash
-pylon worker   # bundles and runs ./src/worker.ts
+pylon worker   # runs ./src/worker.ts (unbundled, via the loader)
 ```
 
 Run it alongside your app — same image, different command. See

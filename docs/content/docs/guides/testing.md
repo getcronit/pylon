@@ -139,7 +139,7 @@ HTTP routes (health checks, webhooks) are tested the same way — `app.fetch` a
 `app.fetch` runs the GraphQL handler and your routes, but **not** a `'last'`-
 strategy serve plugin — that only starts the listener. For e2e tests you don't
 need a real port; fetch the app instance directly. To test against a built
-artifact instead, run `pylon build` and import `./.pylon/index.js`.
+artifact instead, run `pylon build` and import `./.pylon/server.mjs`.
 :::
 
 ## A note on what to mock

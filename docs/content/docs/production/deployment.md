@@ -1,15 +1,17 @@
 ---
 title: Deployment
 nav: Deployment
-description: Build a self-contained bundle with pylon build, apply migrations, and ship the app and worker together.
+description: Build your app with pylon build, apply migrations, and ship the app and worker together.
 section: Production
 order: 1
 ---
 
 `pylon build` compiles your whole project — resolvers, schema, generated client —
-into a self-contained bundle under `./.pylon`. Deploying is then a matter of
-running that bundle with your runtime's command, applying database migrations, and
-running the [worker](/docs/queues/overview) process alongside the app.
+into `./.pylon`. The output is **unbundled**: it imports your dependencies at
+runtime, so you ship `.pylon` together with a production `node_modules` (the
+Dockerfile below copies both). Deploying is then a matter of running it with your
+runtime's command, applying database migrations, and running the
+[worker](/docs/queues/overview) process alongside the app.
 
 ## Build
 
@@ -17,20 +19,21 @@ running the [worker](/docs/queues/overview) process alongside the app.
 pylon build
 ```
 
-The build emits everything needed to run, with no source dependency:
+The build emits everything needed to run (alongside your `node_modules`):
 
 | File | What it is |
 |---|---|
-| `.pylon/index.js` | The runnable app — resolvers, plugins, and serving |
+| `.pylon/server.mjs` | The runnable entry — imports your app, mounts the GraphQL handler + plugins, and serves |
+| `.pylon/src/` | Your transpiled source, so the original `src/` isn't shipped |
 | `.pylon/schema.graphql` | The compiled GraphQL schema (SDL) |
-| Generated client | The typed query client, derived from the schema |
+| `.pylon/client/` | The typed query client, derived from the schema |
 
-Run the bundle with whichever runtime you targeted in
+Run it with whichever runtime you targeted in
 [runtimes](/docs/production/runtimes):
 
 ```bash
-node .pylon/index.js        # Node.js
-bun run .pylon/index.js     # Bun
+node .pylon/server.mjs        # Node.js
+bun run .pylon/server.mjs     # Bun
 wrangler deploy             # Cloudflare Workers
 ```
 
@@ -49,7 +52,7 @@ plugins. The common variables:
 PORT=8080 \
 DATABASE_URL=postgres://… \
 REDIS_URL=redis://… \
-node .pylon/index.js
+node .pylon/server.mjs
 ```
 
 ## Database migrations
@@ -88,7 +91,7 @@ COPY --from=build /app/.pylon ./.pylon
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./
 EXPOSE 3000
-CMD ["node", ".pylon/index.js"]
+CMD ["node", ".pylon/server.mjs"]
 ```
 
 ## Run the worker alongside the app
@@ -101,7 +104,7 @@ the outbox:
 services:
   app:
     image: my-pylon-app
-    command: node .pylon/index.js
+    command: node .pylon/server.mjs
     environment: [DATABASE_URL, REDIS_URL, PORT]
     ports: ['3000:3000']
 

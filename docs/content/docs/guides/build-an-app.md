@@ -213,8 +213,9 @@ pylon db migrate     # apply pending migrations to DATABASE_URL
 pylon build          # compile the server, client, and pages into ./.pylon
 ```
 
-`pylon build` produces a self-contained bundle you can run with the same serve
-plugin. In production, apply migrations with `pylon db deploy` — it refuses to run
+`pylon build` produces the runnable app under `./.pylon` (unbundled — shipped with
+your `node_modules`) that you run with the same serve plugin. In production, apply
+migrations with `pylon db deploy` — it refuses to run
 if the models contain changes no migration has captured. See
 [Migrations](/docs/data/migrations) and [Deployment](/docs/production/deployment).
 

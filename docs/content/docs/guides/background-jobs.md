@@ -140,7 +140,7 @@ runOutboxRelay()
 ```
 
 ```bash
-pylon worker   # bundles and runs ./src/worker.ts
+pylon worker   # runs ./src/worker.ts (unbundled, via the loader)
 ```
 
 `runOutboxRelay()` moves committed outbox rows to the queue. The user row and the

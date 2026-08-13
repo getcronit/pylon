@@ -80,14 +80,15 @@ and [Apps](/docs/apps/overview).
 Pylon does its work in two clearly separated phases.
 
 **Build** is mostly static. The compiler uses the TypeScript type-checker to
-introspect your entry, derives the GraphQL schema, validates it, bundles your
-server into `.pylon/index.js`, and generates a typed query client from the schema
+introspect your entry, derives the GraphQL schema, validates it, emits the runtime
+glue — an unbundled server entry (`.pylon/server.mjs`) that imports your app
+alongside the derived schema — and generates a typed query client from the schema
 into `.pylon/client`. When the ORM is present, its model definitions contribute a
 richer intermediate representation (precise column types, relations, hidden
 fields) that's merged into the schema. The build never touches your database or
 network — it's pure type-introspection plus runtime-agnostic model loading.
 
-**Run** is your app serving traffic. The generated bundle boots the GraphQL
+**Run** is your app serving traffic. The generated server entry boots the GraphQL
 handler and your plugins. Notably, **Pylon does not serve for you** — your app
 owns serving through a small `strategy: 'last'` plugin in `pylon.config.ts` that
 calls the host runtime's `serve()`. That keeps Pylon portable across Node.js,

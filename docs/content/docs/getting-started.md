@@ -115,7 +115,7 @@ pylon db push        # sync your models to the database (great for dev)
 ## Build for production
 
 ```bash title="Terminal"
-pylon build          # → ./.pylon (server bundle, schema, generated client)
+pylon build          # → ./.pylon (server entry, schema, generated client)
 npm start            # run the built app
 ```
 

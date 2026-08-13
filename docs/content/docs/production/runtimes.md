@@ -94,7 +94,7 @@ export default app // Workers calls app.fetch(request, env, ctx)
 
 ```toml title="wrangler.toml"
 name = "my-pylon-app"
-main = ".pylon/index.js"
+main = ".pylon/server.mjs"
 compatibility_flags = ["nodejs_compat"]
 ```
 
@@ -139,4 +139,4 @@ plugin list — you'll race the route registration.
 :::
 
 Once you've chosen a runtime, see [deployment](/docs/production/deployment) for
-building and shipping the bundle.
+building and shipping the app.

@@ -31,7 +31,7 @@ export default {
 ```
 
 ```bash
-SENTRY_DSN=https://…@o0.ingest.sentry.io/0 node .pylon/index.js
+SENTRY_DSN=https://…@o0.ingest.sentry.io/0 node .pylon/server.mjs
 ```
 
 That's the whole setup. With the DSN present the plugin activates; without it, it's
