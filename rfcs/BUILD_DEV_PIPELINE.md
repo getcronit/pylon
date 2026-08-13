@@ -255,13 +255,20 @@ bundlers coexist, exactly what the seam allows.
 
 **Status:** ported — `build-client`, `transpile-app`, `cli/db`. Still on esbuild:
 - `build.js` — blocked on gap #3 (node:module hoisted into core → browser break).
-- **usePages page build** — DEFERRED. It's the largest target (client+server watch
-  contexts + ~7 esbuild plugins: postcss, image, external-esm, inject-app-hydration,
-  use-data-static-analyzer, buildAppFile, writeOnEnd) and leans on the exact
-  rolldown-1.2.4 gaps that bit `build.js`: CSS bundling removed (workable via the
-  asset-emit trick), oxc runtime-helper injection into the JSX output, and
-  tree-shaking differences. Best done as its own effort once rolldown's CSS story
-  returns; until then it stays on esbuild behind the seam.
+- **usePages page build** — DEFERRED (spiked, evidence-based). It's the largest,
+  most esbuild-coupled site: client+server watch contexts + ~7 plugins. Spike results:
+  - JSX is CLEAN under rolldown (`jsx:'react-jsx'`) — no `@oxc-project/runtime` leak
+    into the browser bundle (the build.js leak was a tagged-template helper in core,
+    not JSX). Splitting, externals, `define`, and rebuilding the manifest from
+    rolldown's output are all feasible.
+  - Blockers that make it not worth porting at 1.2.4: (a) `use-data-static-analyzer`
+    is **~4,300 LOC** of esbuild `onLoad` to re-home onto rolldown hooks; (b) the
+    output pipeline uses `metafile` + **`cssBundle`** linkage + `write:false`/
+    `outputFiles` for the manifest, and **`cssBundle` has no rolldown equivalent**
+    (CSS bundling removed); (c) it's the most CSS/asset-heavy build (PostCSS, CSS
+    code-splitting, font/svg file-loaders) — leaning hardest on rolldown's weakest
+    area. Trigger to revisit: rolldown's CSS support returning (removes the asset-emit
+    workaround AND the `cssBundle` gap). Until then it stays on esbuild behind the seam.
 
 ### Adjacent: enforce the self-ref boundary
 
