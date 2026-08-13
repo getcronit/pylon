@@ -46,7 +46,7 @@ beforeAll(async () => {
   })
   if (buildResult.status === 0) {
     schema = buildSchema(await fs.readFile(path.join(pylonDir, 'schema.graphql'), 'utf8'))
-    config = (await import(pathToFileURL(path.join(pylonDir, 'config.js')).href)).config
+    config = (await import(pathToFileURL(path.join(pylonDir, 'pylon.config.js')).href)).config
   }
 }, 180_000)
 
@@ -140,7 +140,7 @@ describe('pylon build (shipped CLI) — content-platform app (no ORM)', () => {
   })
 
   it('loads config from the standalone pylon.config.ts', () => {
-    // The CLI built .pylon/config.js from pylon.config.ts (not an inline export).
+    // The CLI built .pylon/pylon.config.js from pylon.config.ts (not an inline export).
     expect(config).toMatchObject({graphiql: false, landingPage: false})
   })
 })
