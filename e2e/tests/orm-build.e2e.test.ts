@@ -91,10 +91,11 @@ describe('pylon build (shipped CLI) on a real ORM project', () => {
   })
 
   it('reflects ORM intent in the parsed schema', () => {
-    // id → ID (not the introspected Number); FK scalar → Int
+    // id → ID (not the introspected Number); a FK scalar also surfaces as ID so the
+    // ID scalar's gid-decode covers it on input (references a PK). See db/ir.ts.
     expect(fieldType('Product', 'id')).toBe('ID!')
     expect(fieldType('Product', 'price')).toBe('Int!')
-    expect(fieldType('Product', 'categoryId')).toBe('Int!')
+    expect(fieldType('Product', 'categoryId')).toBe('ID!')
     // relations: hasMany → list, belongsTo → ref
     expect(fieldType('Category', 'products')).toBe('[Product!]!')
     expect(fieldType('Product', 'category')).toBe('Category!')

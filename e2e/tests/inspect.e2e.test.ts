@@ -40,8 +40,9 @@ describe('pylon inspect', () => {
     expect(product).toBeDefined()
     expect(product.secure).toBe(true)
 
-    // Tier 2: queues (app-namespaced, with declared options)
-    const reindex = model.queues.find((q: any) => q.name === 'shop:reindex')
+    // Tier 2: queues (app-namespaced with a '.' separator — ':' is forbidden by
+    // BullMQ/Redis as the key separator, with declared options)
+    const reindex = model.queues.find((q: any) => q.name === 'shop.reindex')
     expect(reindex).toBeDefined()
     expect(reindex.attempts).toBe(3)
   })
