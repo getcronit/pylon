@@ -1,16 +1,12 @@
-import {Env} from './context.js'
+import type {Env} from './context.js'
 
 export {createPubSub as experimentalCreatePubSub} from 'graphql-yoga'
 export {executeConfig, handler} from '../app/pylon-handler.js'
-export {
-  asyncContext,
-  Bindings,
-  Context,
-  Env,
-  getContext,
-  setContext,
-  Variables
-} from './context.js'
+// Split value vs type re-exports: mixing types into a value `export {}` breaks when
+// a per-module transpiler loads this file (the project runner via tsx) — types have
+// no runtime binding, so `export {Bindings}` fails with "no exported member".
+export {asyncContext, getContext, setContext} from './context.js'
+export type {Bindings, Context, Env, Variables} from './context.js'
 export {createDecorator} from './create-decorator.js'
 export {ServiceError} from './define-pylon.js'
 export {mutation, type UserError} from './mutation.js'
@@ -25,9 +21,34 @@ export type {Gate, Resolvers, PylonOptions} from '../app/index.js'
 
 import {app as pylonApp, Pylon} from '../app/index.js'
 
-import {BuildContext, BuildOptions} from 'esbuild'
 import type {Plugin as YogaPlugin} from 'graphql-yoga'
 import {MiddlewareHandler} from 'hono'
+
+/**
+ * Bundler-agnostic watch handle a build-contributing plugin returns from `build`.
+ * The Supervisor creates it once and drives `rebuild()` on relevant changes,
+ * `dispose()` on shutdown. Backed by esbuild today, rolldown later — invisible
+ * here. See rfcs/BUILD_DEV_PIPELINE.md.
+ */
+export interface BuildController {
+  rebuild(): Promise<void>
+  dispose(): Promise<void>
+  /** Optional: abort an in-flight rebuild superseded by a newer change. */
+  cancel?(): Promise<void>
+}
+
+/**
+ * Shared, readonly-to-plugins context passed to every `build` hook. Upstream stage
+ * outputs land in `out` as the pipeline advances — a `build` hook runs in the
+ * `artifacts` stage, so `out.sdl` / `out.clientDir` are populated by then.
+ */
+export interface BuildContext {
+  readonly mode: 'build' | 'dev'
+  readonly root: string
+  readonly srcDir: string
+  readonly outDir: string
+  readonly out: {sdl?: string; clientDir?: string}
+}
 
 export type Plugin<
   PluginContext extends Record<string, any> = {},
@@ -44,9 +65,9 @@ export type Plugin<
   dependsOn?: string[]
   middleware?: MiddlewareHandler<Env>
   setup?: (app: Pylon<any>) => Promise<void> | void
-  build?: <T extends BuildOptions>(args: {
-    onBuild: () => void
-  }) => Promise<Omit<BuildContext<T>, 'serve'>>
+  /** The one build-side hook: called ONCE per build; returns a watch handle the
+   *  Supervisor drives. Reads upstream stage outputs from `ctx.out`. */
+  build?: (ctx: BuildContext) => Promise<BuildController>
 }
 
 export type PylonConfig = {

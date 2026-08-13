@@ -1,5 +1,4 @@
 import {Plugin} from '@getcronit/pylon'
-import chokidar, {FSWatcher} from 'chokidar'
 import esbuild from 'esbuild'
 import fs from 'fs/promises'
 import {createRequire} from 'module'
@@ -39,7 +38,7 @@ async function updateFileIfChanged(
   return true // File created or updated
 }
 
-export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
+export const build: NonNullable<Plugin['build']> = async () => {
   const version = Math.random().toString(36).substring(7)
 
   const buildAppFile = async () => {
@@ -132,9 +131,6 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
             await updateFileIfChanged(file.path, file.contents)
           })
         )
-        if (result.errors.length === 0) {
-          onBuild()
-        }
       })
     }
   }
@@ -143,8 +139,6 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
     path.join(process.cwd(), 'node_modules'),
     path.join(process.cwd(), 'node_modules', '@getcronit/pylon/node_modules')
   ]
-
-  let pagesWatcher: FSWatcher | null = null
 
   const timePlugin = (name: string): esbuild.Plugin => ({
     name: 'rebuild-log',
@@ -281,40 +275,20 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
     mainFields: ['module', 'main']
   })
 
+  // Returns a BuildController (rebuild/dispose/cancel). The Supervisor drives
+  // rebuild() on every change via its own chokidar watcher, so the plugin doesn't
+  // start esbuild's own watch mode — buildAppFile runs via esbuild onStart and
+  // copyPublicDir runs in rebuild().
   return {
-    watch: async () => {
-      await buildAppFile()
-      await copyPublicDir()
-
-      pagesWatcher = chokidar.watch('pages', {ignoreInitial: true})
-
-      pagesWatcher!.on('all', async (event, path) => {
-        if (['add', 'change', 'unlink'].includes(event)) {
-          await copyPublicDir()
-        }
-      })
-
-      await Promise.all([clientCtx.watch(), serverCtx.watch()])
-    },
     dispose: async () => {
-      if (pagesWatcher) {
-        pagesWatcher.close()
-      }
-
-      Promise.all([clientCtx.dispose(), serverCtx.dispose()])
+      await Promise.all([clientCtx.dispose(), serverCtx.dispose()])
     },
     rebuild: async () => {
       await copyPublicDir()
 
       await Promise.all([clientCtx.rebuild(), serverCtx.rebuild()])
-
-      return {} as any
     },
     cancel: async () => {
-      if (pagesWatcher) {
-        await pagesWatcher.close()
-      }
-
       await Promise.all([clientCtx.cancel(), serverCtx.cancel()])
     }
   }

@@ -8,7 +8,7 @@
 //   <caller generates the gqty client from the schema>
 //   buildPages()   → page bundles + manifests (now `./client` exists)
 //   <caller (re)starts the server: dev = loader on src; build = node on .pylon/**>
-import type {Plugin, PylonConfig} from '@getcronit/pylon'
+import type {BuildContext, Plugin, PylonConfig} from '@getcronit/pylon'
 
 import fs from 'fs/promises'
 import path from 'path'
@@ -51,7 +51,7 @@ export class Bundler {
    *  IN-PROCESS through tsx (the same loader the dev server uses) — no bundled config
    *  artifact. The RUNTIME config is `pylon.config.ts` itself (dev, via the loader) or its
    *  transpiled `.pylon/pylon.config.js` (build). */
-  private async initBuildPlugins(configAbs: string | null) {
+  private async initBuildPlugins(configAbs: string | null, buildCtx: BuildContext) {
     let config: PylonConfig = {}
     if (configAbs) {
       // Non-literal specifier so tsc doesn't demand types for tsx's runtime-only API.
@@ -74,7 +74,7 @@ export class Bundler {
 
     const buildContexts: ReturnType<NonNullable<Plugin['build']>>[] = []
     for (const plugin of config?.plugins || []) {
-      if (plugin.build) buildContexts.push(plugin.build({onBuild: () => {}}))
+      if (plugin.build) buildContexts.push(plugin.build(buildCtx))
     }
     return buildContexts
   }
@@ -90,7 +90,10 @@ export class Bundler {
     await fs.mkdir(dir, {recursive: true})
 
     // Page build contexts (usePages etc.). If config/plugin init throws, surface it.
-    const pluginCtxs = await this.initBuildPlugins(configAbs)
+    // `out` is the shared upstream-output slot; populated as more stages move into
+    // the pipeline (Pillar 1 keeps it empty — usePages resolves paths off cwd today).
+    const buildCtx: BuildContext = {mode, root: cwd, srcDir, outDir: dir, out: {}}
+    const pluginCtxs = await this.initBuildPlugins(configAbs, buildCtx)
 
     const buildServer = async (): Promise<ServerBuildResult> => {
       const start = Date.now()
@@ -142,7 +145,7 @@ export class Bundler {
         for (const p of pluginCtxs) await (await p).dispose().catch(() => {})
       },
       cancel: async (): Promise<void> => {
-        for (const p of pluginCtxs) await (await p).cancel().catch(() => {})
+        for (const p of pluginCtxs) await (await p).cancel?.().catch(() => {})
       }
     }
   }
