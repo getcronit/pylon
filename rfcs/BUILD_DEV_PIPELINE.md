@@ -91,12 +91,22 @@ export type Plugin<…> = YogaPlugin<…> & {
   dependsOn?: string[]
   middleware?: MiddlewareHandler<Env>
   setup?: (app: Pylon<any>) => Promise<void> | void
-  build?(args: {
-    mode: 'build' | 'dev'
-    outDir: string
-    /** Notify the Supervisor a rebuild finished (drives client-regen / reload). */
-    onRebuild(result: { schemaChanged?: boolean }): void
-  }): Promise<BuildController>
+  /** The ONLY build-side hook. Called ONCE per build; returns a watch handle the
+   *  Supervisor drives. Reads upstream stage outputs from `ctx.out`. */
+  build?(ctx: BuildContext): Promise<BuildController>
+}
+
+/** Shared, readonly-to-plugins context passed to every build hook. */
+interface BuildContext {
+  readonly mode: 'build' | 'dev'
+  readonly root: string        // cwd
+  readonly srcDir: string      // <root>/src
+  readonly outDir: string      // <root>/.pylon
+  /** Run the app once in a runner to harvest runtime info. MEMOIZED per build →
+   *  N callers share ONE subprocess spawn. */
+  runInApp<T>(harvest: HarvestFn<T>): Promise<T>
+  /** Upstream stage outputs, filled in as the pipeline advances. */
+  readonly out: { sdl?: string; clientDir?: string }
 }
 ```
 
@@ -105,13 +115,74 @@ Why this exact shape:
   currently pokes esbuild's `rebuild()`/`dispose()` by hand. An esbuild-backed
   controller is a two-line adapter over `esbuild.context()`; a rolldown-backed one
   wraps rolldown's watch API. **Both coexist.**
-- `mode`/`outDir` replace ambient globals threaded through the bundler.
-- `onRebuild({schemaChanged})` replaces the current schema-diff bookkeeping that
-  couples client regen to the bundler internals.
+- `ctx` replaces ambient globals threaded through the bundler; `ctx.out.{sdl,clientDir}`
+  gives `build` hooks ordered access to upstream stage outputs.
 
-**This is the first commit and it changes no behaviour**: ship the interface, adapt
-the existing esbuild call sites to return a `BuildController`, adapt the Supervisor
-to drive it. esbuild stays. Only then does rolldown enter, one site at a time.
+### Decision: NO schema-contribution hook (was `contributeIR`)
+
+An earlier draft added a second hook (`contributeIR`) so the ORM could hand the
+pipeline `PylonIR` to merge. **Rejected.** The ORM doesn't want to hand us IR — it
+contributes to the schema by the user **registering models** (`new Pylon({db:{models}})`).
+Construction registers them; a core stage just *harvests the registry*. So:
+
+- **Schema contribution is a core backbone stage, driven by registration** — not a
+  plugin hook. `PylonIR` never becomes a public API; plugins can't cause merge
+  conflicts in it; the ORM has **no build hook at all** (just `setup` + models).
+- The plugin build contract is therefore exactly **one** hook: `build → BuildController`.
+- If a build-time *schema generator* plugin ever appears (nothing needs it today), it
+  registers through a narrow API (`ctx.registerModels(...)`) that feeds the same
+  harvest → schema path — never a parallel IR-merge lane.
+
+### The pipeline
+
+The build is a fixed backbone of stages; the sole plugin extension point is the
+`artifacts` stage. Stage order is fixed (so `artifacts` always sees a ready
+`sdl`/`clientDir`); `dependsOn` only orders plugins *within* the `artifacts` stage.
+
+```
+harvest    run app once → registered manifest (models, …)   [core; = schema contribution]
+schema     type-introspection + manifest → SDL + resolvers  [core]
+server     emit .pylon/server.mjs + transpile .pylon/src    [core]
+client     typed client from SDL (only if schema changed)   [core]
+artifacts  plugin BuildControllers, in dependsOn order       [PLUGINS: build → Controller]
+```
+
+```ts
+async function runPipeline(ctx: BuildContext, plugins: Plugin[], ctrls: Map<Plugin, BuildController>) {
+  const manifest = await ctx.runInApp(harvestManifest)               // harvest (core)
+  const { typeDefs, resolvers } = new SchemaBuilder(ctx.srcDir).build({ manifest })  // schema (core)
+  ctx.out.sdl = typeDefs
+  await emitServerGlue({ typeDefs, resolvers, outDir: ctx.outDir })  // server (core)
+  if (schemaChanged) ctx.out.clientDir = await buildClient({ sdl: typeDefs, outDir: ctx.outDir })  // client (core)
+  for (const p of topoSort(plugins)) if (p.build) {                  // artifacts (plugins)
+    let c = ctrls.get(p); if (!c) ctrls.set(p, (c = await p.build(ctx)))  // create once → holds watch state
+    await c.rebuild()
+  }
+}
+```
+
+```ts
+function useDatabase(opts): Plugin {
+  return { name: 'database', setup(app) { /* bind connection/principal */ } }
+  // NO build hook — models register via `new Pylon({db:{models}})`; the harvest picks them up.
+}
+
+function usePages(): Plugin {
+  return {
+    name: 'pages', strategy: 'last',
+    setup(app) { /* mount SSR handler */ },
+    async build(ctx) {                                                // ctx.out.{sdl,clientDir} ready
+      const b = await createPageBundler({ pages: scan(ctx.srcDir + '/pages'), client: ctx.out.clientDir, outDir: ctx.outDir, mode: ctx.mode })
+      return { rebuild: () => b.rebuild(), dispose: () => b.close() } // bundler (rolldown|esbuild) hidden behind the handle
+    },
+  }
+}
+```
+
+**First commit changes no behaviour**: ship `BuildController` + `BuildContext`, make
+the current esbuild call sites return controllers, make the harvest a named core
+stage, and adapt the Supervisor to drive `runPipeline`. esbuild stays. Only then does
+rolldown enter, one site at a time.
 
 ## 4. Pillar 2 — rolldown as the bundler
 
@@ -140,25 +211,68 @@ means partial migration is a supported end state, not a broken one.
 
 ## 5. Pillar 3 — native dev server
 
-Replace `tsxRun` + spawn + full restart with a dev runtime the CLI **hosts
-in-process** (or a single persistent worker with a real readiness signal), fed by
-rolldown watch through the plugin `BuildController`s.
+Today: `tsxRun` spawns `server.mjs` as a subprocess; every change kills the tree
+(treekill) and respawns it; gqty regen retries against `/graphql` hoping it's up.
+Full rebuild + full restart per keystroke-save, no fast-paths, boot races.
 
-- **Readiness signal** replaces the gqty retry-and-hope: the in-process server
-  announces "listening" directly; no port polling.
-- **Tiered fast-paths** instead of one full restart:
-  - *schema change* → rebuild schema + swap it into the live handler;
-  - *resolver/app change* → invalidate + re-import just that module graph;
-  - *page change* → rebuild the page bundle + reload its SSR artifact, push SSE;
-  - *config/plugin change* → the one case that still does a clean full re-init.
-- **No treekill dance** — one process, module invalidation instead of kill/respawn.
-- **Correctness constraint**: the model-registry singleton and app-context must
-  survive module invalidation (today they survive because the subprocess is fresh
-  each time). The in-process design must invalidate at the right graph boundary or
-  reset the registry deterministically on reload. This is the main open risk here.
+Target: the Supervisor owns a **long-lived dev runtime** it reloads *in place* via a
+small IPC protocol, plus a change **classifier** that maps each edit to the cheapest
+reload. The bundler work flows through the same `BuildController`s from §3.
 
-The subprocess model stays available as a fallback for runtimes the in-process host
-can't emulate (Workers/Deno edge) — `pylon dev -c "wrangler dev"` keeps working.
+### The runtime: a persistent worker with a reload protocol (recommended)
+
+Run the app in one long-lived child (worker_thread / child_process) that stays up
+across edits and exposes a `reload(kind)` IPC — instead of kill+respawn. Preferred
+over pure in-process hosting because Node's ESM cache can't be cleanly invalidated in
+the CLI's own process, and a worker gives a clean boundary for the singleton reset
+below. (Pure in-process stays a fallback if the reset proves trivial.)
+
+```ts
+// worker (long-lived): loads the app, serves, and reloads on command
+let handler                                   // the live Hono/Yoga fetch handler
+async function boot() { handler = await importApp() ; announce('ready') }   // real readiness signal
+onMessage(async ({ kind }) => {
+  if (kind === 'schema') swapSchema(readSchema())          // re-read .pylon/schema.mjs into the live handler
+  if (kind === 'app')    { resetRegistry(); handler = await importApp(bust()) }  // ⬅ singleton reset, then re-import
+  if (kind === 'pages')  {}                                // SSR loads page bundles dynamically → nothing to re-import
+  announce('reloaded')
+})
+```
+
+### The Supervisor loop
+
+```ts
+watch(['src', 'pages', 'public', 'pylon.config.*'])
+on(change => queue.run(async () => {                       // single-flight (keep the gen-guard)
+  const kind = classify(change)
+  if (kind === 'config') return worker.restart()           // plugins changed → clean re-init
+  await runPipeline(ctx, plugins, ctrls, { only: stagesFor(kind) })   // §3 driver, sliced
+  await worker.reload(kind)                                 // await the worker's 'reloaded' signal
+  sse.push('reload')                                        // then tell the browser
+}))
+```
+
+### Change → reload matrix
+
+| Change | Pipeline stages re-run | Runtime reload |
+| --- | --- | --- |
+| `pages/**` | `artifacts` only (usePages controller.rebuild) | `pages` (SSR picks up new bundle) + SSE |
+| `src/**` resolver, schema unchanged | `schema`→`server` (no `client`) | `app` (reset + re-import) + SSE |
+| `src/**` model/type, schema changed | `harvest`→`schema`→`client`→`artifacts` | `app` + SSE |
+| `public/**` | copy asset | SSE only |
+| `pylon.config.*` | rebuild `ctrls` map | worker **restart** |
+
+### Correctness constraint (the main risk)
+
+The model-registry singleton + app-context must not duplicate across an `app`
+reload. Today a fresh subprocess hides this; here the worker must `resetRegistry()`
+**before** the cache-busted re-import, so re-registering models on construction is
+idempotent. This reset boundary is the one thing to prove before committing Pillar 3.
+
+### Fallback
+
+The subprocess `-c` model stays for runtimes the worker can't emulate (Workers/Deno
+edge) — `pylon dev -c "wrangler dev"` keeps working, just without the fast-paths.
 
 ## 6. Pillar 4 — one plugin pipeline for build + dev + runtime
 
@@ -166,12 +280,14 @@ The same `Plugin` object drives all three phases:
 - `setup` / `middleware` — runtime wiring (unchanged);
 - `build` → `BuildController` — one-shot build *and* dev watch (same instance);
 - `strategy` / `dependsOn` — ordering, for both runtime `executeConfig` and the
-  Supervisor's build sequencing.
+  Supervisor's `artifacts`-stage sequencing.
 
-The Supervisor becomes a generic driver: topo-sort the `build`-contributing plugins,
-`await controller.rebuild()` in order on the relevant change, `onRebuild` fan-out
-decides client regen / SSE. usePages stops being special-cased — it's just the
-`strategy:'last'` plugin whose controller happens to build pages.
+Schema contribution is **not** a plugin concern — it's the core `harvest`+`schema`
+stages, driven by what the app registered (§3). So the Supervisor is a generic
+driver of `runPipeline` (§3): run the core stages, then `await controller.rebuild()`
+for each `build` plugin in `dependsOn` order. usePages stops being special-cased —
+it's just the `strategy:'last'` plugin whose controller happens to build pages, and
+the ORM isn't in the build path at all.
 
 ## 7. Migration sequence
 
@@ -187,14 +303,14 @@ decides client regen / SSE. usePages stops being special-cased — it's just the
 
 - **Decorators/metadata under oxc** — spike #1; if it fails, transpile-app stays on
   esbuild indefinitely (acceptable via the seam).
-- **In-process dev + singleton invalidation** — the model registry / app-context
-  must not duplicate or leak across reloads. Needs a deterministic reset boundary.
+- **Singleton reset across an `app` reload** (Pillar 3) — the registry/app-context
+  must be reset before the worker's cache-busted re-import so re-registration is
+  idempotent. **This is the gating spike for Pillar 3.** (Runtime decided: persistent
+  worker + reload protocol, not pure in-process — see §5.)
 - **`use-data-static-analyzer` port** — it's an esbuild `onLoad` transform doing
   cross-file useData analysis; the Rollup-hook port is the largest single task.
 - **`new Function` `__resolveType`** (schema-parser) is orthogonal but edge-hostile
   (CSP); worth revisiting when we touch the glue, not required here.
-- **Open:** in-process host vs persistent worker for dev — decide at Pillar 3 after
-  the watch spike shows rebuild latency.
 
 ## 9. Non-goals
 
