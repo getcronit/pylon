@@ -2,16 +2,13 @@ import type {PylonConfig} from '@getcronit/pylon'
 import {useIdentity} from '@getcronit/pylon/auth/plugin'
 import {useDatabase} from '@getcronit/pylon/db/plugin'
 import {headerAuth} from './src/identity'
-import {serveLast} from '../_serve-plugin'
-
 // identity → Principal; useDatabase derives connection + tenant from it (default)
-// and resolves the tenant's feature plan from x-features. serveLast owns serving.
+// and resolves the tenant's feature plan from x-features.
 export default {
   plugins: [
     useIdentity(headerAuth),
     useDatabase({
       features: c => (c.req.header('x-features') ?? '').split(',').filter(Boolean)
-    }),
-    serveLast()
+    })
   ]
 } satisfies PylonConfig
