@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Pylon documentation & marketing site — built with Pylon + usePages",
   "scripts": {
-    "dev": "pylon dev -c \"node --enable-source-maps .pylon/server.mjs\"",
+    "dev": "pylon dev",
     "build": "pylon build",
     "start": "node --enable-source-maps .pylon/server.mjs",
     "check:coverage": "node coverage/check.mjs",
