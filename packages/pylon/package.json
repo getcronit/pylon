@@ -69,7 +69,7 @@
   },
   "scripts": {
     "build": "rimraf ./dist && node build.js && pnpm run build:declarations",
-    "build:declarations": "tsc -p tsconfig.typecheck.json --declaration --emitDeclarationOnly --outDir ./dist && tsc-alias -p tsconfig.typecheck.json"
+    "build:declarations": "tsc -p tsconfig.typecheck.json --declaration --emitDeclarationOnly --outDir ./dist && tsc-alias"
   },
   "files": [
     "dist",

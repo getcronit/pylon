@@ -30,7 +30,9 @@ const common = {
   // those paths) for declarations. See tsconfig.json / tsconfig.typecheck.json.
 }
 
-const nodeEntries = [
+// Library node entries — built WITH splitting so shared modules (e.g. the model
+// registry, imported by db/index + db/plugin) land in one chunk = one instance.
+const libNodeEntries = [
   'src/index.ts', // . (core)
   'src/db/index.ts',
   'src/db/plugin.ts',
@@ -42,9 +44,14 @@ const nodeEntries = [
   'src/auth/contract.ts',
   'src/auth/zitadel.ts',
   'src/pages/plugin.ts', // usePages (node/build-time)
-  'src/cli/index.ts', // the `pylon` bin
   'src/query/build/index.ts' // ./query/build (internal, node)
 ]
+
+// CLI entries — built WITHOUT splitting so cli/index.js and cli/project-runner.js
+// stay siblings in dist/cli/. project-bridge resolves the runner via
+// import.meta.url + 'project-runner.js'; splitting would move that code into a
+// shared chunk (dist/chunks/) and break the sibling lookup.
+const cliEntries = ['src/cli/index.ts', 'src/cli/project-runner.ts']
 
 // Browser-facing runtimes bundled into the client by consumers; keep them free of
 // Node-only imports (enforce with a bundle check in CI).
@@ -67,9 +74,16 @@ const postcssPlugin = {
 
 await esbuild.build({
   ...common,
-  entryPoints: nodeEntries,
+  entryPoints: libNodeEntries,
   platform: 'node',
   target: 'node18'
+})
+await esbuild.build({
+  ...common,
+  entryPoints: cliEntries,
+  platform: 'node',
+  target: 'node18',
+  splitting: false // keep cli/index.js + cli/project-runner.js as siblings
 })
 await esbuild.build({
   ...common,
