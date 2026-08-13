@@ -11,7 +11,7 @@
 import {promises as fs} from 'node:fs'
 import path from 'node:path'
 import {pathToFileURL} from 'node:url'
-import esbuild from 'esbuild'
+import {rolldown} from 'rolldown'
 import {isDestructive, type SchemaChange} from '../../ir'
 import {spawnProjectRunner, type ProjectApp} from '../project-bridge.js'
 
@@ -27,24 +27,34 @@ let migrationCounter = 0
  */
 function createMigrationLoader(cwd: string) {
   return async function loadMigrationFile(filePath: string): Promise<unknown> {
-    const tmp = path.join(cwd, `.pylon-migration.${process.pid}.${migrationCounter++}.mjs`)
-    await esbuild.build({
-      entryPoints: [filePath],
-      outfile: tmp,
-      bundle: true,
-      platform: 'node',
-      format: 'esm',
-      packages: 'external',
-      logLevel: 'silent',
-      tsconfigRaw: {
+    const stem = path.join(cwd, `.pylon-migration.${process.pid}.${migrationCounter++}`)
+    const tmp = `${stem}.mjs`
+    // rolldown has no inline `tsconfigRaw`; write a temp tsconfig to FORCE the ORM
+    // flags (matches esbuild's tsconfigRaw). `tsconfig` applies globally, so it works
+    // even when the migration file lives outside the project (e.g. a tmpdir in tests).
+    const tsconfig = `${stem}.tsconfig.json`
+    await fs.writeFile(
+      tsconfig,
+      JSON.stringify({
         compilerOptions: {experimentalDecorators: true, useDefineForClassFields: false}
-      }
-    })
+      })
+    )
     try {
+      const bundle = await rolldown({
+        input: {[path.basename(stem)]: filePath},
+        // packages:'external' equivalent — @getcronit/pylon/db (and any bare import)
+        // stays external so it resolves to the PROJECT's instance at import time.
+        external: id => !id.startsWith('.') && !path.isAbsolute(id),
+        platform: 'node',
+        tsconfig
+      })
+      await bundle.write({dir: cwd, format: 'esm', entryFileNames: `${path.basename(stem)}.mjs`})
+      await bundle.close()
       const mod = (await import(/* @vite-ignore */ pathToFileURL(tmp).href)) as {default: unknown}
       return mod.default
     } finally {
       await fs.rm(tmp, {force: true})
+      await fs.rm(tsconfig, {force: true})
     }
   }
 }
