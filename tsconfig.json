@@ -19,5 +19,11 @@
     "skipLibCheck": true,
     "useDefineForClassFields": true
   },
+  // Base config only: it supplies shared compilerOptions to the configs that
+  // `extends` it (packages/create-pylon). It must NOT compile anything itself —
+  // without an empty `files`, `tsc` globs the whole monorepo (docs, packages, e2e)
+  // under one flat config and reports hundreds of phantom errors. Per-project
+  // type-checking runs each workspace's own tsconfig (see the root `typecheck` script).
+  "files": [],
   "exclude": ["node_modules", "dist"]
 }

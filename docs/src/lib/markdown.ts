@@ -107,8 +107,8 @@ const COPY_ICON =
 /** Wrap each Shiki <pre> in a .code-block with an optional filename header and a copy button. */
 function rehypeWrapCode() {
   return (tree: any) => {
-    visit(tree, 'element', (node: any, index: number | null, parent: any) => {
-      if (node.tagName !== 'pre' || index === null || !parent) return
+    visit(tree, 'element', (node: any, index: number | undefined, parent: any) => {
+      if (node.tagName !== 'pre' || index == null || !parent) return
       // Our Shiki transformer stamps every code block with data-lang; use that
       // as the match signal (robust to how the class list is represented).
       if (!node.properties?.['data-lang']) return

@@ -74,7 +74,8 @@
     "test:integration": "PYLON_ORM_IT=1 vitest run test/db/integration",
     "test:integration:queues": "PYLON_QUEUES_IT=1 vitest run test/queues/integration",
     "db:up": "docker compose up -d",
-    "db:down": "docker compose down -v"
+    "db:down": "docker compose down -v",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
   },
   "files": [
     "dist",

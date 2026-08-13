@@ -4,7 +4,8 @@
   "version": "1.1.4",
   "description": "CLI for creating a Pylon",
   "scripts": {
-    "build": "rimraf ./dist && esbuild ./src/index.ts --bundle --platform=node --target=node18 --format=esm --minify --outdir=./dist --sourcemap=linked --packages=external"
+    "build": "rimraf ./dist && esbuild ./src/index.ts --bundle --platform=node --target=node18 --format=esm --minify --outdir=./dist --sourcemap=linked --packages=external",
+    "typecheck": "tsc --noEmit"
   },
   "bin": "./dist/index.js",
   "files": [

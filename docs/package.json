@@ -9,7 +9,8 @@
     "build": "pylon build",
     "start": "node --enable-source-maps .pylon/server.mjs",
     "check:coverage": "node coverage/check.mjs",
-    "check:examples": "node coverage/check-examples.mjs"
+    "check:examples": "node coverage/check-examples.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@getcronit/pylon": "workspace:*",
