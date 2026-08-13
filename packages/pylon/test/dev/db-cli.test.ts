@@ -9,7 +9,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {afterEach, beforeEach, describe, expect, it} from 'vitest'
-import {runDbCommand} from '../src/db'
+import {runDbCommand} from '@/cli/db'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const fixtureCwd = path.join(dir, 'fixtures', 'orm-app')
@@ -41,7 +41,7 @@ describe('pylon db CLI (model-loading bridge, no DB)', () => {
     // named (Django-style) operations — one call per schema change.
     const migration = files.find(f => f.endsWith('_init.ts'))!
     const body = await fs.readFile(path.join(migrationsDir, migration), 'utf8')
-    expect(body).toContain("import {migrations} from '@getcronit/pylon-db'")
+    expect(body).toContain("import {migrations} from '@getcronit/pylon/db'")
     expect(body).toContain('migrations.defineMigration(')
     expect(body).toContain('migrations.createTable(')
     expect(body).toMatch(/"table":\s*"account"/)

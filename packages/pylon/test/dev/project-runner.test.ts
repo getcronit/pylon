@@ -6,8 +6,8 @@
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {describe, expect, it} from 'vitest'
-import {introspectViaRunner} from '../src/project-bridge'
-import {inspectApp} from '../src/inspect'
+import {introspectViaRunner} from '@/cli/project-bridge'
+import {inspectApp} from '@/cli/inspect'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const cwd = path.resolve(dir, 'fixtures/orm-build-app')

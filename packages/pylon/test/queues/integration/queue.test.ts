@@ -2,7 +2,7 @@
  * Core queue behavior against a real Redis (docker-compose.yml → 6380).
  */
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
-import {closeConnection, defineQueue, setConnection} from '../../src/index'
+import {closeConnection, defineQueue, setConnection} from '@/queues/index'
 
 const REDIS = process.env.REDIS_URL ?? 'redis://localhost:6380'
 const runRedis = process.env.REDIS_URL || process.env.PYLON_QUEUES_IT

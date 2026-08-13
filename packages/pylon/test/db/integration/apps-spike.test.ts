@@ -19,7 +19,7 @@ import path from 'node:path'
 import {pathToFileURL} from 'node:url'
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
-import {mergeIR} from '@getcronit/pylon-ir'
+import {mergeIR} from '@getcronit/pylon/ir'
 import {
   type ModelConfig,
   Model,
@@ -36,7 +36,7 @@ import {
   type MigrationLoader,
   type Relation,
   type Snapshot
-} from '../../src/index'
+} from '@/db/index'
 
 // ── app: auth ────────────────────────────────────────────────────────────────
 class User extends Model {

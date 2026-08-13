@@ -17,7 +17,7 @@ import {
   setDefaultDatabase,
   syncSchema,
   text
-} from '../../src/index'
+} from '@/db/index'
 
 class QvItem extends Model {
   static config = {

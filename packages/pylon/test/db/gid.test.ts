@@ -4,8 +4,8 @@
  * the integration suite.
  */
 import {describe, expect, it} from 'vitest'
-import {decodeId, fromGid, GID_NAMESPACE, isGid, setGidNamespace, toGid} from '../src/gid'
-import {snowflake} from '../src/snowflake'
+import {decodeId, fromGid, GID_NAMESPACE, isGid, setGidNamespace, toGid} from '@/db/gid'
+import {snowflake} from '@/db/snowflake'
 
 describe('gid codec', () => {
   it('round-trips type + local id', () => {

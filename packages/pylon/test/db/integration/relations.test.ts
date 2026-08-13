@@ -12,7 +12,7 @@ import {
   syncSchema,
   text,
   type Relation
-} from '../../src/index'
+} from '@/db/index'
 
 class Author extends Model {
   static objects = manager(Author)

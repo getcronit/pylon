@@ -14,8 +14,8 @@ import {
   type GraphQLInterfaceType,
   type GraphQLObjectType
 } from 'graphql'
-import {SchemaBuilder} from '../../../pylon-dev/src/builder/schema/builder'
-import {toIR} from '../../src/index'
+import {SchemaBuilder} from '@/cli/builder/schema/builder'
+import {toIR} from '@/db/index'
 import './fixtures/sti-app'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))

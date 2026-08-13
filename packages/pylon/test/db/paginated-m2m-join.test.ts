@@ -1,8 +1,8 @@
-import {makeMigration} from '@getcronit/pylon-ir'
+import {makeMigration} from '@getcronit/pylon/ir'
 import {describe, expect, it} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
-import {Model, id, manyToMany, text} from '../src/index'
-import {toIR} from '../src/ir'
+import {Model, id, manyToMany, text} from '@/db/index'
+import {toIR} from '@/db/ir'
 
 // Regression: a PAGINATED many-to-many must still synthesize its join table in
 // the migration IR. Paginated relations are otherwise filtered out (they surface

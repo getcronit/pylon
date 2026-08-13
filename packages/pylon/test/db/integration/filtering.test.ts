@@ -22,7 +22,7 @@ import {
   text,
   timestamp,
   type WhereInput
-} from '../../src/index'
+} from '@/db/index'
 
 enum Plan {
   FREE = 'FREE',

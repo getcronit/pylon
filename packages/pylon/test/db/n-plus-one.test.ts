@@ -1,7 +1,7 @@
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
-import {runWithAppContext} from '../src/app-context'
-import {noteQuery} from '../src/n-plus-one'
+import {runWithAppContext} from '@/db/app-context'
+import {noteQuery} from '@/db/n-plus-one'
 
 // Named stand-ins for a model ctor (noteQuery reads `.name`). The batchKey column
 // hint needs a REAL registered model (see the integration test); here we only cover

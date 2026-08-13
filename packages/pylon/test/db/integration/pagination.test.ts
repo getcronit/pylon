@@ -15,7 +15,7 @@ import {
   setDefaultDatabase,
   syncSchema,
   text
-} from '../../src/index'
+} from '@/db/index'
 
 class Widget extends Model {
   static config = {table: 'page_widget'} satisfies ModelConfig<Widget>

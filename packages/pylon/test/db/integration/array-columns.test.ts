@@ -17,7 +17,7 @@ import {
   syncSchema,
   text,
   toIR
-} from '../../src/index'
+} from '@/db/index'
 
 class Org extends Model {
   static config = {table: 'arr_org'} satisfies ModelConfig<Org>

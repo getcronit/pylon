@@ -39,14 +39,14 @@ import {
   type Rename,
   type SqlType,
   type TableRename
-} from '@getcronit/pylon-ir'
+} from '@getcronit/pylon/ir'
 import {
   MigrationRunner,
   introspectPhysical,
   type Database,
   type MigrationLoader,
   type Snapshot
-} from '../../src/index'
+} from '@/db/index'
 
 // Migration files are TS; vitest transpiles them on import, so the loader is a
 // plain dynamic import of the file's default export (same as the runner IT).

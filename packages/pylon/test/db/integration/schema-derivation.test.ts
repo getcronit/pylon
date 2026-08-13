@@ -1,7 +1,7 @@
 /**
  * REAL cross-package integration: drive Pylon's actual `SchemaBuilder` over a
  * real Pylon entrypoint (`fixtures/schema-app.ts`) built on real
- * `@getcronit/pylon-db` models, and assert on the GraphQL SDL it emits.
+ * `@getcronit/pylon/db` models, and assert on the GraphQL SDL it emits.
  *
  * Unlike a unit test that mirrors Pylon's type predicates, this compiles the
  * ORM's actual source types through Pylon's actual introspection pipeline — so
@@ -13,11 +13,11 @@ import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {describe, expect, it, beforeAll} from 'vitest'
 // Import Pylon's real schema builder from source (no public export exists).
-import {SchemaBuilder} from '../../../pylon-dev/src/builder/schema/builder'
+import {SchemaBuilder} from '@/cli/builder/schema/builder'
 // Execute the fixture's models so the ORM registry is populated, then we can
 // build with the real ORM IR contribution (`pylon build`'s actual path).
 import './fixtures/schema-app'
-import {toIR} from '../../src/index'
+import {toIR} from '@/db/index'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const fixture = path.resolve(dir, 'fixtures/schema-app.ts')

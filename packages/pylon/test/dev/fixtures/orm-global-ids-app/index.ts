@@ -1,6 +1,6 @@
 // An ORM-backed entry that opts into global ids via the top-level `node` option.
 import {Pylon} from '@getcronit/pylon'
-import {Model, id, text} from '@getcronit/pylon-db'
+import {Model, id, text} from '@getcronit/pylon/db'
 
 export class Product extends Model {
   id = id()

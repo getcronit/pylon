@@ -16,7 +16,7 @@ import {
   runWithAppContext,
   setDefaultDatabase,
   syncSchema
-} from '../../src/index'
+} from '@/db/index'
 import {Pylon} from '@getcronit/pylon'
 
 const FEATURES = defineFeatures(['shop', 'billing'] as const)

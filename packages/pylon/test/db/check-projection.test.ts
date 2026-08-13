@@ -9,7 +9,7 @@ import {
   numeric,
   text,
   varchar
-} from '../src/index'
+} from '@/db/index'
 
 // Dual projection: the SAME min/max/enum rules the runtime validator enforces
 // are also emitted as a DB CHECK (defense-in-depth). `pattern`/`email` are

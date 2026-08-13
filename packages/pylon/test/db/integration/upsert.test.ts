@@ -12,8 +12,8 @@ import {
   syncSchema,
   text,
   type ModelConfig
-} from '../../src/index'
-import {runWithAppContext} from '../../src/app-context'
+} from '@/db/index'
+import {runWithAppContext} from '@/db/app-context'
 
 const {Vector} = models
 

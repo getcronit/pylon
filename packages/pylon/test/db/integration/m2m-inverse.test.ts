@@ -5,10 +5,10 @@
  * infers the cross-app dependency (the join FKs into the other app's table).
  */
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
-import {joinTableName} from '@getcronit/pylon-ir'
+import {joinTableName} from '@getcronit/pylon/ir'
 import {Pylon} from '@getcronit/pylon'
-import {connect, Database, db, models, setDefaultDatabase, syncSchema, type ModelConfig} from '../../src/index'
-import {appGroups} from '../../src/migration-groups'
+import {connect, Database, db, models, setDefaultDatabase, syncSchema, type ModelConfig} from '@/db/index'
+import {appGroups} from '@/db/migration-groups'
 
 class MDoc extends models.Model {
   static config = {table: 'mi_doc'} satisfies ModelConfig<MDoc>

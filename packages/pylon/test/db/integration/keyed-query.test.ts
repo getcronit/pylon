@@ -30,7 +30,7 @@ import {
   syncSchema,
   text,
   type WhereInput
-} from '../../src/index'
+} from '@/db/index'
 
 class Team extends Model {
   static config = {table: 'kq_team'} satisfies ModelConfig<Team>

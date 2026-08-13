@@ -9,10 +9,10 @@
  * for the invariants each `runRoundTrip` enforces.
  *
  * Gated on a reachable Postgres (DATABASE_URL or PYLON_ORM_IT), like the other
- * integration tests. Run: `pnpm --filter @getcronit/pylon-db test:integration`.
+ * integration tests. Run: `pnpm --filter @getcronit/pylon/db test:integration`.
  */
 import {afterAll, beforeAll, describe, it} from 'vitest'
-import {connect, type Database} from '../../src/index'
+import {connect, type Database} from '@/db/index'
 import {
   belongsToField,
   entity,

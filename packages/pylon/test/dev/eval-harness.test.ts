@@ -10,7 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {afterAll, describe, expect, it} from 'vitest'
-import {runEval, type AgentRunner, type RunContext, type RunResult} from '../src/eval/index.js'
+import {runEval, type AgentRunner, type RunContext, type RunResult} from '@/cli/eval/index.js'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(dir, '../../..')

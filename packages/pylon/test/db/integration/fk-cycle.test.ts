@@ -19,7 +19,7 @@ import {
   syncSchema,
   text,
   type Relation
-} from '../../src/index'
+} from '@/db/index'
 
 class CycProduct extends Model {
   static config = {table: 'cyc_product'} satisfies ModelConfig<CycProduct>

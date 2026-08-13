@@ -21,7 +21,7 @@ import {
   signals,
   syncSchema,
   text
-} from '../../src/index'
+} from '@/db/index'
 
 class Widget extends Model {
   static config = {table: 'dflt_widget'} satisfies ModelConfig<Widget>

@@ -7,7 +7,7 @@ import {
   queuesOf,
   type JobContext,
   type QueueConfig
-} from '../src/index'
+} from '@/queues/index'
 
 describe('new Pylon({queues}) — decorator-free queue registration', () => {
   // Plain queue classes — no decorator, no app import. Per-queue options in static config.
@@ -26,9 +26,9 @@ describe('new Pylon({queues}) — decorator-free queue registration', () => {
   const news = new Pylon({name: 'news', queues: [Publish, Digest]})
 
   it('registers each queue, namespaced by the app, recorded privately', () => {
-    expect(getQueueDefinition(Publish).name).toBe('news:publish')
-    expect(getQueueDefinition(Digest).name).toBe('news:digest')
-    expect(queuesOf(news).map(q => q.name).sort()).toEqual(['news:digest', 'news:publish'])
+    expect(getQueueDefinition(Publish).name).toBe('news.publish')
+    expect(getQueueDefinition(Digest).name).toBe('news.digest')
+    expect(queuesOf(news).map(q => q.name).sort()).toEqual(['news.digest', 'news.publish'])
     // the enqueue manager is wired (typed add/dispatch)
     expect(typeof Publish.jobs.dispatch).toBe('function')
     expect(typeof Publish.jobs.add).toBe('function')

@@ -15,7 +15,7 @@ import {
   timestamp,
   type Relation,
   type RelatedManager
-} from '../../src/index'
+} from '@/db/index'
 
 // A parent with two hasMany relations to the SAME child table + FK, differing
 // only in ordering — exercises asc/desc resolution AND the batch-token split

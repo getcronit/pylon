@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {zitadelAuth, zitadelPrincipal} from '../src/zitadel'
+import {zitadelAuth, zitadelPrincipal} from '@/auth/zitadel'
 
 describe('zitadelPrincipal (claims → Principal mapping)', () => {
   it('maps sub→id, roles, and claims→attributes by default', () => {

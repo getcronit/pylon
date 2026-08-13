@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
-import {db, getModelDefinitionOrThrow, migrations, models, toIR} from '../src/index'
+import {db, getModelDefinitionOrThrow, migrations, models, toIR} from '@/db/index'
 
 // Define a model entirely through the capitalized namespaced API.
 class Widget extends models.Model {

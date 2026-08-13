@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest'
-import type {PhysicalSchema} from '@getcronit/pylon-ir'
-import {generateModelSource} from '../src/codegen'
+import type {PhysicalSchema} from '@getcronit/pylon/ir'
+import {generateModelSource} from '@/db/codegen'
 
 const col = (over: {name: string; sqlType: any} & Record<string, unknown>) => ({
   primaryKey: false,

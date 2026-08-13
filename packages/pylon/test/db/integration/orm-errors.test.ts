@@ -18,7 +18,7 @@ import {
   syncSchema,
   text,
   ValidationError
-} from '../../src/index'
+} from '@/db/index'
 
 class ErrUser extends Model {
   static config = {table: 'err_user', indexes: [{columns: ['orgId', 'username'], unique: true}]} satisfies ModelConfig<ErrUser>

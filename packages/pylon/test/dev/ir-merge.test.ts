@@ -8,9 +8,9 @@
  */
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
-import {emptyIR, type PylonIR} from '@getcronit/pylon-ir'
+import {emptyIR, type PylonIR} from '@getcronit/pylon/ir'
 import {describe, expect, it} from 'vitest'
-import {SchemaBuilder} from '../src/builder/schema/builder'
+import {SchemaBuilder} from '@/cli/builder/schema/builder'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const fixture = path.resolve(dir, 'fixtures/merge-app/index.ts')

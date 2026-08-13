@@ -9,7 +9,7 @@ import {
   text,
   type Relation,
   type RelatedManager
-} from '../src/index'
+} from '@/db/index'
 
 class Author extends Model {
   id = id()

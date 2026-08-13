@@ -11,8 +11,8 @@ import {
   run,
   runSql,
   schema
-} from '../src/migration-ops'
-import type {MigrationContext, Operation} from '../src/migration-ops'
+} from '@/db/migration-ops'
+import type {MigrationContext, Operation} from '@/db/migration-ops'
 
 /** A context that records exec'd SQL and exposes a fake db. */
 function recordingCtx() {

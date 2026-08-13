@@ -9,11 +9,11 @@
  * model (`Base.objects.get(id)` / `create`). Subclasses become the implementing
  * types.
  */
-import {diffSchema, physicalSchemaOf, toDDL, toSDL, tableSpecOf} from '@getcronit/pylon-ir'
+import {diffSchema, physicalSchemaOf, toDDL, toSDL, tableSpecOf} from '@getcronit/pylon/ir'
 import {describe, expect, it} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
-import {Model, id, text, type ModelConfig} from '../src/index'
-import {toIR} from '../src/ir'
+import {Model, id, text, type ModelConfig} from '@/db/index'
+import {toIR} from '@/db/ir'
 
 // ── Fixture: one `files_asset` table, discriminated by `type` ─────────────────
 // The base opts into single-table inheritance and names its discriminator; each

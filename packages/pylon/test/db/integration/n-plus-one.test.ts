@@ -21,7 +21,7 @@ import {
   runAsSystem,
   syncSchema,
   text
-} from '../../src/index'
+} from '@/db/index'
 
 class Owner extends Model {
   static config = {table: 'nn_owner'} satisfies ModelConfig<Owner>

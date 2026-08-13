@@ -8,7 +8,7 @@ import {
   toSDL,
   type Entity,
   type ObjectType
-} from '../src/index'
+} from '@/ir/index'
 
 const userObject: ObjectType = {
   name: 'User',

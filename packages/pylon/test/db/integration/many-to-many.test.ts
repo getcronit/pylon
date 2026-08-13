@@ -11,7 +11,7 @@ import {
   setDefaultDatabase,
   syncSchema,
   text
-} from '../../src/index'
+} from '@/db/index'
 
 // Distinct table names so the suite never collides with other integration
 // files that also register `post`/`tag` in the shared, process-global registry.

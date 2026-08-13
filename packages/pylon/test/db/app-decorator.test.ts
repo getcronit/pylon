@@ -1,7 +1,7 @@
 import {describe, it, expect} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
-import {Model, manager, id, text, can, filter, runWithAppContext} from '../src/index'
-import {getModelDefinition} from '../src/registry'
+import {Model, manager, id, text, can, filter, runWithAppContext} from '@/db/index'
+import {getModelDefinition} from '@/db/registry'
 
 describe('new Pylon({db: {models}}) — app-bound model config', () => {
   it('a named app prefixes the table + tags the app', () => {

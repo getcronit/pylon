@@ -9,7 +9,7 @@ import {
   renderChanges,
   tableSpecOf,
   type Entity
-} from '../src/index'
+} from '@/ir/index'
 
 const col = (over: {name: string; sqlType: any} & Record<string, unknown>) => ({
   primaryKey: false,

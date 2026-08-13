@@ -8,8 +8,8 @@
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {describe, expect, it} from 'vitest'
-import {SchemaBuilder} from '../src/builder/schema/builder'
-import {introspectViaRunner} from '../src/project-bridge'
+import {SchemaBuilder} from '@/cli/builder/schema/builder'
+import {introspectViaRunner} from '@/cli/project-bridge'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const cwd = path.resolve(dir, 'fixtures/orm-build-app')

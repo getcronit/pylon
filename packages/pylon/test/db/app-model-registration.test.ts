@@ -8,10 +8,10 @@
  */
 import {describe, it, expect} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
-import {models, db, toIR, getModelDefinition, getModelDefinitionOrThrow, appGroups} from '../src/index'
-import {modelsOf} from '../src/app'
-import {hydrate} from '../src/manager'
-import type {Relation} from '../src/index'
+import {models, db, toIR, getModelDefinition, getModelDefinitionOrThrow, appGroups} from '@/db/index'
+import {modelsOf} from '@/db/app'
+import {hydrate} from '@/db/manager'
+import type {Relation} from '@/db/index'
 
 // Plain models — would normally live in models.ts, importing only pylon-db.
 class Author extends models.Model {

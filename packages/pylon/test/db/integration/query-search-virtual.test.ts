@@ -17,7 +17,7 @@ import {
   setDefaultDatabase,
   syncSchema,
   text
-} from '../../src/index'
+} from '@/db/index'
 
 class XsAuthor extends Model {
   static config = {table: 'xs_author', search: {columns: ['bio']}} satisfies ModelConfig<XsAuthor>

@@ -11,7 +11,7 @@ import {
   syncSchema,
   text,
   timestamp
-} from '../../src/index'
+} from '@/db/index'
 
 class User extends Model {
   static objects = manager(User)

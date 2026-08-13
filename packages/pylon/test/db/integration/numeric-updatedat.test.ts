@@ -17,7 +17,7 @@ import {
   text,
   timestamp,
   updatedAt
-} from '../../src/index'
+} from '@/db/index'
 
 class NumInv extends Model {
   static config = {table: 'num_inv'} satisfies ModelConfig<NumInv>

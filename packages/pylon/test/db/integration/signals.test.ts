@@ -17,7 +17,7 @@ import {
   syncSchema,
   text,
   type SaveSignalPayload
-} from '../../src/index'
+} from '@/db/index'
 
 class Widget extends Model {
   static config = {table: 'sig_widget'} satisfies ModelConfig<Widget>
@@ -79,7 +79,7 @@ describe.skipIf(!runDb)('model signals (Postgres)', () => {
   })
 
   it('fires postSave with created=true on insert, false on update (per-model + typed)', async () => {
-    const {saveInstance} = await import('../../src/manager')
+    const {saveInstance} = await import('@/db/manager')
     const seen: Array<{name: string; created: boolean}> = []
     disconnects.push(
       signals.postSave.connect(Widget, ({instances, created}) => {
@@ -111,7 +111,7 @@ describe.skipIf(!runDb)('model signals (Postgres)', () => {
     disconnects.push(signals.preDelete.connect(Widget, () => order.push('pre')))
     disconnects.push(signals.postDelete.connect(Widget, () => order.push('post')))
     const w = await Widget.objects.create({name: 'c'})
-    const {deleteInstance} = await import('../../src/manager')
+    const {deleteInstance} = await import('@/db/manager')
     await deleteInstance(w as object)
     expect(order).toEqual(['pre', 'post'])
   })
@@ -134,7 +134,7 @@ describe.skipIf(!runDb)('model signals (Postgres)', () => {
     await db.kysely
       .transaction()
       .execute(async trx => {
-        const {databaseForKysely} = await import('../../src/database')
+        const {databaseForKysely} = await import('@/db/database')
         await databaseForKysely(trx).run(async () => {
           await Widget.objects.create({name: 'e'})
           throw new Error('boom') // roll back
@@ -164,7 +164,7 @@ describe.skipIf(!runDb)('model signals (Postgres)', () => {
     disconnects.push(
       signals.postSave.connect(Widget, () => order.push('commit'), {afterCommit: true})
     )
-    const {transaction} = await import('../../src/database')
+    const {transaction} = await import('@/db/database')
     await transaction(async () => {
       await Widget.objects.create({name: 'ac1'})
       order.push('mid') // still inside the txn, before COMMIT
@@ -178,7 +178,7 @@ describe.skipIf(!runDb)('model signals (Postgres)', () => {
     disconnects.push(
       signals.postSave.connect(Widget, () => { fired++ }, {afterCommit: true})
     )
-    const {transaction} = await import('../../src/database')
+    const {transaction} = await import('@/db/database')
     await transaction(async () => {
       await Widget.objects.create({name: 'ac2'})
       throw new Error('boom') // roll back
@@ -210,7 +210,7 @@ describe.skipIf(!runDb)('model signals (Postgres)', () => {
       signals.postSave.connect(Widget, ({instances}) =>
         order.push(`commit:${instances[0].name}`), {afterCommit: true})
     )
-    const {transaction} = await import('../../src/database')
+    const {transaction} = await import('@/db/database')
     await transaction(async () => {
       await Widget.objects.create({name: 'outer'}) // saveInstance JOINS this txn
       await Widget.objects.create({name: 'inner'})
@@ -221,7 +221,7 @@ describe.skipIf(!runDb)('model signals (Postgres)', () => {
   })
 
   it('postSave `changes` excludes generated (fts) and hidden columns', async () => {
-    const {saveInstance} = await import('../../src/manager')
+    const {saveInstance} = await import('@/db/manager')
     let seen: Record<string, {from: unknown; to: unknown}> | undefined
     disconnects.push(
       signals.postSave.connect(Doc, ({changes, created}) => {

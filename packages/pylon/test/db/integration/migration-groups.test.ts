@@ -27,7 +27,7 @@ import {
   type MigrationGroup,
   type MigrationLoader,
   type Relation
-} from '../../src/index'
+} from '@/db/index'
 
 class Account extends models.Model {
   static config = {table: 'app_account'} satisfies ModelConfig<Account>

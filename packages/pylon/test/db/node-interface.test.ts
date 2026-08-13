@@ -2,11 +2,11 @@
  * `toIR({node:true})` — the opt-in Relay `Node` interface + `node(id): Node`
  * refetch field, projected into the SDL.
  */
-import {toSDL} from '@getcronit/pylon-ir'
+import {toSDL} from '@getcronit/pylon/ir'
 import {describe, expect, it} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
-import {Model, foreignKey, id, text, type Relation} from '../src/index'
-import {toIR} from '../src/ir'
+import {Model, foreignKey, id, text, type Relation} from '@/db/index'
+import {toIR} from '@/db/ir'
 
 class Author extends Model {
   id = id()
@@ -90,7 +90,7 @@ describe('id({snowflake: true})', () => {
 describe('top-level `node` opt-in wiring', () => {
   it('turns on the Node projection for a bare `toIR()`', async () => {
     // Fresh module graph so the node default starts off, then an app enables it.
-    const reg = await import('../src/registry')
+    const reg = await import('@/db/registry')
     expect(reg.nodeDefaultValue()).toBeUndefined()
     expect(toSDL(toIR())).not.toMatch(/interface Node/)
 

@@ -8,7 +8,7 @@ import {
   isFeatureEnabled,
   requireFeature,
   runWithAppContext
-} from '../src/index'
+} from '@/db/index'
 
 describe('feature gating (state model + provider seam)', () => {
   it('boolean + valued features: isEnabled (truthy) and featureValue', () => {

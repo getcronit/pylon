@@ -10,7 +10,7 @@ import {
   snowflake,
   snowflakeDefault,
   snowflakeNodeId
-} from '../src/snowflake'
+} from '@/db/snowflake'
 
 // Each test picks a distinct nodeId so the shared per-node allocator state
 // never bleeds between cases.

@@ -32,7 +32,7 @@ import {
   runAsSystem,
   syncSchema,
   text
-} from '../../src/index'
+} from '@/db/index'
 
 class Ticket extends Model {
   static config = {table: 'hmt_ticket'} satisfies ModelConfig<Ticket>

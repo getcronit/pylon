@@ -18,7 +18,7 @@ import {
   setDefaultDatabase,
   syncSchema,
   text
-} from '../../src/index'
+} from '@/db/index'
 
 class QrBrand extends Model {
   static config = {table: 'qr_brand'} satisfies ModelConfig<QrBrand>

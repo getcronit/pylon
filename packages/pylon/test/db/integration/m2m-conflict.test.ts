@@ -6,8 +6,8 @@
  */
 import {describe, expect, it} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
-import {db, models, type ModelConfig} from '../../src/index'
-import {appGroups} from '../../src/migration-groups'
+import {db, models, type ModelConfig} from '@/db/index'
+import {appGroups} from '@/db/migration-groups'
 
 class MCLeft extends models.Model {
   static config = {table: 'mc_left'} satisfies ModelConfig<MCLeft>

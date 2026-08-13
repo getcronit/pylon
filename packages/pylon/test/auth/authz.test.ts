@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {authorize, ForbiddenError, getPrincipal, hasPermission, hasRole, requireRole} from '../src/index'
+import {authorize, ForbiddenError, getPrincipal, hasPermission, hasRole, requireRole} from '@/auth/index'
 
 describe('pylon-auth capability authz', () => {
   it('hasRole / hasPermission are null-safe ANY-of checks', () => {

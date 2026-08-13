@@ -4,7 +4,7 @@
  */
 import {afterEach, beforeAll, afterAll, describe, expect, it} from 'vitest'
 import {sql} from 'kysely'
-import {connect, type Database, leaseNodeId, setDefaultDatabase} from '../../src/index'
+import {connect, type Database, leaseNodeId, setDefaultDatabase} from '@/db/index'
 
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'

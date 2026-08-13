@@ -14,9 +14,9 @@ import {
   setDefaultDatabase,
   syncSchema,
   text
-} from '../../src/index'
-import {entityFromDefinition} from '../../src/ir'
-import {getModelDefinitionOrThrow} from '../../src/registry'
+} from '@/db/index'
+import {entityFromDefinition} from '@/db/ir'
+import {getModelDefinitionOrThrow} from '@/db/registry'
 
 class FtsDoc extends Model {
   static config = {table: 'fts_doc', search: {columns: ['title', 'body'], language: 'english'}} satisfies ModelConfig<FtsDoc>

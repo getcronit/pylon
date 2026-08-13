@@ -1,6 +1,6 @@
 // A realistic ORM-backed Pylon entry: models + a resolver returning one.
 import {Pylon} from '@getcronit/pylon'
-import {Model, id, text, boolean} from '@getcronit/pylon-db'
+import {Model, id, text, boolean} from '@getcronit/pylon/db'
 
 export class Product extends Model {
   id = id()

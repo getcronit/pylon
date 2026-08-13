@@ -13,7 +13,7 @@ import {
   syncSchema,
   text,
   ValidationError
-} from '../../src/index'
+} from '@/db/index'
 
 class ValWidget extends Model {
   static config = {table: 'val_widget'} satisfies ModelConfig<ValWidget>

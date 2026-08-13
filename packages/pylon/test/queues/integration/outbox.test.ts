@@ -2,7 +2,7 @@
  * Transactional outbox — `queue.add()` inside a DB transaction is enqueued IFF
  * the transaction commits (no phantom jobs on rollback). Needs Postgres + Redis.
  */
-import {connect, type Database, setDefaultDatabase} from '@getcronit/pylon-db'
+import {connect, type Database, setDefaultDatabase} from '@getcronit/pylon/db'
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
 import {
   closeConnection,
@@ -11,7 +11,7 @@ import {
   relayOnce,
   setConnection,
   setOutboxDriver
-} from '../../src/index'
+} from '@/queues/index'
 
 const REDIS = process.env.REDIS_URL ?? 'redis://localhost:6380'
 const PG = process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'

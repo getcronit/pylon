@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {computeDrift, hasDrift} from '../src/introspect'
+import {computeDrift, hasDrift} from '@/db/introspect'
 
 describe('computeDrift — presence-level (tables + columns)', () => {
   it('reports missing/extra tables and per-table column drift', () => {

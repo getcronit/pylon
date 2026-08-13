@@ -16,7 +16,7 @@ import {
   syncSchema,
   text,
   toGid
-} from '../../src/index'
+} from '@/db/index'
 
 class GidWidget extends Model {
   static config = {table: 'gid_widget'} satisfies ModelConfig<GidWidget>

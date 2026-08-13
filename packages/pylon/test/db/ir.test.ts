@@ -1,9 +1,9 @@
-import {toDDL, toSDL, tableSpecOf} from '@getcronit/pylon-ir'
+import {toDDL, toSDL, tableSpecOf} from '@getcronit/pylon/ir'
 import {describe, expect, it} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
-import {Model, boolean, foreignKey, hasMany, id, manyToMany, text, timestamp} from '../src/index'
-import {toIR} from '../src/ir'
-import type {Relation} from '../src/relations'
+import {Model, boolean, foreignKey, hasMany, id, manyToMany, text, timestamp} from '@/db/index'
+import {toIR} from '@/db/ir'
+import type {Relation} from '@/db/relations'
 
 class Tag extends Model {
   id = id()

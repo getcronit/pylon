@@ -17,7 +17,7 @@ import {
   setDefaultDatabase,
   syncSchema,
   text
-} from '../../src/index'
+} from '@/db/index'
 
 class Node extends Model {
   static config = {table: 'page_node'} satisfies ModelConfig<Node>

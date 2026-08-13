@@ -4,7 +4,7 @@
  * or the FK constraint (and any insert) fails. Regression for the lokalis case
  * where almost every model has a text/uuid PK.
  */
-import {physicalSchemaOf} from '@getcronit/pylon-ir'
+import {physicalSchemaOf} from '@getcronit/pylon/ir'
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
 import {
@@ -22,7 +22,7 @@ import {
   toIR,
   uuid,
   type Relation
-} from '../../src/index'
+} from '@/db/index'
 
 class FktOrg extends Model {
   static config = {table: 'fkt_org'} satisfies ModelConfig<FktOrg>

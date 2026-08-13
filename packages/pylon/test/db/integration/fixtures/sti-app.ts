@@ -4,7 +4,7 @@
  * test asserts the END-TO-END SDL, not just the ORM's `toIR` contribution.
  */
 import {Pylon} from '@getcronit/pylon'
-import {Model, id, text, enumOf, type ModelConfig} from '../../../src/index.js'
+import {Model, id, text, enumOf, type ModelConfig} from '@/db/index.js'
 
 export enum AssetType {
   FILE = 'FILE',

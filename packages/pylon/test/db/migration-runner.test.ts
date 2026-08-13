@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {pathToFileURL} from 'node:url'
 import {afterEach, beforeEach, describe, expect, it} from 'vitest'
-import {MigrationRunner, type MigrationLoader, type Snapshot} from '../src/index'
+import {MigrationRunner, type MigrationLoader, type Snapshot} from '@/db/index'
 
 // The baseline is reconstructed by folding the migration history, so generate/
 // status take a loader. vitest transpiles the generated .ts files on import.
@@ -71,7 +71,7 @@ describe('MigrationRunner — generate / status (file workflow, no DB)', () => {
     // the migration file is a TS module authored against the public API, using
     // the named (Django-style) operations rather than one schema([...]) blob
     const src = await fileContents(r, 't1_init')
-    expect(src).toContain("import {migrations} from '@getcronit/pylon-db'")
+    expect(src).toContain("import {migrations} from '@getcronit/pylon/db'")
     expect(src).toContain('migrations.defineMigration(')
     expect(src).toContain('migrations.createTable(')
 
@@ -114,7 +114,7 @@ describe('MigrationRunner — generate / status (file workflow, no DB)', () => {
   it('detects divergent heads and reconverges them with a merge migration (DAG)', async () => {
     const r = runnerFor(() => v1)
     const mig = (deps?: string[]) =>
-      `import {migrations} from '@getcronit/pylon-db'\n` +
+      `import {migrations} from '@getcronit/pylon/db'\n` +
       `export default migrations.defineMigration({${deps ? `dependencies: ${JSON.stringify(deps)}, ` : ''}operations: []})\n`
     // root, then two branches off it (two heads)
     await fs.writeFile(path.join(dir, 't1_init.ts'), mig())

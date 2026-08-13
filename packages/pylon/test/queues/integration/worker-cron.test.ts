@@ -8,7 +8,7 @@ import {
   defineQueue,
   setConnection,
   startWorkers
-} from '../../src/index'
+} from '@/queues/index'
 
 const REDIS = process.env.REDIS_URL ?? 'redis://localhost:6380'
 const run = process.env.PYLON_QUEUES_IT || process.env.REDIS_URL

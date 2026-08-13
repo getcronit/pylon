@@ -1,13 +1,13 @@
 /**
- * A real Pylon entrypoint built on real `@getcronit/pylon-db` models. It is
+ * A real Pylon entrypoint built on real `@getcronit/pylon/db` models. It is
  * never executed — Pylon's `SchemaBuilder` compiles it with the TypeScript
  * compiler and derives the GraphQL schema from the resolver return types. The
  * integration test asserts on the emitted SDL, exercising the ACTUAL ORM types
  * against the ACTUAL schema introspection (no mirrored predicates).
  */
 import {Pylon} from '@getcronit/pylon'
-import {Model, id, text, boolean, createdAt, foreignKey, hasMany, manyToMany, enumOf} from '../../../src/index.js'
-import type {Relation} from '../../../src/index.js'
+import {Model, id, text, boolean, createdAt, foreignKey, hasMany, manyToMany, enumOf} from '@/db/index.js'
+import type {Relation} from '@/db/index.js'
 
 // A native TS string enum — usable in backend code (UserRole.ADMIN) and the
 // source of the GraphQL enum's name.

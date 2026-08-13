@@ -13,7 +13,7 @@ import {
   setDefaultDatabase,
   syncSchema,
   text
-} from '../../src/index'
+} from '@/db/index'
 
 class DriftWidget extends Model {
   static config = {table: 'drift_widget'} satisfies ModelConfig<DriftWidget>

@@ -7,7 +7,7 @@ import {
   id,
   text,
   timestamp
-} from '../src/index'
+} from '@/db/index'
 
 // Abstract base models are plain classes — never registered, just extended.
 abstract class Base extends Model {

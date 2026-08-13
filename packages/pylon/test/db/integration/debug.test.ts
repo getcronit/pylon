@@ -15,8 +15,8 @@ import {
   setDefaultDatabase,
   syncSchema,
   text
-} from '../../src/index'
-import {runWithAppContext} from '../../src/app-context'
+} from '@/db/index'
+import {runWithAppContext} from '@/db/app-context'
 
 class Item extends Model {
   static config = {table: 'dbg_item', tenant: 'orgId'} satisfies ModelConfig<Item>

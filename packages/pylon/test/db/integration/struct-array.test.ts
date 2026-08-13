@@ -10,7 +10,7 @@ import {
   json,
   syncSchema,
   text
-} from '../../src/index'
+} from '@/db/index'
 
 // Regression: a `struct` (jsonb) column whose value is a TOP-LEVEL array.
 // node-pg serializes JS objects as jsonb (via JSON.stringify) but arrays as

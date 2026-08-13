@@ -23,7 +23,7 @@ import {
   syncSchema,
   text,
   type WhereInput
-} from '../../src/index'
+} from '@/db/index'
 
 class OTeam extends Model {
   static config = {table: 'kqo_team'} satisfies ModelConfig<OTeam>

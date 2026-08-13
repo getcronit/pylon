@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest'
-import {tableSpecOf, type Entity} from '@getcronit/pylon-ir'
-import {buildHistoricalModels} from '../src/historical-models'
+import {tableSpecOf, type Entity} from '@getcronit/pylon/ir'
+import {buildHistoricalModels} from '@/db/historical-models'
 
 const gadget: Entity = {
   name: 'Gadget',

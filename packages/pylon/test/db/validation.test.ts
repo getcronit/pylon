@@ -9,7 +9,7 @@ import {
   text,
   validateInstance,
   ValidationError
-} from '../src/index'
+} from '@/db/index'
 
 class Account extends Model {
   id = id()

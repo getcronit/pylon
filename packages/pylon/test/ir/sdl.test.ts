@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {emptyIR, mergeIR, toSDL, toDDL, tableSpecOf, type PylonIR} from '../src/index'
+import {emptyIR, mergeIR, toSDL, toDDL, tableSpecOf, type PylonIR} from '@/ir/index'
 
 describe('IR is ORM-agnostic — a plain Pylon app needs no entities', () => {
   // A vanilla Pylon app: resolvers returning a plain DTO. No persistence, no

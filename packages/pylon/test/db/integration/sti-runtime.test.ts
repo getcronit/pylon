@@ -16,7 +16,7 @@ import {
   setDefaultDatabase,
   syncSchema,
   text
-} from '../../src/index'
+} from '@/db/index'
 
 enum AssetType {
   FILE = 'FILE',

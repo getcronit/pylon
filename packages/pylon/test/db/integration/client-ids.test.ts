@@ -15,7 +15,7 @@ import {
   syncSchema,
   text,
   uuidv4
-} from '../../src/index'
+} from '@/db/index'
 
 class CidDoc extends Model {
   static config = {table: 'cid_doc'} satisfies ModelConfig<CidDoc>

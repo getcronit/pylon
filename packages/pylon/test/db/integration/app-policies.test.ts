@@ -15,8 +15,8 @@ import {
   runAsSystem,
   setDefaultDatabase,
   syncSchema
-} from '../../src/index'
-import {runWithAppContext} from '../../src/app-context'
+} from '@/db/index'
+import {runWithAppContext} from '@/db/app-context'
 
 interface Principal {
   userId: number

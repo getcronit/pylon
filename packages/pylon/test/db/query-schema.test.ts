@@ -16,7 +16,7 @@ import {
   type Relation,
   text,
   timestamp
-} from '../src/index'
+} from '@/db/index'
 
 class Item extends Model {
   static config = {search: {columns: ['title']}} satisfies ModelConfig<Item>

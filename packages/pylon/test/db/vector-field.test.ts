@@ -1,10 +1,10 @@
-import {toDDL, tableSpecOf} from '@getcronit/pylon-ir'
+import {toDDL, tableSpecOf} from '@getcronit/pylon/ir'
 import {describe, expect, it} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
-import {models, type ModelConfig} from '../src/index'
-import {toIR} from '../src/ir'
-import {selectableColumns} from '../src/manager'
-import {getModelDefinitionOrThrow} from '../src/registry'
+import {models, type ModelConfig} from '@/db/index'
+import {toIR} from '@/db/ir'
+import {selectableColumns} from '@/db/manager'
+import {getModelDefinitionOrThrow} from '@/db/registry'
 
 const {Model, ID, Text, Vector} = models
 

@@ -1,15 +1,8 @@
 import {GraphQLError} from 'graphql'
+import {useDatabase} from '@/db/plugin'
 import {afterEach, describe, expect, it} from 'vitest'
-import {PRINCIPAL_KEY} from '@getcronit/pylon-auth/contract'
-import {
-  currentPrincipal,
-  currentTenant,
-  getDatabase,
-  NotFoundError,
-  setDefaultDatabase,
-  useDatabase,
-  ValidationError
-} from '../src/index'
+import {PRINCIPAL_KEY} from '@getcronit/pylon/auth/contract'
+import {currentPrincipal, currentTenant, getDatabase, NotFoundError, setDefaultDatabase, ValidationError} from '@/db/index'
 
 // A minimal stand-in for the Hono/Pylon request context: a backing Map behind
 // `get`/`set`, matching the real `c.get(PRINCIPAL_KEY)` the migrated middleware

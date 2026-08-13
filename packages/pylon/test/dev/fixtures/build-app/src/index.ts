@@ -2,8 +2,8 @@
 // Model (whose members are all excluded) so this also exercises the empty-
 // interface path that broke a real build.
 import {Pylon} from '@getcronit/pylon'
-import {Model, id, text, int, boolean, hasMany, foreignKey} from '@getcronit/pylon-db'
-import type {Relation} from '@getcronit/pylon-db'
+import {Model, id, text, int, boolean, hasMany, foreignKey} from '@getcronit/pylon/db'
+import type {Relation} from '@getcronit/pylon/db'
 
 export class Category extends Model {
   id = id()

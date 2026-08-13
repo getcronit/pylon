@@ -1,9 +1,9 @@
-import {makeMigration} from '@getcronit/pylon-ir'
+import {makeMigration} from '@getcronit/pylon/ir'
 import {describe, expect, it} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
-import {Model, boolean, foreignKey, id, text, timestamp} from '../src/index'
-import {planMigration, serializeSnapshot, snapshot, type Snapshot} from '../src/migrations'
-import type {Relation} from '../src/relations'
+import {Model, boolean, foreignKey, id, text, timestamp} from '@/db/index'
+import {planMigration, serializeSnapshot, snapshot, type Snapshot} from '@/db/migrations'
+import type {Relation} from '@/db/relations'
 
 class User extends Model {
   id = id()

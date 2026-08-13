@@ -9,8 +9,8 @@ import {
   filter,
   runWithAppContext,
   type ModelConfig
-} from '../src/index'
-import {getModelDefinition} from '../src/registry'
+} from '@/db/index'
+import {getModelDefinition} from '@/db/registry'
 
 describe('static config', () => {
   it('applies typed config declared as a static member', () => {

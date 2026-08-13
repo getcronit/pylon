@@ -21,8 +21,8 @@ import {
   setDefaultDatabase,
   syncSchema,
   text
-} from '../../src/index'
-import {runAsSystem, runWithAppContext} from '../../src/app-context'
+} from '@/db/index'
+import {runAsSystem, runWithAppContext} from '@/db/app-context'
 
 class Org extends Model {
   static config = {table: 'rt_org'} satisfies ModelConfig<Org>

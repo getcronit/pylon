@@ -7,7 +7,7 @@
  */
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
-import {joinTableName, pgIdent} from '@getcronit/pylon-ir'
+import {joinTableName, pgIdent} from '@getcronit/pylon/ir'
 import {
   type ModelConfig,
   connect,
@@ -19,7 +19,7 @@ import {
   setDefaultDatabase,
   syncSchema,
   text
-} from '../../src/index'
+} from '@/db/index'
 
 // ~49 chars each → sorted join name ~99 chars (well over 63).
 const A_TABLE = 'tbl_org_membership_invitation_audit_records_alpha'

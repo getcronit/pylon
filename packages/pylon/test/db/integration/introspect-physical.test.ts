@@ -7,7 +7,7 @@
 import {promises as fs} from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import {applyChanges, diffSchema} from '@getcronit/pylon-ir'
+import {applyChanges, diffSchema} from '@getcronit/pylon/ir'
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
 import {
@@ -26,7 +26,7 @@ import {
   setDefaultDatabase,
   syncSchema,
   text
-} from '../../src/index'
+} from '@/db/index'
 
 class IpAuthor extends Model {
   static config = {table: 'ip_author'} satisfies ModelConfig<IpAuthor>

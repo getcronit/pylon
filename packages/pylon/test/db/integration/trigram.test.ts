@@ -17,9 +17,9 @@ import {
   setDefaultDatabase,
   syncSchema,
   text
-} from '../../src/index'
-import {entityFromDefinition} from '../../src/ir'
-import {getModelDefinitionOrThrow} from '../../src/registry'
+} from '@/db/index'
+import {entityFromDefinition} from '@/db/ir'
+import {getModelDefinitionOrThrow} from '@/db/registry'
 
 class TrgmItem extends Model {
   static config = {table: 'trgm_item', trigram: {columns: ['sku', 'barcode']}} satisfies ModelConfig<TrgmItem>

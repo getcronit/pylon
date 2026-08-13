@@ -14,7 +14,7 @@ import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {parse} from 'graphql'
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
-import {build} from '../src/builder'
+import {build} from '@/cli/builder'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const fixtureCwd = path.resolve(dir, 'fixtures/build-app')

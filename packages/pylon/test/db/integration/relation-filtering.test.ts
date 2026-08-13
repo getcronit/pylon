@@ -23,7 +23,7 @@ import {
   syncSchema,
   text,
   type WhereInput
-} from '../../src/index'
+} from '@/db/index'
 
 class Author extends Model {
   static config = {table: 'rf_author'} satisfies ModelConfig<Author>

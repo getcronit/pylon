@@ -14,8 +14,8 @@ import {
   type Relation,
   text,
   timestamp
-} from '../src/index'
-import {parseSearchQuery} from '../src/query-parser'
+} from '@/db/index'
+import {parseSearchQuery} from '@/db/query-parser'
 
 // Exercises every column kind the parser coerces / searches: text (default
 // search + equality), numeric/int (number coercion + comparators), boolean,

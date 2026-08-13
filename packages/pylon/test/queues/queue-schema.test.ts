@@ -1,6 +1,6 @@
 import {describe, it, expect} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
-import {Queue, manager, getQueueDefinition, type JobContext, type QueueConfig} from '../src/index'
+import {Queue, manager, getQueueDefinition, type JobContext, type QueueConfig} from '@/queues/index'
 
 // A structural `{parse}` schema (zod fits this shape; no zod dep needed for the test).
 const PostInput = {
@@ -22,7 +22,7 @@ describe('Queue.input(schema) — schema-first payloads', () => {
     }
     new Pylon({name: 'blog', queues: [Publish]})
 
-    expect(getQueueDefinition(Publish).name).toBe('blog:publish')
+    expect(getQueueDefinition(Publish).name).toBe('blog.publish')
 
     // Runtime validation runs at enqueue, BEFORE Redis — a bad payload is rejected
     // even with no broker running (the guarantee the erased generic can't give).

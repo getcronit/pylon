@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
-import {getModelDefinitionOrThrow, id, int, Model, text, toIR, type ModelConfig} from '../src/index'
+import {getModelDefinitionOrThrow, id, int, Model, text, toIR, type ModelConfig} from '@/db/index'
 
 // Per-model options (table, indexes, search, …) live in `static config`, typed against
 // the model's own fields via `satisfies ModelConfig<T>` (the index columns are checked).

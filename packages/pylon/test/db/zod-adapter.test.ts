@@ -10,7 +10,7 @@ import {
   validateInstance,
   validateWithSchema,
   type FieldSchema
-} from '../src/index'
+} from '@/db/index'
 
 class Profile extends Model {
   id = id()

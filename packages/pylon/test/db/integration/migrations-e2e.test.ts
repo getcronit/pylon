@@ -12,7 +12,7 @@ import {
   physicalSchemaOf,
   renderChanges,
   type SchemaChange
-} from '@getcronit/pylon-ir'
+} from '@getcronit/pylon/ir'
 import {sql} from 'kysely'
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
@@ -32,7 +32,7 @@ import {
   text,
   toIR,
   updatedAt
-} from '../../src/index'
+} from '@/db/index'
 
 enum MigStatus {
   DRAFT = 'DRAFT',

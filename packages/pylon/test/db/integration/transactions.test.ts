@@ -19,7 +19,7 @@ import {
   syncSchema,
   text,
   transaction
-} from '../../src/index'
+} from '@/db/index'
 
 class Widget extends Model {
   static config = {table: 'txn_widget'} satisfies ModelConfig<Widget>

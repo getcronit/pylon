@@ -1,4 +1,4 @@
-import {makeMigration} from '@getcronit/pylon-ir'
+import {makeMigration} from '@getcronit/pylon/ir'
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
 import {
@@ -13,8 +13,8 @@ import {
   setDefaultDatabase,
   snapshot,
   text
-} from '../../src/index'
-import type {Relation} from '../../src/relations'
+} from '@/db/index'
+import type {Relation} from '@/db/relations'
 
 // Unique table names (`mig_*`) so this suite never collides with the other
 // integration tests sharing the same Postgres instance under parallel runs.
