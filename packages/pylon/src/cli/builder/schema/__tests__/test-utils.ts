@@ -1,7 +1,7 @@
 import ts from 'typescript'
 import {parse, print} from 'graphql'
 import {expect} from 'vitest'
-import {toSDL} from '@getcronit/pylon/ir'
+import {toSDL} from '../../../../ir'
 import {SchemaParser} from '../schema-parser'
 import path from 'path'
 

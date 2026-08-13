@@ -1,4 +1,4 @@
-import {generateClientFiles} from '@getcronit/pylon/query/build'
+import {generateClientFiles} from '../../query/build'
 import esbuild from 'esbuild'
 import fs from 'fs/promises'
 import path from 'path'

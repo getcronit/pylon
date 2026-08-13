@@ -12,6 +12,14 @@
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
+    "./ir": {
+      "import": "./dist/ir/index.js",
+      "types": "./dist/ir/index.d.ts"
+    },
+    "./query/build": {
+      "import": "./dist/query/build/index.js",
+      "types": "./dist/query/build/index.d.ts"
+    },
     "./db": {
       "import": "./dist/db/index.js",
       "types": "./dist/db/index.d.ts"
@@ -61,7 +69,7 @@
   },
   "scripts": {
     "build": "rimraf ./dist && node build.js && pnpm run build:declarations",
-    "build:declarations": "tsc --declaration --emitDeclarationOnly --outDir ./dist && tsc-alias"
+    "build:declarations": "tsc -p tsconfig.typecheck.json --declaration --emitDeclarationOnly --outDir ./dist && tsc-alias -p tsconfig.typecheck.json"
   },
   "files": [
     "dist",

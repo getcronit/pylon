@@ -14,8 +14,8 @@ import type {
   PylonIR,
   ScalarName,
   TypeRef
-} from '@getcronit/pylon/ir'
-import {emptyIR, pgIdent} from '@getcronit/pylon/ir'
+} from '../ir'
+import {emptyIR, pgIdent} from '../ir'
 import type {
   ColumnDefinition,
   ModelDefinition,

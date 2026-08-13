@@ -21,7 +21,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {type RunnerEnvelope} from './project-runner-protocol.js'
-import type {PhysicalSchema, PylonIR} from '@getcronit/pylon/ir'
+import type {PhysicalSchema, PylonIR} from '../ir'
 
 /** The project's pylon-db migration/IR API, as driven by `runDbCommandCore` in the
  *  child. Typed locally so pylon-dev needn't take a runtime dependency on the ORM. */

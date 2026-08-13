@@ -32,7 +32,7 @@ import {
   type Rename,
   type TableRename,
   type SchemaChange
-} from '@getcronit/pylon/ir'
+} from '../ir'
 import {databaseForKysely, getDatabase, type Database} from './database.js'
 import {buildHistoricalModels} from './historical-models.js'
 import {

@@ -9,7 +9,7 @@
  */
 import {promises as fs} from 'node:fs'
 import {sql} from 'kysely'
-import {makeMigration, type Migration, type PylonIR} from '@getcronit/pylon/ir'
+import {makeMigration, type Migration, type PylonIR} from '../ir'
 import {getDatabase, type Database} from './database.js'
 import {toIR} from './ir.js'
 

@@ -16,7 +16,7 @@ import type {
   PhysicalSchema,
   PhysicalTable,
   TableColumn
-} from '@getcronit/pylon/ir'
+} from '../ir'
 
 /** `ip_author` → `IpAuthor`. */
 function pascal(table: string): string {

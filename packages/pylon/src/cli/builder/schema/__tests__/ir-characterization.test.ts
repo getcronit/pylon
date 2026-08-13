@@ -11,7 +11,7 @@
  * thing Stage 4 reconstructs, so it's the tightest possible guard.
  */
 import {parse} from 'graphql'
-import {toSDL} from '@getcronit/pylon/ir'
+import {toSDL} from '../../../../ir'
 import {describe, expect, it} from 'vitest'
 import {buildParser} from './test-utils'
 

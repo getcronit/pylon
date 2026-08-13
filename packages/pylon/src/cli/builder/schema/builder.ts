@@ -14,7 +14,7 @@ import {
   pruneUnreferencedObjectTypes,
   toSDL,
   type PylonIR
-} from '@getcronit/pylon/ir'
+} from '../../../ir'
 import {SchemaParser} from './schema-parser'
 import path from 'path'
 

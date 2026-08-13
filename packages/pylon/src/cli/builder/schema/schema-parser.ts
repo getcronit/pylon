@@ -1,7 +1,7 @@
 import consola from 'consola'
 import ts from 'typescript'
-import {emptyIR, toSDL} from '@getcronit/pylon/ir'
-import type {Field as IRField, Operation, PylonIR, TypeRef} from '@getcronit/pylon/ir'
+import {emptyIR, toSDL} from '../../../ir'
+import type {Field as IRField, Operation, PylonIR, TypeRef} from '../../../ir'
 import {
   TypeDefinitionBuilder,
   Enum as _Enum,

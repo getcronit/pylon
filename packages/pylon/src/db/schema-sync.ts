@@ -1,4 +1,4 @@
-import {joinColumn, joinTableName, pgIdent, postgres} from '@getcronit/pylon/ir'
+import {joinColumn, joinTableName, pgIdent, postgres} from '../ir'
 import {sql, type Expression} from 'kysely'
 import {Database, getDatabase} from './database.js'
 import {entityFromDefinition} from './ir.js'

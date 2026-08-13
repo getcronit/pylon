@@ -22,7 +22,7 @@
  * "decorated ORM-model type, full-build-only" class already flagged in nullable-refs.test.ts.
  * A failing repro therefore needs a full-build harness, not this unit seam.
  */
-import {emptyIR, mergeIR, toSDL, type PylonIR} from '@getcronit/pylon/ir'
+import {emptyIR, mergeIR, toSDL, type PylonIR} from '../../../../ir'
 import {buildSchema} from 'graphql'
 import {describe, expect, it} from 'vitest'
 import {buildParser} from './test-utils'

@@ -12,7 +12,7 @@ import {promises as fs} from 'node:fs'
 import path from 'node:path'
 import {pathToFileURL} from 'node:url'
 import esbuild from 'esbuild'
-import {isDestructive, type SchemaChange} from '@getcronit/pylon/ir'
+import {isDestructive, type SchemaChange} from '../../ir'
 import {spawnProjectRunner, type ProjectApp} from '../project-bridge.js'
 
 let migrationCounter = 0

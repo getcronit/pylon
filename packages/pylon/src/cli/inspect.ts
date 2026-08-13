@@ -11,7 +11,7 @@
  * so the registries are populated by the time we read them.
  */
 import path from 'node:path'
-import {toDDL, tableSpecOf, toSDL, type PylonIR} from '@getcronit/pylon/ir'
+import {toDDL, tableSpecOf, toSDL, type PylonIR} from '../ir'
 import {introspectAppData} from './project-bridge.js'
 import {SchemaBuilder} from './builder/schema/builder.js'
 

@@ -12,7 +12,7 @@
  *     against the GLOBAL registry, so an FK into another group still emits.
  *   - `ledgerPrefix: group.name` — isolate each group's rows in the shared ledger.
  */
-import {joinTableName} from '@getcronit/pylon/ir'
+import {joinTableName} from '../ir'
 import type {Database} from './database.js'
 import {getDatabase} from './database.js'
 import {toIR} from './ir.js'

@@ -15,8 +15,6 @@ import postcss from 'postcss'
 //
 // NOTE: untested until the workspace is installable (see the consumer-migration
 // blocker); expect to iterate esbuild options (splitting/external/outbase) here.
-const SELF_EXTERNAL = ['@getcronit/pylon', '@getcronit/pylon/*']
-
 const common = {
   bundle: true,
   format: 'esm',
@@ -24,9 +22,12 @@ const common = {
   outdir: 'dist',
   sourcemap: 'linked',
   packages: 'external',
-  external: SELF_EXTERNAL,
   splitting: true,
   chunkNames: 'chunks/[name]-[hash]'
+  // esbuild reads tsconfig.json, which intentionally omits the @getcronit/pylon
+  // self-ref paths — so `packages: 'external'` externalizes them and they resolve
+  // at runtime via the exports map. `tsc` uses tsconfig.typecheck.json (which adds
+  // those paths) for declarations. See tsconfig.json / tsconfig.typecheck.json.
 }
 
 const nodeEntries = [
@@ -41,7 +42,8 @@ const nodeEntries = [
   'src/auth/contract.ts',
   'src/auth/zitadel.ts',
   'src/pages/plugin.ts', // usePages (node/build-time)
-  'src/cli/index.ts' // the `pylon` bin
+  'src/cli/index.ts', // the `pylon` bin
+  'src/query/build/index.ts' // ./query/build (internal, node)
 ]
 
 // Browser-facing runtimes bundled into the client by consumers; keep them free of
@@ -63,7 +65,12 @@ const postcssPlugin = {
   }
 }
 
-await esbuild.build({...common, entryPoints: nodeEntries, platform: 'node', target: 'node18'})
+await esbuild.build({
+  ...common,
+  entryPoints: nodeEntries,
+  platform: 'node',
+  target: 'node18'
+})
 await esbuild.build({
   ...common,
   entryPoints: browserEntries,

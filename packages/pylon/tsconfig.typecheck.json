@@ -1,0 +1,14 @@
+{
+  // Used by `tsc` (build:declarations) — adds the @getcronit/pylon self-reference
+  // paths so the consolidated source typechecks against ./src. esbuild deliberately
+  // does NOT use this (it reads tsconfig.json, which omits these) so it externalizes
+  // self-refs for runtime exports resolution. baseUrl = ./src (from the base).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./*"],
+      "@getcronit/pylon": ["./index.ts"],
+      "@getcronit/pylon/*": ["./*"]
+    }
+  }
+}
