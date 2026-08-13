@@ -117,7 +117,7 @@ describe.skipIf(!dockerAvailable)('multi-app e2e — two apps compose one schema
     expect(deployed.out).toMatch(/app blog: deployed/i)
     expect(deployed.out).toMatch(/app shop: deployed/i)
 
-    server = spawn('node', ['.pylon/index.js'], {
+    server = spawn('node', ['.pylon/server.mjs'], {
       cwd: appDir,
       stdio: 'ignore',
       env: {...process.env, PORT: String(PORT), DATABASE_URL: connectionString}

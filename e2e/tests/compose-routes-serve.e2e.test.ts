@@ -54,7 +54,7 @@ beforeAll(async () => {
   })
   if (build.status !== 0) throw new Error(`build failed: ${String(build.stderr ?? build.stdout ?? '')}`)
 
-  server = spawn('node', ['.pylon/index.js'], {
+  server = spawn('node', ['.pylon/server.mjs'], {
     cwd: appDir,
     stdio: 'ignore',
     env: {...process.env, PORT: String(PORT)}

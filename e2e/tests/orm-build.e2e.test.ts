@@ -81,7 +81,7 @@ describe('pylon build (shipped CLI) on a real ORM project', () => {
     const files = await fs.readdir(pylonDir)
     expect(files).toContain('schema.graphql')
     expect(files).toContain('resolvers.js')
-    expect(files).toContain('index.js')
+    expect(files).toContain('server.mjs')
   })
 
   it('emits a VALID executable schema (no empty interface)', () => {

@@ -91,7 +91,7 @@ describe.skipIf(!dockerAvailable)('paginated relations (hasMany + manyToMany)', 
     })
     if (push.status !== 0) throw new Error(`db push failed: ${push.stdout}${push.stderr}`)
 
-    server = spawn('node', ['.pylon/index.js'], {
+    server = spawn('node', ['.pylon/server.mjs'], {
       cwd: appDir,
       stdio: 'ignore',
       env: {...process.env, PORT: String(PORT), DATABASE_URL: connectionString}

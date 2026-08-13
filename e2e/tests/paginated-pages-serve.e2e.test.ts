@@ -72,7 +72,7 @@ describe('usePaginatedData serve', () => {
       throw new Error(`build failed: ${String(build.stderr ?? build.stdout ?? '')}`)
     }
 
-    server = spawn('node', ['.pylon/index.js'], {
+    server = spawn('node', ['.pylon/server.mjs'], {
       cwd: appDir,
       env: {...process.env, PORT: String(PORT), PYLON_TELEMETRY_DISABLED: '1', DO_NOT_TRACK: '1'}
     })

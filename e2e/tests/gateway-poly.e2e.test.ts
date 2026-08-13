@@ -46,7 +46,7 @@ function build(cwd: string) {
 }
 
 function serve(cwd: string, port: number, extraEnv: Record<string, string> = {}) {
-  return spawn('node', ['.pylon/index.js'], {cwd, stdio: 'ignore', env: {...env, PORT: String(port), ...extraEnv}})
+  return spawn('node', ['.pylon/server.mjs'], {cwd, stdio: 'ignore', env: {...env, PORT: String(port), ...extraEnv}})
 }
 
 async function gql(url: string, query: string) {

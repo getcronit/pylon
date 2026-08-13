@@ -55,7 +55,7 @@ function build(cwd: string) {
 }
 
 function serve(cwd: string, port: number, extraEnv: Record<string, string> = {}) {
-  return spawn('node', ['.pylon/index.js'], {
+  return spawn('node', ['.pylon/server.mjs'], {
     cwd,
     stdio: 'ignore',
     env: {...env, PORT: String(port), ...extraEnv}

@@ -114,7 +114,7 @@ describe.skipIf(!dockerAvailable)('runtime e2e — built server answers GraphQL 
     const deployed = pylonDb('deploy')
     if (deployed.status !== 0) throw new Error(`db deploy failed: ${deployed.out}`)
 
-    server = spawn('node', ['.pylon/index.js'], {
+    server = spawn('node', ['.pylon/server.mjs'], {
       cwd: appDir,
       stdio: 'ignore',
       env: {...process.env, PORT: String(PORT), DATABASE_URL: connectionString}
