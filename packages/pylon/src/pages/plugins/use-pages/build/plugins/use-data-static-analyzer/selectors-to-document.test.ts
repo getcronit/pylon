@@ -48,7 +48,7 @@ function extract(source: string, hookName = 'useData') {
 describe('analyzer selectors → pylon-query document', () => {
   it('lowers a real useData component to a typed document', () => {
     const {queries} = extract(`
-      import { useData } from '@getcronit/pylon-pages'
+      import { useData } from '@getcronit/pylon/pages'
       export default function Page() {
         const id = '123'
         const data = useData()
@@ -68,7 +68,7 @@ describe('analyzer selectors → pylon-query document', () => {
 
   it('lowers a connection component for usePaginatedData', () => {
     const {queries} = extract(`
-      import { usePaginatedData } from '@getcronit/pylon-pages'
+      import { usePaginatedData } from '@getcronit/pylon/pages'
       export default function Page() {
         const data = usePaginatedData()
         return <div>{data.posts.edges.map(e => e.node.title)}</div>

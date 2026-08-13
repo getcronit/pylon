@@ -1,6 +1,6 @@
 /**
  * Migration runner — the stateful, filesystem/DB-bound half of Phase 4. The
- * pure diff/SQL engine lives in `@getcronit/pylon-ir` (`makeMigration`); this
+ * pure diff/SQL engine lives in `@getcronit/pylon/ir` (`makeMigration`); this
  * module snapshots the current models as IR, persists/loads snapshots, and
  * applies the generated SQL via Kysely.
  *
@@ -9,7 +9,7 @@
  */
 import {promises as fs} from 'node:fs'
 import {sql} from 'kysely'
-import {makeMigration, type Migration, type PylonIR} from '@getcronit/pylon-ir'
+import {makeMigration, type Migration, type PylonIR} from '@getcronit/pylon/ir'
 import {getDatabase, type Database} from './database.js'
 import {toIR} from './ir.js'
 

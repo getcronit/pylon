@@ -1,4 +1,4 @@
-import {PylonQueryProvider} from '@getcronit/pylon-query'
+import {PylonQueryProvider} from '@getcronit/pylon/query'
 import {createContext, useContext, useMemo} from 'react'
 import {PageProps} from '.'
 

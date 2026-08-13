@@ -5,7 +5,7 @@ import {
   mutationResultSelectors,
   type CompiledOperation,
   type SelectorNode as QuerySelectorNode
-} from '@getcronit/pylon-query/build'
+} from '@getcronit/pylon/query/build'
 import {getNamedType, type GraphQLObjectType, type GraphQLSchema} from 'graphql'
 import type {SelectorNode} from './analyze'
 

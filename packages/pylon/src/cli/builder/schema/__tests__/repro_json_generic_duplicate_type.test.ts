@@ -19,7 +19,7 @@
  */
 import path from 'path'
 import {fileURLToPath} from 'url'
-import {toIR} from '@getcronit/pylon-db'
+import {toIR} from '@getcronit/pylon/db'
 import {buildSchema} from 'graphql'
 import {describe, expect, it} from 'vitest'
 import {SchemaBuilder} from '../builder'

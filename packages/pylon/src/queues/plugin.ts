@@ -64,7 +64,7 @@ export function useQueues(options: UseQueuesOptions = {}): QueuesPlugin {
 
       // Optional ORM integration: bind the DB per job + wire the outbox.
       try {
-        const {getDatabase} = (await import('@getcronit/pylon-db')) as {
+        const {getDatabase} = (await import('@getcronit/pylon/db')) as {
           getDatabase: () => {run: <T>(fn: () => T) => T}
         }
         // Run each job inside the ambient DB connection → Model.objects works.

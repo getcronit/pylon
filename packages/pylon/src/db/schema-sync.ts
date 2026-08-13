@@ -1,4 +1,4 @@
-import {joinColumn, joinTableName, pgIdent, postgres} from '@getcronit/pylon-ir'
+import {joinColumn, joinTableName, pgIdent, postgres} from '@getcronit/pylon/ir'
 import {sql, type Expression} from 'kysely'
 import {Database, getDatabase} from './database.js'
 import {entityFromDefinition} from './ir.js'
@@ -26,7 +26,7 @@ function pgArrayLiteral(arr: readonly unknown[]): string {
 
 // Postgres-specific (dialect override point). This is the `db push` (kysely)
 // type renderer — the runtime parallel to the migration DDL renderer in
-// `@getcronit/pylon-ir` (`dialect.ts`/`ddl.ts`). A non-Postgres adapter would
+// `@getcronit/pylon/ir` (`dialect.ts`/`ddl.ts`). A non-Postgres adapter would
 // supply its own mapping here (`serial`/`bigserial`, `text[]`, `tsvector`).
 function pgColumnType(col: ColumnDefinition): ColumnType {
   if (col.array) {

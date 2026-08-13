@@ -3,7 +3,7 @@
  *
  * The crux is loading the user's models so their `@model()` decorators populate
  * the registry, then driving the migration runner on the SAME
- * `@getcronit/pylon-db` instance the models registered into. We do this
+ * `@getcronit/pylon/db` instance the models registered into. We do this
  * in-process: bundle the models entry to a temp ESM file *inside the project*
  * (so its bare imports resolve against the project's node_modules), import it,
  * then resolve the project's pylon-orm and drive `MigrationRunner` from it.
@@ -12,7 +12,7 @@ import {promises as fs} from 'node:fs'
 import path from 'node:path'
 import {pathToFileURL} from 'node:url'
 import esbuild from 'esbuild'
-import {isDestructive, type SchemaChange} from '@getcronit/pylon-ir'
+import {isDestructive, type SchemaChange} from '@getcronit/pylon/ir'
 import {spawnProjectRunner, type ProjectApp} from '../project-bridge.js'
 
 let migrationCounter = 0
@@ -21,7 +21,7 @@ let migrationCounter = 0
  * Build a migration loader bound to the project root. Migration files are TS, so
  * the CLI transpiles them (esbuild) — keeping pylon-db transpiler-free. The temp
  * bundle is written *inside the project* (like the models-entry bridge) so its
- * external `@getcronit/pylon-db` import — and any models it touches — resolve to
+ * external `@getcronit/pylon/db` import — and any models it touches — resolve to
  * the project's own instance, not a copy. The migrations dir may live anywhere
  * (e.g. a tmpdir in tests), so we can't emit the temp beside the source file.
  */
@@ -141,7 +141,7 @@ export interface DbCommandResult {
 
 /**
  * Run a `pylon db` command. Executes in a CHILD process (the project runner) so it
- * drives the project's OWN `@getcronit/pylon-db` — one instance, real migration
+ * drives the project's OWN `@getcronit/pylon/db` — one instance, real migration
  * files, real `import.meta`. The parent stays the UX layer: it gets the plain
  * `DbCommandResult` back and formats it (see the CLI actions). See
  * PROJECT_LOADER_DESIGN.md.
@@ -386,7 +386,7 @@ export async function runDbCommandCore(
       }
       if (typeof orm.introspectPhysical !== 'function') {
         throw new Error(
-          'This project\'s @getcronit/pylon-db is too old for `baseline` (no introspectPhysical).'
+          'This project\'s @getcronit/pylon/db is too old for `baseline` (no introspectPhysical).'
         )
       }
       const conn = orm.connect({connectionString})

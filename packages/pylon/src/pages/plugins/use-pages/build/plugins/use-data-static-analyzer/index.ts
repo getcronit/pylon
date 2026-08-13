@@ -15,7 +15,7 @@ import {StaticAnalysisManager} from './manager'
 import {lowerMutation, lowerQuery} from './selectors-to-document'
 import {generatePrepare} from './selectors-to-prepare'
 
-const DOC_IMPORT = `import { doc as __pylonDoc } from '@getcronit/pylon-query';\n`
+const DOC_IMPORT = `import { doc as __pylonDoc } from '@getcronit/pylon/query';\n`
 
 const ARG_RESERVED = new Set([
   'true', 'false', 'null', 'undefined', 'this', 'typeof', 'void', 'in', 'of',
@@ -556,7 +556,7 @@ export function useDataStaticAnalyzer(
 ): Plugin {
   const {
     filter = /\.(ts|tsx)$/,
-    pylonPackage = '@getcronit/pylon-pages',
+    pylonPackage = '@getcronit/pylon/pages',
     hookName = 'useData',
     paginatedHookName = 'usePaginatedData',
     mutationHookName = 'useMutation',

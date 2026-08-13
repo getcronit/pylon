@@ -25,7 +25,7 @@ import {
   type SchemaChange,
   type TableColumn,
   type TableSpec
-} from '@getcronit/pylon-ir'
+} from '@getcronit/pylon/ir'
 import type {Database} from './database.js'
 import type {HistoricalModels} from './historical-models.js'
 

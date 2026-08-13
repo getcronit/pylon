@@ -1,7 +1,7 @@
 import consola from 'consola'
 import ts from 'typescript'
-import {emptyIR, toSDL} from '@getcronit/pylon-ir'
-import type {Field as IRField, Operation, PylonIR, TypeRef} from '@getcronit/pylon-ir'
+import {emptyIR, toSDL} from '@getcronit/pylon/ir'
+import type {Field as IRField, Operation, PylonIR, TypeRef} from '@getcronit/pylon/ir'
 import {
   TypeDefinitionBuilder,
   Enum as _Enum,
@@ -81,7 +81,7 @@ interface Type {
 }
 
 /**
- * The introspection WORKING representation — distinct from `@getcronit/pylon-ir`
+ * The introspection WORKING representation — distinct from `@getcronit/pylon/ir`
  * on purpose, and NOT redundant with it:
  *
  *   TS types ─▶ Schema (this) ─▶ ts.Type-dependent transforms ─▶ toIR() ─▶ PylonIR

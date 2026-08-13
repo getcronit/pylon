@@ -2,7 +2,7 @@ import {
   useMutationDoc,
   type MutationState,
   type TypedDoc
-} from '@getcronit/pylon-query'
+} from '@getcronit/pylon/query'
 import {useCallback} from 'react'
 import type {Mutations} from './index'
 import {dataRefetch} from './use-data'

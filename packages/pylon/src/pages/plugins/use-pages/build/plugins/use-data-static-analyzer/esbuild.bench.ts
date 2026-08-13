@@ -19,7 +19,7 @@ describe('esbuild plugin performance', () => {
         outdir: 'dist',
         plugins: [
           useDataStaticAnalyzer({
-            pylonPackage: '@getcronit/pylon-pages',
+            pylonPackage: '@getcronit/pylon/pages',
             debug: false
           })
         ],
@@ -68,7 +68,7 @@ describe('esbuild plugin performance', () => {
               path.join(tempDir, 'components', `Noise${i}.tsx`),
               `
         import React from 'react';
-        import { useData } from '@getcronit/pylon-pages';
+        import { useData } from '@getcronit/pylon/pages';
         ${noiseText}
         export function Noise${i}() { 
           const data = useData();
@@ -90,7 +90,7 @@ describe('esbuild plugin performance', () => {
             fs.writeFileSync(
               pathStr,
               `
-        import { useData } from '@getcronit/pylon-pages';
+        import { useData } from '@getcronit/pylon/pages';
         import { wrap1 } from './utils/level1';
         ${noiseImports}
         

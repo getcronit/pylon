@@ -14,7 +14,7 @@ import {
   pruneUnreferencedObjectTypes,
   toSDL,
   type PylonIR
-} from '@getcronit/pylon-ir'
+} from '@getcronit/pylon/ir'
 import {SchemaParser} from './schema-parser'
 import path from 'path'
 
@@ -162,7 +162,7 @@ function attachNodeResolvers(resolvers: ResolverMap, ir: PylonIR): void {
     node: new Function(
       '_parent',
       'args',
-      "return import('@getcronit/pylon-db').then(function (m) { return m.resolveNode(args.id) })"
+      "return import('@getcronit/pylon/db').then(function (m) { return m.resolveNode(args.id) })"
     ) as never
   }
 

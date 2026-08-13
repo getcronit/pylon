@@ -525,7 +525,7 @@ db.command('baseline')
     'Adopt an existing database: introspect it, generate model stubs + an initial migration, and mark it applied (requires DATABASE_URL)'
   )
   .argument('[name]', 'Name for the initial migration', 'baseline')
-  .option('-e, --entry <path>', 'Entry that imports @getcronit/pylon-db (default ./src/index.ts)')
+  .option('-e, --entry <path>', 'Entry that imports @getcronit/pylon/db (default ./src/index.ts)')
   .option('-m, --models <path>', 'Deprecated alias for --entry')
   .option('-d, --dir <path>', 'Migrations directory', './migrations')
   .option('-o, --out <path>', 'Where to write generated model stubs', './src/models.generated.ts')
@@ -828,7 +828,7 @@ We value your feedback—help us make Pylon even better!`)
 program
   .command('worker')
   .description(
-    'Run the Pylon background worker (queue consumers + outbox relay) — unbundled, via the loader. The entry should call startWorkers()/runOutboxRelay() from @getcronit/pylon-queues.'
+    'Run the Pylon background worker (queue consumers + outbox relay) — unbundled, via the loader. The entry should call startWorkers()/runOutboxRelay() from @getcronit/pylon/queues.'
   )
   .option('-e, --entry <path>', 'Worker entry that starts the queue workers', './src/worker.ts')
   .option(
@@ -843,7 +843,7 @@ program
       consola.error(
         `Worker entry not found: ${options.entry}\n` +
           `Create one that registers your queues and starts them, e.g.:\n\n` +
-          `  import {startWorkers, runOutboxRelay} from '@getcronit/pylon-queues'\n` +
+          `  import {startWorkers, runOutboxRelay} from '@getcronit/pylon/queues'\n` +
           `  import './index' // side-effect import: registers queues + processors\n\n` +
           `  await startWorkers()\n` +
           `  await runOutboxRelay()\n`

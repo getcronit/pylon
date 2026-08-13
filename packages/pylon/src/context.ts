@@ -5,7 +5,7 @@ import {env} from 'hono/adapter'
 import type {GraphQLResolveInfo} from 'graphql'
 
 // Core is AUTH-FREE: it has no `auth`/`AuthState` and never reads `c.get('auth')`.
-// Authentication produces a `Principal` in @getcronit/pylon-auth (the identity
+// Authentication produces a `Principal` in @getcronit/pylon/auth (the identity
 // provider binds it via `useIdentity`); authz reads the Principal there. Apps that
 // add an auth plugin can still declare their own context vars via module
 // augmentation of `Variables`.

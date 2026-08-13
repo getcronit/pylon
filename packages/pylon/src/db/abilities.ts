@@ -19,7 +19,7 @@ import {definePolicy} from './policies.js'
 import {getModelDefinition} from './registry.js'
 import type {ModelCtor, WhereInput} from './manager.js'
 import {ForbiddenError} from './features.js'
-import type {Principal} from '@getcronit/pylon-auth/contract'
+import type {Principal} from '@getcronit/pylon/auth/contract'
 import {matchWhere} from './matcher.js'
 
 const MANAGE = 'manage'

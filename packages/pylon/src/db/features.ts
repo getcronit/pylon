@@ -19,7 +19,7 @@ import {
 
 // The canonical authz error (re-exported for back-compat). Feature denial is its
 // OWN error below — not a ForbiddenError.
-export {ForbiddenError} from '@getcronit/pylon-auth/contract'
+export {ForbiddenError} from '@getcronit/pylon/auth/contract'
 
 /** Thrown when a required feature isn't in the tenant's plan. → `FEATURE_DISABLED`. */
 export class FeatureDisabledError extends Error {

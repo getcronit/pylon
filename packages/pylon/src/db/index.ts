@@ -155,7 +155,7 @@ export {
 } from './features.js'
 export {runAsSystem} from './app-context.js'
 // Per-model row policies are the LOW-LEVEL seam (`db.definePolicy`), what the
-// high-level `abilities` surface in @getcronit/pylon-app compiles into. App-wide
+// high-level `abilities` surface in @getcronit/pylon/app compiles into. App-wide
 // defaults (`models.app({policy})`) and the policy context type stay public.
 export {type PolicyContext, type AppPolicy} from './policies.js'
 export {

@@ -1,5 +1,5 @@
 /**
- * @getcronit/pylon-auth/zitadel — the Zitadel/OIDC integration.
+ * @getcronit/pylon/auth/zitadel — the Zitadel/OIDC integration.
  *
  * THE provider behind the identity seam. `zitadelAuth()` is an `IdentityProvider`
  * that introspects the request's token (Bearer header / `?token` / `pylon-auth`

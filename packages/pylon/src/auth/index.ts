@@ -1,5 +1,5 @@
 /**
- * @getcronit/pylon-auth — the AUTH layer for Pylon.
+ * @getcronit/pylon/auth — the AUTH layer for Pylon.
  *
  * Owns the request actor (`Principal`), the identity seam (`IdentityProvider`,
  * `useIdentity`), and CAPABILITY-tier authorization (`authorize`, `requireRole`,
@@ -9,7 +9,7 @@
  * provider (Zitadel, custom JWT, API key) fills the Principal via `useIdentity`.
  *
  * The zero-dependency contract (Principal, IdentityProvider, helpers,
- * `ForbiddenError`) is also published at `@getcronit/pylon-auth/contract`, so the
+ * `ForbiddenError`) is also published at `@getcronit/pylon/auth/contract`, so the
  * ORM can depend on it without pulling core in. RESOURCE-tier authz (rows/
  * instances/fields → WhereInput) lives in pylon-db.
  */

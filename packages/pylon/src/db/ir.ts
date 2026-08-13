@@ -4,7 +4,7 @@
  * migration and client projections read the ORM's persistence + intent without
  * ever re-deriving it from TypeScript types.
  *
- * Note the dependency direction: this module depends on `@getcronit/pylon-ir`,
+ * Note the dependency direction: this module depends on `@getcronit/pylon/ir`,
  * never the reverse. The IR package has no knowledge of the ORM.
  */
 import type {
@@ -14,8 +14,8 @@ import type {
   PylonIR,
   ScalarName,
   TypeRef
-} from '@getcronit/pylon-ir'
-import {emptyIR, pgIdent} from '@getcronit/pylon-ir'
+} from '@getcronit/pylon/ir'
+import {emptyIR, pgIdent} from '@getcronit/pylon/ir'
 import type {
   ColumnDefinition,
   ModelDefinition,

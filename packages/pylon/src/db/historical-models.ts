@@ -23,7 +23,7 @@
  * historical models, it has columns + a manager only — no custom methods. And
  * tables created via raw `runSql` aren't tracked, since they carry no IR state.)
  */
-import type {PhysicalSchema, TableColumn, TableSpec} from '@getcronit/pylon-ir'
+import type {PhysicalSchema, TableColumn, TableSpec} from '@getcronit/pylon/ir'
 import {createManager, type Manager} from './manager.js'
 import {Model} from './model.js'
 import {registerModelDefinition, type ColumnDefinition, type ModelDefinition} from './registry.js'

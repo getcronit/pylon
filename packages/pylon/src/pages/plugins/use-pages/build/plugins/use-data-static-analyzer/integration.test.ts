@@ -60,7 +60,7 @@ describe('Configurable Plugin Integration', () => {
 
     const filePath = path.join(tempDir, 'DefaultHook.tsx')
     const input = `
-      import { useData } from "@getcronit/pylon-pages";
+      import { useData } from "@getcronit/pylon/pages";
       export function DefaultComp() {
         const data = useData();
         return <div>{data.post.title}</div>;
@@ -74,7 +74,7 @@ describe('Configurable Plugin Integration', () => {
       write: false,
       bundle: true,
       format: 'esm',
-      external: ['@getcronit/pylon-pages', 'react']
+      external: ['@getcronit/pylon/pages', 'react']
     })
 
     const outputCode = result.outputFiles[0].text

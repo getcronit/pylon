@@ -15,9 +15,9 @@ export {createDecorator} from './create-decorator.js'
 export {ServiceError} from './define-pylon.js'
 export {mutation, type UserError} from './mutation.js'
 export {getEnv} from './get-env.js'
-// Core is auth-free. Authentication + the Principal live in @getcronit/pylon-auth
-// (OIDC/Zitadel via @getcronit/pylon-auth/zitadel); authz reads the Principal there.
-// The frontend pages battery (usePages + the runtime) lives in @getcronit/pylon-pages.
+// Core is auth-free. Authentication + the Principal live in @getcronit/pylon/auth
+// (OIDC/Zitadel via @getcronit/pylon/auth/zitadel); authz reads the Principal there.
+// The frontend pages battery (usePages + the runtime) lives in @getcronit/pylon/pages.
 export {getResolveInfo} from './resolve-info.js'
 export {useSentry, type SentryPluginOptions} from './plugins/use-sentry.js'
 export {pylonApp as app, Pylon}

@@ -3,7 +3,7 @@ import {beforeEach, describe, expect, it} from 'vitest'
 import {extractQueries} from './analyze'
 
 const HOOK = `
-  import { useData } from '@getcronit/pylon-pages';
+  import { useData } from '@getcronit/pylon/pages';
   export function useContactFromEmail({ email }: any) {
     const data = useData();
     const hint = data.contactAddressHint({ email });

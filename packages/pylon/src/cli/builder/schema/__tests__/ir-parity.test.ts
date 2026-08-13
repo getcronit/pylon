@@ -10,7 +10,7 @@
  */
 import {parse, print} from 'graphql'
 import ts from 'typescript'
-import {toSDL} from '@getcronit/pylon-ir'
+import {toSDL} from '@getcronit/pylon/ir'
 import {describe, expect, it} from 'vitest'
 import {SchemaParser} from '../schema-parser'
 

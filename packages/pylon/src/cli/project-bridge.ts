@@ -6,7 +6,7 @@
  * exists after the registration code RUNS, so any consumer must EXECUTE the user's entry
  * in the project's own module context. We do that in a CHILD process (`project-runner`,
  * run via tsx with `cwd` = the project): it imports the project's REAL modules and
- * resolves `@getcronit/pylon-db` FROM THE PROJECT, so the models register into the same
+ * resolves `@getcronit/pylon/db` FROM THE PROJECT, so the models register into the same
  * ORM instance we then read — one instance, no bundle, and `import.meta`/stack traces
  * reflect real files (which is what makes zero-config per-app migrations possible). v3
  * entries don't serve on import (serving is a boot-time config plugin), so no stripping.
@@ -21,7 +21,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {type RunnerEnvelope} from './project-runner-protocol.js'
-import type {PhysicalSchema, PylonIR} from '@getcronit/pylon-ir'
+import type {PhysicalSchema, PylonIR} from '@getcronit/pylon/ir'
 
 /** The project's pylon-db migration/IR API, as driven by `runDbCommandCore` in the
  *  child. Typed locally so pylon-dev needn't take a runtime dependency on the ORM. */

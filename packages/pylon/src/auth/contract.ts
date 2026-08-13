@@ -1,5 +1,5 @@
 /**
- * @getcronit/pylon-auth/contract — the ZERO-DEPENDENCY auth contract.
+ * @getcronit/pylon/auth/contract — the ZERO-DEPENDENCY auth contract.
  *
  * The Principal shape, the identity seam, the pure null-safe helpers, and the
  * canonical `ForbiddenError`. Imports nothing from core, so layers BELOW the web

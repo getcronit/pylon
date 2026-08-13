@@ -1,4 +1,4 @@
-import {joinColumn, joinTableName} from '@getcronit/pylon-ir'
+import {joinColumn, joinTableName} from '@getcronit/pylon/ir'
 import {Database, getDatabase} from './database.js'
 import {
   type BulkOptions,

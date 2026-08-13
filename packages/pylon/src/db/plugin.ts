@@ -28,7 +28,7 @@ import {BadRequestError, NotFoundError} from './errors.js'
 import {leaseNodeId, type NodeLease} from './node-lease.js'
 import {setSnowflakeNodeId} from './snowflake.js'
 import {ForbiddenError, FeatureDisabledError, type FeatureState} from './features.js'
-import {PRINCIPAL_KEY} from '@getcronit/pylon-auth/contract'
+import {PRINCIPAL_KEY} from '@getcronit/pylon/auth/contract'
 import {ValidationError, type ValidationIssue} from './validation.js'
 
 /** Maps a ValidationError's issues to a GraphQL error's message + extensions. */

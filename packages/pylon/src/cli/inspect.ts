@@ -2,7 +2,7 @@
  * `pylon inspect` — serialize the whole app as one deterministic model.
  *
  * The `AppModel` wraps the pure `PylonIR` (GraphQL schema + persistence — kept
- * runtime-agnostic in `@getcronit/pylon-ir`) with the cross-layer slices that only
+ * runtime-agnostic in `@getcronit/pylon/ir`) with the cross-layer slices that only
  * exist at the framework level: queues and authz-shape. It's the single artifact
  * every downstream tool (diff, verify, the MCP's `describe_app`) consumes.
  *
@@ -11,7 +11,7 @@
  * so the registries are populated by the time we read them.
  */
 import path from 'node:path'
-import {toDDL, tableSpecOf, toSDL, type PylonIR} from '@getcronit/pylon-ir'
+import {toDDL, tableSpecOf, toSDL, type PylonIR} from '@getcronit/pylon/ir'
 import {introspectAppData} from './project-bridge.js'
 import {SchemaBuilder} from './builder/schema/builder.js'
 

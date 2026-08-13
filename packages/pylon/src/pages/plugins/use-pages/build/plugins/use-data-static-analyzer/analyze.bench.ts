@@ -174,7 +174,7 @@ describe('extractQueries', () => {
   crossFileProject.createSourceFile(
     '/Parent.tsx',
     `
-    import { useData } from '@getcronit/pylon-pages';
+    import { useData } from '@getcronit/pylon/pages';
     import { Ticket } from '@/components';
     import { useTicketInfo } from './hooks';
 
@@ -288,7 +288,7 @@ describe('extractQueries', () => {
   deepProject.createSourceFile(
     '/ProfilePage.tsx',
     `
-    import { useData } from '@getcronit/pylon-pages';
+    import { useData } from '@getcronit/pylon/pages';
     import { ProfileHeader } from './components/ProfileHeader';
     import { PostCard } from './components/PostCard';
     import { CommentThread } from './components/CommentThread';
@@ -360,7 +360,7 @@ describe('extractQueries', () => {
     largeProject.createSourceFile(
       path,
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import { wrap1 } from './utils/level1';
 
       export default function App${i}() {

@@ -32,7 +32,7 @@ import {
   type Rename,
   type TableRename,
   type SchemaChange
-} from '@getcronit/pylon-ir'
+} from '@getcronit/pylon/ir'
 import {databaseForKysely, getDatabase, type Database} from './database.js'
 import {buildHistoricalModels} from './historical-models.js'
 import {
@@ -132,7 +132,7 @@ function fileTemplate(
   const ops = changes.map(c => `    ${opCall(c)}`).join(',\n')
   const deps = dependencies.length ? `  dependencies: ${JSON.stringify(dependencies)},\n` : ''
   return (
-    `import {migrations} from '@getcronit/pylon-db'\n\n` +
+    `import {migrations} from '@getcronit/pylon/db'\n\n` +
     (notes
       ? `/**\n * Manual attention needed (the diff couldn't express these):\n${notes}\n */\n`
       : '') +

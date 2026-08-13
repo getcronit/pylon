@@ -54,7 +54,7 @@ describe('Performance Repro - Slow findReferences', () => {
       '/Parent.tsx',
       `
       import React from 'react';
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       ${imports}
       
       export default function Page() {

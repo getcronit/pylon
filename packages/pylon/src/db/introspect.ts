@@ -23,7 +23,7 @@ import {
   type PhysicalTable,
   type SqlType,
   type TableColumn
-} from '@getcronit/pylon-ir'
+} from '@getcronit/pylon/ir'
 import {getDatabase, type Database} from './database.js'
 import {toIR} from './ir.js'
 

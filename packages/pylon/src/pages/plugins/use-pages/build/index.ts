@@ -72,7 +72,7 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
     }
   }
 
-  const pylonCssPath = nodeRequire.resolve('@getcronit/pylon-pages/index.css')
+  const pylonCssPath = nodeRequire.resolve('@getcronit/pylon/pages/index.css')
 
   const buildAppFilePlugin: esbuild.Plugin = {
     name: 'build-app-file',
@@ -141,7 +141,7 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
 
   const nodePaths = [
     path.join(process.cwd(), 'node_modules'),
-    path.join(process.cwd(), 'node_modules', '@getcronit/pylon-pages/node_modules')
+    path.join(process.cwd(), 'node_modules', '@getcronit/pylon/node_modules')
   ]
 
   let pagesWatcher: FSWatcher | null = null
@@ -232,10 +232,10 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
       timePlugin('server'),
       esmExternalsPlugin([
         '@getcronit/pylon',
-        '@getcronit/pylon-pages',
+        '@getcronit/pylon/pages',
         'react',
         'react-dom',
-        '@getcronit/pylon-query'
+        '@getcronit/pylon/query'
       ])
     ],
     publicPath: '/__pylon/static',
@@ -255,10 +255,10 @@ export const build: NonNullable<Plugin['build']> = async ({onBuild}) => {
     splitting: false,
     external: [
       '@getcronit/pylon',
-      '@getcronit/pylon-pages',
+      '@getcronit/pylon/pages',
       'react',
       'react-dom',
-      '@getcronit/pylon-query'
+      '@getcronit/pylon/query'
     ],
     // Don't minify the node-only SSR bundle in dev — it's pure rebuild cost with no
     // benefit. `PYLON_DEV_RELOAD_PORT` is set only by `pylon dev`, so prod builds

@@ -4,7 +4,7 @@
 // generic resolves to `AuditMeta`, which the in-memory harness can't). Unlike `models.JSON`, a
 // `models.Struct` column exposes the structured object type on the wire (queryable subfields).
 import {Pylon} from '@getcronit/pylon'
-import {Model, manager, id, models} from '@getcronit/pylon-db'
+import {Model, manager, id, models} from '@getcronit/pylon/db'
 
 export interface AuditMeta {
   v: number

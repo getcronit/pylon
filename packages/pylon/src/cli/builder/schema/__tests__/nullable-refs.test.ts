@@ -1,4 +1,4 @@
-import {emptyIR, mergeIR, toSDL, type PylonIR} from '@getcronit/pylon-ir'
+import {emptyIR, mergeIR, toSDL, type PylonIR} from '@getcronit/pylon/ir'
 import {describe, expect, it} from 'vitest'
 import {buildParser, buildTestSchema} from './test-utils'
 

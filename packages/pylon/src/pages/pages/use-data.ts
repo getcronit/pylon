@@ -3,7 +3,7 @@ import {
   usePaginatedDoc,
   type PaginatedResult,
   type TypedDoc
-} from '@getcronit/pylon-query'
+} from '@getcronit/pylon/query'
 import mitt from 'mitt'
 import {useEffect, useRef} from 'react'
 import type {Data} from './index'

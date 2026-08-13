@@ -15,7 +15,7 @@ import type {OutboxDriver, OutboxRow} from './outbox.js'
 const TABLE = '_pylon_outbox'
 
 export async function createPgOutbox(): Promise<OutboxDriver> {
-  const {getDatabase, inTransaction} = (await import('@getcronit/pylon-db')) as {
+  const {getDatabase, inTransaction} = (await import('@getcronit/pylon/db')) as {
     getDatabase: () => {kysely: any}
     inTransaction: () => boolean
   }

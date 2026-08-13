@@ -3,7 +3,7 @@
  * user's project, so it loads the project's REAL modules in the project's own
  * context. This is the successor to the bundle-based `loadProjectApp`:
  *
- *   • It resolves `@getcronit/pylon-db` FROM THE PROJECT, so the ORM instance the
+ *   • It resolves `@getcronit/pylon/db` FROM THE PROJECT, so the ORM instance the
  *     models register into is the same one this runner reads — no re-export bundle
  *     needed (pnpm can't hand back a second copy when both resolve from one place).
  *   • It imports the entry as-is (no source stripping, no flattening), so
@@ -44,7 +44,7 @@ async function main(): Promise<void> {
   // `require.resolve`. The entry (imported below) resolves the same specifier from
   // the same place → one instance, one registry.
   const entryUrl = pathToFileURL(entryAbs).href
-  const ormUrl = import.meta.resolve('@getcronit/pylon-db', entryUrl)
+  const ormUrl = import.meta.resolve('@getcronit/pylon/db', entryUrl)
   const orm = (await import(ormUrl)) as {
     toIR?: () => unknown
     allModels?: () => Array<{
@@ -113,7 +113,7 @@ async function closeOrmPool(orm: unknown): Promise<void> {
 /** Declared queues from the project's OWN pylon-queues (empty if it isn't used). */
 async function introspectQueues(entryUrl: string): Promise<unknown[]> {
   try {
-    const q = (await import(import.meta.resolve('@getcronit/pylon-queues', entryUrl))) as {
+    const q = (await import(import.meta.resolve('@getcronit/pylon/queues', entryUrl))) as {
       registeredQueues?: () => Array<{name: string; describe?: () => unknown}>
     }
     return (q.registeredQueues?.() ?? []).map(d =>

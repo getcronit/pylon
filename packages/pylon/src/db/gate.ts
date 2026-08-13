@@ -13,7 +13,7 @@
  *   new Pylon({ graphql, gate: gate({authorize: p => hasRole(p, 'shop')}) })
  */
 import type {Gate} from '@getcronit/pylon'
-import type {Principal} from '@getcronit/pylon-auth/contract'
+import type {Principal} from '@getcronit/pylon/auth/contract'
 import {currentPrincipal} from './app-context.js'
 import {ForbiddenError, requireFeature} from './features.js'
 

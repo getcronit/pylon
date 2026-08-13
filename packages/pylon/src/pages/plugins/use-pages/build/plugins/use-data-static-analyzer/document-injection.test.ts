@@ -53,7 +53,7 @@ async function transform(code: string): Promise<string> {
     write: false,
     bundle: true,
     format: 'esm',
-    external: ['@getcronit/pylon-pages', '@getcronit/pylon-query']
+    external: ['@getcronit/pylon/pages', '@getcronit/pylon/query']
   })
   return result.outputFiles[0].text
 }
@@ -64,7 +64,7 @@ describe('analyzer document injection (schema present)', () => {
 
   it('injects a doc + variables thunk and imports doc', async () => {
     const out = await transform(`
-      import { useData } from "@getcronit/pylon-pages";
+      import { useData } from "@getcronit/pylon/pages";
       export function Component() {
         const id = "1";
         const data = useData();
@@ -81,7 +81,7 @@ describe('analyzer document injection (schema present)', () => {
 
   it('keeps existing options as the third argument', async () => {
     const out = await transform(`
-      import { useData } from "@getcronit/pylon-pages";
+      import { useData } from "@getcronit/pylon/pages";
       export function Component() {
         const data = useData({ tags: ["x"] });
         return <div>{data.me.name}</div>;
@@ -96,7 +96,7 @@ describe('analyzer document injection (schema present)', () => {
 
   it('injects a mutation document for useMutation(m => m.field)', async () => {
     const out = await transform(`
-      import { useMutation } from "@getcronit/pylon-pages";
+      import { useMutation } from "@getcronit/pylon/pages";
       export function Form() {
         const [createUser, state] = useMutation(m => m.createUser);
         return <button onClick={() => createUser({ name: 'Ada' })}>create</button>;
@@ -112,7 +112,7 @@ describe('analyzer document injection (schema present)', () => {
 
   it('augments a mutation with analyze(triggerReturn) nested reads', async () => {
     const out = await transform(`
-      import { useMutation } from "@getcronit/pylon-pages";
+      import { useMutation } from "@getcronit/pylon/pages";
       export function Form() {
         const [createUser] = useMutation(m => m.createUser);
         async function onClick() {
@@ -129,7 +129,7 @@ describe('analyzer document injection (schema present)', () => {
 
   it('injects a mutation document from a string key', async () => {
     const out = await transform(`
-      import { useMutation } from "@getcronit/pylon-pages";
+      import { useMutation } from "@getcronit/pylon/pages";
       export function Form() {
         const [createUser, state] = useMutation('createUser');
         return <button onClick={() => createUser({ name: 'Ada' })}>create</button>;
@@ -142,7 +142,7 @@ describe('analyzer document injection (schema present)', () => {
 
   it('injects a connection document from a usePaginatedData chain selector', async () => {
     const out = await transform(`
-      import { usePaginatedData } from "@getcronit/pylon-pages";
+      import { usePaginatedData } from "@getcronit/pylon/pages";
       export function Page() {
         const feed = usePaginatedData(q => q.feed, { category: 'tech' });
         return <ul>{feed.nodes.map(n => <li key={n.id}>{n.title}</li>)}</ul>;
@@ -157,7 +157,7 @@ describe('analyzer document injection (schema present)', () => {
 
   it('injects a query document for op.query(q => …) and keeps the projection', async () => {
     const out = await transform(`
-      import { op } from "@getcronit/pylon-pages";
+      import { op } from "@getcronit/pylon/pages";
       export async function loadUser(id: string) {
         const user = await op.query(q => q.user({ id }).name);
         return user;
@@ -174,7 +174,7 @@ describe('analyzer document injection (schema present)', () => {
 
   it('analyzes a block-body op.query callback (intermediate const + return)', async () => {
     const out = await transform(`
-      import { op } from "@getcronit/pylon-pages";
+      import { op } from "@getcronit/pylon/pages";
       export async function fetchUser(id: string) {
         const user = await op.query(q => {
           const u = q.user({ id });
@@ -190,7 +190,7 @@ describe('analyzer document injection (schema present)', () => {
 
   it('injects a mutation document for op.mutation(m => …)', async () => {
     const out = await transform(`
-      import { op } from "@getcronit/pylon-pages";
+      import { op } from "@getcronit/pylon/pages";
       export async function create(name: string) {
         const res = await op.mutation(m => m.createUser({ name }));
         return res;
@@ -206,7 +206,7 @@ describe('analyzer document injection (schema present)', () => {
   it('fails loud on an unknown field', async () => {
     await expect(
       transform(`
-        import { useData } from "@getcronit/pylon-pages";
+        import { useData } from "@getcronit/pylon/pages";
         export function Component() {
           const data = useData();
           return <div>{data.me.nope}</div>;

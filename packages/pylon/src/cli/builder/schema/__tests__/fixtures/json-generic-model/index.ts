@@ -3,7 +3,7 @@
 // repro_json_generic_duplicate_type.test.ts (needs real node_modules type resolution so the
 // `models.JSON<AuditMeta>()` generic resolves to `AuditMeta`, which the in-memory harness can't).
 import {Pylon} from '@getcronit/pylon'
-import {Model, manager, id, models} from '@getcronit/pylon-db'
+import {Model, manager, id, models} from '@getcronit/pylon/db'
 
 export interface AuditMeta {
   v: number

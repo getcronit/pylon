@@ -52,7 +52,7 @@ describe('Selector Tracker Ultra-Advanced Analysis', () => {
     project.createSourceFile(
       '/Page.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import { MyComponent } from './Component';
       export default function Page() {
         const data = useData();
@@ -336,7 +336,7 @@ describe('useData Location Extraction', () => {
     const sourceFile = project.createSourceFile(
       'test.ts',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       export default function Page() {
         const data = useData();
         return data.user.name;
@@ -356,7 +356,7 @@ describe('useData Location Extraction', () => {
     const sourceFile = project.createSourceFile(
       'test.ts',
       `
-      import { useData as usePylonData } from '@getcronit/pylon-pages';
+      import { useData as usePylonData } from '@getcronit/pylon/pages';
       export default function Page() {
         const data = usePylonData();
         return data.user.email;
@@ -376,7 +376,7 @@ describe('useData Location Extraction', () => {
     const sourceFile = project.createSourceFile(
       'test.ts',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       export default function Page() {
         const data = useData();
         data.$on('event', () => {});
@@ -396,7 +396,7 @@ describe('useData Location Extraction', () => {
     const sourceFile = project.createSourceFile(
       'test.ts',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       export default function Page() {
         const data1 = useData();
         const data2 = useData();
@@ -426,7 +426,7 @@ describe('Cross-File Analysis (In-Memory)', () => {
     project.createSourceFile(
       'test.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       export default function Page() {
         const data = useData();
         return <button onClick={() => alert(data.user.name)}>Click me</button>;
@@ -447,7 +447,7 @@ describe('Cross-File Analysis (In-Memory)', () => {
     project.createSourceFile(
       'test.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       const format = (name) => "User: " + name;
       export default function Page() {
         const data = useData();
@@ -477,7 +477,7 @@ describe('Cross-File Analysis (In-Memory)', () => {
     project.createSourceFile(
       '/Parent.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import { Ticket } from './Ticket';
       export default function Page() {
         const data = useData();
@@ -519,7 +519,7 @@ describe('Cross-File Analysis (In-Memory)', () => {
     project.createSourceFile(
       '/Parent.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import { UserCard } from './UserCard';
       export default function Page() {
         const data = useData();
@@ -547,7 +547,7 @@ describe('Cross-File Analysis (In-Memory)', () => {
     project.createSourceFile(
       '/Parent.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import { a } from './a';
       export default function Page() {
         const data = useData();
@@ -576,7 +576,7 @@ describe('Cross-File Analysis (In-Memory)', () => {
     project.createSourceFile(
       '/Parent.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import { useTicketInfo } from './hooks';
       export default function Page() {
         const data = useData();
@@ -616,7 +616,7 @@ describe('Cross-File Analysis (In-Memory)', () => {
     project.createSourceFile(
       '/Parent.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import { useTicketInfo } from './hooks';
       export default function Page() {
         const data = useData();
@@ -679,7 +679,7 @@ describe('Cross-File Analysis (In-Memory)', () => {
     project.createSourceFile(
       '/Parent.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import { useTicketInfo } from './hooks';
       export default function Page() {
         const data = useData();
@@ -709,7 +709,7 @@ describe('Cross-File Analysis (In-Memory)', () => {
     project.createSourceFile(
       '/Parent.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       
       const useTicketInfo = (props) => { return props.pageInfo.totalCount; }
 
@@ -762,7 +762,7 @@ describe('Cross-File Analysis (In-Memory)', () => {
     project.createSourceFile(
       '/Parent.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import { Ticket } from '@/components';
       
       export default function Page() {
@@ -824,7 +824,7 @@ describe('Cross-File Analysis (In-Memory)', () => {
     project.createSourceFile(
       '/Parent.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import { Ticket } from '@/components';
       
       export default function Page() {
@@ -881,7 +881,7 @@ describe('Cross-File Analysis (In-Memory)', () => {
     project.createSourceFile(
       '/Parent.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import { Ticket } from '@/components';
       
       export default function Page() {
@@ -938,7 +938,7 @@ describe('Cross-File Analysis (In-Memory)', () => {
     project.createSourceFile(
       '/Parent.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import { Ticket } from './components/ticket';
       
       export default function Page() {
@@ -1118,7 +1118,7 @@ describe('High-End Complexity Edge Cases', () => {
     project.createSourceFile(
       '/Page.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import React from 'react';
       
       const TicketRow = React.memo(({ node }) => {
@@ -1180,7 +1180,7 @@ describe('High-End Complexity Edge Cases', () => {
     project.createSourceFile(
       '/Parent.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import { TicketRow } from './components/ticket-row';
       
       export default function Page() {
@@ -1236,7 +1236,7 @@ describe('High-End Complexity Edge Cases', () => {
     project.createSourceFile(
       '/Parent.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import { TicketRow } from './components/ticket-row';
       
       export default function Page() {
@@ -1283,7 +1283,7 @@ describe('High-End Complexity Edge Cases', () => {
     project.createSourceFile(
       '/Parent.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import { TicketRow } from './components/ticket-row';
       
       export default function Page() {
@@ -1447,7 +1447,7 @@ describe('High-End Complexity Edge Cases', () => {
     project.createSourceFile(
       '/Page.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import { TicketsList } from './TicketsList';
       export default function Page() {
         const data = useData();
@@ -1471,7 +1471,7 @@ describe('High-End Complexity Edge Cases', () => {
     const sourceFile = project.createSourceFile(
       'test.tsx',
       `
-      import { useData } from "@getcronit/pylon-pages";
+      import { useData } from "@getcronit/pylon/pages";
       
       export function MyComp() {
         const data = useData();
@@ -1500,7 +1500,7 @@ describe('High-End Complexity Edge Cases', () => {
     )
 
     const {queries} = extractQueries('test.tsx', project, {
-      pylonPackage: '@getcronit/pylon-pages',
+      pylonPackage: '@getcronit/pylon/pages',
       hookName: 'useData'
     })
 
@@ -1544,7 +1544,7 @@ describe('Query Extraction: Prop Drilling & Argument Mapping', () => {
     project.createSourceFile(
       '/Page.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import { useState } from 'react';
       import { Child } from './Child';
       
@@ -1578,7 +1578,7 @@ describe('Query Extraction: Prop Drilling & Argument Mapping', () => {
     project.createSourceFile(
       '/Page.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import { Child } from './Child';
       
       export default function Page() {
@@ -1611,7 +1611,7 @@ describe('Query Extraction: Prop Drilling & Argument Mapping', () => {
     project.createSourceFile(
       '/Page.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import { Child } from './Child';
       
       export default function Page() {
@@ -1650,7 +1650,7 @@ describe('Query Extraction: Prop Drilling & Argument Mapping', () => {
     project.createSourceFile(
       '/Page.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import { MainComponent } from './MainComponent';
       import { ChildComponent } from './ChildComponent';
       
@@ -1709,7 +1709,7 @@ describe('Query Extraction: Prop Drilling & Argument Mapping', () => {
     project.createSourceFile(
       '/Page.tsx',
       `
-    import { useData } from '@getcronit/pylon-pages';
+    import { useData } from '@getcronit/pylon/pages';
     import { ListComponent } from './ListComponent';
     
     export default function Page() {
@@ -1768,7 +1768,7 @@ describe('Query Extraction: Prop Drilling & Argument Mapping', () => {
     project.createSourceFile(
       '/Page.tsx',
       `
-    import { useData } from '@getcronit/pylon-pages';
+    import { useData } from '@getcronit/pylon/pages';
     import { ListComponent } from './ListComponent';
     
     export default function Page() {
@@ -1845,7 +1845,7 @@ describe('Query Extraction: Prop Drilling & Argument Mapping', () => {
     project.createSourceFile(
       '/Page.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import React, { useMemo } from 'react';
       import { DataList } from './data-list';
       
@@ -1901,7 +1901,7 @@ describe('Query Extraction: Prop Drilling & Argument Mapping', () => {
     project.createSourceFile(
       '/InboxChunk.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import React from 'react';
       
       export function InboxChunk(props) {
@@ -1923,7 +1923,7 @@ describe('Query Extraction: Prop Drilling & Argument Mapping', () => {
     project.createSourceFile(
       '/Page.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import React, { useMemo } from 'react';
       import { VirtualListBase } from './VirtualListBase';
       import { InboxChunk } from './InboxChunk';
@@ -1993,7 +1993,7 @@ describe('Query Extraction: Prop Drilling & Argument Mapping', () => {
     project.createSourceFile(
       '/Page.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import React from 'react';
       import { ListView } from './ListView';
 
@@ -2046,7 +2046,7 @@ describe('Query Extraction: Prop Drilling & Argument Mapping', () => {
     project.createSourceFile(
       '/Page.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import React from 'react';
       import { ChildComponent } from './ChildComponent';
 
@@ -2078,7 +2078,7 @@ describe('Query Extraction: Prop Drilling & Argument Mapping', () => {
     project.createSourceFile(
       '/TicketChunk.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       export function TicketChunk({ before, skip }) {
         const data = useData();
         const { edges } = data.tickets({
@@ -2153,7 +2153,7 @@ describe('Query Extraction: Prop Drilling & Argument Mapping', () => {
     project.createSourceFile(
       '/Page.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import { MyComponent } from './Component';
       export default function Page() {
         const data = useData();
@@ -2188,7 +2188,7 @@ describe('Query Extraction: Prop Drilling & Argument Mapping', () => {
     project.createSourceFile(
       '/Page.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import { MyComponent } from './Component';
       export default function Page() {
         const data = useData();
@@ -2225,7 +2225,7 @@ describe('Query Extraction: Prop Drilling & Argument Mapping', () => {
     project.createSourceFile(
       '/Page.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import { SubComponent } from './Component';
       export default function Page() {
         const d = useData();
@@ -2265,7 +2265,7 @@ describe('Query Extraction: Prop Drilling & Argument Mapping', () => {
     project.createSourceFile(
       '/Page.tsx',
       `
-      import { useData } from '@getcronit/pylon-pages';
+      import { useData } from '@getcronit/pylon/pages';
       import { SubComponent } from './Component';
       export default function Page() {
         const d = useData();

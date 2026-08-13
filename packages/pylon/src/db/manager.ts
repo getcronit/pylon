@@ -1,5 +1,5 @@
 import {sql, type Expression, type ExpressionBuilder, type SqlBool} from 'kysely'
-import {joinColumn, joinTableName} from '@getcronit/pylon-ir'
+import {joinColumn, joinTableName} from '@getcronit/pylon/ir'
 import {currentTenant, dbLog, isSystem} from './app-context.js'
 import {getDatabase} from './database.js'
 import {signals} from './signals.js'

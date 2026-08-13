@@ -10,7 +10,7 @@
  * CROSS-CUTTING abilities — is the constructor `models` option (`AppModelOptions`).
  * Per-model rules belong on the model itself (`static abilities`).
  *
- * Auto-loaded from the package entry (importing `@getcronit/pylon-db`, which you do to
+ * Auto-loaded from the package entry (importing `@getcronit/pylon/db`, which you do to
  * extend `Model`, enables it). This module does NOT import core at runtime — it
  * registers a prototype-patcher on a shared global that core applies when it loads
  * (the extension bus in core's `app/index.ts`), so `@getcronit/pylon` stays an

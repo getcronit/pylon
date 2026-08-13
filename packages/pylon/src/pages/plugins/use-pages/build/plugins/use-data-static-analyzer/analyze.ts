@@ -1864,7 +1864,7 @@ export function extractQueries(
     return map
   })()
 
-  const {pylonPackage = '@getcronit/pylon-pages', hookName = 'useData'} =
+  const {pylonPackage = '@getcronit/pylon/pages', hookName = 'useData'} =
     options
   const sourceFile = project.getSourceFileOrThrow(filePath)
 

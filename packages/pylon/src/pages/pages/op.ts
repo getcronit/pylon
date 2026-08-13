@@ -1,4 +1,4 @@
-import {op as runtimeOp} from '@getcronit/pylon-query'
+import {op as runtimeOp} from '@getcronit/pylon/query'
 import type {Data, Mutations} from './index'
 
 /**
