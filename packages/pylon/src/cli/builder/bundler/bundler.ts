@@ -129,7 +129,9 @@ export class Bundler {
         resolvers,
         outputDir: dir,
         appImport: pathToFileURL(entryAbs).href,
-        configImport: configAbs ? pathToFileURL(configAbs).href : null
+        configImport: configAbs ? pathToFileURL(configAbs).href : null,
+        // Dev: also emit dev-worker.mjs for the persistent-worker hot-swap loop.
+        devWorker: true
       })
       return {schemaChanged, duration: Date.now() - start}
     }
