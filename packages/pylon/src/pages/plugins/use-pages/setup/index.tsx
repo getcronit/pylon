@@ -76,33 +76,54 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
 
   let pagesManifest: Record<string, string> = {}
   let staticManifest: Record<string, string> = {}
+  // Mutable so the SSR catch-all reads the CURRENT routes/handler. In prod these
+  // are set once (via loadPages below) and never change. The dev worker can hot-swap
+  // pages by calling loadPages() again — re-reading the manifests + re-importing the
+  // freshly-hashed SSR routes — with no app re-import, no DB reconnect, no plugin
+  // re-setup. See rfcs/DEV_SERVER.md (Step 0/1).
+  let routes: any
+  // Definite-assignment: set by loadPages() (awaited before any request), which TS
+  // can't see through the closure.
+  let handler!: ReturnType<typeof createStaticHandler>
 
-  try {
-    pagesManifest = JSON.parse(
-      await fs.promises.readFile(pagesManifestPath, 'utf8')
-    )
-  } catch (err: any) {
-    throw new Error('Failed to read pages manifest.json:', err)
-  }
-
-  try {
-    staticManifest = JSON.parse(
-      await fs.promises.readFile(staticManifestPath, 'utf8')
-    )
-    // Inject into global so root layout can generate links
-    ;(globalThis as any).__PYLON_MANIFEST__ = staticManifest
-
-    if (pagesManifest['version']) {
-      ;(globalThis as any).__PYLON_VERSION__ = pagesManifest['version']
+  // Load (or reload) the page layer into the mutable refs above. Reassigns local
+  // refs + globals only — it introduces NO new dynamic imports beyond the existing
+  // manifest-addressed routes import, so the prod entry stays statically traceable
+  // for the nft standalone build (rfcs/DEV_SERVER.md §3.4).
+  const loadPages = async () => {
+    try {
+      pagesManifest = JSON.parse(
+        await fs.promises.readFile(pagesManifestPath, 'utf8')
+      )
+    } catch (err: any) {
+      throw new Error('Failed to read pages manifest.json:', err)
     }
-  } catch (err: any) {
-    throw new Error('Failed to read static manifest.json:', err)
+
+    try {
+      staticManifest = JSON.parse(
+        await fs.promises.readFile(staticManifestPath, 'utf8')
+      )
+      // Inject into global so root layout can generate links
+      ;(globalThis as any).__PYLON_MANIFEST__ = staticManifest
+
+      if (pagesManifest['version']) {
+        ;(globalThis as any).__PYLON_VERSION__ = pagesManifest['version']
+      }
+    } catch (err: any) {
+      throw new Error('Failed to read static manifest.json:', err)
+    }
+
+    // The SSR routes bundle is content-hashed (manifest-addressed), so re-importing
+    // after a rebuild resolves a NEW specifier — cache-clean, no invalidation hack.
+    routes = (await import(`${process.cwd()}/${pagesManifest['app.js']}`)).default
+    handler = createStaticHandler(routes)
   }
 
-  const routes = (await import(`${process.cwd()}/${pagesManifest['app.js']}`))
-    .default
+  await loadPages()
 
-  const handler = createStaticHandler(routes)
+  // Dormant in prod (refs set once above; never called). The dev worker drives page
+  // hot-swaps through this hook — see rfcs/DEV_SERVER.md (Step 1).
+  ;(globalThis as any).__PYLON_DEV_RELOAD_PAGES__ = loadPages
 
   app.use(trimTrailingSlash() as any)
 
