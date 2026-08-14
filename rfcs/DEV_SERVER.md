@@ -1,6 +1,6 @@
 # RFC: Build / Dev / Deploy Pipeline — reload-aware runtime + persistent dev worker + nft standalone
 
-**Status:** Proposed. Step 0 in progress.
+**Status:** Steps 0–1 DONE. Step 2 next.
 **Scope:** the dev loop, the production artifact, and the invariant that ties them together.
 **Supersedes/extends:** `rfcs/BUILD_DEV_PIPELINE.md` (Pillars 1–2, done; this is Pillar 3 + deploy).
 
@@ -59,8 +59,8 @@ Note the pages dynamic imports already make a naive `nft(server.mjs)` incomplete
 
 ## 4. Roadmap (each step shippable + measurable)
 
-- **Step 0 — reload seam / static-boot split** *(in progress)*. usePages: `loadPages()` populating mutable `routes`/`handler`/`manifest` refs + expose it as a dormant dev hook (`globalThis.__PYLON_DEV_RELOAD_PAGES__`). No behavior change (prod loads once, never reloads); prod entry stays traceable. *Verify:* prod build+serve identical, full e2e green.
-- **Step 1 — persistent worker + pages hot-swap** (the dominant win). Spawn the worker once + IPC; classify changes (`pages`/`server`/`config`); `pages` → `buildPages` + `reload:pages` → `reloadPages()` → SSE; `server`/`config` → restart. *Measure* the page-edit drop (expect ~1.7s → ~buildPages, no DB reconnect).
+- **Step 0 — reload seam / static-boot split** ✅ *(commit 727c8ff)*. usePages `loadPages()` populating mutable `routes`/`handler`/`manifest` refs + a dormant dev hook (`globalThis.__PYLON_DEV_RELOAD_PAGES__`). Behavior-identical; prod entry stays traceable.
+- **Step 1 — persistent worker + pages hot-swap** ✅ *(commit e0203f8)*. dev emits `dev-worker.mjs` (imports pristine `server.mjs` + IPC reload listener); the CLI spawns ONE worker with IPC, classifies changes, and `pages` → `buildPages` + `reload:pages` → in-worker `loadPages()` → SSE (no restart), `server`/`config` → restart. **Proven:** page edit keeps the SAME worker pid, src edit gets a NEW pid; dev-pages-loop page-edit **1518ms→514ms (~3×)**, out-of-`pages/` component **3042ms→1067ms**; prod path unaffected.
 - **Step 2 — schema/resolver hot-swap.** Registry-idempotency spike + Yoga `replaceSchema` + cache-bust app re-import. Removes the restart for `src` edits.
 - **Step 3 — (later) Tier-2 on-demand + Fast Refresh** on a rolldown-vite foundation. Vite-class end state; prototype-de-risked (see §6).
 - **Workstream D — nft standalone deploy** (parallel to 1–2; depends only on the §3.4 invariant).
