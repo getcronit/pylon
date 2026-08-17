@@ -5,9 +5,14 @@
  * self-contained artifact (app + only the node_modules it touches). This proves the
  * artifact actually RUNS with no install, in TRUE isolation: the standalone dir is copied
  * OUT of the monorepo (into the OS temp dir) so it cannot fall back on the workspace's
- * node_modules, then booted via the generated launcher (`node start.mjs`, from an unrelated
- * cwd). Asserts SSR + GraphQL respond — which requires react/react-dom (reached only via
- * the usePages SSR route chunks, nft's blind spot) to have been traced in.
+ * node_modules, then booted via the generated launcher (`node start.mjs`).
+ *
+ * It doubles as the cwd-INDEPENDENCE guard: the launcher no longer chdir's, and it's spawned
+ * with `cwd: os.tmpdir()` (≠ the app dir), so serving at all requires the usePages runtime to
+ * resolve its artifacts from the entry's own location (globalThis.__PYLON_ROOT__, set by
+ * server.mjs) rather than process.cwd(). Asserts SSR + GraphQL respond — SSR also requires
+ * react/react-dom (reached only via the usePages SSR route chunks, nft's blind spot) to have
+ * been traced in.
  *
  * No DB / docker (in-memory posts fixture).
  */

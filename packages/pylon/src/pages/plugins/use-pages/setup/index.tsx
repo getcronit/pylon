@@ -63,16 +63,22 @@ const serializeForScript = (value: unknown): string =>
 
 export type {Data, LayoutProps, MetadataRoute, PageProps}
 
+/**
+ * The app root — the directory that CONTAINS `.pylon` — used to resolve build artifacts
+ * (manifests, SSR route chunks, static/public files) at RUNTIME independent of the process
+ * cwd. The generated `server.mjs` and `pylon dev` set `globalThis.__PYLON_ROOT__` from the
+ * entry's own location, so a standalone deploy runs from ANY cwd. Falls back to `cwd`, which
+ * is correct whenever the app is launched from its own directory (the historical behavior).
+ */
+const pylonRoot = (): string =>
+  (globalThis as any).__PYLON_ROOT__ ?? process.cwd()
+
 export const setup: NonNullable<Plugin['setup']> = async app => {
-  // Read manifests securely from JSON
-  const pagesManifestPath = path.join(
-    process.cwd(),
-    '.pylon/__pylon/pages/manifest.json'
-  )
-  const staticManifestPath = path.join(
-    process.cwd(),
-    '.pylon/__pylon/static/manifest.json'
-  )
+  // Read manifests securely from JSON. Anchored at the app root (see pylonRoot), not cwd,
+  // so a standalone deploy resolves them from the entry's location no matter the cwd.
+  const root = pylonRoot()
+  const pagesManifestPath = path.join(root, '.pylon/__pylon/pages/manifest.json')
+  const staticManifestPath = path.join(root, '.pylon/__pylon/static/manifest.json')
 
   let pagesManifest: Record<string, string> = {}
   let staticManifest: Record<string, string> = {}
@@ -115,7 +121,7 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
 
     // The SSR routes bundle is content-hashed (manifest-addressed), so re-importing
     // after a rebuild resolves a NEW specifier — cache-clean, no invalidation hack.
-    routes = (await import(`${process.cwd()}/${pagesManifest['app.js']}`)).default
+    routes = (await import(`${root}/${pagesManifest['app.js']}`)).default
     handler = createStaticHandler(routes)
   }
 
@@ -127,12 +133,7 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
 
   app.use(trimTrailingSlash() as any)
 
-  const publicFilesPath = path.resolve(
-    process.cwd(),
-    '.pylon',
-    '__pylon',
-    'public'
-  )
+  const publicFilesPath = path.resolve(root, '.pylon', '__pylon', 'public')
   let publicFiles: string[] = []
 
   try {
@@ -151,7 +152,7 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
   if (pagesManifest['sitemap.js']) {
     try {
       const sitemapModule = await import(
-        `${process.cwd()}/${pagesManifest['sitemap.js']}`
+        `${root}/${pagesManifest['sitemap.js']}`
       )
 
       app.get('/sitemap.xml', async c => {
@@ -267,7 +268,7 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
     etag(),
     async c => {
       const publicFilePath = path.resolve(
-        process.cwd(),
+        root,
         '.pylon',
         '__pylon',
         'public',
@@ -280,7 +281,7 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
 
   app.get('/__pylon/static/*', etag(), async c => {
     const filePath = path.resolve(
-      process.cwd(),
+      root,
       '.pylon',
       '__pylon',
       'static',
@@ -306,6 +307,9 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
         return c.json({error: 'Missing parameters.'}, 400)
       }
 
+      // Lazily create the cache dir (anchored at pylonRoot) on first use.
+      await ensureImageCache()
+
       const isSrcAbsolute =
         src.startsWith('http://') || src.startsWith('https://')
 
@@ -320,15 +324,9 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
 
         if (!src.startsWith('/__pylon/static/media')) {
           // Prefix it with the public directory
-          imagePath = path.join(
-            process.cwd(),
-            '.pylon',
-            '__pylon',
-            'public',
-            src
-          )
+          imagePath = path.join(root, '.pylon', '__pylon', 'public', src)
         } else {
-          imagePath = path.join(process.cwd(), '.pylon', src)
+          imagePath = path.join(root, '.pylon', src)
         }
       }
 
@@ -443,7 +441,7 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
   })
 
   const _client = await import(
-    `${process.cwd()}/.pylon/client/index.js?t=${Date.now()}`
+    `${root}/.pylon/client/index.js?t=${Date.now()}`
   )
 
   app.get('*', async c => {
@@ -593,15 +591,24 @@ import {serveFilePath} from './serve-file-path'
 
 // Cache directory
 
-const IMAGE_CACHE_DIR = path.join(process.cwd(), '.cache/__pylon/images')
-
+// Resolved LAZILY (on the first image request), not at module import: pylonRoot() is set by
+// the boot glue AFTER this module is imported, so an eager `.cache` path would freeze to the
+// wrong (cwd) location. `.cache/__pylon/images` under the app root; if it can't be created
+// (read-only FS), caching degrades off gracefully.
 let IS_IMAGE_CACHE_POSSIBLE = true
+let _imageCacheDir: string | undefined
+const imageCacheDir = (): string =>
+  (_imageCacheDir ??= path.join(pylonRoot(), '.cache/__pylon/images'))
 
-// Ensure the cache directory exists (if creating files is allowed)
-try {
-  await fs.promises.mkdir(IMAGE_CACHE_DIR, {recursive: true})
-} catch (error) {
-  IS_IMAGE_CACHE_POSSIBLE = false
+let _imageCacheEnsured = false
+const ensureImageCache = async (): Promise<void> => {
+  if (_imageCacheEnsured) return
+  _imageCacheEnsured = true
+  try {
+    await fs.promises.mkdir(imageCacheDir(), {recursive: true})
+  } catch {
+    IS_IMAGE_CACHE_POSSIBLE = false
+  }
 }
 
 // Helper function to generate the cached image path
@@ -617,7 +624,7 @@ const getCachedImagePath = (args: {
     createHash('md5').update(JSON.stringify(args)).digest('hex'),
     path.extname(args.src)
   )}-${args.width}x${args.height}.${args.format}`
-  return path.join(IMAGE_CACHE_DIR, fileName)
+  return path.join(imageCacheDir(), fileName)
 }
 
 const getValuesFromCachedImagePath = (cachedImagePath: string) => {

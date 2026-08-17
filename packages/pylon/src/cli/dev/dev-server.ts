@@ -40,6 +40,9 @@ export async function startDevServer(opts: {port: number}): Promise<DevServer> {
   const outDir = path.join(cwd, '.pylon')
   process.env.NODE_ENV = 'development'
   process.env.PYLON_DEV = '1'
+  // The app root (dir containing `.pylon`) — in dev that's cwd. The usePages runtime resolves
+  // its artifacts against this instead of process.cwd() (parity with the prod server.mjs).
+  ;(globalThis as any).__PYLON_ROOT__ = cwd
 
   const usePages = fs.existsSync(path.join(cwd, 'pages'))
 
