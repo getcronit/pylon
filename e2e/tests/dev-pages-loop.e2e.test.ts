@@ -2,11 +2,12 @@
  * Dev-loop harness: spawns the real `pylon dev` against a minimal pages app and
  * exercises the WATCH path the other e2es don't (they use one-shot `pylon build`).
  *
- * Today this asserts the baseline: a page edit is eventually SERVED (watch →
- * rebuild → restart → serve). It's the verification target for the usePages
- * pipeline work — once dev artifact hot-reload lands (#1), this same test gains a
- * "the server PID did NOT change" assertion to prove the edit reflected WITHOUT a
- * full reboot.
+ * `pylon dev` runs the DIRECT-EXECUTION model (rfcs/DEV_SERVER.md): ONE process runs
+ * `src/index.ts` through Vite's backend runner, compiles the schema in-process, and
+ * boots the app in memory — no generated glue, no worker child, no IPC. So this asserts
+ * both halves: a page edit is served through the watch loop, AND a `src` edit hot-swaps
+ * the running schema WITHOUT restarting (the process PID never changes — see the last
+ * test).
  *
  * No DB / docker needed (pages-only app).
  */
@@ -58,9 +59,9 @@ async function waitFor(
   throw new Error(`timed out (${timeoutMs}ms) waiting for ${label}`)
 }
 
-// Verifies the dev Supervisor sequencing (build server → gqty client → pages →
-// restart): a pages app serves in dev, and a page edit reflects through the watch
-// loop. This is the path no other e2e covers (they're one-shot build / non-pages).
+// Verifies the dev supervisor: a pages app serves in dev and a page edit reflects
+// through the watch loop (recompile → buildPages → Vite reload) in the same process.
+// This is the path no other e2e covers (they're one-shot build / non-pages).
 describe('pylon dev — pages watch loop', () => {
   beforeAll(async () => {
     if (!existsSync(cliBin)) throw new Error(`pylon CLI not built at ${cliBin}.`)
@@ -68,8 +69,8 @@ describe('pylon dev — pages watch loop', () => {
     originalSrc = await fs.readFile(srcFile, 'utf8')
     await fs.rm(path.join(appDir, '.pylon'), {recursive: true, force: true})
 
-    // Default runner (node + tsx loader on the generated .pylon/server.mjs, which
-    // self-serves) — no `-c` override; the old `node .pylon/index.js` entry is gone.
+    // Direct execution: `pylon dev` runs src/index.ts in-process (no `-c`, no glue emit,
+    // no worker child). One node process owns compile + boot + serve + hot-swap.
     dev = spawn('node', [cliBin, 'dev'], {
       cwd: appDir,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -94,7 +95,7 @@ describe('pylon dev — pages watch loop', () => {
   afterAll(async () => {
     if (dev?.pid) {
       try {
-        dev.kill('SIGINT') // dev's SIGINT handler tears down its server child
+        dev.kill('SIGINT') // dev's SIGINT handler closes the in-process server + watcher
       } catch {
         /* already gone */
       }
@@ -237,11 +238,11 @@ describe('pylon dev — pages watch loop', () => {
     expect(await type('Widget')).toEqual(expect.arrayContaining(['id', 'label']))
   }, 120_000)
 
-  it('hot-swaps a SRC edit WITHOUT restarting the worker (same pid)', async () => {
-    // Step 2: a `src` edit re-executes the app graph via the rolldown-vite module
-    // runner and swaps Yoga's schema IN the running worker — no restart. Proof: a
-    // resolver reports `process.pid`; a resolver-only edit must change the returned
-    // value while the pid stays identical (the durable worker never died).
+  it('hot-swaps a SRC edit WITHOUT restarting the process (same pid)', async () => {
+    // Direct execution: a `src` edit re-executes the app graph via the rolldown-vite
+    // module runner and swaps Yoga's schema IN the running dev process — no restart.
+    // Proof: a resolver reports `process.pid`; a resolver-only edit must change the
+    // returned value while the pid stays identical (the durable process never died).
     const q = async (query: string) => {
       const res = await fetch(`${base}/graphql`, {
         method: 'POST',
@@ -257,18 +258,18 @@ describe('pylon dev — pages watch loop', () => {
     await fs.writeFile(srcFile, appSrc('SWAP_V1'))
     await waitFor(async () => (await q('{ mark }'))?.data?.mark === 'SWAP_V1', 90_000, 'mark SWAP_V1')
     const pidBefore = (await q('{ pid }'))?.data?.pid
-    expect(pidBefore, 'worker pid should be readable').toBeTruthy()
+    expect(pidBefore, 'dev process pid should be readable').toBeTruthy()
 
     // Resolver-only edit (no schema change) → pure server hot-swap, no client/pages rebuild.
     await fs.writeFile(srcFile, appSrc('SWAP_V2'))
     await waitFor(async () => (await q('{ mark }'))?.data?.mark === 'SWAP_V2', 60_000, 'mark SWAP_V2')
 
     const pidAfter = (await q('{ pid }'))?.data?.pid
-    expect(pidAfter, 'worker must be the SAME process — no restart').toBe(pidBefore)
+    expect(pidAfter, 'must be the SAME process — no restart').toBe(pidBefore)
 
     // Schema-CHANGING edit (adds a field) → also regens client + pages and swaps them,
     // but STILL must not restart. Guards against the swap silently falling back to a
-    // restart (which would also make the field appear, masking a half-working Step 2).
+    // restart (which would also make the field appear, masking a half-working hot-swap).
     await fs.writeFile(
       srcFile,
       "import {Pylon} from '@getcronit/pylon'\n" +
