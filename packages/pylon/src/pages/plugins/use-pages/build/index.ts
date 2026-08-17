@@ -145,8 +145,10 @@ export const build = async (
     console.log(`Pages [client] Rebuild took ${Date.now() - t}ms`)
   }
 
-  /** Build the node/SSR bundle: routes module (+ optional sitemap) → pages dir. */
-  const runServerBuild = async () => {
+  /** Build the node/SSR bundle: routes module (+ optional sitemap) → pages dir. In dev
+   *  (`writeCssAssets`) this build ALSO owns CSS: it resolves url() assets and returns
+   *  the collected graph, so no separate client build is needed. */
+  const runServerBuild = async (writeCssAssets = false) => {
     const t = Date.now()
     const hasSitemap = await sitemapExists()
     const collectedCss = new Map<string, string>()
@@ -168,7 +170,12 @@ export const build = async (
           entryPaths: [appTsxAbs, ...(hasSitemap ? [sitemapAbs] : [])],
           scalarTypes
         }),
-        cssCollectPlugin(collectedCss),
+        cssCollectPlugin(
+          collectedCss,
+          writeCssAssets
+            ? {outputDir: DIST_STATIC_DIR, publicPath: PUBLIC_PATH}
+            : undefined
+        ),
         imagePlugin({mediaDir: path.join(DIST_STATIC_DIR, 'media'), publicPath: PUBLIC_PATH}),
         assetFilePlugin(PUBLIC_PATH)
       ]
@@ -189,6 +196,40 @@ export const build = async (
 
     await writeServerManifest(out, hasSitemap)
     console.log(`Pages [server] Rebuild took ${Date.now() - t}ms`)
+    return collectedCss
+  }
+
+  /** Write the framework base stylesheet + concatenated app CSS to the static dir and
+   *  return their manifest entries (public URLs). Shared by the prod client build and
+   *  the dev CSS-only path. */
+  const writeCssFiles = async (
+    collectedCss: Map<string, string>
+  ): Promise<Record<string, string>> => {
+    const entries: Record<string, string> = {}
+
+    // Framework base stylesheet — resolve any url() assets it references too.
+    const indexCss = await processCssFile(pylonCssPath, {
+      outputDir: DIST_STATIC_DIR,
+      publicPath: PUBLIC_PATH
+    })
+    const indexName = `index-${hashCss(indexCss)}.css`
+    await updateFileIfChanged(
+      path.join(DIST_STATIC_DIR, indexName),
+      Buffer.from(indexCss)
+    )
+    entries['index.css'] = `${PUBLIC_PATH}/${indexName}`
+
+    // App CSS graph — concatenated in import order (see rolldown-plugins.ts).
+    const appCss = [...collectedCss.values()].join('\n')
+    if (appCss.trim()) {
+      const appName = `app-${hashCss(appCss)}.css`
+      await updateFileIfChanged(
+        path.join(DIST_STATIC_DIR, appName),
+        Buffer.from(appCss)
+      )
+      entries['app.css'] = `${PUBLIC_PATH}/${appName}`
+    }
+    return entries
   }
 
   /** Client manifest: URLs (served under /__pylon/static) for HTML links/scripts. */
@@ -205,31 +246,23 @@ export const build = async (
       }
     }
 
-    // Framework base stylesheet — resolve any url() assets it references too.
-    const indexCss = await processCssFile(pylonCssPath, {
-      outputDir: DIST_STATIC_DIR,
-      publicPath: PUBLIC_PATH
-    })
-    const indexName = `index-${hashCss(indexCss)}.css`
-    await updateFileIfChanged(
-      path.join(DIST_STATIC_DIR, indexName),
-      Buffer.from(indexCss)
-    )
-    manifest['index.css'] = `${PUBLIC_PATH}/${indexName}`
-
-    // App CSS graph — concatenated in import order (see rolldown-plugins.ts).
-    const appCss = [...collectedCss.values()].join('\n')
-    if (appCss.trim()) {
-      const appName = `app-${hashCss(appCss)}.css`
-      await updateFileIfChanged(
-        path.join(DIST_STATIC_DIR, appName),
-        Buffer.from(appCss)
-      )
-      manifest['app.css'] = `${PUBLIC_PATH}/${appName}`
-    }
-
+    Object.assign(manifest, await writeCssFiles(collectedCss))
     manifest['version'] = version
 
+    await updateFileIfChanged(
+      path.join(DIST_STATIC_DIR, 'manifest.json'),
+      Buffer.from(JSON.stringify(manifest, null, 2))
+    )
+  }
+
+  /** Dev: Vite serves the client JS, so the static manifest carries ONLY the CSS (no
+   *  app.js) — the SSR precedence `<link>`s that give styled first paint. The CSS comes
+   *  from the server build's collected graph, so no separate client build runs. */
+  const writeDevStaticManifest = async (collectedCss: Map<string, string>) => {
+    const manifest: Record<string, string> = {
+      ...(await writeCssFiles(collectedCss)),
+      version
+    }
     await updateFileIfChanged(
       path.join(DIST_STATIC_DIR, 'manifest.json'),
       Buffer.from(JSON.stringify(manifest, null, 2))
@@ -276,7 +309,15 @@ export const build = async (
       ])
       await buildAppFile()
       await copyPublicDir()
-      await Promise.all([runClientBuild(), runServerBuild()])
+      if (process.env.PYLON_DEV) {
+        // Dev: Vite serves the client, so the rolldown client JS bundle is dead weight.
+        // Skip it — the server build traverses the same graph and now writes the CSS
+        // (the SSR precedence `<link>`s), so one build does it all.
+        const collectedCss = await runServerBuild(true)
+        await writeDevStaticManifest(collectedCss)
+      } else {
+        await Promise.all([runClientBuild(), runServerBuild()])
+      }
     },
     cancel: async () => {}
   }
