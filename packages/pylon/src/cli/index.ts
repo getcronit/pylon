@@ -646,247 +646,23 @@ db.command('push')
 program
   .command('dev')
   .description('Start the Pylon Development Server')
-  .option(
-    '-c, --command <command>',
-    'Command to run the server (default: node + the tsx loader on .pylon/server.mjs)'
-  )
-  .action(async options => {
-    // Persistent-worker mode (default, no `-c`): spawn ONE dev worker with an IPC
-    // channel and hot-swap the page layer on pages-only edits (no restart, no DB
-    // reconnect). A `-c` override keeps the legacy restart-per-edit loop — we don't
-    // control a custom entry, so it can't expose the page reload hook. See
-    // rfcs/DEV_SERVER.md (Step 1).
-    const persistent = !options.command
-    const command: string = options.command ?? defaultDevWorkerCommand()
-    let serverProcess: ChildProcess | null = null
-    // `killing` distinguishes our intentional kill from a real crash.
-    let killing = false
+  .action(async () => {
+    // Direct-execution dev server: ONE process runs src/index.ts through Vite's backend
+    // runner, compiles the schema in-process, boots the app in-memory, and hot-swaps on
+    // edit — no glue files, no worker, no IPC. See cli/dev/dev-server.ts.
+    const {startDevServer} = await import('./dev/dev-server.js')
+    const port = Number(process.env.PORT) || 3000
 
-    // Kill the worker AND await its actual exit — so the next spawn can't race the
-    // old process for the port (EADDRINUSE / orphan). Falls back after a timeout.
-    const killServer = () =>
-      new Promise<void>(resolve => {
-        const proc = serverProcess
-        if (!proc || !proc.pid) return resolve()
-        serverProcess = null
-        killing = true
-        let done = false
-        const finish = () => {
-          if (done) return
-          done = true
-          resolve()
-        }
-        proc.once('exit', finish)
-        try {
-          // SIGKILL (not the default SIGTERM): a dev restart wants the port freed
-          // NOW — no graceful-shutdown handler can delay the exit and race the
-          // next spawn for the port.
-          treeKillSync(proc.pid, 'SIGKILL')
-        } catch (e: any) {
-          consola.error('Failed to kill server process', e)
-          finish()
-        }
-        setTimeout(finish, 4000).unref?.()
-      })
-
-    const restartServer = async () => {
-      await killServer()
-      serverProcess = startDevServer(
-        command,
-        (code, signal) => {
-          if (killing) {
-            killing = false // our intentional restart — not a crash
-            return
-          }
-          if (code && code !== 0) {
-            consola.error(
-              `[Pylon] Dev server exited (code ${code}). Fix the error and save to restart.`
-            )
-          } else if (signal) {
-            consola.warn(`[Pylon] Dev server terminated (${signal}).`)
-          }
-        },
-        {ipc: persistent}
+    let dev: {close(): Promise<void>} | undefined
+    try {
+      dev = await startDevServer({port})
+    } catch (e) {
+      consola.error(
+        '[Pylon] Dev server failed to start:',
+        e instanceof Error ? (e.stack ?? e.message) : e
       )
+      process.exit(1)
     }
-
-    // Hot-swap a layer in the running worker (persistent mode) — no restart, no DB
-    // reconnect. `pages` re-imports the freshly-hashed SSR routes; `server` re-executes
-    // the app graph via the rolldown-vite module runner and swaps Yoga's schema. Rejects
-    // → caller falls back to a restart. `server` gets a longer budget: its first run may
-    // transform the whole app graph (oxc) after the engine warms.
-    const reloadWorker = (kind: 'pages' | 'server') =>
-      new Promise<void>((resolve, reject) => {
-        const w = serverProcess
-        if (!w || !w.connected) return reject(new Error('worker not connected'))
-        const onMsg = (m: any) => {
-          if (m?.type === 'reloaded' && m.kind === kind) {
-            cleanup()
-            resolve()
-          } else if (m?.type === 'reload-error' && (!m.kind || m.kind === kind)) {
-            cleanup()
-            reject(new Error(m.error))
-          }
-        }
-        const timer = setTimeout(() => {
-          cleanup()
-          reject(new Error(`${kind} hot-swap timed out`))
-        }, kind === 'server' ? 15000 : 8000)
-        timer.unref?.()
-        const cleanup = () => {
-          w.off('message', onMsg)
-          clearTimeout(timer)
-        }
-        w.on('message', onMsg)
-        w.send({type: 'reload', kind})
-      })
-
-    // Browser live-reload is owned by Vite now (Fast Refresh for component edits; a
-    // Vite full-reload on `src`/resolver edits, pushed by the dev worker). `PYLON_DEV`
-    // just marks the build as dev (skips SSR minify). No SSE server.
-    const appPort = Number(process.env.PORT) || 3000
-    process.env.PYLON_DEV = '1'
-
-    // build() throws loudly on a config/init failure → exits non-zero (fail-loud).
-    const ctx = await build({
-      sfiFilePath: './src/index.ts',
-      outputFilePath: './.pylon',
-      mode: 'dev'
-    })
-
-    // Change kinds: 'pages' = hot-swap (buildPages + IPC reload, no restart);
-    // 'server'/'config' = full rebuild + worker restart. `src/**` is the server graph;
-    // everything else (pages/, public/, components/, lib/, styles) is the client/pages
-    // graph the rolldown page build traces. Coalesced events escalate to the max kind.
-    // Known limitation: a NON-src file the server imports is misclassified as 'pages'
-    // (stale server until a src edit) — rare; the import graph would make this exact.
-    const cwd = process.cwd()
-    const rank = {pages: 0, server: 1, config: 2} as const
-    type Kind = keyof typeof rank
-    const classify = (p: string): Kind => {
-      const rel = path.relative(cwd, p)
-      if (/(^|[/\\])pylon\.config\.[cm]?[jt]sx?$/.test(rel)) return 'config'
-      if (rel === 'src' || rel.startsWith('src' + path.sep)) return 'server'
-      return 'pages'
-    }
-    let pendingKind: Kind | null = null
-    const escalate = (k: Kind) => {
-      if (pendingKind == null || rank[k] > rank[pendingKind]) pendingKind = k
-    }
-
-    // The ordered, single-flight Supervisor. A newer change supersedes an in-flight
-    // run (gen guard); the chain serializes so runs never overlap. A failed build
-    // logs and leaves the last-good worker running (no restart, no crash-loop).
-    let gen = 0
-    let chain: Promise<void> = Promise.resolve()
-    const sync = (initial = false) => {
-      const g = ++gen
-      const kind: Kind = initial ? 'server' : (pendingKind ?? 'server')
-      pendingKind = null
-      chain = chain
-        .then(async () => {
-          if (g !== gen) return
-
-          // Pages-only hot-swap: rebuild pages + swap in the RUNNING worker. Skips
-          // buildServer + the restart (no DB reconnect, no plugin re-setup).
-          if (!initial && persistent && kind === 'pages') {
-            await ctx.buildPages()
-            if (g !== gen) return
-            try {
-              await reloadWorker('pages')
-            } catch (e) {
-              consola.error('[Pylon] Page hot-swap failed; restarting worker:', e)
-              await restartServer()
-              if (g === gen) await waitForAppReady(appPort)
-            }
-            return
-          }
-
-          // Server hot-swap (persistent, non-initial `src` edit): rebuild the schema/
-          // resolvers, then re-execute the app graph in the RUNNING worker (rolldown-vite
-          // module runner) and swap Yoga's schema — no restart, no DB reconnect. On a
-          // schema change, also regen the client + pages and swap those in. Any failure
-          // falls back to a full restart, so the loop is never worse than Step 1.
-          if (!initial && persistent && kind === 'server') {
-            const out = await ctx.buildServer()
-            if (g !== gen) return
-            const schemaChanged = out?.schemaChanged ?? true
-            if (schemaChanged) {
-              await buildClient({schemaChanged: true})
-              if (g !== gen) return
-              await ctx.buildPages()
-              if (g !== gen) return
-            }
-            try {
-              await reloadWorker('server')
-              if (schemaChanged) await reloadWorker('pages')
-            } catch (e) {
-              consola.error('[Pylon] Server hot-swap failed; restarting worker:', e)
-              await restartServer()
-              if (g === gen) await waitForAppReady(appPort)
-            }
-            return
-          }
-
-          // Full path: config change, the first build, or `-c` (custom command) mode →
-          // full worker restart.
-          const out = await ctx.buildServer()
-          if (g !== gen) return
-          // Regenerate the client only when the schema changed (else the existing
-          // .pylon/client is reused — page bundles import it).
-          if (out?.schemaChanged ?? true) await buildClient({schemaChanged: true})
-          if (g !== gen) return
-          await ctx.buildPages()
-          if (g !== gen) return
-          await restartServer()
-          // Once the freshly-restarted worker is actually listening, push a reload
-          // to every connected browser (guarded so a superseding build wins).
-          if (g === gen) {
-            await waitForAppReady(appPort)
-          }
-          analytics.capture({
-            distinctId,
-            event: 'build completed',
-            properties: {
-              duration: out?.duration ?? 0,
-              totalFiles: out?.totalFiles ?? 0,
-              totalSize: out?.totalSize ?? 0,
-              schemaChanged: out?.schemaChanged ?? true,
-              dependencies,
-              pylonConfig: await readPylonConfig(),
-              isDevelopment: true,
-              $session_id: sessionId
-            }
-          })
-        })
-        .catch(e => consola.error('[Pylon] Build failed:', e))
-      return chain
-    }
-
-    await sync(true) // initial build + spawn worker
-
-    // Watch the WHOLE project (minus deps / build output / vcs) → re-run the
-    // sequence (coalesced/single-flight). Watching only src/pages/public missed a
-    // component imported by a page from anywhere else (e.g. `components/`, `lib/`):
-    // it's in the build's import graph but no save event fired, so it never rebuilt.
-    // Watching cwd catches any imported source wherever it lives.
-    //
-    // ABSOLUTE path (no `cwd` option): under cwd-relative matching, chokidar v4's
-    // fsevents backend drops in-place file writes (truncate+write on the same inode,
-    // as `fs.writeFile` and many editors do) while still catching atomic renames —
-    // so hot reload silently misses real saves. `awaitWriteFinish` coalesces the
-    // burst of events a single save emits into one stable trigger.
-    const watcher = chokidar.watch(cwd, {
-      ignoreInitial: true,
-      // Skip dependencies, our own build output (writing there would loop), and vcs.
-      ignored: (p: string) =>
-        /(^|[/\\])(node_modules|\.pylon|\.git)([/\\]|$)/.test(p),
-      awaitWriteFinish: {stabilityThreshold: 200, pollInterval: 50}
-    })
-    watcher.on('all', (_ev, p) => {
-      escalate(classify(p))
-      void sync()
-    })
 
     consola.box(`Pylon is up and running!
 
@@ -897,29 +673,25 @@ https://github.com/getcronit/pylon/issues
 
 We value your feedback—help us make Pylon even better!`)
 
-    const cleanupAndExit = async () => {
-      await watcher.close().catch(() => {})
-      await ctx.dispose().catch(() => {})
-      await killServer()
+    const shutdown = async () => {
+      await dev?.close().catch(() => {})
       process.exit(0)
     }
-    process.on('SIGINT', cleanupAndExit)
-    process.on('SIGTERM', cleanupAndExit)
-    process.on('SIGHUP', cleanupAndExit)
-    process.on('exit', () => killServer())
+    process.on('SIGINT', shutdown)
+    process.on('SIGTERM', shutdown)
+    process.on('SIGHUP', shutdown)
 
     analytics.capture({
       distinctId,
       event: 'dev server started',
       properties: {
-        command,
         dependencies,
         pylonConfig: await readPylonConfig(),
         $session_id: sessionId
       }
     })
 
-    // Keep the process alive in watch mode (active handles: watcher + child).
+    // Keep the process alive in watch mode.
     await new Promise<void>(() => {})
   })
 

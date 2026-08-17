@@ -69,18 +69,21 @@ export const build = async (options: BuildOptions) => {
     | {files: string[]; fp: string; defs: {typeDefs: string; resolvers: any}}
     | undefined
 
-  return await bundler.build({
-    mode: options.mode,
-    getBuildDefs: () => {
-      if (cache && fingerprint(cache.files) === cache.fp) {
-        return cache.defs
-      }
-      const builder = new SchemaBuilder(path.join(cwd, options.sfiFilePath))
-      const built = builder.build({contributeIR})
-      const defs = {typeDefs: built.typeDefs, resolvers: built.resolvers}
-      const files = builder.getSourceFiles()
-      cache = {files, fp: fingerprint(files), defs}
-      return defs
+  // The warm, fingerprint-cached type-introspection compile. `buildServer` uses this to
+  // emit glue; the direct-execution dev server (cli/dev) calls it directly and boots the
+  // app in-process — no glue, same output (see rfcs/DEV_SERVER.md).
+  const getBuildDefs = () => {
+    if (cache && fingerprint(cache.files) === cache.fp) {
+      return cache.defs
     }
-  })
+    const builder = new SchemaBuilder(path.join(cwd, options.sfiFilePath))
+    const built = builder.build({contributeIR})
+    const defs = {typeDefs: built.typeDefs, resolvers: built.resolvers}
+    const files = builder.getSourceFiles()
+    cache = {files, fp: fingerprint(files), defs}
+    return defs
+  }
+
+  const ctx = await bundler.build({mode: options.mode, getBuildDefs})
+  return {...ctx, compile: getBuildDefs}
 }

@@ -24,16 +24,22 @@ export interface ViteHotServerOptions {
   root: string
   /** Absolute path to the app entry the runner re-executes (e.g. `<cwd>/src/index.ts`). */
   entryAbs: string
-  /** Absolute path to the generated `.pylon/schema.graphql` (the fresh SDL source). */
-  schemaPath: string
-  /** Absolute path to the generated `.pylon/resolvers.js` (base __resolveType etc.). */
-  resolversPath: string
+  /** Legacy (dev-worker path): absolute `.pylon/schema.graphql`, read by `reloadServer`. */
+  schemaPath?: string
+  /** Legacy (dev-worker path): absolute `.pylon/resolvers.js`, read by `reloadServer`. */
+  resolversPath?: string
   /** Extra bare specifiers to force `ssr.external` (framework is always external). */
   external?: string[]
 }
 
 export interface ViteHotServer {
-  /** Re-run the app graph → swap the live schema/resolvers. No restart. */
+  /** Direct-execution: re-run the app graph and return the fresh module (`.default` = app). */
+  importApp(): Promise<any>
+  /** Direct-execution: run any root-relative module through the runner (e.g. the config). */
+  importId(id: string): Promise<any>
+  /** Direct-execution: invalidate the app graph so the next `importApp` re-executes it. */
+  invalidate(): void
+  /** Legacy (dev-worker): read the emitted schema/resolvers files → re-import → swap. */
   reloadServer(): Promise<void>
   /** Close the underlying Vite dev server. */
   close(): Promise<void>
@@ -94,10 +100,11 @@ export async function createViteHotServer(
   const entryId =
     '/' + path.relative(options.root, options.entryAbs).split(path.sep).join('/')
 
-  const importEntry = async (): Promise<any> => {
-    if (runner?.import) return runner.import(entryId)
-    return server.ssrLoadModule(entryId)
+  const importId = async (id: string): Promise<any> => {
+    if (runner?.import) return runner.import(id)
+    return server.ssrLoadModule(id)
   }
+  const importEntry = (): Promise<any> => importId(entryId)
 
   const reloadServer = async (): Promise<void> => {
     const swap = (globalThis as any).__PYLON_DEV_SWAP_SCHEMA__ as
@@ -107,6 +114,9 @@ export async function createViteHotServer(
       throw new Error(
         'schema swap hook missing (__PYLON_DEV_SWAP_SCHEMA__) — is NODE_ENV=development and server.mjs booted?'
       )
+    }
+    if (!options.schemaPath || !options.resolversPath) {
+      throw new Error('reloadServer requires schemaPath/resolversPath (legacy dev-worker path)')
     }
 
     // Fresh SDL is written by the CLI's buildServer (type introspection) → read it raw.
@@ -129,6 +139,9 @@ export async function createViteHotServer(
   }
 
   return {
+    importApp: importEntry,
+    importId,
+    invalidate: () => ssrGraph?.invalidateAll?.(),
     reloadServer,
     close: () => server.close()
   }
