@@ -51,13 +51,6 @@ function tsxRun(entry: string): string {
   return `node --require ${preflight} --import ${loader} ${entry}`
 }
 
-/** Persistent dev worker: the loader on `dev-worker.mjs` (boots server.mjs + an IPC
- *  hot-reload listener). Used when no `-c` override, enabling page hot-swap without a
- *  restart. See rfcs/DEV_SERVER.md (Step 1). */
-function defaultDevWorkerCommand(outputDir = '.pylon'): string {
-  return tsxRun(`${outputDir}/dev-worker.mjs`)
-}
-
 /** Default worker runner: the loader on the worker entry (unbundled). Override with `-c`
  *  (e.g. prod: `node .pylon/src/worker.js` after `pylon build`). */
 function defaultWorkerCommand(entry: string): string {

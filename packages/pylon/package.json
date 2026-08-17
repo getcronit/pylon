@@ -16,10 +16,6 @@
       "import": "./dist/ir/index.js",
       "types": "./dist/ir/index.d.ts"
     },
-    "./dev-engine": {
-      "import": "./dist/cli/dev/vite-hot-server.js",
-      "types": "./dist/cli/dev/vite-hot-server.d.ts"
-    },
     "./query/build": {
       "import": "./dist/query/build/index.js",
       "types": "./dist/query/build/index.d.ts"
