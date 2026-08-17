@@ -27,6 +27,9 @@ export interface PagesDevBridge {
   transformHtml(url: string, html: string): Promise<string>
   /** The browser entry Vite serves (app.tsx + hydration bootstrap) — bootstrapModules. */
   clientEntry: string
+  /** Full-reload the browser over Vite's HMR ws — used on a `src`/resolver edit so the
+   *  page re-fetches (component edits are handled in place by Fast Refresh). */
+  reloadBrowser(): void
 }
 
 export interface PagesDevServerOptions {
@@ -126,7 +129,11 @@ export async function createPagesDevServer(
 
   const bridge: PagesDevBridge = {
     transformHtml: (url, html) => server.transformIndexHtml(url, html),
-    clientEntry: appTsxUrl
+    clientEntry: appTsxUrl,
+    reloadBrowser: () => {
+      const hot = (server as any).hot ?? (server as any).ws
+      hot?.send?.({type: 'full-reload'})
+    }
   }
   ;(globalThis as any).__PYLON_PAGES_DEV__ = bridge
 

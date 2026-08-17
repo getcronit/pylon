@@ -22,7 +22,6 @@ import {runEval, formatReport, SdkRunner} from './eval'
 import {fileURLToPath, pathToFileURL} from 'node:url'
 import {createRequire} from 'node:module'
 import {buildClient} from './builder/build-client'
-import {startDevReloadServer} from './builder/dev-reload-server'
 import {runDbCommand} from './db'
 import {generatePylonTypes} from './pull'
 import {treeKillSync} from './tree-kill'
@@ -742,15 +741,11 @@ program
         w.send({type: 'reload', kind})
       })
 
-    // Tier-0 live-reload: an SSE server on the stable CLI process. Start it BEFORE
-    // the first build so the pages bundle injects its URL (via PYLON_DEV_RELOAD_PORT).
-    // Port = app PORT + 1, stepping up to the next free port if taken.
+    // Browser live-reload is owned by Vite now (Fast Refresh for component edits; a
+    // Vite full-reload on `src`/resolver edits, pushed by the dev worker). `PYLON_DEV`
+    // just marks the build as dev (skips SSR minify). No SSE server.
     const appPort = Number(process.env.PORT) || 3000
-    const reload = await startDevReloadServer(appPort + 1)
-    process.env.PYLON_DEV_RELOAD_PORT = String(reload.port)
-    consola.info(
-      `[Pylon] Live-reload server on http://localhost:${reload.port} (browser auto-reloads on rebuild)`
-    )
+    process.env.PYLON_DEV = '1'
 
     // build() throws loudly on a config/init failure → exits non-zero (fail-loud).
     const ctx = await build({
@@ -804,7 +799,6 @@ program
               await restartServer()
               if (g === gen) await waitForAppReady(appPort)
             }
-            if (g === gen) reload.notify()
             return
           }
 
@@ -831,7 +825,6 @@ program
               await restartServer()
               if (g === gen) await waitForAppReady(appPort)
             }
-            if (g === gen) reload.notify()
             return
           }
 
@@ -850,7 +843,6 @@ program
           // to every connected browser (guarded so a superseding build wins).
           if (g === gen) {
             await waitForAppReady(appPort)
-            if (g === gen) reload.notify()
           }
           analytics.capture({
             distinctId,
@@ -907,7 +899,6 @@ We value your feedback—help us make Pylon even better!`)
 
     const cleanupAndExit = async () => {
       await watcher.close().catch(() => {})
-      await reload.close().catch(() => {})
       await ctx.dispose().catch(() => {})
       await killServer()
       process.exit(0)

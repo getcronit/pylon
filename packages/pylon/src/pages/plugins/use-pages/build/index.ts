@@ -182,8 +182,8 @@ export const build = async (
       assetFileNames: 'assets/[name]-[hash][extname]',
       sourcemap: 'inline',
       // Don't minify the node-only SSR bundle in dev — pure rebuild cost with no
-      // benefit. `PYLON_DEV_RELOAD_PORT` is set only by `pylon dev`.
-      minify: !process.env.PYLON_DEV_RELOAD_PORT
+      // benefit. `PYLON_DEV` is set only by `pylon dev`.
+      minify: !process.env.PYLON_DEV
     })
     await bundle.close()
 

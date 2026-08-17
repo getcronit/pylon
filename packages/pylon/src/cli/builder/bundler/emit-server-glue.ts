@@ -224,6 +224,9 @@ function devWorkerBootstrap(appImport: string): string {
     `      } else if (msg.kind === 'server') {\n` +
     `        const hot = await __getHot()\n` +
     `        await hot.reloadServer()\n` +
+    `        // Resolvers/schema changed — full-reload the browser so pages re-fetch (Fast\n` +
+    `        // Refresh only covers component code). No-op for an API (no pages dev server).\n` +
+    `        globalThis.__PYLON_PAGES_DEV__?.reloadBrowser?.()\n` +
     `      } else {\n` +
     `        return\n` +
     `      }\n` +

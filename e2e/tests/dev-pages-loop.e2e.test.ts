@@ -11,7 +11,6 @@
  * No DB / docker needed (pages-only app).
  */
 import {type ChildProcess, spawn} from 'node:child_process'
-import http from 'node:http'
 import {existsSync, promises as fs} from 'node:fs'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
@@ -145,38 +144,8 @@ describe('pylon dev — pages watch loop', () => {
     expect(html?.includes('MARKER_V1')).toBe(false)
   }, 120_000)
 
-  it('injects the live-reload client and pushes a reload event on edit (Tier 0)', async () => {
-    // Discover the reload port from the built client bundle (deterministic — the
-    // pages plugin bakes the dev CLI's SSE URL into app.js when PYLON_DEV_RELOAD_PORT
-    // is set). The injected EventSource is what wires the browser to live-reload.
-    const staticDir = path.join(appDir, '.pylon/__pylon/static')
-    const manifest = JSON.parse(await fs.readFile(path.join(staticDir, 'manifest.json'), 'utf8'))
-    const bundle = await fs.readFile(path.join(staticDir, path.basename(manifest['app.js'])), 'utf8')
-    const m = bundle.match(/:(\d+)\/__pylon_reload/)
-    expect(m, 'client bundle should wire the live-reload EventSource').toBeTruthy()
-    const reloadPort = Number(m![1])
-
-    // Subscribe to the SSE stream, then trigger a rebuild and expect a push.
-    const gotReload = new Promise<boolean>(resolve => {
-      const req = http.get(
-        {host: '127.0.0.1', port: reloadPort, path: '/__pylon_reload'},
-        res => {
-          let buf = ''
-          res.on('data', (c: Buffer) => {
-            buf += c.toString()
-            if (buf.includes('event: reload')) resolve(true)
-          })
-        }
-      )
-      req.on('error', () => resolve(false))
-      setTimeout(() => resolve(false), 90_000)
-    })
-
-    await new Promise(r => setTimeout(r, 300)) // let the SSE register
-    await fs.writeFile(pageFile, originalPage.replaceAll('MARKER_V1', 'MARKER_V3'))
-
-    expect(await gotReload).toBe(true)
-  }, 120_000)
+  // (Tier-0 SSE live-reload removed — Vite owns browser reloads now: Fast Refresh for
+  // component edits, a Vite full-reload on src edits. See rfcs/DEV_SERVER.md 3c.)
 
   it('rebuilds when a component imported from OUTSIDE pages/ is edited', async () => {
     // The component lives in a top-level dir that the old watcher (src/pages/public)
