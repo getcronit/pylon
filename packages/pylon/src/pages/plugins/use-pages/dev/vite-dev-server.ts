@@ -58,7 +58,9 @@ export async function createPagesDevServer(
   // Dev-only heavy deps — non-literal specifiers keep them out of the static graph /
   // prod trace (mirrors the bundler's `tsx/esm/api` pattern).
   const viteMod = 'rolldown-vite'
-  const reactMod = '@vitejs/plugin-react-oxc'
+  // The unified React plugin (the experimental `-oxc` fork folded back into it); under
+  // rolldown-vite it uses the oxc transform automatically.
+  const reactMod = '@vitejs/plugin-react'
   const tsPathsMod = 'vite-tsconfig-paths'
   const nodeServerMod = '@hono/node-server'
   const {createServer} = (await import(viteMod)) as {createServer: (c: any) => Promise<any>}

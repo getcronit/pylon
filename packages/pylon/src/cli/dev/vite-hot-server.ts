@@ -6,7 +6,7 @@
  * fresh resolver closures — WITHOUT a process restart. The framework
  * (`@getcronit/pylon`) is `ssr.external`, so it stays a single durable Node instance:
  * the model registry, DB connection, identity, queues, ALS and bound port all survive
- * the swap (proven in `spike-dev-tier2/server-plane/`).
+ * the swap.
  *
  * The swap itself goes through `globalThis.__PYLON_DEV_SWAP_SCHEMA__` (the seam in
  * `app/pylon-handler.ts`): the dev server rebuilds the executable schema from fresh

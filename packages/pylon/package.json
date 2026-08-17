@@ -111,7 +111,7 @@
     "@sentry/bun": "^8.17.0",
     "@sentry/node": "^8.54.0",
     "@sentry/react": "^10.5.0",
-    "@vitejs/plugin-react-oxc": "^0.4.3",
+    "@vitejs/plugin-react": "^5.2.0",
     "bullmq": "^5.0.0",
     "chokidar": "^4.0.3",
     "class-variance-authority": "^0.7.1",
@@ -144,8 +144,8 @@
     "tiny-glob": "^0.2.9",
     "toucan-js": "^4.1.0",
     "ts-morph": "^28.0.0",
-    "vite-tsconfig-paths": "^6.1.1",
-    "tsx": "^4.19.2"
+    "tsx": "^4.19.2",
+    "vite-tsconfig-paths": "^6.1.1"
   },
   "peerDependencies": {
     "@bull-board/api": "*",
