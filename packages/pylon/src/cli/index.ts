@@ -72,7 +72,13 @@ program
     '--standalone',
     'After building, trace the runtime file graph into .pylon/standalone/ — a self-contained deploy artifact (app + only the node_modules it uses) that runs with `node` and no install.'
   )
-  .action(async (options: {standalone?: boolean}) => {
+  .option(
+    '--include <path>',
+    'With --standalone: also copy this project-relative file/dir into the artifact (repeatable). Use it for data the app reads at runtime — e.g. `--include content` — which the tracer cannot see.',
+    (val: string, prev: string[]) => [...prev, val],
+    [] as string[]
+  )
+  .action(async (options: {standalone?: boolean; include?: string[]}) => {
     const ctx = await build({
       sfiFilePath: './src/index.ts',
       outputFilePath: './.pylon',
@@ -98,7 +104,11 @@ program
       if (options.standalone) {
         const {buildStandalone} = await import('./builder/standalone.js')
         const cwd = process.cwd()
-        const res = await buildStandalone({cwd, outDir: path.join(cwd, '.pylon')})
+        const res = await buildStandalone({
+          cwd,
+          outDir: path.join(cwd, '.pylon'),
+          include: options.include ?? []
+        })
         const mb = (res.byteCount / 1024 / 1024).toFixed(1)
         consola.success(
           `Standalone artifact: ${res.fileCount} files (${mb} MB) → ${path.relative(cwd, res.outDir)}\n` +

@@ -124,12 +124,27 @@ export async function buildStandalone(opts: {
   cwd: string
   /** Absolute `.pylon` output dir. */
   outDir: string
+  /** Extra project-relative files/dirs to copy alongside the app (e.g. `content` that the
+   *  app reads at runtime). nft traces imported CODE, not data read via `fs`, so anything the
+   *  app opens at runtime must be declared here. Copied to the app dir inside the output. */
+  include?: string[]
 }): Promise<StandaloneResult> {
-  const {cwd, outDir} = opts
+  const {cwd, outDir, include = []} = opts
   const serverEntry = path.join(outDir, 'server.mjs')
   if (!fs.existsSync(serverEntry)) {
     throw new Error(
       `standalone: ${serverEntry} not found — run the build before tracing (this is an internal ordering bug).`
+    )
+  }
+
+  // nft resolves package `exports` per its OWN Node version; module-sync-only ESM entries need
+  // a Node ≥22 builder (see the trace note below). Warn early so a broken artifact is explained.
+  const nodeMajor = Number(process.versions.node.split('.')[0])
+  if (nodeMajor < 22) {
+    console.warn(
+      `[pylon] standalone: tracing on Node ${process.versions.node}. Build on Node ≥22 — nft ` +
+        `only auto-selects the \`module-sync\` export condition there, so some ESM-only packages ` +
+        `(e.g. react-router) can otherwise be traced as CJS → ERR_MODULE_NOT_FOUND at runtime.`
     )
   }
 
@@ -158,19 +173,25 @@ export async function buildStandalone(opts: {
   const {nodeFileTrace} = (await import(nftMod)) as {
     nodeFileTrace: (
       files: string[],
-      opts?: {base?: string; moduleSyncCatchall?: boolean}
+      opts?: {base?: string; ignore?: string[]}
     ) => Promise<{fileList: Set<string>; warnings: Set<Error>}>
   }
 
-  // Keep nft's DEFAULT conditions — it resolves each edge per-context (import vs require),
-  // so dual packages land on the right build (graphql-yoga → esm, @opentelemetry require →
-  // cjs). But nft only AUTO-selects the `module-sync` export condition when the BUILD node is
-  // ≥22 (getNodeMajorVersion() >= 22). A Node 20 builder would then skip it — while a Node
-  // ≥20.19 RUNTIME does support module-sync and imports the `.mjs`. react-router maps
-  // `node.module-sync → dist/.../index.mjs` (and has NO production build), so that skew drops
-  // the .mjs node actually imports → ERR_MODULE_NOT_FOUND at boot. `moduleSyncCatchall` forces
-  // module-sync selection regardless of the builder's node version, matching the runtime.
-  const {fileList, warnings} = await nodeFileTrace(roots, {base, moduleSyncCatchall: true})
+  // Prune the usePages BUILD toolchain from the SERVE artifact. `use-pages` lazily imports its
+  // build pipeline (`await import('./build')`), which runs ONLY under `pylon build` — never at
+  // serve time. But nft follows literal dynamic imports, so without this it traces the whole
+  // build graph (postcss-load-config → tsx → esbuild ≈ 67 MB, plus rolldown, ts-morph). The
+  // served app never loads `build/`, so excluding it (and everything reachable only through it)
+  // is safe and cuts the artifact roughly in half.
+  const ignore = ['**/plugins/use-pages/build/**']
+
+  // NOTE on Node version: nft resolves package `exports` per-edge (import vs require), so dual
+  // packages land on the right build — EXCEPT it only auto-selects the `module-sync` condition
+  // when the BUILDER's Node is ≥22. Some ESM-only packages (e.g. react-router, which ships no
+  // production build) expose their `.mjs` solely via `module-sync`; a Node <22 builder then
+  // copies the CJS entry while the ≥20.19 runtime imports the missing `.mjs`. So build on Node
+  // ≥22 (matching a modern runtime) — the guard above warns otherwise.
+  const {fileList, warnings} = await nodeFileTrace(roots, {base, ignore})
 
   let fileCount = 0
   let byteCount = 0
@@ -198,6 +219,28 @@ export async function buildStandalone(opts: {
   const appRel = path.relative(base, cwd)
   const runDir = path.join(standaloneDir, appRel)
   const entry = path.join(standaloneDir, path.relative(base, serverEntry))
+
+  // Extra runtime DATA the app reads via `fs` (nft can't trace those). Copy each into the app
+  // dir so it sits at the same project-relative path — the launcher chdir's here, so the app's
+  // cwd-relative reads (e.g. `content/`) resolve exactly as in development.
+  for (const inc of include) {
+    const src = path.join(cwd, inc)
+    if (!fs.existsSync(src)) {
+      console.warn(`[pylon] standalone: --include path not found, skipping: ${inc}`)
+      continue
+    }
+    const dest = path.join(runDir, inc)
+    if (fs.statSync(src).isDirectory()) {
+      const t = await copyTree(src, dest, standaloneDir)
+      fileCount += t.files
+      byteCount += t.bytes
+    } else {
+      await fs.promises.mkdir(path.dirname(dest), {recursive: true})
+      byteCount += await copyEntry(src, dest)
+      fileCount += 1
+    }
+  }
+
   const launcher = path.join(standaloneDir, 'start.mjs')
   await fs.promises.writeFile(
     launcher,

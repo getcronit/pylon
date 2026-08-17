@@ -65,6 +65,19 @@ Tracing — not bundling — is what makes this safe: `sharp`'s native binaries,
 content-hashed usePages SSR route chunks (imported at runtime), and the unbundled
 transpiled app are all preserved as files, so nothing breaks at runtime.
 
+### Data the app reads at runtime
+
+The tracer follows imported **code**, not files your app opens with `fs` at runtime — a
+`content/` folder of markdown, a `data/` dir, seed files. Declare those with `--include`
+(repeatable) and they're copied into the artifact:
+
+```bash
+pylon build --standalone --include content --include data
+```
+
+The launcher `chdir`s into the app dir before starting, so a `content/` read resolves
+exactly as it does in development.
+
 :::note
 `--standalone` traces the **app server**. If you also run the [worker](/docs/queues/overview),
 deploy it from the regular build (`node .pylon/src/worker.js`) — see
