@@ -5,14 +5,14 @@
  * self-contained artifact (app + only the node_modules it touches). This proves the
  * artifact actually RUNS with no install, in TRUE isolation: the standalone dir is copied
  * OUT of the monorepo (into the OS temp dir) so it cannot fall back on the workspace's
- * node_modules, then booted via the generated launcher (`node start.mjs`).
+ * node_modules.
  *
- * It doubles as the cwd-INDEPENDENCE guard: the launcher no longer chdir's, and it's spawned
- * with `cwd: os.tmpdir()` (≠ the app dir), so serving at all requires the usePages runtime to
- * resolve its artifacts from the entry's own location (globalThis.__PYLON_ROOT__, set by
- * server.mjs) rather than process.cwd(). Asserts SSR + GraphQL respond — SSR also requires
- * react/react-dom (reached only via the usePages SSR route chunks, nft's blind spot) to have
- * been traced in.
+ * It boots the entry `server.mjs` DIRECTLY (NOT the launcher, which chdir's) with
+ * `cwd: os.tmpdir()` (≠ the app dir) — so serving at all is the cwd-INDEPENDENCE guard for the
+ * FRAMEWORK: the usePages runtime must resolve its artifacts from the entry's own location
+ * (globalThis.__PYLON_ROOT__, set by server.mjs) rather than process.cwd(). Asserts SSR +
+ * GraphQL respond — SSR also requires react/react-dom (reached only via the usePages SSR route
+ * chunks, nft's blind spot) to have been traced in.
  *
  * No DB / docker (in-memory posts fixture).
  */
@@ -76,11 +76,16 @@ describe('pylon build --standalone (isolated deploy)', () => {
       verbatimSymlinks: true
     })
 
-    const launcher = path.join(tmpDir, 'start.mjs')
-    expect(existsSync(launcher), 'generated launcher should exist').toBe(true)
+    // The launcher is the user-facing convenience (chdir + import); assert it was written.
+    expect(existsSync(path.join(tmpDir, 'start.mjs')), 'launcher should exist').toBe(true)
 
-    // Boot via the launcher from an UNRELATED cwd (os.tmpdir()) — it chdir's itself.
-    server = spawn('node', [launcher], {
+    // Boot the ENTRY directly (not the launcher) from an UNRELATED cwd — the framework must
+    // anchor to the entry location, not cwd. appDir's base-relative path inside the copy
+    // mirrors the trace base (the repo root).
+    const repoRoot = path.resolve(e2eRoot, '..')
+    const entry = path.join(tmpDir, path.relative(repoRoot, appDir), '.pylon', 'server.mjs')
+    expect(existsSync(entry), 'traced server entry should exist').toBe(true)
+    server = spawn('node', [entry], {
       cwd: os.tmpdir(),
       env: {...process.env, PORT: String(PORT), PYLON_TELEMETRY_DISABLED: '1', DO_NOT_TRACK: '1'}
     })

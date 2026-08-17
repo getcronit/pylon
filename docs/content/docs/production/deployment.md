@@ -37,6 +37,40 @@ bun run .pylon/server.mjs     # Bun
 wrangler deploy             # Cloudflare Workers
 ```
 
+## Standalone build
+
+For a self-contained artifact — the app plus **only** the `node_modules` files it
+actually uses — add `--standalone`:
+
+```bash
+pylon build --standalone
+```
+
+This traces the runtime file graph of `.pylon/server.mjs` and copies the closure
+into `.pylon/standalone/`. The result runs with plain `node` and **no install** — drop
+it into a `scratch`/distroless image and go. Same idea as Next.js `output: 'standalone'`,
+and it works with any package manager (npm, pnpm, yarn, bun): the trace copies files,
+not a lockfile.
+
+```bash
+node .pylon/standalone/start.mjs
+```
+
+The generated `start.mjs` is a stable entry point you can run from any directory — it
+`chdir`s into the app so your own cwd-relative reads (say, a `content/` folder) resolve.
+The framework itself anchors to the entry location, so `.pylon/**` (schema, SSR chunks,
+static assets) resolves no matter the working directory.
+
+Tracing — not bundling — is what makes this safe: `sharp`'s native binaries, the
+content-hashed usePages SSR route chunks (imported at runtime), and the unbundled
+transpiled app are all preserved as files, so nothing breaks at runtime.
+
+:::note
+`--standalone` traces the **app server**. If you also run the [worker](/docs/queues/overview),
+deploy it from the regular build (`node .pylon/src/worker.js`) — see
+[Run the worker alongside the app](#run-the-worker-alongside-the-app).
+:::
+
 ## Environment
 
 Configuration comes from the environment — read it in `pylon.config.ts` and your
@@ -74,7 +108,8 @@ of failing in production.
 
 ## Dockerfile
 
-A single image builds once and runs either the app or the worker by command:
+With `--standalone`, the runner needs no package manager and no `node_modules` copy —
+just the traced artifact. That makes a tiny, distroless image:
 
 ```dockerfile title="Dockerfile"
 FROM node:22-slim AS build
@@ -82,17 +117,29 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
-RUN npx pylon build
+# Trace runs HERE, so the native binaries (sharp) match the runner's platform.
+RUN npx pylon build --standalone
 
-FROM node:22-slim
+# Distroless: no shell, no package manager, runs as non-root.
+FROM gcr.io/distroless/nodejs22-debian12:nonroot
+ENV NODE_ENV=production PORT=3000
 WORKDIR /app
-ENV NODE_ENV=production
-COPY --from=build /app/.pylon ./.pylon
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/package.json ./
+COPY --from=build --chown=nonroot:nonroot /app/.pylon/standalone ./
 EXPOSE 3000
-CMD ["node", ".pylon/server.mjs"]
+# The distroless nodejs ENTRYPOINT is `node`, so CMD passes only args.
+CMD ["start.mjs"]
 ```
+
+:::tip
+Build the trace on the **same platform/libc as the runner** (here both are Debian
+glibc) so the copied `sharp` binaries match. A `node:*-alpine` builder (musl) with a
+Debian runner would ship the wrong native binary.
+:::
+
+Prefer to ship the app and worker from **one** image instead? Skip `--standalone` and copy
+`.pylon` + a production `node_modules` (`RUN npx pylon build`, then
+`COPY --from=build /app/.pylon ./.pylon` and `.../node_modules ./node_modules`) — the
+[worker section](#run-the-worker-alongside-the-app) below runs both processes by command.
 
 ## Run the worker alongside the app
 

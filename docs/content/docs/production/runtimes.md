@@ -39,6 +39,25 @@ export default {
 The plugin receives the fully composed `app`. Everything else — runtime, port,
 graceful shutdown — is yours to control.
 
+### `useNodeServer()` — the built-in
+
+For the Node case there's a shortcut. `useNodeServer()` is the same `strategy: 'last'`
+plugin, wrapping `@hono/node-server`, and it **binds only on genuine Node** — on Bun, Deno,
+and Cloudflare Workers it no-ops (those runtimes auto-serve the exported app), and under
+`pylon dev` it no-ops (the dev server owns the port). So it's safe to leave in a config that
+ships everywhere:
+
+```ts title="pylon.config.ts"
+import type {PylonConfig} from '@getcronit/pylon'
+import {useNodeServer} from '@getcronit/pylon'
+
+export default {
+  plugins: [useNodeServer()] // binds on Node; no-ops on Bun / Deno / Workers / dev
+} satisfies PylonConfig
+```
+
+Pass `{port}` to override the default (`PORT` env, then `3000`).
+
 ## Bun
 
 Bun serves `app.fetch` natively. Use `Bun.serve` from a serving plugin:
