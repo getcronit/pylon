@@ -1,0 +1,57 @@
+# syntax=docker/dockerfile:1
+#
+# Pylon docs — deployed via `pylon build --standalone` (the nft file-trace path).
+#
+# vs the sibling `Dockerfile` (which prunes with `pnpm deploy`): `--standalone` traces
+# the ACTUAL runtime file graph, so the runner ships only the node_modules files the app
+# really touches — no package manager needed in the runner, no manual pruning. It also
+# copies the sharp native binaries + the usePages SSR route chunks (nft's blind spots are
+# handled as explicit trace roots inside `pylon build --standalone`).
+#
+# Build context MUST be the REPO ROOT — docs depends on the workspace packages
+# (`@getcronit/pylon`, ...) via `workspace:*` and builds them FROM SOURCE (never npm).
+#
+#   docker build -f docs/Dockerfile.standalone -t pylon-docs-standalone .
+
+FROM node:22-slim AS base
+ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable
+WORKDIR /app
+
+# ---- build: compile the workspace, the docs app, then trace the standalone artifact ----
+FROM base AS build
+# Manifest first so corepack pins pnpm and `pnpm fetch` can populate the store from the
+# lockfile alone (layer stays cached until deps change).
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm fetch
+COPY . .
+RUN pnpm install --frozen-lockfile --offline
+# docs' only workspace dep is @getcronit/pylon (the framework + the `pylon` CLI) — build
+# just that, not the whole monorepo (avoids unrelated packages' build scripts).
+RUN pnpm --filter @getcronit/pylon build
+# Build + trace. cwd = docs so the CLI reads docs/pylon.config.ts and emits docs/.pylon,
+# then `--standalone` copies the traced closure into docs/.pylon/standalone. The trace runs
+# HERE (linux/glibc), so the sharp binaries + deps it copies match the distroless runner.
+RUN cd docs && node node_modules/@getcronit/pylon/dist/cli/index.js build --standalone
+
+# ---- runner: distroless (no shell / no package manager, runs as non-root) ----
+FROM gcr.io/distroless/nodejs22-debian12:nonroot AS runner
+ENV NODE_ENV=production PORT=3000
+WORKDIR /app
+# The standalone artifact is self-contained: app + traced node_modules subset (workspace
+# packages copied in). The monorepo trace base is the repo root, so it mirrors the repo
+# layout under /app; the generated `start.mjs` chdir's into the app dir and boots server.mjs.
+COPY --from=build --chown=65532:65532 /app/docs/.pylon/standalone ./
+# docs reads its markdown from `content/` relative to cwd (src/lib/content.ts) — that's the
+# APP's own cwd read, not the framework's, and nft can't trace runtime fs reads. The launcher
+# chdir's to /app/docs, so ship content there.
+COPY --from=build --chown=65532:65532 /app/docs/content ./docs/content
+EXPOSE 3000
+# Distroless has no curl/wget — probe with node's global fetch. Yoga serves /health (200)
+# as a global middleware before the usePages catch-all.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD ["/nodejs/bin/node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+# The distroless nodejs ENTRYPOINT is `/nodejs/bin/node`, so CMD passes only args. The
+# launcher chdir's into the app dir + imports the traced server.mjs (binds node:http).
+CMD ["--enable-source-maps", "start.mjs"]

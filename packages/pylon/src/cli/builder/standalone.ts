@@ -158,11 +158,19 @@ export async function buildStandalone(opts: {
   const {nodeFileTrace} = (await import(nftMod)) as {
     nodeFileTrace: (
       files: string[],
-      opts?: {base?: string}
+      opts?: {base?: string; moduleSyncCatchall?: boolean}
     ) => Promise<{fileList: Set<string>; warnings: Set<Error>}>
   }
 
-  const {fileList, warnings} = await nodeFileTrace(roots, {base})
+  // Keep nft's DEFAULT conditions — it resolves each edge per-context (import vs require),
+  // so dual packages land on the right build (graphql-yoga → esm, @opentelemetry require →
+  // cjs). But nft only AUTO-selects the `module-sync` export condition when the BUILD node is
+  // ≥22 (getNodeMajorVersion() >= 22). A Node 20 builder would then skip it — while a Node
+  // ≥20.19 RUNTIME does support module-sync and imports the `.mjs`. react-router maps
+  // `node.module-sync → dist/.../index.mjs` (and has NO production build), so that skew drops
+  // the .mjs node actually imports → ERR_MODULE_NOT_FOUND at boot. `moduleSyncCatchall` forces
+  // module-sync selection regardless of the builder's node version, matching the runtime.
+  const {fileList, warnings} = await nodeFileTrace(roots, {base, moduleSyncCatchall: true})
 
   let fileCount = 0
   let byteCount = 0

@@ -105,9 +105,17 @@ program
             `  Run: node ${path.relative(cwd, res.launcher)}`
         )
         if (res.warnings.length) {
+          // First line of each (nft messages can carry a stack); dedupe + cap the list.
+          const uniq = [...new Set(res.warnings.map(w => w.split('\n')[0].trim()))]
+          const shown = uniq.slice(0, 20)
           consola.warn(
-            `nft could not statically resolve ${res.warnings.length} dynamic import(s). ` +
-              `If a runtime module is missing, add it as an explicit trace root in standalone.ts.`
+            `nft could not statically resolve ${res.warnings.length} dynamic import(s) ` +
+              `(${uniq.length} unique). These are usually optional/conditional \`require()\`s ` +
+              `deep in dependencies and safe to ignore — but if a module is missing at runtime, ` +
+              `it's likely one of these:\n` +
+              shown.map(m => `  • ${m}`).join('\n') +
+              (uniq.length > shown.length ? `\n  … and ${uniq.length - shown.length} more` : '') +
+              `\n(fix: add the real module as an explicit trace root in standalone.ts)`
           )
         }
       }
