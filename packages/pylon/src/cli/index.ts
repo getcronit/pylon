@@ -68,7 +68,11 @@ program.name('pylon-dev').description('Pylon Development CLI').version(version)
 program
   .command('build')
   .description('Build the Pylon Schema')
-  .action(async () => {
+  .option(
+    '--standalone',
+    'After building, trace the runtime file graph into .pylon/standalone/ — a self-contained deploy artifact (app + only the node_modules it uses) that runs with `node` and no install.'
+  )
+  .action(async (options: {standalone?: boolean}) => {
     const ctx = await build({
       sfiFilePath: './src/index.ts',
       outputFilePath: './.pylon',
@@ -90,6 +94,23 @@ program
       const out = await ctx.buildServer()
       await buildClient({schemaChanged: out?.schemaChanged ?? true})
       await ctx.buildPages()
+
+      if (options.standalone) {
+        const {buildStandalone} = await import('./builder/standalone.js')
+        const cwd = process.cwd()
+        const res = await buildStandalone({cwd, outDir: path.join(cwd, '.pylon')})
+        const mb = (res.byteCount / 1024 / 1024).toFixed(1)
+        consola.success(
+          `Standalone artifact: ${res.fileCount} files (${mb} MB) → ${path.relative(cwd, res.outDir)}\n` +
+            `  Run: node ${path.relative(cwd, res.launcher)}`
+        )
+        if (res.warnings.length) {
+          consola.warn(
+            `nft could not statically resolve ${res.warnings.length} dynamic import(s). ` +
+              `If a runtime module is missing, add it as an explicit trace root in standalone.ts.`
+          )
+        }
+      }
 
       analytics.capture({
         distinctId,
