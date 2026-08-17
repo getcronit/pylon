@@ -20,7 +20,7 @@ import http from 'node:http'
 import path from 'node:path'
 
 import {useDataStaticAnalyzerVite} from '../build/plugins/use-data-static-analyzer/index'
-import {injectHydrationVite} from '../build/vite-plugins'
+import {injectHydrationVite, pylonImageVite} from '../build/vite-plugins'
 
 export interface PagesDevBridge {
   /** Inject `@vite/client` + the React-Refresh preamble into a rendered HTML string. */
@@ -119,6 +119,12 @@ export async function createPagesDevServer(
       react(),
       // `pre`: rewrite useData → compiled docs BEFORE Vite's oxc transpile.
       useDataStaticAnalyzerVite({entryPaths: [options.appTsxAbs]}),
+      // Resolve module-imported images to the same URL the rolldown dev SSR emits
+      // (`.pylon/__pylon/static/media/…`, served by Hono) — no hydration mismatch.
+      pylonImageVite(
+        path.join(options.root, '.pylon', '__pylon', 'static', 'media'),
+        '/__pylon/static'
+      ),
       // Append the hydration bootstrap to the client `app.tsx` (client transform only).
       injectHydrationVite(options.version, options.appTsxAbs)
     ]

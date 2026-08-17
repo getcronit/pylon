@@ -176,7 +176,13 @@ export const build = async (
             ? {outputDir: DIST_STATIC_DIR, publicPath: PUBLIC_PATH}
             : undefined
         ),
-        imagePlugin({mediaDir: path.join(DIST_STATIC_DIR, 'media'), publicPath: PUBLIC_PATH}),
+        imagePlugin({
+          mediaDir: path.join(DIST_STATIC_DIR, 'media'),
+          publicPath: PUBLIC_PATH,
+          // Dev SSR emits just the URL to match the Vite client (no hydration mismatch);
+          // prod keeps the full blur/dimensions optimization.
+          dev: writeCssAssets
+        }),
         assetFilePlugin(PUBLIC_PATH)
       ]
     })

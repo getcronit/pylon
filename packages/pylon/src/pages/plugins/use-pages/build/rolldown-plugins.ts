@@ -202,15 +202,45 @@ export function cssCollectPlugin(
  * and copies the original into `<mediaDir>`, returning a JSON module of
  * `{url, width, height, blurDataURL}` — matching the old esbuild image plugin.
  */
+/**
+ * Copy a source image verbatim into the media dir under its content-hashed name and
+ * return the public URL — the SAME scheme `imagePlugin` uses. Shared so the dev SSR
+ * (rolldown) and the dev client (Vite `pylonImageVite`) resolve a module-imported image
+ * to the IDENTICAL URL — otherwise `<Image src={import}>` would hydration-mismatch (the
+ * two toolchains would emit different `<img src>`). The `export default {url}` shape is
+ * a subset of the prod object; `<Image>` handles the missing width/height/blur.
+ */
+export const IMAGE_FILTER_RE = IMAGE_FILTER
+export async function emitDevImageUrl(
+  id: string,
+  mediaDir: string,
+  publicPath: string
+): Promise<string> {
+  const buf = await fs.readFile(id)
+  const ext = path.extname(id)
+  const outName = `${path.basename(id)}-${shortHash(id + buf.toString('binary'))}${ext}`
+  await fs.mkdir(mediaDir, {recursive: true})
+  await fs.writeFile(path.join(mediaDir, outName), buf)
+  return `${publicPath}/media/${outName}`
+}
+
 export function imagePlugin(opts: {
   mediaDir: string
   publicPath: string
+  /** Dev: skip the sharp blur/optimize; emit just the URL so it matches the Vite client
+   *  (no hydration mismatch). Prod stays full (blur + dimensions). */
+  dev?: boolean
 }): RolldownPlugin {
   return {
     name: 'pylon-image',
     load: {
       filter: {id: IMAGE_FILTER},
       async handler(id) {
+        if (opts.dev) {
+          const url = await emitDevImageUrl(id, opts.mediaDir, opts.publicPath)
+          return {code: `export default ${JSON.stringify({url})}`, moduleType: 'js', map: null}
+        }
+
         const sharp = (await import('sharp')).default
         const buf = await fs.readFile(id)
 

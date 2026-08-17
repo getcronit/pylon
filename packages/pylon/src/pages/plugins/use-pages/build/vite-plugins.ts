@@ -1,6 +1,8 @@
 import path from 'path'
 import type {Plugin as VitePlugin} from 'rolldown-vite'
 
+import {emitDevImageUrl, IMAGE_FILTER_RE} from './rolldown-plugins'
+
 /**
  * Vite dev plugins for the pages plane (rfcs/DEV_SERVER.md Step 3b).
  *
@@ -12,6 +14,27 @@ import type {Plugin as VitePlugin} from 'rolldown-vite'
  * untouched routes module; the browser gets the hydrating entry. No SSE block: Vite's
  * HMR ws + React Fast Refresh replace the Tier-0 live-reload.
  */
+/**
+ * Dev image parity: resolve a module-imported image (`import img from './x.png'`) to the
+ * SAME `{url}` the rolldown dev SSR emits (`imagePlugin({dev:true})` → `emitDevImageUrl`),
+ * instead of Vite's default asset URL. Without this the SSR and client would render a
+ * different `<img src>` for `<Image src={import}>` → hydration mismatch. Build-time image
+ * optimization (blur/dimensions) stays a prod-only feature. `enforce:'pre'` so it wins
+ * over Vite's built-in asset handling.
+ */
+export function pylonImageVite(mediaDir: string, publicPath: string): VitePlugin {
+  return {
+    name: 'pylon-image-vite',
+    enforce: 'pre',
+    async load(id) {
+      const clean = id.split('?')[0]
+      if (!IMAGE_FILTER_RE.test(clean)) return null
+      const url = await emitDevImageUrl(clean, mediaDir, publicPath)
+      return `export default ${JSON.stringify({url})}`
+    }
+  }
+}
+
 export function injectHydrationVite(
   version: string,
   appTsxAbs: string
