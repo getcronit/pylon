@@ -1,4 +1,5 @@
 import type {PylonConfig} from '@getcronit/pylon'
+import {useNodeServer} from '@getcronit/pylon'
 import {useDatabase} from '@getcronit/pylon/db/plugin'
 export default {
   plugins: [
@@ -11,5 +12,5 @@ export default {
         return id ? {userId: Number(id), role: c.req.header('x-role') ?? 'USER'} : undefined
       }
     })
-  ]
+  , useNodeServer()]
 } satisfies PylonConfig

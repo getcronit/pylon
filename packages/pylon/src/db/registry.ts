@@ -428,6 +428,22 @@ export function finalizeModel(
   }
 
   if (!options.abstract) {
+    // Re-registration idempotency: the dev hot-swap re-imports the app graph, which
+    // finalizes a FRESH ctor for the same model. Evict any prior entry with the same
+    // (normalized) name — including cross-bundle aliases — so `allModels()` never
+    // accumulates duplicate definitions across reloads. A model's normalized name is
+    // unique project-wide (it IS the GraphQL type name), so this only fires on a
+    // genuine re-register; in a normal build each name finalizes exactly once → no-op.
+    const name = normalizedCtorName(ctor)
+    if (name) {
+      const stale: Function[] = []
+      for (const existing of models.keys()) {
+        if (existing !== ctor && normalizedCtorName(existing) === name) {
+          stale.push(existing)
+        }
+      }
+      for (const s of stale) models.delete(s)
+    }
     models.set(ctor, definition)
   }
   return definition

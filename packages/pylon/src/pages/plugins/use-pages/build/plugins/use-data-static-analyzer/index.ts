@@ -1,4 +1,5 @@
 import type {Plugin as RolldownPlugin} from 'rolldown'
+import type {Plugin as VitePlugin} from 'rolldown-vite'
 import * as fs from 'fs'
 import {buildSchema, GraphQLSchema} from 'graphql'
 import path from 'path'
@@ -1073,6 +1074,51 @@ export function useDataStaticAnalyzerRolldown(
           map: null
         }
       }
+    }
+  }
+}
+
+/**
+ * Vite adapter — the SAME bundler-agnostic core, wrapped as a Vite plugin for the
+ * dev engine (rfcs/DEV_SERVER.md Step 3). Vite's plugin API is a Rollup superset, so
+ * this is nearly identical to the rolldown adapter with two Vite-specific details:
+ *   - `enforce: 'pre'` so the analyzer rewrites the RAW `.ts`/`.tsx` source BEFORE
+ *     Vite's built-in oxc TS→JS transform runs (it must see un-transpiled source to
+ *     find + lower the `useData`/`useMutation`/`op.*` call sites);
+ *   - `id` can carry a query suffix (`?t=`, `?v=`, `?import`) in dev — strip it before
+ *     handing the path to the content-keyed core, and skip virtual/non-file ids.
+ * The output is (possibly rewritten) TS/TSX; Vite's own transform then transpiles it.
+ */
+export function useDataStaticAnalyzerVite(
+  options: UseDataStaticAnalyzerOptions & {
+    tsConfigFilePath?: string
+    entryPaths?: string[]
+  } = {}
+): VitePlugin {
+  const core = createUseDataAnalyzerCore(options)
+  return {
+    name: 'pylon-use-data-static-analyzer',
+    enforce: 'pre',
+    buildStart() {
+      core.start()
+      if (options.entryPaths?.length) core.addEntries(options.entryPaths)
+    },
+    async transform(code, id) {
+      // Vite appends query suffixes and uses `\0`-prefixed virtual ids — only real
+      // `.ts`/`.tsx` files on disk are analyzable.
+      if (id.startsWith('\0')) return null
+      const filePath = id.split('?')[0]
+      if (!core.filter.test(filePath)) return null
+
+      const result = await core.transform({path: filePath}, code)
+      if (!result) return null
+      if (result.errors?.length) {
+        this.error(result.errors[0].text ?? 'useData analysis failed')
+      }
+      for (const w of result.warnings ?? []) {
+        this.warn(w.text ?? String(w))
+      }
+      return {code: result.contents, map: null}
     }
   }
 }

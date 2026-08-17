@@ -1,4 +1,5 @@
 import type {PylonConfig} from '@getcronit/pylon'
+import {useNodeServer} from '@getcronit/pylon'
 import {useIdentity} from '@getcronit/pylon/auth/plugin'
 import {useDatabase} from '@getcronit/pylon/db/plugin'
 import {headerAuth} from './src/identity'
@@ -10,5 +11,5 @@ export default {
     useDatabase({
       features: c => (c.req.header('x-features') ?? '').split(',').filter(Boolean)
     })
-  ]
+  , useNodeServer()]
 } satisfies PylonConfig

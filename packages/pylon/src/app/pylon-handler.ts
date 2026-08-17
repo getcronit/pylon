@@ -182,9 +182,17 @@ export const handler = (options: PylonHandlerOptions, target: Pylon<any> = app) 
     }
   }
 
-  const graphqlResolvers = resolversToGraphQLResolvers(graphql)
+  // Build the executable schema from (typeDefs, graphql resolvers, base resolvers).
+  // Extracted so a dev hot-swap can rebuild it with fresh values (see the swap seam
+  // below). See rfcs/DEV_SERVER.md (Step 2).
+  const buildSchema = (
+    typeDefs: string,
+    graphql: any,
+    resolvers: Record<string, any> | undefined
+  ) => {
+    const graphqlResolvers = resolversToGraphQLResolvers(graphql)
 
-  const schema = createSchema<Context>({
+    return createSchema<Context>({
     typeDefs,
     resolvers: {
       // One level deep: build-side type maps (interface `__resolveType`, the ORM
@@ -268,8 +276,10 @@ export const handler = (options: PylonHandlerOptions, target: Pylon<any> = app) 
       })
     }
   })
+  }
 
-  const yoga = createYoga({
+  const buildYoga = (schema: ReturnType<typeof buildSchema>) =>
+    createYoga({
     graphqlEndpoint: '/graphql',
     // Dev: surface the REAL error (message + stack) on the GraphQL response and the
     // server log instead of Yoga's default "Unexpected error." masking — so a failing
@@ -288,8 +298,23 @@ export const handler = (options: PylonHandlerOptions, target: Pylon<any> = app) 
             }
           }
         : false,
-    schema
-  })
+      schema
+    })
+
+  let currentYoga = buildYoga(buildSchema(typeDefs, graphql, resolvers))
+
+  // Dev hot-swap seam: rebuild schema + yoga from fresh values and swap the ref (the
+  // middleware reads `currentYoga` per request). Prod never calls this — set once
+  // above. See rfcs/DEV_SERVER.md (Step 2).
+  if (process.env.NODE_ENV === 'development') {
+    ;(globalThis as any).__PYLON_DEV_SWAP_SCHEMA__ = (
+      td: string,
+      gql: unknown,
+      res: Record<string, any> | undefined
+    ) => {
+      currentYoga = buildYoga(buildSchema(td, resolveLazyObject(gql), res))
+    }
+  }
 
   const handler: MiddlewareHandler = async (c, next) => {
     let executionContext: Context['executionCtx'] | {} = {}
@@ -298,7 +323,7 @@ export const handler = (options: PylonHandlerOptions, target: Pylon<any> = app) 
       executionContext = c.executionCtx
     } catch (e) {}
 
-    const response = await yoga.fetch(c.req.raw, c.env, executionContext)
+    const response = await currentYoga.fetch(c.req.raw, c.env, executionContext)
 
     if (response.status === 404) {
       return next()

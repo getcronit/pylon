@@ -448,6 +448,10 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
 
   app.get('*', async c => {
     const pagesContext = c.get('pagesContext' as any) || {}
+    // Dev (Topology A): bootstrap the browser from the Vite client entry (app.tsx +
+    // hydration, served + HMR'd by Vite) instead of the hashed rolldown bundle.
+    const devBridge = (globalThis as any).__PYLON_PAGES_DEV__
+    const bootstrapEntry: string = devBridge?.clientEntry ?? staticManifest['app.js']
     // Per-request client with a request-bound fetcher: the in-process GraphQL
     // call forwards this request's headers and hits the mounted app directly,
     // avoiding AsyncLocalStorage (which React's async render breaks out of).
@@ -496,7 +500,7 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
     // =====================================================================
     let html: string
     try {
-      html = await renderToHtml(renderComponent(context), staticManifest['app.js'])
+      html = await renderToHtml(renderComponent(context), bootstrapEntry)
     } catch (errorOrResponse) {
       if (isResponse(errorOrResponse)) {
         const status = errorOrResponse.status
@@ -538,10 +542,7 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
 
       // Error path only: re-render with the populated error context.
       try {
-        html = await renderToHtml(
-          renderComponent(context),
-          staticManifest['app.js']
-        )
+        html = await renderToHtml(renderComponent(context), bootstrapEntry)
       } catch (criticalError) {
         console.error('CRITICAL RENDER ERROR', criticalError)
         c.status(500)
@@ -570,6 +571,12 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
       html = html.includes('</body>')
         ? html.replace('</body>', `${script}</body>`)
         : html + script
+    }
+
+    // Dev: let Vite inject `@vite/client` + the React-Refresh preamble (Fast Refresh)
+    // and rewrite module URLs. Runs last, on the complete HTML (hydration payload incl.).
+    if (devBridge) {
+      html = await devBridge.transformHtml(c.req.url, html)
     }
 
     c.status(context.statusCode as any)

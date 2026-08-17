@@ -1,4 +1,5 @@
 import type {PylonConfig} from '@getcronit/pylon'
+import {useNodeServer} from '@getcronit/pylon'
 import {useDatabase} from '@getcronit/pylon/db/plugin'
 
 // The generated `server.mjs` self-serves on Node, so the config just wires the
@@ -7,5 +8,5 @@ import {useDatabase} from '@getcronit/pylon/db/plugin'
 // gids come out as `gid://shop/Note/<snowflake>`. nodeId is leased from the DB
 // (multi-instance safe).
 export default {
-  plugins: [useDatabase({nodeId: 'lease'})]
+  plugins: [useDatabase({nodeId: 'lease'}), useNodeServer()]
 } satisfies PylonConfig

@@ -1,10 +1,10 @@
-import {type PylonConfig} from '@getcronit/pylon'
+import {type PylonConfig, useNodeServer} from '@getcronit/pylon'
 import {usePages} from '@getcronit/pylon/pages/plugin'
 
-// The generated `.pylon/server.mjs` self-serves on Node — it binds a node:http
-// server (PORT || 3000) AFTER every route is mounted. So the config only wires
-// plugins; it must NOT add its own serve plugin, or the two double-bind the port
-// (EADDRINUSE). See packages/pylon-dev/src/builder/bundler/emit-server-glue.ts.
+// The built entry is pure (`export default app`) — serving is explicit + app-owned.
+// `useNodeServer()` (a 'last' plugin, ordered AFTER usePages so the port binds only
+// once the catch-all is mounted) binds node:http on PORT || 3000 in production; it
+// no-ops under `pylon dev`, where the dev server owns serving.
 export default {
-  plugins: [usePages()]
+  plugins: [usePages(), useNodeServer()]
 } satisfies PylonConfig

@@ -16,6 +16,10 @@
       "import": "./dist/ir/index.js",
       "types": "./dist/ir/index.d.ts"
     },
+    "./dev-engine": {
+      "import": "./dist/cli/dev/vite-hot-server.js",
+      "types": "./dist/cli/dev/vite-hot-server.d.ts"
+    },
     "./query/build": {
       "import": "./dist/query/build/index.js",
       "types": "./dist/query/build/index.d.ts"
@@ -60,6 +64,10 @@
       "import": "./dist/pages/plugin.js",
       "types": "./dist/pages/plugin.d.ts"
     },
+    "./pages/dev": {
+      "import": "./dist/pages/plugins/use-pages/dev/vite-dev-server.js",
+      "types": "./dist/pages/plugins/use-pages/dev/vite-dev-server.d.ts"
+    },
     "./pages/index.css": "./dist/pages/index.css",
     "./query": {
       "import": "./dist/query/index.js",
@@ -99,6 +107,7 @@
     "@graphql-tools/executor-http": "^3.1.0",
     "@graphql-tools/wrap": "^11.1.9",
     "@graphql-yoga/plugin-disable-introspection": "^2.13.0",
+    "@hono/node-server": "^1.13.7",
     "@hono/sentry": "^1.2.0",
     "@modelcontextprotocol/sdk": "^1.12.0",
     "@radix-ui/react-collapsible": "^1.1.3",
@@ -106,6 +115,7 @@
     "@sentry/bun": "^8.17.0",
     "@sentry/node": "^8.54.0",
     "@sentry/react": "^10.5.0",
+    "@vitejs/plugin-react-oxc": "^0.4.3",
     "bullmq": "^5.0.0",
     "chokidar": "^4.0.3",
     "class-variance-authority": "^0.7.1",
@@ -131,12 +141,14 @@
     "postcss-value-parser": "^4.2.0",
     "posthog-node": "^4.10.1",
     "react-router": "^7.1.5",
+    "rolldown-vite": "^7.3.1",
     "sharp": "^0.33.5",
     "tailwind-merge": "^3.0.1",
     "tailwindcss-animate": "^1.0.7",
     "tiny-glob": "^0.2.9",
     "toucan-js": "^4.1.0",
     "ts-morph": "^28.0.0",
+    "vite-tsconfig-paths": "^6.1.1",
     "tsx": "^4.19.2"
   },
   "peerDependencies": {

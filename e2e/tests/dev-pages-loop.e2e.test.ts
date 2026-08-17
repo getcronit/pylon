@@ -267,4 +267,46 @@ describe('pylon dev — pages watch loop', () => {
     )
     expect(await type('Widget')).toEqual(expect.arrayContaining(['id', 'label']))
   }, 120_000)
+
+  it('hot-swaps a SRC edit WITHOUT restarting the worker (same pid)', async () => {
+    // Step 2: a `src` edit re-executes the app graph via the rolldown-vite module
+    // runner and swaps Yoga's schema IN the running worker — no restart. Proof: a
+    // resolver reports `process.pid`; a resolver-only edit must change the returned
+    // value while the pid stays identical (the durable worker never died).
+    const q = async (query: string) => {
+      const res = await fetch(`${base}/graphql`, {
+        method: 'POST',
+        headers: {'content-type': 'application/json'},
+        body: JSON.stringify({query})
+      })
+      return res.ok ? ((await res.json()) as any) : null
+    }
+    const appSrc = (v: string) =>
+      "import {Pylon} from '@getcronit/pylon'\n" +
+      `export default new Pylon({graphql: {Query: {mark: (): string => "${v}", pid: (): number => process.pid}, Mutation: {}}})\n`
+
+    await fs.writeFile(srcFile, appSrc('SWAP_V1'))
+    await waitFor(async () => (await q('{ mark }'))?.data?.mark === 'SWAP_V1', 90_000, 'mark SWAP_V1')
+    const pidBefore = (await q('{ pid }'))?.data?.pid
+    expect(pidBefore, 'worker pid should be readable').toBeTruthy()
+
+    // Resolver-only edit (no schema change) → pure server hot-swap, no client/pages rebuild.
+    await fs.writeFile(srcFile, appSrc('SWAP_V2'))
+    await waitFor(async () => (await q('{ mark }'))?.data?.mark === 'SWAP_V2', 60_000, 'mark SWAP_V2')
+
+    const pidAfter = (await q('{ pid }'))?.data?.pid
+    expect(pidAfter, 'worker must be the SAME process — no restart').toBe(pidBefore)
+
+    // Schema-CHANGING edit (adds a field) → also regens client + pages and swaps them,
+    // but STILL must not restart. Guards against the swap silently falling back to a
+    // restart (which would also make the field appear, masking a half-working Step 2).
+    await fs.writeFile(
+      srcFile,
+      "import {Pylon} from '@getcronit/pylon'\n" +
+        'export default new Pylon({graphql: {Query: {mark: (): string => "SWAP_V2", extra: (): string => "added", pid: (): number => process.pid}, Mutation: {}}})\n'
+    )
+    await waitFor(async () => (await q('{ extra }'))?.data?.extra === 'added', 60_000, 'new field `extra` served')
+    const pidAfterSchema = (await q('{ pid }'))?.data?.pid
+    expect(pidAfterSchema, 'schema-changing edit must ALSO hot-swap, not restart').toBe(pidBefore)
+  }, 150_000)
 })

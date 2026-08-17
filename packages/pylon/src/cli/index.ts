@@ -711,33 +711,35 @@ program
       )
     }
 
-    // Hot-swap the page layer in the running worker (persistent mode): re-read
-    // manifests + re-import the freshly-hashed SSR routes IN the worker — no restart,
-    // no app re-import, no DB reconnect. Rejects → caller falls back to a restart.
-    const reloadWorkerPages = () =>
+    // Hot-swap a layer in the running worker (persistent mode) — no restart, no DB
+    // reconnect. `pages` re-imports the freshly-hashed SSR routes; `server` re-executes
+    // the app graph via the rolldown-vite module runner and swaps Yoga's schema. Rejects
+    // → caller falls back to a restart. `server` gets a longer budget: its first run may
+    // transform the whole app graph (oxc) after the engine warms.
+    const reloadWorker = (kind: 'pages' | 'server') =>
       new Promise<void>((resolve, reject) => {
         const w = serverProcess
         if (!w || !w.connected) return reject(new Error('worker not connected'))
         const onMsg = (m: any) => {
-          if (m?.type === 'reloaded' && m.kind === 'pages') {
+          if (m?.type === 'reloaded' && m.kind === kind) {
             cleanup()
             resolve()
-          } else if (m?.type === 'reload-error') {
+          } else if (m?.type === 'reload-error' && (!m.kind || m.kind === kind)) {
             cleanup()
             reject(new Error(m.error))
           }
         }
         const timer = setTimeout(() => {
           cleanup()
-          reject(new Error('page hot-swap timed out'))
-        }, 8000)
+          reject(new Error(`${kind} hot-swap timed out`))
+        }, kind === 'server' ? 15000 : 8000)
         timer.unref?.()
         const cleanup = () => {
           w.off('message', onMsg)
           clearTimeout(timer)
         }
         w.on('message', onMsg)
-        w.send({type: 'reload', kind: 'pages'})
+        w.send({type: 'reload', kind})
       })
 
     // Tier-0 live-reload: an SSE server on the stable CLI process. Start it BEFORE
@@ -796,7 +798,7 @@ program
             await ctx.buildPages()
             if (g !== gen) return
             try {
-              await reloadWorkerPages()
+              await reloadWorker('pages')
             } catch (e) {
               consola.error('[Pylon] Page hot-swap failed; restarting worker:', e)
               await restartServer()
@@ -806,7 +808,35 @@ program
             return
           }
 
-          // Full path: server/config change, the first build, or `-c` mode.
+          // Server hot-swap (persistent, non-initial `src` edit): rebuild the schema/
+          // resolvers, then re-execute the app graph in the RUNNING worker (rolldown-vite
+          // module runner) and swap Yoga's schema — no restart, no DB reconnect. On a
+          // schema change, also regen the client + pages and swap those in. Any failure
+          // falls back to a full restart, so the loop is never worse than Step 1.
+          if (!initial && persistent && kind === 'server') {
+            const out = await ctx.buildServer()
+            if (g !== gen) return
+            const schemaChanged = out?.schemaChanged ?? true
+            if (schemaChanged) {
+              await buildClient({schemaChanged: true})
+              if (g !== gen) return
+              await ctx.buildPages()
+              if (g !== gen) return
+            }
+            try {
+              await reloadWorker('server')
+              if (schemaChanged) await reloadWorker('pages')
+            } catch (e) {
+              consola.error('[Pylon] Server hot-swap failed; restarting worker:', e)
+              await restartServer()
+              if (g === gen) await waitForAppReady(appPort)
+            }
+            if (g === gen) reload.notify()
+            return
+          }
+
+          // Full path: config change, the first build, or `-c` (custom command) mode →
+          // full worker restart.
           const out = await ctx.buildServer()
           if (g !== gen) return
           // Regenerate the client only when the schema changed (else the existing

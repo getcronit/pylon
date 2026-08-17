@@ -1,6 +1,6 @@
 # RFC: Build / Dev / Deploy Pipeline — reload-aware runtime + persistent dev worker + nft standalone
 
-**Status:** Steps 0–1 DONE. Step 2 next.
+**Status:** Steps 0–2 DONE. Engine: **full rolldown-vite** (see §3.0). Step 3 (client + pages/SSR on Vite) next.
 **Scope:** the dev loop, the production artifact, and the invariant that ties them together.
 **Supersedes/extends:** `rfcs/BUILD_DEV_PIPELINE.md` (Pillars 1–2, done; this is Pillar 3 + deploy).
 
@@ -20,27 +20,49 @@ A running server has **durable** state (Pylon Hono instance, base pipeline, DB c
 
 ## 3. Design
 
-### 3.1 Reload-aware runtime — static boot vs. dev worker
+### 3.0 Engine: full rolldown-vite (decided)
 
-Refactor `server.mjs`'s inline wiring into a **static boot** whose swap points are mutable refs behind operations:
-- `mountGraphql(app, getSchema)` — Yoga mounted once with a schema **getter** (ref), so schema swaps update the ref (Yoga `replaceSchema`/factory). *(Step 2 seam.)*
-- usePages catch-all reads mutable `routes`/`handler`/`manifest` refs; a `reloadPages()` re-reads manifests + re-imports the (content-hashed → cache-clean) SSR routes into the refs. *(Step 0/1 seam.)*
+The recommended way to hot-reload a server without a restart is a real module runtime with
+precise module-graph invalidation — the Vite `ssrLoadModule` / Environment-API `ModuleRunner`
+model that every SSR framework uses. We adopt it wholesale as the **dev-time engine**
+(rolldown-vite = Vite powered by rolldown, so the bundler story stays rolldown end-to-end).
+Prod is unaffected: `pylon build` keeps emitting the pristine transpile-only `server.mjs` → nft
+(§3.3). **Vite is dev-only and never enters the prod artifact.**
 
-**Two entries, not one.** `emit-server-glue` keeps emitting a **pristine, statically-traceable `server.mjs`** (prod: refs set once, never swapped, behavior identical). The dev command runs a **separate dev-worker** that imports the same static boot and adds the reload driver (IPC listener, change classification, cache-bust re-import). The dev machinery is *never* in the prod artifact.
+**Load-bearing mechanism (spiked, §6.1 — all green on vite@8):** a Vite dev server in
+middleware mode with the framework marked `ssr.external: ['@getcronit/pylon', …]`. Then
+`server.environments.ssr.runner.import(entry)`:
+- **re-executes** the app graph on invalidation → fresh resolver closures, while
+- keeping `@getcronit/pylon` a **single durable Node instance** → the registry, DB
+  connection, identity, queues, ALS and bound port all survive the swap, and
+- the name-keyed **registry idempotency** (already added to `db/registry.ts`) stops model
+  accumulation across reloads.
 
-### 3.2 Persistent dev worker + reload protocol
+So the server-plane hot path is: `src` edit → re-run the (warm, 25ms) SchemaBuilder for fresh
+`typeDefs` → `runner.import(entry)` for fresh `graphql` → `__PYLON_DEV_SWAP_SCHEMA__(typeDefs,
+graphql, resolvers)` (the seam in `pylon-handler.ts`). No process restart.
 
-- The CLI (Supervisor) stays the stable process (watcher + SSE + build orchestration).
-- The app runs in a **persistent worker** (child process, tsx loader — today's `server.mjs`, kept alive), spawned **once**, with an **IPC channel** (`index.ts:922` gains `'ipc'`).
-- Reload channel: IPC `{reload: kind}` CLI→worker → worker applies the minimal swap + acks → CLI SSE-notifies the browser.
+### 3.1 Dev topology
 
-**Reload kinds** (grounded in the seams):
+One dev process hosts **Vite (middleware mode) + the durable Pylon app + the compiler**.
+Vite owns file watching, the module graph, client transform + HMR (its own ws), and SSR module
+loading via the runner. `executeConfig` (DB connect, plugins, port bind) runs **once** at boot;
+thereafter only the swappable slices change:
 
-| Kind | Trigger | Build slice | Worker action | Difficulty |
-|---|---|---|---|---|
-| `pages` | edit in `pages/`·`public/` (or a pages-only component) | `buildPages` only | `reloadPages()` — re-read manifests + re-import hashed SSR routes into the ref; no app re-import, no DB reconnect | **Low** (cache-clean) |
-| `server` | `src/` edit (schema may change) | `buildServer`(+client if schemaChanged)+`buildPages` | cache-bust re-import app + `replaceSchema`; **registry reset** | **Medium** (spike) |
-| `config` | `pylon.config.*` | full | **worker restart** (today's path) | trivial |
+| Kind | Trigger | Action | Restart? |
+|---|---|---|---|
+| `client`/`pages` | edit in `pages/`·`public/` or a page component | Vite HMR (ws) → browser re-imports the changed module; analyzer plugin recompiles the GraphQL doc; SSR re-imports via the runner | no |
+| `server` | `src/` edit (schema may change) | warm SchemaBuilder → `typeDefs`; `runner.import(entry)` → fresh `graphql`; `swapSchema` | no |
+| `config` | `pylon.config.*` | durable plugin graph changed → tear down + reboot the dev process | yes |
+
+This subsumes Step-1's IPC `reload:pages`/`reload:server` and the CLI's chokidar+SSE+classify
+into Vite's native machinery; those get removed in Step 4.
+
+### 3.2 Prod entry stays pristine
+
+`emit-server-glue` keeps emitting a **statically-traceable `server.mjs`** with refs set once and
+never swapped — prod behavior is identical and Vite-free. All reload machinery lives in a
+**dev-only engine module** that prod never imports or traces.
 
 ### 3.3 Workstream D — production artifact (nft standalone)
 
@@ -61,9 +83,16 @@ Note the pages dynamic imports already make a naive `nft(server.mjs)` incomplete
 
 - **Step 0 — reload seam / static-boot split** ✅ *(commit 727c8ff)*. usePages `loadPages()` populating mutable `routes`/`handler`/`manifest` refs + a dormant dev hook (`globalThis.__PYLON_DEV_RELOAD_PAGES__`). Behavior-identical; prod entry stays traceable.
 - **Step 1 — persistent worker + pages hot-swap** ✅ *(commit e0203f8)*. dev emits `dev-worker.mjs` (imports pristine `server.mjs` + IPC reload listener); the CLI spawns ONE worker with IPC, classifies changes, and `pages` → `buildPages` + `reload:pages` → in-worker `loadPages()` → SSE (no restart), `server`/`config` → restart. **Proven:** page edit keeps the SAME worker pid, src edit gets a NEW pid; dev-pages-loop page-edit **1518ms→514ms (~3×)**, out-of-`pages/` component **3042ms→1067ms**; prod path unaffected.
-- **Step 2 — schema/resolver hot-swap.** Registry-idempotency spike + Yoga `replaceSchema` + cache-bust app re-import. Removes the restart for `src` edits.
-- **Step 3 — (later) Tier-2 on-demand + Fast Refresh** on a rolldown-vite foundation. Vite-class end state; prototype-de-risked (see §6).
-- **Workstream D — nft standalone deploy** (parallel to 1–2; depends only on the §3.4 invariant).
+- **Step 2 — server plane on Vite (the no-restart-on-`src`-edit win).** ✅ `swapSchema` seam (`pylon-handler.ts`) + registry idempotency (`db/registry.ts`) + a dev-only engine (`cli/dev/vite-hot-server.ts`, exported as `@getcronit/pylon/dev-engine`) that stands up a rolldown-vite dev server (middleware mode, `ssr.external`=framework) in the persistent worker. The generated `dev-worker.mjs` warms the runner and, on IPC `reload:server`, re-runs SchemaBuilder → `runner.import(entry)` → `swapSchema` (on schema change also regens client+pages and swaps them). CLI `sync()` routes `src` edits to `reloadWorker('server')` (fallback restart on failure). **Proven** (`dev-pages-loop.e2e` — 7/7): a `src` edit keeps the SAME worker pid for BOTH resolver-only and schema-changing edits; resolver-only hot-swap ~506ms (vs Step-1 src restart). Prod path untouched (Vite only in the dev-only `dev-worker.mjs`/`dev-engine`, never in `server.mjs`).
+- **Step 3 — client + pages/SSR on Vite.** Move page-module loading + SSR to the runner (unify `reloadPages` with `runner.import`); analyzer becomes a Vite plugin; Vite's HMR ws replaces the SSE live-reload; Fast Refresh for pages. Remove the rolldown **dev** page build (prod build stays). **Sub-stages:**
+  - **3a — analyzer as a Vite plugin.** ✅ `useDataStaticAnalyzerVite` (`enforce:'pre'`, `transform(code,id)`, strips `?query` suffixes / skips `\0` virtual ids) added next to the rolldown adapter; the bundler-agnostic core is unchanged. **Validated** (`spike-dev-tier2/analyzer-vite/`) through a real Vite `transformRequest`: `useData()` lowered to `useData(__pylonDoc,()=>({v0:id}))`, the compiled document survived, and Vite's SSR transform ran AFTER (proving the `pre` ordering).
+  - **3b.0 — serving as a config plugin (pure entry).** ✅ Killed the `if(__isNode) serve` auto-serve smell: the built entry is now PURE (`export default app`, no import side effect, no runtime-sniffing). Serving is explicit + app-owned — `useNodeServer()` (`plugins/use-node-server.ts`, exported from core) is a dev-aware `'last'` plugin: binds `@hono/node-server` in prod, NO-OPs under `pylon dev` (the dev worker owns serving). Bun/workerd/Deno auto-serve the default export. Migrated all 15 serve fixtures + the docs app; added `@hono/node-server` as a dep. This dissolves the "avoid the glue" concern — the dev worker owns dev serving because serving is explicit everywhere. **Validated**: `compose-routes-serve` (5/5, prod `node server.mjs`), `dev-pages-loop` (7/7), and the real **docs app** (`pylon dev` → pages render + graphql, no spurious ws warnings).
+  - **3b — client-only Vite for Fast Refresh (the "clean split")** ✅ **DONE + validated on the real docs app.** *Reworked from an earlier SSR-via-Vite attempt that accumulated workarounds (504 optimize churn, FOUC/CSS-inline dance, stylesheet-precedence, duplicate-context) — all symptoms of making Vite do SSR against Pylon's "React renders the whole document" model.* The clean split confines Vite to ONE job: serving the browser's client modules with React Fast Refresh. **SSR, serving and CSS stay on the Step-1 rolldown+Hono path, untouched** (rolldown manifest CSS `<link precedence>` → styled first paint, no FOUC; `loadPages` reads manifests + imports the hashed SSR bundle). `createPagesDevServer` (client-only) fronts the port in middleware mode: Vite serves `/pages/*`, `/@vite`, `/@react-refresh`, the HMR ws; everything else → `app.fetch` (graphql + the rolldown SSR catch-all). The bridge exposes only `clientEntry` (bootstrapModules → the Vite `app.tsx`) + `transformHtml` (inject `@vite/client` + the refresh preamble). Same `app.tsx` source SSR'd (rolldown) and hydrated (Vite) → structure matches. `resolve.dedupe` + `cacheDir` + `optimizeDeps.include` keep it a standard, stable client-Vite. **Live-validated on docs**: styled first paint (no FOUC), full hydration, no console errors, **React Fast Refresh** (edit → in-place, state preserved), `dev-pages-loop` **7/7**. Reverted the SSR-Vite machinery: `ssrLoadRoutes`, `collectCss`/SSR-CSS-inline, `__PYLON_MANIFEST__` blanking, before-boot ordering. Deps: `@vitejs/plugin-react-oxc`, `vite-tsconfig-paths`. Note: a `<link rel="stylesheet">` in a root layout needs a React-19 `precedence` prop (hydrate-`document` requirement, bundler-independent) — worth documenting.
+  - **~~3b (superseded)~~ — Vite-fronted dev serving + SSR-via-runner** (earlier attempt, reverted; see above). `startPagesDevServer` (`pages/plugins/use-pages/dev/vite-dev-server.ts`, exported `@getcronit/pylon/pages/dev`) stands up the Topology-A server: `http.Server → vite.middlewares → getRequestListener(app.fetch)`, plugins `[tsconfigPaths, react-oxc, useDataStaticAnalyzerVite, injectHydrationVite]`, `ssr.external:['@getcronit/pylon']`. It sets a `globalThis.__PYLON_PAGES_DEV__` bridge that `setup/index.tsx` reads to branch four dev seams: routes ← `ssrLoadModule(app.tsx)`, bootstrap ← the Vite client entry, HTML ← `transformIndexHtml`, and `__PYLON_MANIFEST__={}` (Vite injects CSS). The generated `dev-worker.mjs` fronts the port via this when `.pylon/app.tsx` exists (usePages), else plain-serves. The Step-2 module runner gets `ws:false` so only the pages server owns the HMR ws (port 24678). **Live-validated on docs**: SSR renders real content (tsconfig `@/` paths resolved via `vite-tsconfig-paths`), hydrates, graphql falls through to `app.fetch`, **React Fast Refresh** reflects a component edit in-place with window state preserved (no reload), zero errors/warnings. Regression-clean: `dev-pages-loop` **7/7** on the now-Vite-fronted path. Deps added: `@vitejs/plugin-react-oxc`, `vite-tsconfig-paths`. **Topology proven** (`spike-dev-tier2/topology-a/`, live browser test): `http.Server → vite.middlewares(req,res, () => getRequestListener(app.fetch)(req,res))` — Vite serves client modules + `/@react-refresh` + HMR ws (its own default port, no socket-sharing needed); SSR renders via `ssrLoadModule` + `transformIndexHtml` (auto-injects the client + refresh preamble); `/api/ping` falls through to Hono's `app.fetch`. **React Fast Refresh confirmed live**: edit → marker updated in place, `useState` count preserved (6→6), same DOM node (no reload). In dev the worker serves the port through Vite (middleware mode): Vite handles `/@vite`, client modules, CSS/Tailwind natively, React Fast Refresh + its HMR ws; a fallback middleware bridges to `app.fetch` (graphql + the SSR catch-all). The usePages catch-all gets dev branches at the four seams the SSR map identified — `loadPages` routes → `runner.import` of the generated `app.tsx`; `/__pylon/static/*` → Vite; `bootstrapModules` → Vite client entry (+ `@vite/client`); CSS `<link>`s → Vite-injected. Both client + SSR use the SAME Vite-transformed sources (no hydration drift). Prod SSR path (manifest + hashed bundles, Web-standard render) stays byte-for-byte.
+  - **3c — retire the dev page build + SSE.** In dev, drop `buildPages`/`buildClient` + the SSE reload server (Vite subsumes them); prod `pylon build` keeps the rolldown page build untouched. Fold `reload:pages` into Vite HMR.
+  - **Runtime invariant (answers "any runtime / CF Workers"):** Vite is dev-only and Node-hosted (dev already was, via tsx). Prod multi-runtime is a property of the traceable `server.mjs` (Node http · Bun/workerd/Deno `export default app`) and is untouched. usePages SSR is Node/Bun-oriented *today* (fs manifests + import-by-path at boot) independent of Vite; the request-time render is already Web-standard. Edge-fidelity dev stays available via `wrangler dev` on the built artifact (optionally `@cloudflare/vite-plugin` later — additive).
+- **Step 4 — consolidate.** Remove the now-subsumed dev machinery (chokidar-for-`src`, SSE server, IPC `reload:*`, `classify`); dev = supervise one Vite+app process, watch only `pylon.config` for restart.
+- **Workstream D — nft standalone deploy** (parallel; prod stays transpile-only rolldown + nft; Vite is dev-only, so §3.2/§3.4 hold unchanged).
 
 ## 5. Risks / spikes (named to code)
 
@@ -72,6 +101,15 @@ Note the pages dynamic imports already make a naive `nft(server.mjs)` incomplete
 - **Change classification** — dir conventions first; shared `components/`·`lib/` files default to `server` (correct, not maximally fast) until the import graph is wired.
 - **Error resilience** — a failing reload keeps last-good serving + surfaces to the browser overlay (mirror `index.ts:695`).
 - **nft trace completeness** — dynamic pages imports + `sharp` native assets; validate the standalone dir boots with `node_modules` pruned.
+
+## 6.1 Server-plane proof (`spike-dev-tier2/server-plane/`, vite@8)
+
+The load-bearing assumption for §3.0, spiked in isolation (fake framework `fw` marked
+`ssr.external` + an app module that flips `v1`→`v2`). **All green:** (1) app module
+re-executes with the fresh value on invalidation; (2) `fw` stays a single durable instance
+(boot counter 1→1) — so DB/registry/ALS/port survive; (3) registry does not accumulate across
+reloads (name-keyed idempotency); (4) fresh closures are distinct functions. Vite@8 exposes the
+modern `environments.ssr.runner` (ModuleRunner) — that is the API used.
 
 ## 6. Measurements (from the `spike-dev-tier2/` prototype)
 

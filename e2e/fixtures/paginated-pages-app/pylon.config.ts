@@ -1,3 +1,5 @@
 import type {PylonConfig} from '@getcronit/pylon'
+import {useNodeServer} from '@getcronit/pylon'
 import {usePages} from '@getcronit/pylon/pages/plugin'
-export default {plugins: [usePages()]} satisfies PylonConfig
+export default {plugins: [usePages(), useNodeServer()]
+} satisfies PylonConfig
