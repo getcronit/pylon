@@ -1,5 +1,5 @@
 /**
- * The runtime logger (rfcs/RUNTIME_LOGGER.md — Phase 1).
+ * The runtime logger (rfcs/RUNTIME_LOGGER.md — Phases 1 & 2).
  *
  * A tiny, zero-dependency, runtime-agnostic structured logger. Distinct from the CLI logger
  * (consola): this one ships in the SERVE graph, so it must stay lean and pull nothing Node-only
@@ -8,8 +8,12 @@
  *
  * Scope: `getLogger()` reads a dedicated `AsyncLocalStorage<Logger>` that the HTTP pipeline (and,
  * later, the queue job runner + outbox relay) bind via `runWithLogger`. Outside a scope it returns
- * the root logger. Phase 2 adds per-tag levels + the `config.logger` object; this file already
- * carries a `tag` so those are additive.
+ * the root logger.
+ *
+ * Phase 2 adds per-TAG levels (`{'*':'info', db:'debug'}` / `LOG_LEVEL=info,db=debug`, most-specific
+ * prefix wins) and the `config.logger` object (level/format/base/redact/sink), applied at boot via
+ * `configureLogger`. The gate is a tag-aware resolver so `db.debug(...)` can fire while everything
+ * else stays at `info`.
  */
 import {AsyncLocalStorage} from 'async_hooks'
 
@@ -35,7 +39,7 @@ export interface Logger {
   child(bindings: LogFields): Logger
   /** A logger tagged with a hierarchical component label; composes with `:` (a → a:b). */
   withTag(tag: string): Logger
-  /** Effective minimum level; calls below it are a cheap no-op. */
+  /** The effective minimum level for THIS logger's tag (resolved against per-tag config). */
   readonly level: LogLevel
 }
 
@@ -47,6 +51,9 @@ const RANK: Record<LogLevel, number> = {
   error: 50,
   fatal: 60
 }
+const RANK_TO_LEVEL = Object.fromEntries(
+  Object.entries(RANK).map(([lvl, rank]) => [rank, lvl])
+) as Record<number, LogLevel>
 
 /** Where a built record goes. Default emits JSON to stdout; override for pino/OTel/tests. */
 export type LogSink = (record: LogRecord) => void
@@ -80,17 +87,67 @@ const normalize = (value: unknown): unknown =>
     ? {name: value.name, message: value.message, stack: value.stack}
     : value
 
+// ── level resolution (scalar or per-tag map) ───────────────────────────────────
+
+/** Resolves the minimum RANK for a record's tag. */
+type LevelResolver = (tag?: string) => number
+
+const scalarResolver = (level: LogLevel): LevelResolver => {
+  const rank = RANK[level]
+  return () => rank
+}
+
+/**
+ * Per-tag map: the most-SPECIFIC matching prefix wins (`queue:email` beats `queue` beats `*`).
+ * `{'*':'info', db:'debug'}` → `db.debug` fires, `http.debug` doesn't.
+ */
+const mapResolver = (map: Record<string, LogLevel>): LevelResolver => {
+  const def = RANK[map['*'] ?? 'info']
+  const ranks: Record<string, number> = {}
+  for (const [k, v] of Object.entries(map)) if (v in RANK) ranks[k] = RANK[v]
+  return tag => {
+    let t = tag
+    while (t) {
+      if (t in ranks) return ranks[t]
+      const i = t.lastIndexOf(':')
+      if (i < 0) break
+      t = t.slice(0, i)
+    }
+    return def
+  }
+}
+
+const resolverFor = (level: LogLevel | Record<string, LogLevel>): LevelResolver =>
+  typeof level === 'string' ? scalarResolver(level) : mapResolver(level)
+
+/** Parse `LOG_LEVEL` — a scalar (`info`) or a comma map (`info,db=debug,queue:email=trace`). */
+export function parseLevelSpec(spec: string): LogLevel | Record<string, LogLevel> {
+  if (!spec.includes(',') && !spec.includes('=')) {
+    const l = spec.trim().toLowerCase()
+    return (l in RANK ? l : 'info') as LogLevel
+  }
+  const map: Record<string, LogLevel> = {}
+  for (const part of spec.split(',')) {
+    const [rawKey, rawVal] = part.includes('=') ? part.split('=') : ['*', part]
+    const lvl = rawVal.trim().toLowerCase()
+    if (lvl in RANK) map[rawKey.trim()] = lvl as LogLevel
+  }
+  if (!('*' in map)) map['*'] = 'info'
+  return map
+}
+
+// ── the logger ─────────────────────────────────────────────────────────────────
+
 interface LoggerState {
   sink: Sink
-  level: LogLevel
-  minRank: number
+  levelFor: LevelResolver
   tag?: string
   bindings: LogFields
 }
 
 function makeLogger(state: LoggerState): Logger {
   const emit = (level: LogLevel, msg: string, fields?: LogFields): void => {
-    if (RANK[level] < state.minRank) return // gate before allocating the record
+    if (RANK[level] < state.levelFor(state.tag)) return // tag-aware gate, before allocating
     const record: LogRecord = {time: Date.now(), level, msg, ...state.bindings, ...fields}
     for (const key of Object.keys(record)) record[key] = normalize(record[key])
     if (state.tag) record.tag = state.tag
@@ -106,48 +163,50 @@ function makeLogger(state: LoggerState): Logger {
     child: bindings => makeLogger({...state, bindings: {...state.bindings, ...bindings}}),
     withTag: tag => makeLogger({...state, tag: state.tag ? `${state.tag}:${tag}` : tag}),
     get level() {
-      return state.level
+      return RANK_TO_LEVEL[state.levelFor(state.tag)] ?? 'info'
     }
   }
 }
 
 /** Build a logger with an explicit level/sink/tag/bindings (used for the root, config, tests). */
 export const createLogger = (
-  opts: {level?: LogLevel; sink?: LogSink; tag?: string; bindings?: LogFields} = {}
-): Logger => {
-  const level = opts.level ?? 'info'
-  return makeLogger({
+  opts: {
+    level?: LogLevel | Record<string, LogLevel>
+    sink?: LogSink
+    tag?: string
+    bindings?: LogFields
+  } = {}
+): Logger =>
+  makeLogger({
     sink: opts.sink ?? jsonSink,
-    level,
-    minRank: RANK[level],
+    levelFor: resolverFor(opts.level ?? 'info'),
     tag: opts.tag,
     bindings: opts.bindings ?? {}
   })
-}
 
 // ── root logger ──────────────────────────────────────────────────────────────
 
-const envLevel = (): LogLevel => {
-  const v =
-    typeof process !== 'undefined' ? process.env.LOG_LEVEL?.toLowerCase() : undefined
-  return v && v in RANK ? (v as LogLevel) : 'info'
-}
+const env = (key: string): string | undefined =>
+  typeof process !== 'undefined' ? process.env[key] : undefined
 
 const isDev = (): boolean =>
   typeof process !== 'undefined' &&
   (process.env.NODE_ENV !== 'production' || process.env.PYLON_DEV === '1')
 
-let rootLogger: Logger = makeLogger({
-  sink: isDev() ? lineSink : jsonSink,
-  level: envLevel(),
-  minRank: RANK[envLevel()],
-  bindings: {}
+const envOrScalar = (): LogLevel | Record<string, LogLevel> => {
+  const spec = env('LOG_LEVEL')
+  return spec ? parseLevelSpec(spec) : 'info'
+}
+
+let rootLogger: Logger = createLogger({
+  level: envOrScalar(),
+  sink: isDev() ? lineSink : jsonSink
 })
 
 /** The process-wide root logger (used outside any request/job scope). */
 export const getRootLogger = (): Logger => rootLogger
 
-/** @internal Phase 2 replaces the root from `config.logger`. Not part of the public API. */
+/** @internal Replaces the root (used by `configureLogger` and tests). Not part of the public API. */
 export const __setRootLogger = (logger: Logger): void => {
   rootLogger = logger
 }
@@ -185,6 +244,67 @@ export const logger = (tag: string): Logger => {
       return resolve().level
     }
   }
+}
+
+// ── config (config.logger object form) ─────────────────────────────────────────
+
+export interface LoggerConfig {
+  /** A scalar level, or a per-tag map (`{'*':'info', db:'debug'}`). Env `LOG_LEVEL` overrides. */
+  level?: LogLevel | Record<string, LogLevel>
+  /** `'json'` (prod default) · `'pretty'` (terse line) · `'auto'` (pretty in dev, json in prod). */
+  format?: 'json' | 'pretty' | 'auto'
+  /** Fields added to every record (service, version, region…). */
+  base?: LogFields
+  /** Dotted paths to mask before the sink (`authorization`, `user.password`). */
+  redact?: string[]
+  /** Override the destination entirely (pino, OTel, a file, …). Wins over `format`. */
+  sink?: LogSink
+}
+
+const sinkForFormat = (format: 'json' | 'pretty' | 'auto'): Sink =>
+  format === 'json' ? jsonSink : format === 'pretty' ? lineSink : isDev() ? lineSink : jsonSink
+
+/** Wrap a sink so the given dotted paths are masked — copies each level on the path so caller
+ *  data is never mutated. */
+const redactSink = (paths: string[], sink: Sink): Sink => record => {
+  const clone: LogRecord = {...record}
+  for (const path of paths) redactPath(clone, path.split('.'))
+  sink(clone)
+}
+function redactPath(root: Record<string, unknown>, segs: string[]): void {
+  let node = root
+  for (let i = 0; i < segs.length - 1; i++) {
+    const next = node[segs[i]]
+    if (next == null || typeof next !== 'object') return
+    const copy = Array.isArray(next) ? [...next] : {...(next as object)}
+    node[segs[i]] = copy
+    node = copy as Record<string, unknown>
+  }
+  const last = segs[segs.length - 1]
+  if (last in node) node[last] = '[REDACTED]'
+}
+
+/**
+ * Apply `config.logger` at boot. `false` → access line off (root unchanged). `true`/absent →
+ * defaults. An object → rebuild the root from it. Env (`LOG_LEVEL`, `PYLON_LOG_FORMAT`) overrides
+ * so ops can change verbosity/format without a redeploy.
+ */
+export const configureLogger = (cfg: boolean | LoggerConfig | undefined): void => {
+  if (cfg === false) {
+    setAccessLog(false)
+    return
+  }
+  setAccessLog(true)
+  const obj: LoggerConfig = cfg && typeof cfg === 'object' ? cfg : {}
+
+  const envSpec = env('LOG_LEVEL')
+  const level = envSpec ? parseLevelSpec(envSpec) : obj.level ?? 'info'
+
+  const format = (env('PYLON_LOG_FORMAT') as LoggerConfig['format']) ?? obj.format ?? 'auto'
+  let sink = obj.sink ?? sinkForFormat(format)
+  if (obj.redact?.length) sink = redactSink(obj.redact, sink)
+
+  __setRootLogger(createLogger({level, sink, bindings: obj.base}))
 }
 
 // ── access-line toggle (config.logger: false) ──────────────────────────────────

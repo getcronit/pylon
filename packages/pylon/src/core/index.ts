@@ -7,8 +7,9 @@ export {executeConfig, handler} from '../app/pylon-handler.js'
 // no runtime binding, so `export {Bindings}` fails with "no exported member".
 export {asyncContext, getContext, setContext} from './context.js'
 export type {Bindings, Context, Env, Variables} from './context.js'
-export {getLogger, logger, runWithLogger, getRootLogger} from './logger.js'
-export type {Logger, LogLevel, LogFields, LogRecord} from './logger.js'
+export {getLogger, logger, runWithLogger, getRootLogger, createLogger} from './logger.js'
+export type {Logger, LogLevel, LogFields, LogRecord, LogSink, LoggerConfig} from './logger.js'
+import type {LoggerConfig} from './logger.js'
 export {createDecorator} from './create-decorator.js'
 export {ServiceError} from './define-pylon.js'
 export {mutation, type UserError} from './mutation.js'
@@ -76,9 +77,10 @@ export type Plugin<
 export type PylonConfig = {
   landingPage?: boolean
   graphiql?: boolean
-  /** Per-request access logging. `false` disables the access line (Phase 2 widens this to an
-   *  object: `{level, format, sink, …}`). Default: on. */
-  logger?: boolean
+  /** Per-request access logging. `false` disables the access line; an object configures the
+   *  runtime logger (`{level, format, base, redact, sink}` — see `LoggerConfig`). Default: on.
+   *  Env `LOG_LEVEL` (e.g. `info,db=debug`) and `PYLON_LOG_FORMAT` override at runtime. */
+  logger?: boolean | LoggerConfig
   plugins?: Plugin[]
 }
 

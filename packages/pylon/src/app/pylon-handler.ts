@@ -14,7 +14,7 @@ import path from 'path'
 import {app, Pylon} from '.'
 import {Plugin, PylonConfig} from '../core'
 import {Context} from '../core/context'
-import {setAccessLog} from '../core/logger'
+import {configureLogger} from '../core/logger'
 import {topoSortPlugins} from './plugin-order'
 import {resolversToGraphQLResolvers} from '../core/define-pylon'
 import {useUnhandledRoute} from '../plugins/use-unhandled-route'
@@ -113,9 +113,10 @@ export const executeConfig = async (
   target.installBasePipeline()
   target.realize()
 
-  // Access-line toggle: `logger: false` silences the per-request access log (the request-scoped
-  // `getLogger()` still works). Applied at boot, not per request.
-  setAccessLog(config?.logger !== false)
+  // Apply `config.logger` at boot: `false` silences the access line; an object configures level
+  // (incl. per-tag), format, base fields, redaction and sink. Env LOG_LEVEL/PYLON_LOG_FORMAT
+  // override. The request-scoped `getLogger()` keeps working regardless.
+  configureLogger(config?.logger)
 
   // Sentry is no longer auto-installed — apps opt in with `useSentry({dsn})` in their
   // config `plugins` (it now owns the HTTP middleware too). `useViewer` stays: it is
