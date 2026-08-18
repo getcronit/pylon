@@ -292,9 +292,9 @@ The one rule: reach for `logger(tag)` / `getLogger()` **at call time** rather th
    child + structured access line) replacing `except(…, hono/logger)`.
 2. **Config** ✅ (1c6a988): the object form (level/format/base/redact/sink) + **per-tag levels** +
    env overrides (`LOG_LEVEL=info,db=debug`); `'auto'` format.
-3. **Errors**: replace `onError`'s `console.error` with `getLogger().error`; add a GraphQL
-   `onExecuteDone` hook that logs execution errors — `useSentry`'s `@sentry/node` capture stays
-   independent.
+3. **Errors** ✅ (4c59248): replace `onError`'s `console.error` with `getLogger().error`; add a
+   GraphQL `onExecuteDone` hook that logs execution errors — `useSentry`'s `@sentry/node` capture
+   stays independent.
 4. **Queues**: job-runner logger scope (`{queue, jobId, attempt}`, tag `queue:<name>`) with the
    stdout + `job.log()` fan-out sink; `ctx.log` → `getLogger().info`; outbox relay tagged `outbox`.
 5. **Pretty formatter**: lazy dev module (kept out of the prod trace).
