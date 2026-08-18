@@ -1,5 +1,8 @@
 .cache
 public
+# …but docs/public holds committed source brand assets (favicons, logo), not build output
+!docs/public/
+!docs/public/**
 node_modules
 .npmrc
 
