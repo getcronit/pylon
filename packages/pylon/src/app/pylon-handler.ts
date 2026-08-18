@@ -19,6 +19,7 @@ import {topoSortPlugins} from './plugin-order'
 import {resolversToGraphQLResolvers} from '../core/define-pylon'
 import {useUnhandledRoute} from '../plugins/use-unhandled-route'
 import {useViewer} from '../plugins/use-viewer'
+import {useGraphqlErrorLogger} from '../plugins/use-graphql-error-logger'
 
 interface PylonHandlerOptions {
   graphql: {
@@ -120,8 +121,9 @@ export const executeConfig = async (
 
   // Sentry is no longer auto-installed — apps opt in with `useSentry({dsn})` in their
   // config `plugins` (it now owns the HTTP middleware too). `useViewer` stays: it is
-  // core plumbing, not vendor-specific.
-  const plugins = [useViewer(), ...(config?.plugins || [])]
+  // core plumbing, not vendor-specific. `useGraphqlErrorLogger` logs execution errors
+  // through the runtime logger (envelop plugin; no setup/middleware) — independent of Sentry.
+  const plugins = [useViewer(), useGraphqlErrorLogger(), ...(config?.plugins || [])]
 
   if (config?.landingPage ?? true) {
     plugins.push(useUnhandledRoute())

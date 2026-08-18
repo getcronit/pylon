@@ -6,7 +6,7 @@ import type {ContentfulStatusCode} from 'hono/utils/http-status'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {asyncContext, Env} from '../core/context'
-import {accessLogEnabled, getRootLogger, runWithLogger} from '../core/logger'
+import {accessLogEnabled, getLogger, getRootLogger, runWithLogger} from '../core/logger'
 import type {PylonConfig} from '../core/index'
 
 /** A per-request correlation id: an inbound `x-request-id`, the trace-id of a W3C `traceparent`,
@@ -354,11 +354,10 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
       if (typeof status === 'number') {
         return c.json({error: err.message}, status as ContentfulStatusCode)
       }
-      // Unexpected error (no `statusCode` convention) → log the real cause so it
-      // isn't swallowed into a bare 500. Expected denials (403/404 above) stay
-      // quiet.
-      // eslint-disable-next-line no-console
-      console.error('[pylon] unhandled error:', err)
+      // Unexpected error (no `statusCode` convention) → log the real cause (structured +
+      // request-correlated) so it isn't swallowed into a bare 500. Expected denials (403/404
+      // above) stay quiet.
+      getLogger().error('unhandled route error', {err})
       return c.json({error: 'Internal Server Error'}, 500)
     })
   }

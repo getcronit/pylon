@@ -18,6 +18,10 @@ replaces the `hono/logger` text access line and exposes a request-correlated log
   (disable the access line). Env `LOG_LEVEL` / `PYLON_LOG_FORMAT` override without a redeploy.
   `redact` masks dotted paths (e.g. `authorization`, `user.password`); `base` adds fields to every
   record; `sink` swaps the destination (pino/OTel/…).
+- **Errors are logged** through it: unhandled route errors (`Pylon.onError`) at `error`
+  (request-correlated); GraphQL execution errors via an envelop hook — server exceptions at
+  `error` (tagged `graphql`), client `GraphQLError`s at `debug`. This is independent of Sentry:
+  `useSentry` still captures separately.
 
 ### Note: access-log format changed
 
