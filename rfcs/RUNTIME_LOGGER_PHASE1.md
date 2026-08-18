@@ -1,5 +1,9 @@
 # Runtime Logger — Phase 1 Implementation Plan
 
+> **Status: IMPLEMENTED** (commit `d1276e4`). All checklist items landed — `src/core/logger.ts`,
+> exports + `PylonConfig.logger`, the `installBasePipeline` swap, `setAccessLog` at boot, and
+> tests. Unit suite 798 passed; serve e2e green. Phases 2–5 remain.
+
 Companion to [RUNTIME_LOGGER.md](./RUNTIME_LOGGER.md). Phase 1 only: the **core logger**, the
 **HTTP request scope**, and the **structured access line** replacing `hono/logger`. Everything
 else (per-tag levels, the config object, Sentry sink, queues, the rich pretty formatter) is a
