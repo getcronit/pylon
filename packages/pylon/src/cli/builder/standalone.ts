@@ -177,13 +177,16 @@ export async function buildStandalone(opts: {
     ) => Promise<{fileList: Set<string>; warnings: Set<Error>}>
   }
 
-  // Prune the usePages BUILD toolchain from the SERVE artifact. `use-pages` lazily imports its
-  // build pipeline (`await import('./build')`), which runs ONLY under `pylon build` — never at
-  // serve time. But nft follows literal dynamic imports, so without this it traces the whole
-  // build graph (postcss-load-config → tsx → esbuild ≈ 67 MB, plus rolldown, ts-morph). The
-  // served app never loads `build/`, so excluding it (and everything reachable only through it)
-  // is safe and cuts the artifact roughly in half.
-  const ignore = ['**/plugins/use-pages/build/**']
+  // Every plugin `build` hook (usePages today, any added later) lazily `import('./build')` its
+  // pipeline — build-time only, never loaded at serve. But nft follows literal dynamic imports
+  // (and the transpiler constant-folds a variable specifier straight back to a literal), so the
+  // whole build TOOLCHAIN (postcss-load-config → tsx → esbuild ≈67 MB, rolldown, ts-morph) gets
+  // traced into the SERVE artifact. Excluding one plugin's build FOLDER by name is fragile —
+  // it breaks when the code moves and misses other plugins. Instead exclude EVERY `build/` dir
+  // under the framework's own dist: it's plugin-agnostic and refactor-resilient (any plugin's
+  // build code, wherever it sits, as long as it lives in a `build/` dir), and that code is
+  // never loaded at serve. Cuts the toolchain out entirely (~half the artifact).
+  const ignore = ['**/pylon/dist/**/build/**']
 
   // NOTE on Node version: nft resolves package `exports` per-edge (import vs require), so dual
   // packages land on the right build — EXCEPT it only auto-selects the `module-sync` condition
