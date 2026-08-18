@@ -8,9 +8,7 @@ name: Publish
 #   push to main   → `version` job  (open/update the Version PR — UNGATED)
 #                  → `publish` job  (publish `latest` — GATED by the `release` env,
 #                                    runs only when a release is actually pending)
-#   pull_request    → `canary-preview` job  (UNGATED: comments what `canary` WILL publish,
-#                                            so a reviewer sees it before approving)
-#                  → `canary` job          (per-PR snapshot publish; GATED by `release` env)
+#   pull_request    → `canary` job  (per-PR snapshot; same `release` env)
 #
 # The `release` GitHub Environment is the human gate: add Required Reviewers in
 # Settings → Environments → release. Because npm allows only one environment on the
@@ -286,86 +284,6 @@ jobs:
               : `${marker}\n### 🦋 Canary (\`${tag}\`)\n` +
                 `No packages were published (no pending changeset touched a publishable package, ` +
                 `or the publish step failed — check the job log).`;
-            const { owner, repo } = context.repo;
-            const issue_number = context.issue.number;
-            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number });
-            const existing = comments.find(c => c.body && c.body.includes(marker));
-            if (existing) {
-              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
-            } else {
-              await github.rest.issues.createComment({ owner, repo, issue_number, body });
-            }
-
-  # Canary PREVIEW — UNGATED (no `release` environment, no id-token). Runs on every
-  # same-repo PR so a reviewer sees exactly what the gated `canary` job WILL publish BEFORE
-  # approving it. It only reads `changeset status` and posts/updates a PR comment — it never
-  # builds, versions the tree for real, or reaches npm. Separate comment marker from the
-  # post-publish report, so the two coexist.
-  canary-preview:
-    name: Canary preview (what will publish)
-    # SECURITY: same-repo PRs only (fork GITHUB_TOKEN is read-only → can't comment anyway),
-    # skip bot actors. No id-token here, so it structurally cannot publish.
-    if:
-      ${{ github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.actor != 'dependabot[bot]' && github.actor != 'dependabot-preview[bot]'
-      && github.actor != 'renovate[bot]' }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write # post the preview comment
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4.0.0
-        with:
-          run_install: false
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm i --frozen-lockfile
-
-      # `changeset status` diffs against the base branch to find the divergence point, but a
-      # PR checkout has no local `main` ref — create one from origin (history is already here
-      # via fetch-depth: 0). Without this it fails with "Failed to find where HEAD diverged".
-      - name: Make the base branch available
-        run: git fetch --no-tags origin main:main
-
-      - name: Compute the pending publish set
-        run: pnpm exec changeset status --output=canary-status.json
-
-      - name: Comment the preview on the PR
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const tag = `canary-pr-${context.issue.number}`;
-            const marker = '<!-- canary-preview -->';
-            let releases = [];
-            try {
-              releases = JSON.parse(fs.readFileSync('canary-status.json', 'utf8')).releases || [];
-            } catch {}
-            const pub = releases.filter(r => r.type && r.type !== 'none');
-            const rows = pub
-              .map(r => `| \`${r.name}\` | ${r.type} | \`${r.newVersion}-${tag}-<datetime>.<commit>\` |`)
-              .join('\n');
-            const body = pub.length
-              ? `${marker}\n### 🔎 Canary preview — pending your approval\n\n` +
-                `Approving the \`release\` environment on the **Publish** workflow publishes these to ` +
-                `npm under the \`${tag}\` dist-tag (**not** \`latest\` — normal installs are unaffected):\n\n` +
-                `| Package | Bump | Version |\n|---|---|---|\n${rows}\n\n` +
-                `_Nothing is published yet. The exact \`{datetime}.{commit}\` suffix is stamped at publish time._`
-              : `${marker}\n### 🔎 Canary preview\nNo publishable package has a pending changeset — ` +
-                `approving would publish nothing.`;
             const { owner, repo } = context.repo;
             const issue_number = context.issue.number;
             const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number });
