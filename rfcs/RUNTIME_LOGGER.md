@@ -311,6 +311,36 @@ JSON and gives resolvers a correlated logger.
 - **Sampling**: high-volume `debug` sampling (e.g. 1%) — a `sink` concern or a core option?
 - **Redaction depth**: shallow dotted-path masking in core; deep/custom redaction via `sink`.
 
+## Sentry: a sink, not a merge
+
+Sentry stays a **separate, opt-in** concern — an exception tracker + tracer (fingerprinting,
+alerting, release health, spans) that the logger is *not*, whose SDK (`@sentry/node` /
+`@sentry/bun`) is runtime-specific and heavy and so must stay **out of core** (runtime-agnostic, no
+standalone bloat). `useSentry` remains the plugin; today it's an Envelop `onExecuteDone` capture via
+`@sentry/node` that skips `GraphQLError` and is wholly independent of app logs. The plan connects
+the two at exactly one seam:
+
+1. **The logger becomes the single error funnel; Sentry becomes an opt-in sink.** When `useSentry`
+   is enabled it registers a `sentrySink` that captures `record.level >= 'error'` via
+   `Sentry.captureException`, mapping the record's correlation → Sentry tags (`requestId`, `tag`,
+   `principal`, `tenant`) and `msg`/fields → context. So *every* `getLogger().error(...)` — route,
+   GraphQL, resolver, queue — reaches Sentry uniformly, with context. This also **closes today's
+   gap**: route errors (`onError`'s raw `console.error`) never reach Sentry now; once they're
+   `getLogger().error(...)`, the sink captures them.
+2. **Keep Sentry's tracing; cross-link it.** `useSentry`'s `onExecuteDone` transaction/span is real
+   APM the logger doesn't replace — keep it, and bind Sentry's `traceId`/`spanId` onto logger
+   records so logs ↔ traces cross-link.
+3. **Avoid double-capture.** `onExecuteDone` already captures GraphQL exceptions, so with the sink
+   the execution hook keeps the *span* but hands *capture* to the sink (or the sink skips an error
+   whose live Sentry scope already captured it) — a GraphQL error isn't reported twice.
+4. **Phasing** — A: logger lands decoupled (route → `getLogger().error`, GraphQL errors logged,
+   `useSentry` unchanged). B: `useSentry` registers the `sentrySink` → capture consolidates and
+   route errors start reaching Sentry. C: reduce `onExecuteDone` to span-only + add trace
+   correlation.
+
+Core never imports a Sentry SDK — the sink is registered *by the plugin*, so the runtime-agnostic
+and lean-trace properties hold.
+
 ## The two tiers, and why they stay separate
 
 - **Tier 1 — CLI/build** (done): `consola` with levels; `-v/--verbose` sets `consola.level`.
