@@ -298,7 +298,8 @@ The one rule: reach for `logger(tag)` / `getLogger()` **at call time** rather th
 4. **Queues** ✅ (c09c607): job-runner logger scope (`{queue, jobId, attempt}`, tag `queue:<name>`)
    with the stdout + `job.log()` fan-out (via `.tee`); `ctx.log` → `getLogger().info`; outbox relay
    tagged `outbox`.
-5. **Pretty formatter**: lazy dev module (kept out of the prod trace).
+5. **Pretty formatter** ✅ (8cf4e0c): lazy dev module (loaded on the first pretty record; prod JSON
+   never evaluates it).
 
 Each phase ships independently; phase 1 alone already replaces the text access log with queryable
 JSON and gives resolvers a correlated logger.
