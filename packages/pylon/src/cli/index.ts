@@ -65,6 +65,16 @@ const entryOf = (o: {entry?: string; models?: string}): string =>
 
 program.name('pylon-dev').description('Pylon Development CLI').version(version)
 
+// General diagnostic flag. Declared on the root so `pylon --verbose <cmd>` works everywhere;
+// commands that surface extra detail also declare it locally (so `pylon <cmd> --verbose` works)
+// and read it via `isVerbose(command)`, which merges global + local via optsWithGlobals.
+program.option('-v, --verbose', 'Print extra diagnostic detail')
+
+/** Is `-v/--verbose` set — from the root or the current subcommand. */
+const isVerbose = (command?: {
+  optsWithGlobals?: () => {verbose?: boolean}
+}): boolean => Boolean(command?.optsWithGlobals?.().verbose ?? program.opts().verbose)
+
 program
   .command('build')
   .description('Build the Pylon Schema')
@@ -78,7 +88,8 @@ program
     (val: string, prev: string[]) => [...prev, val],
     [] as string[]
   )
-  .action(async (options: {standalone?: boolean; include?: string[]}) => {
+  .option('-v, --verbose', 'Print extra diagnostic detail (e.g. unresolved dynamic imports)')
+  .action(async (options: {standalone?: boolean; include?: string[]}, command) => {
     const ctx = await build({
       sfiFilePath: './src/index.ts',
       outputFilePath: './.pylon',
@@ -115,18 +126,23 @@ program
             `  Run: node ${path.relative(cwd, res.launcher)}`
         )
         if (res.warnings.length) {
-          // First line of each (nft messages can carry a stack); dedupe + cap the list.
+          // First line of each (nft messages can carry a stack); dedupe for the count/list.
           const uniq = [...new Set(res.warnings.map(w => w.split('\n')[0].trim()))]
-          const shown = uniq.slice(0, 20)
-          consola.warn(
-            `nft could not statically resolve ${res.warnings.length} dynamic import(s) ` +
-              `(${uniq.length} unique). These are usually optional/conditional \`require()\`s ` +
-              `deep in dependencies and safe to ignore — but if a module is missing at runtime, ` +
-              `it's likely one of these:\n` +
-              shown.map(m => `  • ${m}`).join('\n') +
-              (uniq.length > shown.length ? `\n  … and ${uniq.length - shown.length} more` : '') +
-              `\n(fix: add the real module as an explicit trace root in standalone.ts)`
-          )
+          if (isVerbose(command)) {
+            consola.warn(
+              `nft could not statically resolve ${res.warnings.length} dynamic import(s) ` +
+                `(${uniq.length} unique). These are usually optional/conditional \`require()\`s ` +
+                `deep in dependencies and safe to ignore — but if a module is missing at runtime, ` +
+                `it's likely one of these:\n` +
+                uniq.map(m => `  • ${m}`).join('\n') +
+                `\n(fix: add the real module to --include, or as an explicit trace root)`
+            )
+          } else {
+            consola.warn(
+              `nft could not statically resolve ${uniq.length} dynamic import(s) — usually ` +
+                `optional/conditional deps, safe to ignore. Re-run with --verbose to list them.`
+            )
+          }
         }
       }
 
