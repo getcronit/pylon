@@ -24,7 +24,9 @@ const DIST_STATIC_DIR = path.join(process.cwd(), '.pylon/__pylon/static')
 const DIST_PAGES_DIR = path.join(process.cwd(), '.pylon/__pylon/pages')
 const PUBLIC_PATH = '/__pylon/static'
 
-/** Packages kept external in the node/SSR bundle (resolved at runtime). */
+/** Packages kept external in the node/SSR bundle (resolved at runtime). Workspace-linked
+ *  packages resolve OUTSIDE node_modules, so the framework's own packages are still listed
+ *  explicitly here; everything else in node_modules is externalized by the plugin below. */
 const SERVER_EXTERNALS = [
   '@getcronit/pylon',
   '@getcronit/pylon/pages',
@@ -32,6 +34,36 @@ const SERVER_EXTERNALS = [
   'react',
   'react-dom'
 ]
+
+/**
+ * Keep node_modules external in the SSR/node bundle. SSR runs in Node, where dependencies
+ * are on disk — so bundling them is pure downside: it duplicates singletons and BREAKS any
+ * dep that dynamically `require`s its own data files (e.g. `i18n-iso-countries`'s
+ * `langs/*.json`, which don't exist next to the emitted chunk). Resolve each bare import;
+ * if it lands in node_modules, mark it external (keeping the bare specifier so Node resolves
+ * it at runtime). App code — relative imports and tsconfig path aliases (`@/…`, which resolve
+ * to project files, not node_modules) — is left to bundle.
+ */
+// CSS/asset imports (even from node_modules, e.g. `nprogress/nprogress.css`) must NOT be
+// externalized — Node can't load them at runtime; the css/image/asset plugins handle them.
+const NON_JS_ASSET = /\.(css|scss|sass|less|styl|png|jpe?g|gif|svg|webp|avif|ico|woff2?|ttf|eot|otf)$/i
+
+const ssrExternalizeNodeModules = () => ({
+  name: 'pylon:ssr-externalize-node-modules',
+  async resolveId(this: any, id: string, importer: string | undefined, options: any) {
+    if (!importer || id[0] === '.' || path.isAbsolute(id)) return null
+    const resolved = await this.resolve(id, importer, {skipSelf: true, ...options})
+    if (
+      resolved &&
+      !resolved.external &&
+      resolved.id.includes(`${path.sep}node_modules${path.sep}`) &&
+      !NON_JS_ASSET.test(resolved.id)
+    ) {
+      return {id, external: true}
+    }
+    return null
+  }
+})
 
 async function updateFileIfChanged(filePath: string, newContent: Buffer) {
   await fs.mkdir(path.dirname(filePath), {recursive: true})
@@ -164,6 +196,7 @@ export const build = async (
       external: id =>
         SERVER_EXTERNALS.some(e => id === e || id.startsWith(`${e}/`)),
       plugins: [
+        ssrExternalizeNodeModules(),
         useDataStaticAnalyzerRolldown({
           debug: true,
           manager: analysisManager,
