@@ -94,26 +94,28 @@ if (format === 'pretty') {
 
 ### 3. Request scoping — reuse `asyncContext`
 
-Core already binds the Hono context per request via `AsyncLocalStorage` (`core/context.ts`), and
-`Variables` already carries a request-scoped `sentry: Toucan` — so a request `logger` is the same
-pattern:
-
-- In `installBasePipeline`, **replace** `hono/logger` with a middleware that:
-  1. builds `reqLog = rootLogger.child({ requestId, method, path })`,
-  2. stashes it on the context (`c.set('logger', reqLog)` — add `logger: Logger` to `Variables`),
-  3. after `next()`, emits `reqLog.info('request', { status, durationMs })` — the structured
-     access line (honoring `config.logger: false` to skip it).
-- `getLogger()` reads `asyncContext` → the request logger; outside a request it returns the root
-  logger. So resolvers/user code just call `getLogger().info(...)` and get correlation for free.
+The logger must be correlated in **three** places — HTTP requests, queue jobs, and the outbox
+relay — and only the first has a Hono context (jobs run in `pylon worker` with no request). So the
+scope lives in its **own** `AsyncLocalStorage<Logger>`, not piggybacked on the Hono context:
 
 ```ts
-export const getLogger = (): Logger =>
-  asyncContext.getStore()?.get('logger') ?? rootLogger
+// core/logger.ts
+const loggerContext = new AsyncLocalStorage<Logger>()
+export const getLogger = (): Logger => loggerContext.getStore() ?? rootLogger
+/** Run `fn` with `log` as the active logger (used by the HTTP pipeline, the job runner, …). */
+export const runWithLogger = <T>(log: Logger, fn: () => T): T => loggerContext.run(log, fn)
 ```
 
-Enrichment stays plugin-owned (core is auth-free): `useIdentity` does
-`c.set('logger', getLogger().child({ principal: p.id }))` once auth resolves; `useDatabase` adds
-`{ tenant }`. Core only knows `requestId/method/path`.
+- **HTTP** — in `installBasePipeline`, **replace** `hono/logger` with a middleware that builds
+  `reqLog = rootLogger.child({requestId, method, path}).withTag('http')`, runs the rest of the
+  request via `runWithLogger(reqLog, next)`, and after it emits `reqLog.info('request', {status,
+  durationMs})` — the structured access line (skipped when `config.logger: false`).
+- Enrichment stays plugin-owned (core is auth-free): `useIdentity` re-binds
+  `runWithLogger(getLogger().child({principal: p.id}), next)` once auth resolves; `useDatabase`
+  adds `{tenant}`. Core only knows `requestId/method/path`.
+
+(A dedicated ALS also keeps the logger from depending on Hono's `Context` type — jobs and the
+relay don't have one — and avoids coupling core to the DB app-context that jobs actually run in.)
 
 ### 4. Config + levels
 
@@ -124,12 +126,13 @@ Extend the existing toggle without breaking it:
 logger?:
   | boolean                     // false = off (today's behavior); true/absent = defaults
   | {
-      level?: LogLevel          // default: env LOG_LEVEL, else 'info'
+      level?: LogLevel | Record<string, LogLevel>  // scalar, or per-tag map (see §5)
       format?: 'json' | 'pretty' | 'auto'   // 'auto' = pretty in dev, json in prod
       base?: LogFields          // fields on every record (service, version, region…)
       redact?: string[]         // dotted paths to mask (authorization, password…)
       sink?: (record: LogRecord) => void     // override the destination (pino/OTel/…)
-    }
+      job?: {level?: LogLevel}  // threshold for the BullMQ job.log() tee (default 'info',
+    }                           //   separate from stdout — keeps the persisted per-job log lean)
 ```
 
 - Env overrides: `LOG_LEVEL`, `PYLON_LOG_FORMAT` — so ops can raise verbosity without a redeploy.
@@ -171,9 +174,27 @@ on framework logs too, not just yours.
   `error`/`fatal` with the mapped code + stack, then the **existing** `useSentry` plugin captures
   via the request `Toucan`. One structured event **and** a Sentry capture; the logger never
   hard-depends on Sentry. (Optionally a `sentrySink` users can compose.)
-- **Queues / worker**: the worker has no HTTP request, so wrap each job in an `asyncContext` scope
-  with `rootLogger.child({ queue, jobId, attempt })`. `getLogger()` then works inside processors,
-  same API.
+- **Queues / worker** — the important one, because a BullMQ job already has a *second* log
+  destination. Pylon's `JobContext` exposes `log(message)`, wired to `job.log(m)` — BullMQ's
+  **persisted per-job log** (stored in Redis, shown in the queue dashboard), distinct from stdout.
+  The design must serve both without splitting the API:
+
+  - **Where the scope goes.** `useQueues` already wraps every job via the `setJobRunner` seam
+    (`(_job, fn) => getDatabase().run(fn)` — binds the ORM connection/tenant). Compose the logger
+    scope there: `setJobRunner((job, fn) => getDatabase().run(() => runWithLogger(jobLog(job), fn)))`.
+  - **The job logger** is `rootLogger.child({queue, jobId, attempt}).withTag('queue:' + name)` with
+    a **fan-out sink**: (a) the normal stdout sink (structured JSON, fleet-wide, honors per-tag
+    levels), **and** (b) a `job.log(format(record))` sink → the dashboard sees the same events.
+    So one `getLogger().info('sending', {to})` inside a processor lands in *both* places.
+  - **Reconcile the existing `ctx.log`.** `JobContext.log(msg)` becomes sugar for
+    `getLogger().info(msg)` — so it now also reaches stdout (a strict improvement), and old code
+    keeps working. `ctx` still carries `data`/`job`; `getLogger()`/`logger('queue:'+name)` is the
+    richer, leveled, tagged path.
+  - **Keep Redis lean.** The `job.log()` sink has its **own** threshold (default `info`), separate
+    from the stdout level — so cranking `queue:email=trace` on stdout for debugging doesn't flood
+    the persisted per-job log. Configurable via `logger.job.level`.
+  - **Outbox relay** (`runOutboxRelay`) has no BullMQ job, so it just runs under a
+    `rootLogger.withTag('outbox')` scope — structured stdout only, no `job.log` tee.
 - **Pages SSR**: SSR runs inside the request pipeline, so `getLogger()` is already correlated in
   loaders/`useData`.
 
@@ -224,13 +245,17 @@ export async function ship(orderId: string) {
 }
 ```
 
-Inside a **queue processor** it's the same call — the job is wrapped in a context scope, so the
-logger is correlated to `{queue, jobId, attempt}` automatically:
+Inside a **queue processor** it's the same call — the job runner wraps each job in the logger
+scope, so the logger is auto-correlated to `{queue, jobId, attempt}` **and tees to the job's
+persisted log** (dashboard) as well as stdout:
 
 ```ts
-queue('email').process(async job => {
-  const log = logger('queue:email')
-  log.info('sending', {to: job.data.to})
+emailQueue.process(async ({data, job, log}) => {
+  // `log(msg)` is JobContext sugar → getLogger().info(msg): stdout + the job's dashboard log.
+  const jlog = logger('queue:email')              // structured, leveled, same dual destination
+  jlog.info('sending', {to: data.to})             // → stdout JSON  AND  job.log line
+  jlog.debug('smtp handshake', {host})            // stdout only unless the job-log level allows
+  await job.updateProgress(50)
 })
 ```
 
@@ -247,7 +272,8 @@ The one rule: reach for `logger(tag)` / `getLogger()` **at call time** rather th
 2. **Config**: the object form (level/format/base/redact/sink) + **per-tag levels** + env
    overrides (`LOG_LEVEL=info,db=debug`); `'auto'` format.
 3. **Errors/Sentry**: error path logs structured + keeps the Toucan capture.
-4. **Queues**: per-job ALS scope + child logger.
+4. **Queues**: job-runner logger scope (`{queue, jobId, attempt}`, tag `queue:<name>`) with the
+   stdout + `job.log()` fan-out sink; `ctx.log` → `getLogger().info`; outbox relay tagged `outbox`.
 5. **Pretty formatter**: lazy dev module (kept out of the prod trace).
 
 Each phase ships independently; phase 1 alone already replaces the text access log with queryable
