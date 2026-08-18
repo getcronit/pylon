@@ -93,7 +93,7 @@ if (format === 'pretty') {
 }
 ```
 
-### 3. Request scoping — reuse `asyncContext`
+### 3. Request & job scoping — a dedicated logger ALS
 
 The logger must be correlated in **three** places — HTTP requests, queue jobs, and the outbox
 relay — and only the first has a Hono context (jobs run in `pylon worker` with no request). So the
@@ -107,10 +107,17 @@ export const getLogger = (): Logger => loggerContext.getStore() ?? rootLogger
 export const runWithLogger = <T>(log: Logger, fn: () => T): T => loggerContext.run(log, fn)
 ```
 
-- **HTTP** — in `installBasePipeline`, **replace** `hono/logger` with a middleware that builds
-  `reqLog = rootLogger.child({requestId, method, path}).withTag('http')`, runs the rest of the
-  request via `runWithLogger(reqLog, next)`, and after it emits `reqLog.info('request', {status,
-  durationMs})` — the structured access line (skipped when `config.logger: false`).
+- **HTTP** — `installBasePipeline` today is: `compress()` → an `asyncContext.run(c, next)` bind →
+  `except(['/__pylon/*'], logger())` (hono/logger, skipping static assets) → the plugin chain, with
+  `onError` mapping route errors separately. **Replace the third step** — the `except(…, logger())`
+  line — with a middleware that:
+  1. **generates a request id** (`crypto.randomUUID()`, or reuse an inbound `x-request-id` /
+     `traceparent` when present) — there is *no* request id today, hono/logger doesn't add one;
+  2. builds `reqLog = rootLogger.child({requestId, method, path}).withTag('http')` and runs the
+     rest via `runWithLogger(reqLog, next)` (nested inside the existing `asyncContext.run`);
+  3. after `next()`, emits `reqLog.info('request', {status, durationMs})` — the structured access
+     line, keeping the **`except(['/__pylon/*'])`** skip so static-asset requests stay quiet, and
+     skipped entirely when `config.logger: false`.
 - Enrichment stays plugin-owned (core is auth-free): `useIdentity` re-binds
   `runWithLogger(getLogger().child({principal: p.id}), next)` once auth resolves; `useDatabase`
   adds `{tenant}`. Core only knows `requestId/method/path`.
@@ -280,8 +287,9 @@ The one rule: reach for `logger(tag)` / `getLogger()` **at call time** rather th
 
 `config.logger: false` keeps working (skips the access line). Phased:
 
-1. **Core**: `Logger`, `rootLogger`, `getLogger`, `logger(tag)`, `child`/`withTag`, request child
-   + structured access line (replaces `hono/logger`). `Variables.logger`.
+1. **Core**: `Logger`, `rootLogger`, `getLogger`, `logger(tag)`, `child`/`withTag`, the
+   `loggerContext` ALS + `runWithLogger`; the HTTP middleware (request-id generation + request
+   child + structured access line) replacing `except(…, hono/logger)`.
 2. **Config**: the object form (level/format/base/redact/sink) + **per-tag levels** + env
    overrides (`LOG_LEVEL=info,db=debug`); `'auto'` format.
 3. **Errors**: replace `onError`'s `console.error` with `getLogger().error`; add a GraphQL
