@@ -37,6 +37,14 @@ RUN pnpm --filter @getcronit/pylon build
 # runtime fs reads, so declare it with --include and the tracer copies it into the artifact.
 RUN cd docs && node node_modules/@getcronit/pylon/dist/cli/index.js build --standalone --include content
 
+# ---- migrate: one-shot migrator (reuses the build stage — it has the CLI + models +
+# migrations/, which the serve image deliberately drops). Run this ONCE per release, before
+# rolling out the runner: `docker build --target migrate` then run with DATABASE_URL set.
+# `db deploy` loads the models to verify the migrations match, then applies the pending ones.
+FROM build AS migrate
+WORKDIR /app/docs
+CMD ["node", "node_modules/@getcronit/pylon/dist/cli/index.js", "db", "deploy"]
+
 # ---- runner: distroless (no shell / no package manager, runs as non-root) ----
 FROM gcr.io/distroless/nodejs22-debian12:nonroot AS runner
 ENV NODE_ENV=production PORT=3000

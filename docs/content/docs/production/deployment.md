@@ -119,6 +119,12 @@ migration history have drifted, so a missing migration fails the pipeline instea
 of failing in production.
 :::
 
+:::note
+A [`--standalone`](#standalone-build) serve image has **no CLI**, so it can't run these
+commands itself — run them from a one-shot migrator step. See
+[Migrating a standalone deploy](#migrating-a-standalone-deploy).
+:::
+
 ## Dockerfile
 
 With `--standalone`, the runner needs no package manager and no `node_modules` copy —
@@ -154,6 +160,49 @@ Prefer to ship the app and worker from **one** image instead? Skip `--standalone
 `COPY --from=build /app/.pylon ./.pylon` and `.../node_modules ./node_modules`) — the
 [worker section](#run-the-worker-alongside-the-app) below runs both processes by command.
 
+### Migrating a standalone deploy
+
+The standalone artifact is serve-only: no `pylon` CLI, and `db deploy` needs one — it loads
+your models (to verify the migrations still match) and applies the `migrations/` dir. So run
+migrations from a **separate one-shot step** that *does* have the CLI, gated **before** the new
+serve containers roll out. You don't need a second build — the `build` stage above already has
+the source, deps, CLI and migrations. Give it a thin target:
+
+```dockerfile title="Dockerfile (add a migrate target)"
+# Reuse the build stage — it has the CLI + models + migrations/. One-shot: apply, then exit.
+FROM build AS migrate
+CMD ["node", "node_modules/@getcronit/pylon/dist/cli/index.js", "db", "deploy"]
+```
+
+Run the migrator once, then the serve image — the app waits for it to finish:
+
+```yaml title="compose.yaml"
+services:
+  migrate:
+    build: {context: ., target: migrate}
+    environment: [DATABASE_URL]
+    restart: 'no'                 # one-shot: apply migrations and exit
+  app:
+    build: {context: ., target: runner}
+    environment: [DATABASE_URL, PORT]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    ports: ['3000:3000']
+```
+
+On Kubernetes, run migrations as a **Job** (runs once to completion), ordered before the
+Deployment update — not an `initContainer`, which would run once *per replica*. No CLI in
+your pipeline image? Run `pylon db deploy` straight from CI (your checkout has the CLI +
+migrations) before deploying — simplest when CI can reach the database.
+
+:::warning
+One runner, once per release — a Job or a CI step, **never per-replica and never at app boot**,
+where concurrent instances race the migration ledger. `db deploy` is idempotent (ledger-tracked),
+so a retried job is safe. For a **breaking** schema change, expand/contract: ship the additive
+migration plus code that tolerates both shapes, then a later contract migration — so old and new
+instances coexist during the rollout.
+:::
+
 ## Run the worker alongside the app
 
 If you use [queues](/docs/queues/overview), run a second container from the **same
@@ -175,8 +224,8 @@ services:
 ```
 
 :::warning
-Apply migrations as a discrete release step — a job, an init container, or a manual
-`pylon db deploy` — before rolling out new app instances. Don't migrate from inside
+Apply migrations as a discrete release step before rolling out new app instances — see
+[Migrating a standalone deploy](#migrating-a-standalone-deploy). Never migrate from inside
 application boot, where concurrent instances would race.
 :::
 
