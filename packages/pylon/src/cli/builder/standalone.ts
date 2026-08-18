@@ -41,6 +41,11 @@ export interface StandaloneResult {
   byteCount: number
   /** nft warnings (unresolved dynamic requires) — surfaced but non-fatal. */
   warnings: string[]
+  /** Count of native `*.node` binaries traced — they lock the artifact to one platform. */
+  nativeBinaries: number
+  /** Distinct native platform tokens detected (e.g. `darwin-arm64`, `linuxmusl-x64`) — the
+   *  OS·arch·libc the artifact will only run on. Empty when the platform can't be inferred. */
+  nativePlatforms: string[]
 }
 
 /** Collect files under `dir` (recursively) whose name ends with one of `exts`. */
@@ -198,10 +203,20 @@ export async function buildStandalone(opts: {
 
   let fileCount = 0
   let byteCount = 0
+  // Native binaries lock the artifact to one platform. nft copies the BUILD host's, so record
+  // which one(s) — sharp names its binary `sharp-<platform>.node` (platform carries OS+arch+libc,
+  // e.g. darwin-arm64, linux-x64, linuxmusl-x64), and any other `.node` counts toward the lock.
+  let nativeBinaries = 0
+  const nativePlatforms = new Set<string>()
   for (const rel of fileList) {
     const srcAbs = path.join(base, rel)
     // Never copy the output into itself.
     if (path.resolve(srcAbs).startsWith(path.resolve(standaloneDir))) continue
+    if (rel.endsWith('.node')) {
+      nativeBinaries += 1
+      const m = rel.match(/sharp-((?:linuxmusl|linux|darwin|win32)-[a-z0-9]+)\.node$/)
+      if (m) nativePlatforms.add(m[1])
+    }
     const n = await copyEntry(srcAbs, path.join(standaloneDir, rel))
     fileCount += 1
     byteCount += n
@@ -269,6 +284,8 @@ export async function buildStandalone(opts: {
     entry,
     fileCount: fileCount + 1,
     byteCount,
-    warnings: [...warnings].map(w => w.message)
+    warnings: [...warnings].map(w => w.message),
+    nativeBinaries,
+    nativePlatforms: [...nativePlatforms]
   }
 }

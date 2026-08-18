@@ -125,6 +125,26 @@ program
           `Standalone artifact: ${res.fileCount} files (${mb} MB) → ${path.relative(cwd, res.outDir)}\n` +
             `  Run: node ${path.relative(cwd, res.launcher)}`
         )
+        // Platform-lock guard: native binaries were traced for the BUILD host only, so the
+        // artifact runs solely on a matching OS·arch·libc. Warn loudly for the classic footgun
+        // (building on macOS/Windows for a Linux deploy — the binaries won't load there).
+        if (res.nativeBinaries > 0) {
+          const locked = res.nativePlatforms.length
+            ? res.nativePlatforms.join(', ')
+            : `${process.platform}-${process.arch}`
+          const lead =
+            `Bundled ${res.nativeBinaries} native binar${res.nativeBinaries === 1 ? 'y' : 'ies'} for ` +
+            `${locked} — this artifact runs ONLY on a matching platform (OS · arch · libc).`
+          if (process.platform === 'darwin' || process.platform === 'win32') {
+            consola.warn(
+              `${lead}\n  You built on ${process.platform}; production is almost always Linux, where ` +
+                `these WON'T load. Build inside a Linux container matching your deploy target (see the ` +
+                `standalone Dockerfile).`
+            )
+          } else {
+            consola.info(`${lead} Build on your deploy target's platform to keep them aligned.`)
+          }
+        }
         if (res.warnings.length) {
           // First line of each (nft messages can carry a stack); dedupe for the count/list.
           const uniq = [...new Set(res.warnings.map(w => w.split('\n')[0].trim()))]
