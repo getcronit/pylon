@@ -68,22 +68,63 @@ one click.
 
 ## Structured logging
 
-Beyond exception capture, two streams of structured logs are always available:
+Pylon ships a structured, request-correlated runtime logger, plus per-job logs and
+dev-time error printing.
 
-- **Job logs.** A queue processor's `log()` helper writes structured, timestamped
-  entries attached to the job, so you can trace a background job's progress and
-  retries — see [background jobs](/docs/queues/overview).
+### Application logs
 
-  ```ts
-  reportQueue.process(async ({data, job, log}) => {
-    await log(`building report for ${data.month}`)
-    // ...
-  })
-  ```
+Log from a resolver, route, or job through the runtime logger. `logger(tag)` returns a
+lazy, tagged logger you assign once per module — it re-resolves the current request/job
+scope on every call, so every entry is automatically correlated to the in-flight request
+without you threading anything through:
 
-- **Resolver errors in development.** When you run `pylon dev`, thrown resolver
-  errors print to the console with the operation and stack, so you see failures
-  immediately without leaving the terminal.
+```ts
+import {Pylon, logger} from '@getcronit/pylon'
+
+const log = logger('billing')
+
+export default new Pylon({
+  graphql: {
+    Query: {
+      invoice: async (id: string) => {
+        log.info('fetching invoice', {id})
+        return getInvoice(id)
+      }
+    }
+  }
+})
+```
+
+Each level — `trace`, `debug`, `info`, `warn`, `error`, `fatal` — takes a message and an
+optional fields object. To reach the current scoped logger without a module tag, call
+`getLogger()`. Advanced escape hatches: bind a logger around a block with
+`runWithLogger(log, fn)`, reach the process-wide logger with `getRootLogger()`, or build a
+standalone one with `createLogger({level, sink, tag})`.
+
+Configure it from [`pylon.config`](/docs/reference/config) via the `logger` option (a
+`LoggerConfig`: `level`, `format`, `base`, `redact`, `sink`), or set `LOG_LEVEL` in the
+environment (it also accepts per-tag overrides). In development the logger prints a
+colorized line — and an expandable object in the Chrome DevTools console when you run
+[`pylon dev --inspect`](/docs/reference/cli); in production it emits one JSON object per
+line.
+
+### Job logs
+
+A queue processor's `log()` helper writes structured, timestamped entries attached to the
+job, so you can trace a background job's progress and retries — see
+[background jobs](/docs/queues/overview):
+
+```ts
+reportQueue.process(async ({data, job, log}) => {
+  await log(`building report for ${data.month}`)
+  // ...
+})
+```
+
+### Resolver errors in development
+
+When you run `pylon dev`, thrown resolver errors print to the console with the operation
+and stack, so you see failures immediately without leaving the terminal.
 
 :::note
 Distinguish *expected* from *unexpected* errors. Domain errors like
