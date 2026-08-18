@@ -287,11 +287,11 @@ The one rule: reach for `logger(tag)` / `getLogger()` **at call time** rather th
 
 `config.logger: false` keeps working (skips the access line). Phased:
 
-1. **Core**: `Logger`, `rootLogger`, `getLogger`, `logger(tag)`, `child`/`withTag`, the
+1. **Core** ✅ (d1276e4): `Logger`, `rootLogger`, `getLogger`, `logger(tag)`, `child`/`withTag`, the
    `loggerContext` ALS + `runWithLogger`; the HTTP middleware (request-id generation + request
    child + structured access line) replacing `except(…, hono/logger)`.
-2. **Config**: the object form (level/format/base/redact/sink) + **per-tag levels** + env
-   overrides (`LOG_LEVEL=info,db=debug`); `'auto'` format.
+2. **Config** ✅ (1c6a988): the object form (level/format/base/redact/sink) + **per-tag levels** +
+   env overrides (`LOG_LEVEL=info,db=debug`); `'auto'` format.
 3. **Errors**: replace `onError`'s `console.error` with `getLogger().error`; add a GraphQL
    `onExecuteDone` hook that logs execution errors — `useSentry`'s `@sentry/node` capture stays
    independent.
