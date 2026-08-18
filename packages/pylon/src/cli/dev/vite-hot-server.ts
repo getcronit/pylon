@@ -64,9 +64,13 @@ export async function createViteHotServer(
     // This runner never serves a browser and imports only server `src` (framework
     // external), so it needs no browser dep pre-bundling — skip discovery entirely.
     optimizeDeps: {noDiscovery: true, include: []},
-    // Keep the framework (and its deps) a single durable Node instance shared with the
-    // tsx-loaded server.mjs — the make-or-break for the swap.
-    ssr: {external: ['@getcronit/pylon', ...(options.external ?? [])]}
+    // Externalize ALL deps: this runner executes the app's `src` + the built pages bundle,
+    // but every node_module should be loaded natively by Node — routing them through Vite's
+    // SSR transform ESM-ifies CJS packages and breaks their dynamic `require`s. (JSON/CSS that
+    // those native deps pull in are handled by the loader hooks registered in dev-server.ts.)
+    // Keeps the framework a single durable Node instance shared with the tsx-loaded
+    // server.mjs — the make-or-break for the swap.
+    ssr: {external: true}
   })
 
   // Prefer the modern Environment-API ModuleRunner; fall back to legacy ssrLoadModule.

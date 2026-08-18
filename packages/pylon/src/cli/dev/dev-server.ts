@@ -12,6 +12,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import {register} from 'node:module'
 
 import chokidar from 'chokidar'
 import consola from 'consola'
@@ -42,6 +43,11 @@ export async function startDevServer(opts: {port: number}): Promise<DevServer> {
   const outDir = path.join(cwd, '.pylon')
   process.env.NODE_ENV = 'development'
   process.env.PYLON_DEV = '1'
+  // Node loader hooks for the externalized deps: stamp `type: 'json'` on .json (so a dep's bare
+  // `require('./x.json')` doesn't need an import attribute) and no-op server-side .css imports.
+  // Registered before anything loads the app. See dev-loader-hooks.ts.
+  register('./dev-loader-hooks.js', import.meta.url)
+
   // Debugging `pylon dev`: hold the inspector on THIS process so the rolldown-vite workers we
   // spawn below don't race it for port 9229 (the "address already in use ×N" noise) and steal
   // the DevTools attach — your resolvers run here, so this is the process you want to break in.
