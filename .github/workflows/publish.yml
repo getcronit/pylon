@@ -193,6 +193,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write # post the canary-versions report comment
+      issues: write # delete the prior report comment so the new one lands at the bottom
       id-token: write # OIDC trusted publishing to npm (no stored NPM_TOKEN)
     steps:
       - name: Checkout
@@ -286,10 +287,18 @@ jobs:
                 `or the publish step failed — check the job log).`;
             const { owner, repo } = context.repo;
             const issue_number = context.issue.number;
+            // Delete any prior canary-report comment, then post a fresh one — so the report
+            // always lands at the BOTTOM of the PR. An in-place update stays at the original
+            // comment's position, which GitHub collapses into the folded history and is easy to
+            // miss. Deletes are best-effort (never fail the publish job over a comment).
             const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number });
-            const existing = comments.find(c => c.body && c.body.includes(marker));
-            if (existing) {
-              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
-            } else {
-              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            for (const c of comments) {
+              if (c.body && c.body.includes(marker)) {
+                try {
+                  await github.rest.issues.deleteComment({ owner, repo, comment_id: c.id });
+                } catch (e) {
+                  core.warning(`Could not delete prior canary comment ${c.id}: ${e.message}`);
+                }
+              }
             }
+            await github.rest.issues.createComment({ owner, repo, issue_number, body });
