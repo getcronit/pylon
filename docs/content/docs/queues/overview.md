@@ -168,33 +168,11 @@ export class Heartbeat extends Queue {
 }
 ```
 
-## Lower-level alternatives
+## Scheduled jobs
 
-The class form is the recommended surface, but the function-style API remains
-valid and is occasionally handier for one-off or dynamically named queues.
-
-`defineQueue<T, R>(name, options)` creates a queue typed by payload `T` and result
-`R`; `.process()` registers its handler:
-
-```ts title="src/queues.ts"
-import {defineQueue} from '@getcronit/pylon/queues'
-import {z} from 'zod'
-
-export const sendEmail = defineQueue('send-email', {
-  schema: z.object({to: z.string().email(), subject: z.string()}),
-  attempts: 3,
-  backoff: {type: 'exponential', delay: 1000},
-  concurrency: 5
-})
-
-sendEmail.process(async ({data, job, log}) => {
-  await log(`attempt ${job.attemptsMade + 1} → ${data.to}`)
-  await mailer.send(data.to, data.subject)
-})
-```
-
+The class form above is the queue authoring API. For recurring work,
 `cron(name, pattern, handler)` registers a scheduled queue and its handler in one
-call:
+call (a class queue can also schedule itself with `static config = {cron: '…'}`):
 
 ```ts title="src/queues.ts"
 import {cron} from '@getcronit/pylon/queues'

@@ -1,5 +1,7 @@
+// The public authoring API is the class form (`class extends Queue` + `manager`, below).
+// The legacy functional `defineQueue(name).process()` has been removed; `cron` remains for
+// scheduled jobs, and `createQueue` is an internal engine factory (not re-exported here).
 export {
-  defineQueue,
   cron,
   startWorkers,
   registeredQueues,

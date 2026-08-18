@@ -7,11 +7,11 @@ import {afterAll, beforeAll, describe, expect, it} from 'vitest'
 import {
   closeConnection,
   createPgOutbox,
-  defineQueue,
   relayOnce,
   setConnection,
   setOutboxDriver
 } from '@/queues/index'
+import {createQueue} from '@/queues/queue'
 
 const REDIS = process.env.REDIS_URL ?? 'redis://localhost:6380'
 const PG = process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'
@@ -43,7 +43,7 @@ describe.skipIf(!run)('transactional outbox (Postgres + Redis)', () => {
   })
 
   it('enqueues on COMMIT (via the outbox + relay), never directly during the txn', async () => {
-    const q = defineQueue<{v: number}>(`ob-commit-${Date.now()}`)
+    const q = createQueue<{v: number}>(`ob-commit-${Date.now()}`)
     const seen: number[] = []
     q.process(({data}) => {
       seen.push(data.v)
@@ -65,7 +65,7 @@ describe.skipIf(!run)('transactional outbox (Postgres + Redis)', () => {
   })
 
   it('does NOT enqueue on ROLLBACK (no phantom job)', async () => {
-    const q = defineQueue<{v: number}>(`ob-rollback-${Date.now()}`)
+    const q = createQueue<{v: number}>(`ob-rollback-${Date.now()}`)
     const seen: number[] = []
     q.process(({data}) => {
       seen.push(data.v)
@@ -87,7 +87,7 @@ describe.skipIf(!run)('transactional outbox (Postgres + Redis)', () => {
   })
 
   it('outside a transaction, add() goes straight to Redis (no relay needed)', async () => {
-    const q = defineQueue<{v: number}>(`ob-direct-${Date.now()}`)
+    const q = createQueue<{v: number}>(`ob-direct-${Date.now()}`)
     const seen: number[] = []
     q.process(({data}) => {
       seen.push(data.v)

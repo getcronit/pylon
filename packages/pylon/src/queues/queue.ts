@@ -1,13 +1,8 @@
 /**
- * Typed queues over BullMQ. Define a queue with a payload schema + defaults;
- * enqueue from anywhere (resolvers, services, signals); process in the worker.
- *
- *   const emailSend = defineQueue('email-send', {
- *     schema: z.object({ticketId: z.string()}),
- *     attempts: 3, backoff: {type: 'exponential', delay: 1000}, concurrency: 5,
- *   })
- *   await emailSend.add({ticketId})              // enqueue
- *   emailSend.process(async ({data, ctx}) => …)  // worker (in `pylon worker`)
+ * Typed queues over BullMQ — the ENGINE (`QueueDefinition` + the worker/registry). The public
+ * authoring API is the class form (`class X extends Queue.input(schema)` + `static jobs =
+ * manager(X)`); see queue-class.ts. `createQueue` is the internal factory both paths build on (it
+ * registers into the worker registry); `cron` is the functional convenience for scheduled jobs.
  */
 import {Queue as BullQueue, QueueEvents, Worker, type Job, type JobsOptions} from 'bullmq'
 import {getConnection} from './connection.js'
@@ -227,11 +222,12 @@ export class QueueDefinition<T, R = void> {
 }
 
 /**
- * Define (and register) a typed queue. The optional second type param `R` is the
- * processor's RESULT type, surfaced by `dispatch` (defaults to `void` for
- * fire-and-forget queues).
+ * INTERNAL factory: create (and register in the worker registry) a typed queue. Both authoring
+ * paths — the `Queue` class form and `cron` — build on this; it is NOT the public authoring API
+ * (that's `class extends Queue`). The optional second type param `R` is the processor's RESULT
+ * type, surfaced by `dispatch` (defaults to `void` for fire-and-forget queues).
  */
-export function defineQueue<T = unknown, R = void>(
+export function createQueue<T = unknown, R = void>(
   name: string,
   options: QueueOptions<T> = {}
 ): QueueDefinition<T, R> {
@@ -265,7 +261,7 @@ export function cron(
   handler: Processor<void>,
   options: QueueOptions<void> = {}
 ): QueueDefinition<void> {
-  const q = defineQueue<void>(name, options)
+  const q = createQueue<void>(name, options)
   q.process(handler)
   crons.push({queue: q, pattern})
   return q

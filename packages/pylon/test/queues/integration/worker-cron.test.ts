@@ -5,10 +5,10 @@ import {afterAll, beforeAll, describe, expect, it} from 'vitest'
 import {
   closeConnection,
   cron,
-  defineQueue,
   setConnection,
   startWorkers
 } from '@/queues/index'
+import {createQueue} from '@/queues/queue'
 
 const REDIS = process.env.REDIS_URL ?? 'redis://localhost:6380'
 const run = process.env.PYLON_QUEUES_IT || process.env.REDIS_URL
@@ -27,7 +27,7 @@ describe.skipIf(!run)('cron + worker start (Redis)', () => {
   afterAll(() => closeConnection())
 
   it('process() registers but does NOT consume until startWorker()', async () => {
-    const q = defineQueue<{v: number}>(`reg-${Date.now()}`)
+    const q = createQueue<{v: number}>(`reg-${Date.now()}`)
     const seen: number[] = []
     q.process(({data}) => {
       seen.push(data.v)

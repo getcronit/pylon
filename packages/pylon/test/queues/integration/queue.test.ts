@@ -2,7 +2,8 @@
  * Core queue behavior against a real Redis (docker-compose.yml → 6380).
  */
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
-import {closeConnection, defineQueue, setConnection} from '@/queues/index'
+import {closeConnection, setConnection} from '@/queues/index'
+import {createQueue} from '@/queues/queue'
 
 const REDIS = process.env.REDIS_URL ?? 'redis://localhost:6380'
 const runRedis = process.env.REDIS_URL || process.env.PYLON_QUEUES_IT
@@ -12,7 +13,7 @@ describe.skipIf(!runRedis)('queues (Redis)', () => {
   afterAll(() => closeConnection())
 
   it('enqueues and processes a typed job', async () => {
-    const q = defineQueue<{n: number}>(`double-${Date.now()}`, {concurrency: 2})
+    const q = createQueue<{n: number}>(`double-${Date.now()}`, {concurrency: 2})
     const out: number[] = []
     const done = new Promise<void>(resolve => {
       q.process(({data}) => {
@@ -28,7 +29,7 @@ describe.skipIf(!runRedis)('queues (Redis)', () => {
   })
 
   it('validates job data against the schema on enqueue', async () => {
-    const q = defineQueue<{id: string}>(`val-${Date.now()}`, {
+    const q = createQueue<{id: string}>(`val-${Date.now()}`, {
       schema: {
         parse(d: any) {
           if (typeof d?.id !== 'string') throw new Error('id must be a string')
@@ -41,7 +42,7 @@ describe.skipIf(!runRedis)('queues (Redis)', () => {
   })
 
   it('dispatch enqueues and awaits the processor result (waitUntilFinished)', async () => {
-    const q = defineQueue<{n: number}, number>(`sum-${Date.now()}`)
+    const q = createQueue<{n: number}, number>(`sum-${Date.now()}`)
     q.process(({data}) => data.n + 1) // typed result R = number
     q.startWorker()
     const result = await q.dispatch({n: 41})
@@ -50,7 +51,7 @@ describe.skipIf(!runRedis)('queues (Redis)', () => {
   })
 
   it('dispatch rejects when the job fails', async () => {
-    const q = defineQueue<{x: number}>(`boom-${Date.now()}`, {attempts: 1})
+    const q = createQueue<{x: number}>(`boom-${Date.now()}`, {attempts: 1})
     q.process(() => {
       throw new Error('kaboom')
     })
@@ -60,7 +61,7 @@ describe.skipIf(!runRedis)('queues (Redis)', () => {
   })
 
   it('retries a failing job up to `attempts`', async () => {
-    const q = defineQueue<{x: number}>(`retry-${Date.now()}`, {
+    const q = createQueue<{x: number}>(`retry-${Date.now()}`, {
       attempts: 3,
       backoff: {type: 'fixed', delay: 10}
     })

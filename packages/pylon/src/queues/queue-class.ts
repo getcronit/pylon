@@ -25,7 +25,7 @@
 import type {JobsOptions} from 'bullmq'
 
 import {
-  defineQueue,
+  createQueue,
   registerCron,
   type JobContext,
   type QueueDefinition,
@@ -132,7 +132,7 @@ export function registerQueueClass(
   // the erased payload type can't give once the job is serialized to Redis.
   const schema = queueOptions.schema ?? attachedSchema(Ctor)
   const instance = new Ctor()
-  const def = defineQueue(fqName, {...queueOptions, schema}).process(ctx =>
+  const def = createQueue(fqName, {...queueOptions, schema}).process(ctx =>
     instance.process(ctx)
   )
   defs.set(Ctor, def)
