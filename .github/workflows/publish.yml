@@ -141,9 +141,10 @@ jobs:
           cache: 'pnpm'
           registry-url: 'https://registry.npmjs.org'
 
-      # OIDC trusted publishing needs npm >= 11.5.1; node 20 ships npm 10.
+      # OIDC trusted publishing needs npm >= 11.5.1; node 20 ships npm 10. Pin to 11.x:
+      # npm@latest is now 12.x, which requires node >= 22 and fails on this runner's node 20.
       - name: Upgrade npm for OIDC publishing
-        run: npm i -g npm@latest
+        run: npm i -g npm@11
 
       - name: Setup pnpm store
         run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
@@ -210,9 +211,10 @@ jobs:
           cache: 'pnpm'
           registry-url: 'https://registry.npmjs.org'
 
-      # OIDC trusted publishing needs npm >= 11.5.1; node 20 ships npm 10.
+      # OIDC trusted publishing needs npm >= 11.5.1; node 20 ships npm 10. Pin to 11.x:
+      # npm@latest is now 12.x, which requires node >= 22 and fails on this runner's node 20.
       - name: Upgrade npm for OIDC publishing
-        run: npm i -g npm@latest
+        run: npm i -g npm@11
 
       - name: Install dependencies
         run: pnpm i --frozen-lockfile
