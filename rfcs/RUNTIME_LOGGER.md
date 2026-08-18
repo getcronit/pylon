@@ -13,7 +13,8 @@ Today the runtime logs requests via `hono/logger` (a human-formatted access line
 - **Not request-scoped beyond the access line.** A resolver that wants to log has no
   request-correlated logger (no requestId, principal, tenant).
 - **No coverage of resolvers, queues, or SSR.** Only the HTTP access line is logged.
-- **No integration story.** Errors, Sentry (`useSentry`/Toucan), and app logs are unrelated.
+- **No integration story.** Errors, Sentry (the opt-in `useSentry` plugin), and app logs are
+  unrelated — a resolver error and its Sentry capture share no structured record.
 
 ## Goals
 
@@ -170,10 +171,20 @@ on framework logs too, not just yours.
 ### 6. Integration surface
 
 - **Resolvers / user code**: `import { getLogger } from '@getcronit/pylon'` → request-correlated.
-- **Errors → Sentry**: the error-mapping layer (Yoga `onExecuteDone` / `Pylon.onError`) logs at
-  `error`/`fatal` with the mapped code + stack, then the **existing** `useSentry` plugin captures
-  via the request `Toucan`. One structured event **and** a Sentry capture; the logger never
-  hard-depends on Sentry. (Optionally a `sentrySink` users can compose.)
+- **Errors** — there are **two independent** error paths today; the logger slots into both without
+  owning either, and stays fully decoupled from Sentry:
+  - **Route errors** — `Pylon.onError` (`app/index.ts`) maps a thrown `statusCode` → HTTP status
+    (pylon-db's 403/404, `HTTPException`) and, for an *unexpected* error, currently does a raw
+    `console.error('[pylon] unhandled error:', err)`. The logger simply **replaces that line** with
+    `getLogger().error('unhandled route error', {err})` — structured, correlated, leveled; the
+    expected 403/404 denials stay quiet (or `debug`).
+  - **GraphQL errors** — masked/formatted by Yoga in the handler. Add a small Envelop
+    `onExecuteDone` hook that logs execution errors at `error` (correlated). This is **separate**
+    from the **opt-in** `useSentry` plugin, which independently captures *non-`GraphQLError`*
+    exceptions to Sentry via `@sentry/node` (with a transaction/span). The Sentry capture is **not**
+    wired through the logger, and the logger never depends on Sentry.
+  - Apps that *want* structured-log errors mirrored to Sentry can compose a `sentrySink`
+    (`record.level >= 'error' → Sentry.captureException`) — opt-in, not the default.
 - **Queues / worker** — the important one, because a BullMQ job already has a *second* log
   destination. Pylon's `JobContext` exposes `log(message)`, wired to `job.log(m)` — BullMQ's
   **persisted per-job log** (stored in Redis, shown in the queue dashboard), distinct from stdout.
@@ -230,7 +241,8 @@ export const graphql = {
         log.info('charge ok', {chargeId: c.id})
         return c
       } catch (err) {
-        log.error('charge failed', {amount, err})     // structured event + Sentry capture
+        log.error('charge failed', {amount, err})     // structured error event (the `throw`
+                                                       // below is what useSentry captures, if on)
         throw err
       }
     }
@@ -272,7 +284,9 @@ The one rule: reach for `logger(tag)` / `getLogger()` **at call time** rather th
    + structured access line (replaces `hono/logger`). `Variables.logger`.
 2. **Config**: the object form (level/format/base/redact/sink) + **per-tag levels** + env
    overrides (`LOG_LEVEL=info,db=debug`); `'auto'` format.
-3. **Errors/Sentry**: error path logs structured + keeps the Toucan capture.
+3. **Errors**: replace `onError`'s `console.error` with `getLogger().error`; add a GraphQL
+   `onExecuteDone` hook that logs execution errors — `useSentry`'s `@sentry/node` capture stays
+   independent.
 4. **Queues**: job-runner logger scope (`{queue, jobId, attempt}`, tag `queue:<name>`) with the
    stdout + `job.log()` fan-out sink; `ctx.log` → `getLogger().info`; outbox relay tagged `outbox`.
 5. **Pretty formatter**: lazy dev module (kept out of the prod trace).
