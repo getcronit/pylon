@@ -22,6 +22,11 @@ replaces the `hono/logger` text access line and exposes a request-correlated log
   (request-correlated); GraphQL execution errors via an envelop hook — server exceptions at
   `error` (tagged `graphql`), client `GraphQLError`s at `debug`. This is independent of Sentry:
   `useSentry` still captures separately.
+- **Queue jobs** run in a correlated logger scope (`{queue, jobId, attempt}`, tag `queue:<name>`)
+  that **fans out** to both stdout *and* BullMQ's persisted `job.log` (dashboard). `ctx.log` now
+  routes through the logger. The `job.log` tee has its own threshold (`config.logger.job.level`,
+  default `info`) so `debug`-on-stdout doesn't bloat Redis. The outbox relay logs under an
+  `outbox` tag and surfaces previously-silent tick errors.
 
 ### Note: access-log format changed
 

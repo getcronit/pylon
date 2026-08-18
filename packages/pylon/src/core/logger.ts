@@ -39,6 +39,9 @@ export interface Logger {
   child(bindings: LogFields): Logger
   /** A logger tagged with a hierarchical component label; composes with `:` (a → a:b). */
   withTag(tag: string): Logger
+  /** A logger that ALSO fans each record (at or above `minLevel`, default `info`) to `sink` —
+   *  e.g. a BullMQ `job.log`. The primary stdout sink + level gate are unchanged. */
+  tee(sink: LogSink, minLevel?: LogLevel): Logger
   /** The effective minimum level for THIS logger's tag (resolved against per-tag config). */
   readonly level: LogLevel
 }
@@ -62,11 +65,14 @@ type Sink = LogSink
 /** Default sink: one JSON line. `console` exists on every runtime; no deps. */
 const jsonSink: Sink = record => console.log(JSON.stringify(record))
 
-/** Minimal dev formatter — inline, no colors/deps (the rich pretty printer is Phase 5). */
-const lineSink: Sink = record => {
+/** Render a record as a single human line (dev format + BullMQ job.log dashboard lines). */
+export const renderLine = (record: LogRecord): string => {
   const tag = record.tag ? `[${record.tag}] ` : ''
-  console.log(`${record.level.toUpperCase().padEnd(5)} ${tag}${record.msg}${fieldsTail(record)}`)
+  return `${record.level.toUpperCase().padEnd(5)} ${tag}${record.msg}${fieldsTail(record)}`
 }
+
+/** Minimal dev formatter — inline, no colors/deps (the rich pretty printer is Phase 5). */
+const lineSink: Sink = record => console.log(renderLine(record))
 
 const RESERVED = new Set(['time', 'level', 'msg', 'tag'])
 
@@ -140,6 +146,7 @@ export function parseLevelSpec(spec: string): LogLevel | Record<string, LogLevel
 
 interface LoggerState {
   sink: Sink
+  tees: {sink: Sink; min: number}[]
   levelFor: LevelResolver
   tag?: string
   bindings: LogFields
@@ -152,6 +159,7 @@ function makeLogger(state: LoggerState): Logger {
     for (const key of Object.keys(record)) record[key] = normalize(record[key])
     if (state.tag) record.tag = state.tag
     state.sink(record)
+    for (const t of state.tees) if (RANK[level] >= t.min) t.sink(record)
   }
   return {
     trace: (m, f) => emit('trace', m, f),
@@ -162,6 +170,8 @@ function makeLogger(state: LoggerState): Logger {
     fatal: (m, f) => emit('fatal', m, f),
     child: bindings => makeLogger({...state, bindings: {...state.bindings, ...bindings}}),
     withTag: tag => makeLogger({...state, tag: state.tag ? `${state.tag}:${tag}` : tag}),
+    tee: (sink, minLevel) =>
+      makeLogger({...state, tees: [...state.tees, {sink, min: RANK[minLevel ?? 'info']}]}),
     get level() {
       return RANK_TO_LEVEL[state.levelFor(state.tag)] ?? 'info'
     }
@@ -179,6 +189,7 @@ export const createLogger = (
 ): Logger =>
   makeLogger({
     sink: opts.sink ?? jsonSink,
+    tees: [],
     levelFor: resolverFor(opts.level ?? 'info'),
     tag: opts.tag,
     bindings: opts.bindings ?? {}
@@ -240,6 +251,7 @@ export const logger = (tag: string): Logger => {
     fatal: (m, f) => resolve().fatal(m, f),
     child: b => resolve().child(b),
     withTag: t => resolve().withTag(t),
+    tee: (s, min) => resolve().tee(s, min),
     get level() {
       return resolve().level
     }
@@ -259,7 +271,14 @@ export interface LoggerConfig {
   redact?: string[]
   /** Override the destination entirely (pino, OTel, a file, …). Wins over `format`. */
   sink?: LogSink
+  /** Queue jobs also tee their logs to BullMQ's persisted per-job log (dashboard). This is its
+   *  threshold — separate from stdout — so debug-on-stdout doesn't bloat Redis. Default `info`. */
+  job?: {level?: LogLevel}
 }
+
+let jobLogLvl: LogLevel = 'info'
+/** The threshold for the queue `job.log()` tee (from `config.logger.job.level`). */
+export const jobLogLevel = (): LogLevel => jobLogLvl
 
 const sinkForFormat = (format: 'json' | 'pretty' | 'auto'): Sink =>
   format === 'json' ? jsonSink : format === 'pretty' ? lineSink : isDev() ? lineSink : jsonSink
@@ -303,6 +322,8 @@ export const configureLogger = (cfg: boolean | LoggerConfig | undefined): void =
   const format = (env('PYLON_LOG_FORMAT') as LoggerConfig['format']) ?? obj.format ?? 'auto'
   let sink = obj.sink ?? sinkForFormat(format)
   if (obj.redact?.length) sink = redactSink(obj.redact, sink)
+
+  jobLogLvl = obj.job?.level ?? 'info'
 
   __setRootLogger(createLogger({level, sink, bindings: obj.base}))
 }

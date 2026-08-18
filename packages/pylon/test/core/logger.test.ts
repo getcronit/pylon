@@ -41,6 +41,17 @@ describe('Logger core', () => {
     expect(getLogger()).toBe(getRootLogger()) // scope popped
   })
 
+  it('tee fans records to a second sink at/above its minLevel', () => {
+    const main: LogRecord[] = []
+    const tee: LogRecord[] = []
+    const log = createLogger({level: 'trace', sink: r => main.push(r)}).tee(r => tee.push(r), 'info')
+    log.debug('dbg') // main only (below the tee's min)
+    log.info('inf') // both
+    log.error('err') // both
+    expect(main.map(r => r.msg)).toEqual(['dbg', 'inf', 'err'])
+    expect(tee.map(r => r.msg)).toEqual(['inf', 'err'])
+  })
+
   it('logger(tag) is lazy — resolves the current scope on each call', () => {
     const out: LogRecord[] = []
     const original = getRootLogger()

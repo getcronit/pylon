@@ -13,6 +13,7 @@
  */
 import type {JobsOptions} from 'bullmq'
 import {registeredQueues} from './queue.js'
+import {getRootLogger, runWithLogger} from '../core/logger.js'
 
 export interface OutboxRow {
   id: number | string
@@ -63,12 +64,18 @@ export function runOutboxRelay(opts: {intervalMs?: number} = {}): () => Promise<
   let timer: ReturnType<typeof setTimeout> | undefined
   const tick = async () => {
     if (stopped) return
+    // Run the drain inside an `outbox`-tagged logger scope so relay logs are correlated, and
+    // surface transient DB/Redis errors (previously swallowed silently) at warn — the loop
+    // still retries next tick.
+    const log = getRootLogger().withTag('outbox')
     try {
-      while ((await relayOnce()) > 0) {
-        /* drain */
-      }
-    } catch {
-      /* keep looping; transient DB/Redis errors retry next tick */
+      await runWithLogger(log, async () => {
+        while ((await relayOnce()) > 0) {
+          /* drain */
+        }
+      })
+    } catch (err) {
+      log.warn('relay tick failed (retrying next tick)', {err})
     }
     if (!stopped) timer = setTimeout(tick, interval)
   }

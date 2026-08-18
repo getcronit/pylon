@@ -12,6 +12,7 @@
 import {Queue as BullQueue, QueueEvents, Worker, type Job, type JobsOptions} from 'bullmq'
 import {getConnection} from './connection.js'
 import {getOutboxDriver} from './outbox.js'
+import {getRootLogger, jobLogLevel, renderLine, runWithLogger} from '../core/logger.js'
 
 /** Anything with a synchronous `.parse()` (Zod/Valibot/ArkType, …). Optional. */
 export interface PayloadSchema<T> {
@@ -48,6 +49,32 @@ type JobRunner = (job: Job, fn: () => Promise<unknown>) => Promise<unknown>
 let jobRunner: JobRunner = (_job, fn) => fn()
 export function setJobRunner(runner: JobRunner): void {
   jobRunner = runner
+}
+
+/**
+ * Run a job's processor inside a per-job logger scope (rfcs/RUNTIME_LOGGER.md — Phase 4).
+ *
+ * The scope logger is correlated (`{queue, jobId, attempt}`), tagged `queue:<name>`, and FANNED
+ * OUT to BullMQ's persisted `job.log` (dashboard) at/above the job-log threshold — on top of the
+ * normal stdout sink. So `getLogger()` inside the processor lands in both places, and `ctx.log`
+ * routes through it too. Composes with `jobRunner` (which `useQueues` sets to `getDatabase().run`).
+ * Exported for testing with a mock job (no Redis).
+ */
+export async function runJobWithLogging<T, R>(
+  queueName: string,
+  job: Job<T>,
+  data: T,
+  handler: Processor<T, R>
+): Promise<R> {
+  const jobLog = getRootLogger()
+    .child({queue: queueName, jobId: job.id, attempt: job.attemptsMade + 1})
+    .withTag(`queue:${queueName}`)
+    .tee(record => void job.log(renderLine(record)).catch(() => {}), jobLogLevel())
+  return (await runWithLogger(jobLog, () =>
+    jobRunner(job, () =>
+      Promise.resolve(handler({data, job, log: async m => void jobLog.info(m)}))
+    )
+  )) as R
 }
 
 export class QueueDefinition<T, R = void> {
@@ -169,15 +196,10 @@ export class QueueDefinition<T, R = void> {
   startWorker(): Worker<T, R> | undefined {
     if (!this.handler || this.worker) return this.worker
     const handler = this.handler
+    const queueName = this.name
     this.worker = new Worker<T, R>(
       this.name,
-      async job => {
-        const data = this.validate(job.data)
-        // The runner's return value flows back to BullMQ as the job's result.
-        return (await jobRunner(job, () =>
-          Promise.resolve(handler({data, job, log: async m => void (await job.log(m))}))
-        )) as R
-      },
+      async job => runJobWithLogging(queueName, job, this.validate(job.data), handler),
       {connection: getConnection() as any, concurrency: this.options.concurrency ?? 1}
     )
     return this.worker
