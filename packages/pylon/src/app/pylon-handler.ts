@@ -14,6 +14,7 @@ import path from 'path'
 import {app, Pylon} from '.'
 import {Plugin, PylonConfig} from '../core'
 import {Context} from '../core/context'
+import {setAccessLog} from '../core/logger'
 import {topoSortPlugins} from './plugin-order'
 import {resolversToGraphQLResolvers} from '../core/define-pylon'
 import {useUnhandledRoute} from '../plugins/use-unhandled-route'
@@ -111,6 +112,10 @@ export const executeConfig = async (
   // the composed child tree, so the pipeline middleware precedes every route.
   target.installBasePipeline()
   target.realize()
+
+  // Access-line toggle: `logger: false` silences the per-request access log (the request-scoped
+  // `getLogger()` still works). Applied at boot, not per request.
+  setAccessLog(config?.logger !== false)
 
   // Sentry is no longer auto-installed — apps opt in with `useSentry({dsn})` in their
   // config `plugins` (it now owns the HTTP middleware too). `useViewer` stays: it is

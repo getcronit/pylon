@@ -2,12 +2,27 @@ import {Hono, MiddlewareHandler} from 'hono'
 import {except} from 'hono/combine'
 import {compress} from 'hono/compress'
 import {HTTPException} from 'hono/http-exception'
-import {logger} from 'hono/logger'
 import type {ContentfulStatusCode} from 'hono/utils/http-status'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {asyncContext, Env} from '../core/context'
+import {accessLogEnabled, getRootLogger, runWithLogger} from '../core/logger'
 import type {PylonConfig} from '../core/index'
+
+/** A per-request correlation id: an inbound `x-request-id`, the trace-id of a W3C `traceparent`,
+ *  else a fresh UUID. Web Crypto is available on Node 19+, Bun, Deno and workerd. */
+function requestId(c: {req: {header(name: string): string | undefined}}): string {
+  return (
+    c.req.header('x-request-id') ??
+    c.req.header('traceparent')?.split('-')[1] ??
+    newId()
+  )
+}
+function newId(): string {
+  const g = globalThis as {crypto?: {randomUUID?: () => string}}
+  if (g.crypto?.randomUUID) return g.crypto.randomUUID()
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
+}
 
 type ResolverMap = Record<string, (...args: any[]) => any>
 
@@ -292,7 +307,29 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
       })
     })
 
-    this.use('*', except(['/__pylon/*'], logger()))
+    // Structured request logger (rfcs/RUNTIME_LOGGER.md). Replaces hono/logger: bind a request
+    // child (correlated by a generated id, `http`-tagged) into the logger scope so `getLogger()`
+    // is correlated in every downstream plugin/resolver/route, then emit one structured access
+    // line. Skips /__pylon/* (static assets) and the whole line when `config.logger: false`.
+    this.use(
+      '*',
+      except(['/__pylon/*'], (c, next) => {
+        const start = Date.now()
+        const reqLog = getRootLogger()
+          .child({
+            requestId: requestId(c),
+            method: c.req.method,
+            path: c.req.path
+          })
+          .withTag('http')
+        return runWithLogger(reqLog, async () => {
+          await next()
+          if (accessLogEnabled()) {
+            reqLog.info('request', {status: c.res.status, durationMs: Date.now() - start})
+          }
+        })
+      })
+    )
 
     this.use('*', (c, next) => {
       const dispatch = (i: number): Promise<void> => {
