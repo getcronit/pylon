@@ -63,7 +63,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'pnpm'
           registry-url: 'https://registry.npmjs.org'
 
@@ -137,14 +137,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'pnpm'
           registry-url: 'https://registry.npmjs.org'
 
-      # OIDC trusted publishing needs npm >= 11.5.1; node 20 ships npm 10. Pin to 11.x:
-      # npm@latest is now 12.x, which requires node >= 22 and fails on this runner's node 20.
+      # OIDC trusted publishing needs npm >= 11.5.1; the runner's node ships npm 10, so
+      # upgrade to latest. npm@latest (12.x) requires node >= 22, which this workflow now uses.
       - name: Upgrade npm for OIDC publishing
-        run: npm i -g npm@11
+        run: npm i -g npm@latest
 
       - name: Setup pnpm store
         run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
@@ -207,14 +207,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'pnpm'
           registry-url: 'https://registry.npmjs.org'
 
-      # OIDC trusted publishing needs npm >= 11.5.1; node 20 ships npm 10. Pin to 11.x:
-      # npm@latest is now 12.x, which requires node >= 22 and fails on this runner's node 20.
+      # OIDC trusted publishing needs npm >= 11.5.1; the runner's node ships npm 10, so
+      # upgrade to latest. npm@latest (12.x) requires node >= 22, which this workflow now uses.
       - name: Upgrade npm for OIDC publishing
-        run: npm i -g npm@11
+        run: npm i -g npm@latest
 
       - name: Install dependencies
         run: pnpm i --frozen-lockfile
@@ -322,7 +322,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'pnpm'
 
       - name: Install dependencies
