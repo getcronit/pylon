@@ -136,7 +136,35 @@ logger?:
 - Level gate is a single integer compare before building the record → `trace`/`debug` in a hot
   path cost ~nothing when the level is `info`.
 
-### 5. Integration surface
+### 5. Tags & per-tag levels
+
+A **tag** is a hierarchical *component* label (`db`, `queue:email`, `billing:stripe`) — distinct
+from `fields` (arbitrary structured data). It answers "which part of the app emitted this," and
+it's the axis you filter and **level** by. `withTag` composes:
+
+```ts
+const log = getLogger().withTag('billing')   // record.tag = "billing"
+log.withTag('stripe').info('charge ok')       // record.tag = "billing:stripe"
+```
+
+Stored as one `tag` string on the record. Ad-hoc labels that aren't a component stay ordinary
+fields — `log.warn('slow', { tags: ['n+1'] })`.
+
+**Per-tag levels — the reason tags are first-class.** `level` accepts a map, and `LOG_LEVEL` a
+comma list, so you can raise verbosity for ONE subsystem in production without flooding the rest:
+
+```ts
+logger: { level: { '*': 'info', db: 'debug', 'queue:email': 'trace' } }
+// or, no redeploy:
+LOG_LEVEL=info,db=debug,queue:email=trace
+```
+
+The gate resolves the **most-specific matching prefix** for a record's tag (`queue:email` beats
+`queue` beats `*`), so `db.debug(...)` fires while everything else stays at `info`. The framework
+tags its own output the same way — `http`, `graphql`, `db`, `queue`, `pages` — so these knobs work
+on framework logs too, not just yours.
+
+### 6. Integration surface
 
 - **Resolvers / user code**: `import { getLogger } from '@getcronit/pylon'` → request-correlated.
 - **Errors → Sentry**: the error-mapping layer (Yoga `onExecuteDone` / `Pylon.onError`) logs at
@@ -149,20 +177,75 @@ logger?:
 - **Pages SSR**: SSR runs inside the request pipeline, so `getLogger()` is already correlated in
   loaders/`useData`.
 
-### 6. Where it lives
+### 7. Where it lives
 
 **Core, not a plugin.** Logging is fundamental (the access line is already in `installBasePipeline`)
 and `getLogger()` must work everywhere unconditionally. What's user-controlled — level, format,
 redaction, sink — is `config.logger`, and *enrichment* is plugin-contributed. A `useLogger()`
 plugin is unnecessary; the seam is the config + the `sink`.
 
+## Using it from application code
+
+Two entry points, both from `@getcronit/pylon`:
+
+- **`getLogger()`** — the *current* request logger (or the root logger outside a request). Use it
+  inline; it's already correlated with `requestId` and (once plugins run) `principal`/`tenant`.
+- **`logger(tag)`** — a *module-scoped, lazy, tagged* logger. Assign it once at the top of a file;
+  it re-resolves the current request logger on every call, so it stays correlated **and** carries
+  the tag. This is the everyday ergonomic.
+
+```ts
+import {logger, getLogger} from '@getcronit/pylon'
+
+// Module scope — stable, tagged, still per-request-correlated (resolves lazily per call):
+const log = logger('billing')
+
+export const graphql = {
+  Mutation: {
+    async charge(amount: number): Promise<Charge> {
+      log.info('charge requested', {amount})          // tag=billing, + requestId/principal
+      try {
+        const c = await stripe.charge(amount)
+        log.info('charge ok', {chargeId: c.id})
+        return c
+      } catch (err) {
+        log.error('charge failed', {amount, err})     // structured event + Sentry capture
+        throw err
+      }
+    }
+  }
+}
+
+// Inline, with one-off bindings via child():
+export async function ship(orderId: string) {
+  const olog = getLogger().child({orderId})
+  olog.debug('picking items')                          // emitted only when the level allows
+  olog.info('shipped')
+}
+```
+
+Inside a **queue processor** it's the same call — the job is wrapped in a context scope, so the
+logger is correlated to `{queue, jobId, attempt}` automatically:
+
+```ts
+queue('email').process(async job => {
+  const log = logger('queue:email')
+  log.info('sending', {to: job.data.to})
+})
+```
+
+The one rule: reach for `logger(tag)` / `getLogger()` **at call time** rather than capturing
+`const log = getLogger()` at module top — a snapshot taken at import has no request context.
+`logger(tag)` sidesteps the trap by resolving lazily on each call.
+
 ## Back-compat & rollout
 
 `config.logger: false` keeps working (skips the access line). Phased:
 
-1. **Core**: `Logger`, `rootLogger`, `getLogger`, request child + structured access line
-   (replaces `hono/logger`). `Variables.logger`.
-2. **Config**: the object form (level/format/base/redact/sink) + env overrides; `'auto'` format.
+1. **Core**: `Logger`, `rootLogger`, `getLogger`, `logger(tag)`, `child`/`withTag`, request child
+   + structured access line (replaces `hono/logger`). `Variables.logger`.
+2. **Config**: the object form (level/format/base/redact/sink) + **per-tag levels** + env
+   overrides (`LOG_LEVEL=info,db=debug`); `'auto'` format.
 3. **Errors/Sentry**: error path logs structured + keeps the Toucan capture.
 4. **Queues**: per-job ALS scope + child logger.
 5. **Pretty formatter**: lazy dev module (kept out of the prod trace).
