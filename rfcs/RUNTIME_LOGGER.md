@@ -188,8 +188,8 @@ on framework logs too, not just yours.
     So one `getLogger().info('sending', {to})` inside a processor lands in *both* places.
   - **Reconcile the existing `ctx.log`.** `JobContext.log(msg)` becomes sugar for
     `getLogger().info(msg)` — so it now also reaches stdout (a strict improvement), and old code
-    keeps working. `ctx` still carries `data`/`job`; `getLogger()`/`logger('queue:'+name)` is the
-    richer, leveled, tagged path.
+    keeps working. `ctx` still carries `data`/`job`; `getLogger()` (already tagged `queue:<name>`
+    by the scope) is the richer, leveled path — sub-tag with `.withTag('smtp')` if you want.
   - **Keep Redis lean.** The `job.log()` sink has its **own** threshold (default `info`), separate
     from the stdout level — so cranking `queue:email=trace` on stdout for debugging doesn't flood
     the persisted per-job log. Configurable via `logger.job.level`.
@@ -245,16 +245,17 @@ export async function ship(orderId: string) {
 }
 ```
 
-Inside a **queue processor** it's the same call — the job runner wraps each job in the logger
-scope, so the logger is auto-correlated to `{queue, jobId, attempt}` **and tees to the job's
-persisted log** (dashboard) as well as stdout:
+Inside a **queue processor** (`defineQueue(name).process(...)`, or a `class extends Queue`) the job
+runner has already wrapped the job in the logger scope — so `getLogger()` is auto-tagged
+`queue:<name>`, correlated to `{jobId, attempt}`, **and teed to the job's persisted log**
+(dashboard) as well as stdout. No manual tagging:
 
 ```ts
-emailQueue.process(async ({data, job, log}) => {
-  // `log(msg)` is JobContext sugar → getLogger().info(msg): stdout + the job's dashboard log.
-  const jlog = logger('queue:email')              // structured, leveled, same dual destination
-  jlog.info('sending', {to: data.to})             // → stdout JSON  AND  job.log line
-  jlog.debug('smtp handshake', {host})            // stdout only unless the job-log level allows
+const emailSend = defineQueue('email', {schema}).process(async ({data, job, log}) => {
+  const jlog = getLogger()                    // already tagged queue:email + {jobId, attempt}
+  jlog.info('sending', {to: data.to})         // → stdout JSON  AND  the job's dashboard log
+  jlog.debug('smtp handshake', {host})        // stdout only unless the job-log level allows
+  await log('legacy line')                    // JobContext.log still works → getLogger().info
   await job.updateProgress(50)
 })
 ```
