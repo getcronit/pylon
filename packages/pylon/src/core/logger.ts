@@ -74,10 +74,21 @@ export const renderLine = (record: LogRecord): string => {
 /** Minimal dev formatter — inline, no colors/deps; the lazy fallback until the rich one loads. */
 const lineSink: Sink = record => console.log(renderLine(record))
 
-// The rich pretty formatter (Phase 5) is a DEV-ONLY module, loaded lazily via a variable
-// specifier so production (JSON) never evaluates it. Until it resolves, records use `lineSink`.
+// Was this process launched with `--inspect` (Chrome DevTools attaching)? Covers both
+// `node --inspect` (execArgv) and `NODE_OPTIONS=--inspect`. No `node:inspector` import → safe on
+// every runtime; only consulted on the dev/pretty path anyway.
+const inspectorActive = (): boolean =>
+  typeof process !== 'undefined' &&
+  ((Array.isArray(process.execArgv) && process.execArgv.some(a => a.startsWith('--inspect'))) ||
+    (process.env.NODE_OPTIONS ?? '').includes('--inspect'))
+
+/** Auto dev format: DevTools' expandable-object sink when `--inspect`, else the ANSI pretty line. */
+const devMode = (): 'devtools' | 'pretty' => (inspectorActive() ? 'devtools' : 'pretty')
+
+// The rich formatters (Phase 5) are a DEV-ONLY module, loaded lazily via a variable specifier so
+// production (JSON) never evaluates it. Until it resolves, records use `lineSink`.
 const prettyModule = './logger-pretty.js'
-const lazyPrettySink = (): Sink => {
+const lazyDevSink = (mode: 'pretty' | 'devtools'): Sink => {
   let real: Sink | undefined
   let loading = false
   return record => {
@@ -86,7 +97,9 @@ const lazyPrettySink = (): Sink => {
     if (!loading) {
       loading = true
       import(prettyModule)
-        .then((m: {prettySink: Sink}) => (real = m.prettySink))
+        .then((m: {prettySink: Sink; devtoolsSink: Sink}) => {
+          real = mode === 'devtools' ? m.devtoolsSink : m.prettySink
+        })
         .catch(() => {
           /* stay on lineSink */
         })
@@ -231,7 +244,7 @@ const envOrScalar = (): LogLevel | Record<string, LogLevel> => {
 
 let rootLogger: Logger = createLogger({
   level: envOrScalar(),
-  sink: isDev() ? lazyPrettySink() : jsonSink
+  sink: isDev() ? lazyDevSink(devMode()) : jsonSink
 })
 
 /** The process-wide root logger (used outside any request/job scope). */
@@ -283,8 +296,10 @@ export const logger = (tag: string): Logger => {
 export interface LoggerConfig {
   /** A scalar level, or a per-tag map (`{'*':'info', db:'debug'}`). Env `LOG_LEVEL` overrides. */
   level?: LogLevel | Record<string, LogLevel>
-  /** `'json'` (prod default) · `'pretty'` (terse line) · `'auto'` (pretty in dev, json in prod). */
-  format?: 'json' | 'pretty' | 'auto'
+  /** `'json'` (prod default) · `'pretty'` (ANSI terminal line) · `'devtools'` (CSS headline + an
+   *  expandable record object for Chrome DevTools) · `'auto'` (json in prod; in dev, `devtools`
+   *  under `--inspect`, else `pretty`). */
+  format?: 'json' | 'pretty' | 'devtools' | 'auto'
   /** Fields added to every record (service, version, region…). */
   base?: LogFields
   /** Dotted paths to mask before the sink (`authorization`, `user.password`). */
@@ -300,14 +315,16 @@ let jobLogLvl: LogLevel = 'info'
 /** The threshold for the queue `job.log()` tee (from `config.logger.job.level`). */
 export const jobLogLevel = (): LogLevel => jobLogLvl
 
-const sinkForFormat = (format: 'json' | 'pretty' | 'auto'): Sink =>
+const sinkForFormat = (format: 'json' | 'pretty' | 'devtools' | 'auto'): Sink =>
   format === 'json'
     ? jsonSink
     : format === 'pretty'
-      ? lazyPrettySink()
-      : isDev()
-        ? lazyPrettySink()
-        : jsonSink
+      ? lazyDevSink('pretty')
+      : format === 'devtools'
+        ? lazyDevSink('devtools')
+        : isDev() // 'auto'
+          ? lazyDevSink(devMode())
+          : jsonSink
 
 /** Wrap a sink so the given dotted paths are masked — copies each level on the path so caller
  *  data is never mutated. */

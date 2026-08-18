@@ -74,3 +74,25 @@ export const prettySink = (record: LogRecord): void => {
     console.log(paint(C.dim, String(err.message)))
   }
 }
+
+// CSS (not ANSI) because Chrome DevTools understands `%c`; Node ignores `%c` in a plain terminal.
+const LEVEL_CSS: Record<string, string> = {
+  trace: 'color:gray',
+  debug: 'color:gray',
+  info: 'color:green',
+  warn: 'color:orange',
+  error: 'color:red;font-weight:bold',
+  fatal: 'color:magenta;font-weight:bold'
+}
+
+/**
+ * DevTools sink: a CSS-colored headline PLUS the full record as an extra arg — Chrome renders that
+ * object as an expandable, inspectable tree (drill into `err.stack`, nested fields, …), while the
+ * headline stays readable. So you get BOTH the pretty line and the clickable object. In a plain
+ * terminal `%c` is stripped and the record is printed inline (util.inspect), so it degrades gracefully.
+ */
+export const devtoolsSink = (record: LogRecord): void => {
+  const label = LEVEL_LABEL[record.level] ?? record.level.toUpperCase()
+  const tag = record.tag ? `[${record.tag}] ` : ''
+  console.log(`%c${label}%c ${tag}${record.msg}`, LEVEL_CSS[record.level] ?? '', '', record)
+}

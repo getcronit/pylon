@@ -34,5 +34,9 @@ The per-request access line is now **structured** — JSON in production, a **co
 pretty line** in development (the formatter is loaded lazily, so production never evaluates it) —
 instead of the previous `hono/logger` text. If you parse the old format, update your log tooling.
 
+Dev format is `auto` by default: an ANSI **pretty** line in a terminal, and — when you launch with
+`--inspect` — a **`devtools`** format that logs a colored headline *plus the full record as an
+expandable object* in the Chrome DevTools console. Force either with `config.logger.format`.
+
 Runtime-agnostic (no Node-only deps beyond `async_hooks`, already used for request context) and no
 new dependency; the CLI/build logger (consola) is unaffected.

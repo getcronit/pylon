@@ -1,5 +1,5 @@
 import {describe, expect, it, vi} from 'vitest'
-import {prettySink} from '@/core/logger-pretty'
+import {devtoolsSink, prettySink} from '@/core/logger-pretty'
 
 describe('pretty formatter', () => {
   it('renders time, level, tag, msg and fields on one line', () => {
@@ -37,6 +37,21 @@ describe('pretty formatter', () => {
       expect(spy.mock.calls).toHaveLength(2)
       expect(spy.mock.calls[0][0]).toContain('ERROR')
       expect(spy.mock.calls[1][0]).toContain('at somewhere')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('devtools sink logs a CSS headline PLUS the record object (expandable in DevTools)', () => {
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    try {
+      const rec = {time: Date.now(), level: 'info' as const, msg: 'served', tag: 'http', status: 200}
+      devtoolsSink(rec)
+      const args = spy.mock.calls[0]
+      expect(args[0]).toContain('%c') // CSS format string (DevTools colors, ignored in terminals)
+      expect(args[0]).toContain('INFO')
+      expect(args[0]).toContain('[http] served')
+      expect(args[args.length - 1]).toBe(rec) // full record as an arg → expandable tree in DevTools
     } finally {
       spy.mockRestore()
     }
