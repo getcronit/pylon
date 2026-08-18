@@ -326,6 +326,12 @@ jobs:
       - name: Install dependencies
         run: pnpm i --frozen-lockfile
 
+      # `changeset status` diffs against the base branch to find the divergence point, but a
+      # PR checkout has no local `main` ref — create one from origin (history is already here
+      # via fetch-depth: 0). Without this it fails with "Failed to find where HEAD diverged".
+      - name: Make the base branch available
+        run: git fetch --no-tags origin main:main
+
       - name: Compute the pending publish set
         run: pnpm exec changeset status --output=canary-status.json
 
