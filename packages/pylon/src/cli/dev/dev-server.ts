@@ -24,6 +24,7 @@ import {build} from '../builder/index.js'
 import {buildClient} from '../builder/build-client.js'
 import {findConfigFile} from '../builder/bundler/build-config.js'
 import {createViteHotServer, type ViteHotServer} from './vite-hot-server.js'
+import {keepInspectorOnParentOnly} from './inspector.js'
 
 export interface DevServer {
   close(): Promise<void>
@@ -41,6 +42,25 @@ export async function startDevServer(opts: {port: number}): Promise<DevServer> {
   const outDir = path.join(cwd, '.pylon')
   process.env.NODE_ENV = 'development'
   process.env.PYLON_DEV = '1'
+  // Debugging `pylon dev`: hold the inspector on THIS process so the rolldown-vite workers we
+  // spawn below don't race it for port 9229 (the "address already in use ×N" noise) and steal
+  // the DevTools attach — your resolvers run here, so this is the process you want to break in.
+  keepInspectorOnParentOnly()
+
+  // If a debugger is attached — `pylon dev --inspect` opened it, or the process was launched with
+  // --inspect — expose `inspector.console` so the logger's devtools format can stream expandable
+  // record objects to the DevTools console WITHOUT echoing them to the terminal (raw stdout, which
+  // the terminal line uses, is not forwarded to DevTools). Its presence is also how the logger
+  // knows to pick the devtools format (see core/logger `inspectorActive`).
+  try {
+    const inspector = await import('node:inspector')
+    if (inspector.url()) {
+      ;(globalThis as {__PYLON_INSPECTOR_CONSOLE__?: unknown}).__PYLON_INSPECTOR_CONSOLE__ =
+        inspector.console
+    }
+  } catch {
+    /* non-Node dev host or no inspector — the logger stays on the pretty terminal line */
+  }
   // The app root (dir containing `.pylon`) — in dev that's cwd. The usePages runtime resolves
   // its artifacts against this instead of process.cwd() (parity with the prod server.mjs).
   ;(globalThis as any).__PYLON_ROOT__ = cwd

@@ -23,10 +23,36 @@ pylon dev -c "bun run .pylon/server.mjs"
 | Option | Default | Description |
 | --- | --- | --- |
 | `-c, --command <cmd>` | runs `.pylon/server.mjs` through the built-in tsx loader | Command that runs the app in dev. On Node, omit it and use the default; new projects set it per runtime (e.g. `bun run .pylon/server.mjs`, `deno run -A --unstable-sloppy-imports .pylon/server.mjs`, `wrangler dev`). |
+| `--inspect [port]` | `9229` | Open the Node inspector on the dev process for breakpoint debugging (see below). |
+| `--inspect-brk [port]` | `9229` | Like `--inspect`, but wait for a debugger to attach before booting. |
 
 On each change `dev` rebuilds the server, regenerates the typed client **only when
 the schema changes**, rebuilds the page bundles, and restarts — a failed build
 leaves the last good server running. See [The Pylon App](/docs/core-concepts/the-pylon-app).
+
+### Debugging with a breakpoint
+
+`pylon dev` runs your resolvers **in-process**, so pass `--inspect` and breakpoints
+in your resolver and route code bind directly:
+
+```bash
+pylon dev --inspect          # inspector on 127.0.0.1:9229
+pylon dev --inspect 9230     # …or a port you choose
+pylon dev --inspect-brk      # wait for a debugger to attach before booting
+```
+
+Then open `chrome://inspect` (or your editor's "Attach to Node" launch config) and
+you'll find a single clean target on the app process. `--inspect` opens the inspector
+on the dev process itself, so it works the same through a package manager
+(`pnpm pylon dev --inspect`) and never fights the bundler's worker threads for the
+port.
+
+:::warning[Use the flag, not `NODE_OPTIONS`]
+`NODE_OPTIONS='--inspect' pnpm pylon dev` looks equivalent but isn't: `pnpm` is a
+Node process too, so it grabs the inspector port **first** and your debugger attaches
+to the package-manager wrapper — which holds none of your code, so breakpoints never
+bind. `pylon dev --inspect` opens the inspector on the right process directly.
+:::
 
 ## pylon build
 

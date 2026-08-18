@@ -74,20 +74,24 @@ export const renderLine = (record: LogRecord): string => {
 /** Minimal dev formatter — inline, no colors/deps; the lazy fallback until the rich one loads. */
 const lineSink: Sink = record => console.log(renderLine(record))
 
-// Was this process launched with `--inspect` (Chrome DevTools attaching)? Covers both
-// `node --inspect` (execArgv) and `NODE_OPTIONS=--inspect`. No `node:inspector` import → safe on
-// every runtime; only consulted on the dev/pretty path anyway.
+// Is Chrome DevTools attaching to this process? Primary signal is the `inspector.console` handle
+// the dev server publishes on `globalThis` whenever a debugger is attached (it covers both
+// `pylon dev --inspect`, which opens the inspector with no flag, and a raw `--inspect` launch).
+// The execArgv/NODE_OPTIONS flag check is a fallback for the flag path before the dev server runs.
+// No `node:inspector` import here → safe on every runtime; only consulted on the dev/pretty path.
 const inspectorActive = (): boolean =>
-  typeof process !== 'undefined' &&
-  ((Array.isArray(process.execArgv) && process.execArgv.some(a => a.startsWith('--inspect'))) ||
-    (process.env.NODE_OPTIONS ?? '').includes('--inspect'))
+  (typeof globalThis !== 'undefined' &&
+    Boolean((globalThis as {__PYLON_INSPECTOR_CONSOLE__?: unknown}).__PYLON_INSPECTOR_CONSOLE__)) ||
+  (typeof process !== 'undefined' &&
+    ((Array.isArray(process.execArgv) && process.execArgv.some(a => a.startsWith('--inspect'))) ||
+      (process.env.NODE_OPTIONS ?? '').includes('--inspect')))
 
 /** Auto dev format: DevTools' expandable-object sink when `--inspect`, else the ANSI pretty line. */
 const devMode = (): 'devtools' | 'pretty' => (inspectorActive() ? 'devtools' : 'pretty')
 
-// The rich formatters (Phase 5) are a DEV-ONLY module, loaded lazily via a variable specifier so
-// production (JSON) never evaluates it. Until it resolves, records use `lineSink`.
-const prettyModule = './logger-pretty.js'
+// The rich formatters (Phase 5) live in a DEV-ONLY module, loaded via a LAZY dynamic import so
+// production (JSON) never evaluates it — bundlers code-split it into a chunk that only loads the
+// first time a pretty/devtools record is emitted. Until it resolves, records use `lineSink`.
 const lazyDevSink = (mode: 'pretty' | 'devtools'): Sink => {
   let real: Sink | undefined
   let loading = false
@@ -96,8 +100,8 @@ const lazyDevSink = (mode: 'pretty' | 'devtools'): Sink => {
     lineSink(record)
     if (!loading) {
       loading = true
-      import(prettyModule)
-        .then((m: {prettySink: Sink; devtoolsSink: Sink}) => {
+      import('./logger-pretty.js')
+        .then(m => {
           real = mode === 'devtools' ? m.devtoolsSink : m.prettySink
         })
         .catch(() => {

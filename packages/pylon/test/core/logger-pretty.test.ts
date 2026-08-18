@@ -42,18 +42,46 @@ describe('pretty formatter', () => {
     }
   })
 
-  it('devtools sink logs a CSS headline PLUS the record object (expandable in DevTools)', () => {
-    const spy = vi.spyOn(console, 'log').mockImplementation(() => {})
+  it('devtools sink writes the pretty line to the terminal (stdout), not console.log', () => {
+    // Terminal half goes through process.stdout.write — NOT console.log — so an attached DevTools
+    // console (which mirrors console.*) doesn't get a duplicate of the headline.
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    try {
+      delete (globalThis as {__PYLON_INSPECTOR_CONSOLE__?: unknown}).__PYLON_INSPECTOR_CONSOLE__
+      devtoolsSink({time: Date.now(), level: 'info', msg: 'served', tag: 'http', status: 200})
+      const line = write.mock.calls[0][0] as string
+      expect(line).toContain('INFO')
+      expect(line).toContain('[http]')
+      expect(line).toContain('served')
+      expect(line).toContain('status=200')
+      expect(log).not.toHaveBeenCalled() // never the mirrored channel
+    } finally {
+      write.mockRestore()
+      log.mockRestore()
+    }
+  })
+
+  it('devtools sink sends the record to inspector.console (DevTools-only) when attached', () => {
+    // DevTools half: a CSS headline PLUS the full record as an arg → expandable tree in Chrome,
+    // via the inspector.console handle the dev server publishes on globalThis.
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const calls: unknown[][] = []
+    ;(globalThis as {__PYLON_INSPECTOR_CONSOLE__?: unknown}).__PYLON_INSPECTOR_CONSOLE__ = {
+      log: (...args: unknown[]) => calls.push(args)
+    }
     try {
       const rec = {time: Date.now(), level: 'info' as const, msg: 'served', tag: 'http', status: 200}
       devtoolsSink(rec)
-      const args = spy.mock.calls[0]
-      expect(args[0]).toContain('%c') // CSS format string (DevTools colors, ignored in terminals)
+      expect(calls).toHaveLength(1)
+      const args = calls[0]
+      expect(args[0]).toContain('%c') // CSS format string (DevTools colors)
       expect(args[0]).toContain('INFO')
       expect(args[0]).toContain('[http] served')
-      expect(args[args.length - 1]).toBe(rec) // full record as an arg → expandable tree in DevTools
+      expect(args[args.length - 1]).toBe(rec) // full record → expandable in DevTools
     } finally {
-      spy.mockRestore()
+      write.mockRestore()
+      delete (globalThis as {__PYLON_INSPECTOR_CONSOLE__?: unknown}).__PYLON_INSPECTOR_CONSOLE__
     }
   })
 })

@@ -63,7 +63,10 @@ export async function createPagesDevServer(
   const reactMod = '@vitejs/plugin-react'
   const tsPathsMod = 'vite-tsconfig-paths'
   const nodeServerMod = '@hono/node-server'
-  const {createServer} = (await import(viteMod)) as {createServer: (c: any) => Promise<any>}
+  const {createServer, createLogger} = (await import(viteMod)) as {
+    createServer: (c: any) => Promise<any>
+    createLogger: (level?: string) => any
+  }
   const react = ((await import(reactMod)) as any).default
   // Resolve the app's tsconfig `paths` (e.g. `@/*`) — Vite doesn't apply them natively.
   const tsconfigPaths = ((await import(tsPathsMod)) as any).default
@@ -73,10 +76,24 @@ export async function createPagesDevServer(
     ) => (req: any, res: any) => void
   }
 
+  // `@vitejs/plugin-react@5` — the version compatible with our transitional `rolldown-vite`
+  // (the fixed 6.x needs Vite 8) — sets `optimizeDeps.esbuildOptions.jsx`, which rolldown-vite
+  // still honors but warns is deprecated in favor of `optimizeDeps.rolldownOptions`. It's not
+  // actionable until the plugin and Vite majors line up, so filter that one line out; every
+  // other warning passes through untouched.
+  const baseLogger = createLogger('warn')
+  const logger = {
+    ...baseLogger,
+    warn(msg: string, opts?: unknown) {
+      if (msg.includes('optimizeDeps.esbuildOptions')) return
+      baseLogger.warn(msg, opts)
+    }
+  }
+
   const server = await createServer({
     root: options.root,
     configFile: false,
-    logLevel: 'warn',
+    customLogger: logger,
     appType: 'custom',
     // Distinct dep-cache dir from the server-plane module runner (the other Vite in this
     // worker) so they don't clobber each other's optimize hashes.
@@ -95,25 +112,25 @@ export async function createPagesDevServer(
         path.relative(options.root, options.appTsxAbs).split(path.sep).join('/'),
         'pages/**/*.{ts,tsx,js,jsx}'
       ],
-      // The dep scanner only crawls the app's `pages/**`, so it misses the React runtime
-      // `injectHydrationVite` injects at transform time AND the deps the framework's own
-      // client components (`@getcronit/pylon/pages`) pull in — list them so the optimize is
-      // deterministic on startup.
+      // The dep scanner only crawls the app's `pages/**`, so it can't see two categories of
+      // deps that still reach the browser:
+      //  1. the React runtime `injectHydrationVite` appends at transform time (never in the
+      //     scanned source), and
+      //  2. everything `@getcronit/pylon/pages`' own client components import (react-router,
+      //     the ui primitives, mitt) — we `dedupe` the framework and treat it as source, so
+      //     Vite never crawls its node_modules to discover them.
+      // Rather than hand-copy that transitive list here (it drifts every time the framework's
+      // client runtime gains a dep, and pnpm doesn't hoist it to the app root anyway), force
+      // the framework's client barrel and let the optimizer follow ITS imports from the
+      // framework's own location — self-maintaining. The injected React runtime entries can't
+      // be reached that way, so name them explicitly.
       include: [
+        '@getcronit/pylon/pages',
         'react',
         'react-dom',
         'react-dom/client',
         'react/jsx-runtime',
-        'react/jsx-dev-runtime',
-        'react-router',
-        'clsx',
-        'tailwind-merge',
-        'class-variance-authority',
-        'tailwindcss-animate',
-        '@radix-ui/react-slot',
-        '@radix-ui/react-collapsible',
-        'lucide-react',
-        'mitt'
+        'react/jsx-dev-runtime'
       ]
     },
     plugins: [

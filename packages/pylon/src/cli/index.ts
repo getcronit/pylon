@@ -707,7 +707,29 @@ db.command('push')
 program
   .command('dev')
   .description('Start the Pylon Development Server')
-  .action(async () => {
+  .option(
+    '--inspect [port]',
+    'Open the Node inspector on the dev process so breakpoints in your resolvers bind (default port 9229). Attach via chrome://inspect.'
+  )
+  .option('--inspect-brk [port]', 'Like --inspect, but wait for a debugger to attach before booting.')
+  .action(async options => {
+    // Debugging: open the inspector on THIS process (where the resolvers run) via node:inspector
+    // rather than relying on an inherited `--inspect` — so `pnpm pylon dev --inspect` works
+    // cleanly (the package-manager wrapper never steals the port) and DevTools attaches to the
+    // app process. No `--inspect` flag exists to leak into the bundler workers we spawn.
+    if (options.inspect || options.inspectBrk) {
+      const raw = options.inspectBrk ?? options.inspect
+      const inspectPort = typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : 9229
+      const inspector = await import('node:inspector')
+      inspector.open(inspectPort, '127.0.0.1', Boolean(options.inspectBrk))
+      // The dev server picks this up (via inspector.url()) and exposes inspector.console, which is
+      // both how the logger detects DevTools and how it streams expandable record objects there.
+      consola.info(
+        `Inspector open on 127.0.0.1:${inspectPort} — attach via chrome://inspect. ` +
+          `Breakpoints in your resolvers and routes bind on this process.`
+      )
+    }
+
     // Direct-execution dev server: ONE process runs src/index.ts through Vite's backend
     // runner, compiles the schema in-process, boots the app in-memory, and hot-swaps on
     // edit — no glue files, no worker, no IPC. See cli/dev/dev-server.ts.

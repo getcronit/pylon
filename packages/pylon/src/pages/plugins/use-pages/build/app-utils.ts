@@ -250,8 +250,7 @@ export function scanDirectory(
       id: `${route.id}/NotFound`,
       path: '*',
       element: '<NotFoundPage standalone={false} />',
-      loader:
-        '() => { console.log("EXECUTED LOADER 404"); return new Response("Not Found", { status: 404 }) }'
+      loader: '() => { return new Response("Not Found", { status: 404 }) }'
     }
     if (!route.children) {
       route.children = []
