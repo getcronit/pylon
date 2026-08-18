@@ -273,6 +273,13 @@ importers:
       tinyexec:
         specifier: ^0.3.2
         version: 0.3.2
+    devDependencies:
+      rimraf:
+        specifier: ^6.0.1
+        version: 6.1.2
+      rolldown:
+        specifier: 1.2.4
+        version: 1.2.4
 
   packages/pylon:
     dependencies:

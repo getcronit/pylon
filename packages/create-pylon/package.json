@@ -4,7 +4,7 @@
   "version": "1.1.4",
   "description": "CLI for creating a Pylon",
   "scripts": {
-    "build": "rimraf ./dist && esbuild ./src/index.ts --bundle --platform=node --target=node18 --format=esm --minify --outdir=./dist --sourcemap=linked --packages=external",
+    "build": "rimraf ./dist && rolldown -c rolldown.config.mjs",
     "typecheck": "tsc --noEmit"
   },
   "bin": "./dist/index.js",
@@ -28,6 +28,10 @@
     "package-manager-detector": "^0.2.9",
     "posthog-node": "^4.10.1",
     "tinyexec": "^0.3.2"
+  },
+  "devDependencies": {
+    "rimraf": "^6.0.1",
+    "rolldown": "1.2.4"
   },
   "engines": {
     "node": ">=18.0.0"
