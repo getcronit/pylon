@@ -141,8 +141,11 @@ jobs:
           cache: 'pnpm'
           registry-url: 'https://registry.npmjs.org'
 
-      # OIDC trusted publishing needs npm >= 11.5.1; the runner's node ships npm 10, so
-      # upgrade to latest. npm@latest (12.x) requires node >= 22, which this workflow now uses.
+      # OIDC trusted publishing needs npm >= 11.5.1; the runner ships npm 10, so upgrade to
+      # latest. npm@latest (12.x) requires node >= 22 (used here) and rejects unknown config —
+      # so pnpm must be >= 10.34.5 (see the root `packageManager`): older pnpm leaked its
+      # `--no-git-checks` flag into the `npm publish` subprocess it shells out to, which npm 12
+      # fatally rejected (EUNKNOWNCONFIG); hence the pnpm 10.34.5 pin.
       - name: Upgrade npm for OIDC publishing
         run: npm i -g npm@latest
 
@@ -211,8 +214,11 @@ jobs:
           cache: 'pnpm'
           registry-url: 'https://registry.npmjs.org'
 
-      # OIDC trusted publishing needs npm >= 11.5.1; the runner's node ships npm 10, so
-      # upgrade to latest. npm@latest (12.x) requires node >= 22, which this workflow now uses.
+      # OIDC trusted publishing needs npm >= 11.5.1; the runner ships npm 10, so upgrade to
+      # latest. npm@latest (12.x) requires node >= 22 (used here) and rejects unknown config —
+      # so pnpm must be >= 10.34.5 (see the root `packageManager`): older pnpm leaked its
+      # `--no-git-checks` flag into the `npm publish` subprocess it shells out to, which npm 12
+      # fatally rejected (EUNKNOWNCONFIG); hence the pnpm 10.34.5 pin.
       - name: Upgrade npm for OIDC publishing
         run: npm i -g npm@latest
 
