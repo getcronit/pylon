@@ -23,6 +23,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import {createRequire} from 'node:module'
+import consola from 'consola'
 
 export interface StandaloneResult {
   /** Absolute path to the standalone output dir. */
@@ -146,8 +147,8 @@ export async function buildStandalone(opts: {
   // a Node ≥22 builder (see the trace note below). Warn early so a broken artifact is explained.
   const nodeMajor = Number(process.versions.node.split('.')[0])
   if (nodeMajor < 22) {
-    console.warn(
-      `[pylon] standalone: tracing on Node ${process.versions.node}. Build on Node ≥22 — nft ` +
+    consola.warn(
+      `standalone: tracing on Node ${process.versions.node}. Build on Node ≥22 — nft ` +
         `only auto-selects the \`module-sync\` export condition there, so some ESM-only packages ` +
         `(e.g. react-router) can otherwise be traced as CJS → ERR_MODULE_NOT_FOUND at runtime.`
     )
@@ -244,7 +245,7 @@ export async function buildStandalone(opts: {
   for (const inc of include) {
     const src = path.join(cwd, inc)
     if (!fs.existsSync(src)) {
-      console.warn(`[pylon] standalone: --include path not found, skipping: ${inc}`)
+      consola.warn(`standalone: --include path not found, skipping: ${inc}`)
       continue
     }
     const dest = path.join(runDir, inc)

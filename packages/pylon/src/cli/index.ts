@@ -65,15 +65,14 @@ const entryOf = (o: {entry?: string; models?: string}): string =>
 
 program.name('pylon-dev').description('Pylon Development CLI').version(version)
 
-// General diagnostic flag. Declared on the root so `pylon --verbose <cmd>` works everywhere;
-// commands that surface extra detail also declare it locally (so `pylon <cmd> --verbose` works)
-// and read it via `isVerbose(command)`, which merges global + local via optsWithGlobals.
-program.option('-v, --verbose', 'Print extra diagnostic detail')
-
-/** Is `-v/--verbose` set — from the root or the current subcommand. */
-const isVerbose = (command?: {
-  optsWithGlobals?: () => {verbose?: boolean}
-}): boolean => Boolean(command?.optsWithGlobals?.().verbose ?? program.opts().verbose)
+// `-v/--verbose` raises the logger to debug level, so `consola.debug(...)` diagnostics anywhere
+// in a command become visible — no per-call gating. Declared on the root (`pylon --verbose
+// <cmd>`); commands that add detail also declare it locally (`pylon <cmd> --verbose`). The
+// preAction hook sets the level before any action runs, reading whichever position was used.
+program.option('-v, --verbose', 'Verbose output — debug-level logging')
+program.hook('preAction', (_thisCommand, actionCommand) => {
+  if (actionCommand.optsWithGlobals().verbose) consola.level = 4 // 4 = debug (default 3 = info)
+})
 
 program
   .command('build')
@@ -88,8 +87,8 @@ program
     (val: string, prev: string[]) => [...prev, val],
     [] as string[]
   )
-  .option('-v, --verbose', 'Print extra diagnostic detail (e.g. unresolved dynamic imports)')
-  .action(async (options: {standalone?: boolean; include?: string[]}, command) => {
+  .option('-v, --verbose', 'Verbose output — debug-level logging (e.g. unresolved dynamic imports)')
+  .action(async (options: {standalone?: boolean; include?: string[]}) => {
     const ctx = await build({
       sfiFilePath: './src/index.ts',
       outputFilePath: './.pylon',
@@ -148,21 +147,15 @@ program
         if (res.warnings.length) {
           // First line of each (nft messages can carry a stack); dedupe for the count/list.
           const uniq = [...new Set(res.warnings.map(w => w.split('\n')[0].trim()))]
-          if (isVerbose(command)) {
-            consola.warn(
-              `nft could not statically resolve ${res.warnings.length} dynamic import(s) ` +
-                `(${uniq.length} unique). These are usually optional/conditional \`require()\`s ` +
-                `deep in dependencies and safe to ignore — but if a module is missing at runtime, ` +
-                `it's likely one of these:\n` +
-                uniq.map(m => `  • ${m}`).join('\n') +
-                `\n(fix: add the real module to --include, or as an explicit trace root)`
-            )
-          } else {
-            consola.warn(
-              `nft could not statically resolve ${uniq.length} dynamic import(s) — usually ` +
-                `optional/conditional deps, safe to ignore. Re-run with --verbose to list them.`
-            )
-          }
+          consola.warn(
+            `nft could not statically resolve ${uniq.length} dynamic import(s) — usually ` +
+              `optional/conditional deps, safe to ignore. Re-run with --verbose to list them.`
+          )
+          // Rendered only when --verbose raised the level to debug.
+          consola.debug(
+            `Unresolved dynamic imports (add a real one to --include, or as an explicit trace root):\n` +
+              uniq.map(m => `  • ${m}`).join('\n')
+          )
         }
       }
 
