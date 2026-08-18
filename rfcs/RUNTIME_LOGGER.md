@@ -245,19 +245,19 @@ export async function ship(orderId: string) {
 }
 ```
 
-Inside a **queue processor** (`defineQueue(name).process(...)`, or a `class extends Queue`) the job
-runner has already wrapped the job in the logger scope — so `getLogger()` is auto-tagged
-`queue:<name>`, correlated to `{jobId, attempt}`, **and teed to the job's persisted log**
-(dashboard) as well as stdout. No manual tagging:
+Inside a **queue processor** (a `class extends Queue`) the job runner has already wrapped the job
+in the logger scope — so `getLogger()` is auto-tagged `queue:<name>`, correlated to `{jobId,
+attempt}`, **and teed to the job's persisted log** (dashboard) as well as stdout. No manual tagging:
 
 ```ts
-const emailSend = defineQueue('email', {schema}).process(async ({data, job, log}) => {
-  const jlog = getLogger()                    // already tagged queue:email + {jobId, attempt}
-  jlog.info('sending', {to: data.to})         // → stdout JSON  AND  the job's dashboard log
-  jlog.debug('smtp handshake', {host})        // stdout only unless the job-log level allows
-  await log('legacy line')                    // JobContext.log still works → getLogger().info
-  await job.updateProgress(50)
-})
+export class SendWelcome extends Queue.input(z.object({email: z.string().email()})) {
+  static jobs = manager(SendWelcome)
+  async process({data, job, log}) {
+    getLogger().info('sending', {to: data.email})   // → stdout JSON  AND  the job's dashboard log
+    getLogger().debug('smtp handshake', {host})     // stdout only unless the job-log level allows
+    await log(`attempt ${job.attemptsMade + 1}`)    // JobContext.log → same dual destination
+  }
+}
 ```
 
 The one rule: reach for `logger(tag)` / `getLogger()` **at call time** rather than capturing
