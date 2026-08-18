@@ -71,8 +71,28 @@ export const renderLine = (record: LogRecord): string => {
   return `${record.level.toUpperCase().padEnd(5)} ${tag}${record.msg}${fieldsTail(record)}`
 }
 
-/** Minimal dev formatter — inline, no colors/deps (the rich pretty printer is Phase 5). */
+/** Minimal dev formatter — inline, no colors/deps; the lazy fallback until the rich one loads. */
 const lineSink: Sink = record => console.log(renderLine(record))
+
+// The rich pretty formatter (Phase 5) is a DEV-ONLY module, loaded lazily via a variable
+// specifier so production (JSON) never evaluates it. Until it resolves, records use `lineSink`.
+const prettyModule = './logger-pretty.js'
+const lazyPrettySink = (): Sink => {
+  let real: Sink | undefined
+  let loading = false
+  return record => {
+    if (real) return real(record)
+    lineSink(record)
+    if (!loading) {
+      loading = true
+      import(prettyModule)
+        .then((m: {prettySink: Sink}) => (real = m.prettySink))
+        .catch(() => {
+          /* stay on lineSink */
+        })
+    }
+  }
+}
 
 const RESERVED = new Set(['time', 'level', 'msg', 'tag'])
 
@@ -211,7 +231,7 @@ const envOrScalar = (): LogLevel | Record<string, LogLevel> => {
 
 let rootLogger: Logger = createLogger({
   level: envOrScalar(),
-  sink: isDev() ? lineSink : jsonSink
+  sink: isDev() ? lazyPrettySink() : jsonSink
 })
 
 /** The process-wide root logger (used outside any request/job scope). */
@@ -281,7 +301,13 @@ let jobLogLvl: LogLevel = 'info'
 export const jobLogLevel = (): LogLevel => jobLogLvl
 
 const sinkForFormat = (format: 'json' | 'pretty' | 'auto'): Sink =>
-  format === 'json' ? jsonSink : format === 'pretty' ? lineSink : isDev() ? lineSink : jsonSink
+  format === 'json'
+    ? jsonSink
+    : format === 'pretty'
+      ? lazyPrettySink()
+      : isDev()
+        ? lazyPrettySink()
+        : jsonSink
 
 /** Wrap a sink so the given dotted paths are masked — copies each level on the path so caller
  *  data is never mutated. */

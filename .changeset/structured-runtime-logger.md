@@ -30,9 +30,9 @@ replaces the `hono/logger` text access line and exposes a request-correlated log
 
 ### Note: access-log format changed
 
-The per-request access line is now **structured** — JSON in production, a terse single line in
-development — instead of the previous `hono/logger` text. If you parse the old format, update your
-log tooling.
+The per-request access line is now **structured** — JSON in production, a **colored, timestamped
+pretty line** in development (the formatter is loaded lazily, so production never evaluates it) —
+instead of the previous `hono/logger` text. If you parse the old format, update your log tooling.
 
 Runtime-agnostic (no Node-only deps beyond `async_hooks`, already used for request context) and no
 new dependency; the CLI/build logger (consola) is unaffected.
