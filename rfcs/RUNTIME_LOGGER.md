@@ -295,8 +295,9 @@ The one rule: reach for `logger(tag)` / `getLogger()` **at call time** rather th
 3. **Errors** ✅ (4c59248): replace `onError`'s `console.error` with `getLogger().error`; add a
    GraphQL `onExecuteDone` hook that logs execution errors — `useSentry`'s `@sentry/node` capture
    stays independent.
-4. **Queues**: job-runner logger scope (`{queue, jobId, attempt}`, tag `queue:<name>`) with the
-   stdout + `job.log()` fan-out sink; `ctx.log` → `getLogger().info`; outbox relay tagged `outbox`.
+4. **Queues** ✅ (c09c607): job-runner logger scope (`{queue, jobId, attempt}`, tag `queue:<name>`)
+   with the stdout + `job.log()` fan-out (via `.tee`); `ctx.log` → `getLogger().info`; outbox relay
+   tagged `outbox`.
 5. **Pretty formatter**: lazy dev module (kept out of the prod trace).
 
 Each phase ships independently; phase 1 alone already replaces the text access log with queryable
