@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'path'
+import consola from 'consola'
 import {introspectViaRunner} from '../project-bridge.js'
 import {Bundler, type BuildMode} from './bundler/bundler.js'
 import {SchemaBuilder} from './schema/builder.js'
@@ -48,8 +49,8 @@ export const build = async (options: BuildOptions) => {
   // yields a subtly-wrong analyzer-only schema (STI interfaces don't collapse, etc.). Warn
   // loudly so the real cause is visible instead of surfacing downstream as odd type errors.
   const contributeIR = await introspectViaRunner(cwd, options.sfiFilePath).catch((e) => {
-    console.warn(
-      `[pylon] ORM introspection failed — building schema WITHOUT the ORM contribution. ` +
+    consola.warn(
+      `ORM introspection failed — building schema WITHOUT the ORM contribution. ` +
         `This usually means a model module failed to load:\n${e?.stack ?? e}`
     )
     return undefined

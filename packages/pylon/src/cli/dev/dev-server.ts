@@ -14,6 +14,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import chokidar from 'chokidar'
+import consola from 'consola'
 
 // Self-ref so this is the SAME framework instance the runner-imported app uses (durable
 // registry/DB/ALS) and the swap hook (globalThis) is shared.
@@ -132,7 +133,7 @@ export async function startDevServer(opts: {port: number}): Promise<DevServer> {
       const {serve} = (await import(nodeServer)) as any
       const s = serve(
         {fetch: app.fetch, port: opts.port},
-        (info: any) => console.log(`Pylon running at http://localhost:${info.port}`)
+        (info: any) => consola.success(`Pylon running at http://localhost:${info.port}`)
       )
       closeServer = () => new Promise<void>(r => (s.close ? s.close(() => r()) : r()))
     }
@@ -190,7 +191,7 @@ export async function startDevServer(opts: {port: number}): Promise<DevServer> {
           await session.reloadPages()
         }
       })
-      .catch(e => console.error('[pylon] reload failed:', e))
+      .catch(e => consola.error('reload failed:', e))
     return chain
   }
 

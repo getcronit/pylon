@@ -1,5 +1,6 @@
 import ts from 'typescript'
 import fs from 'node:fs'
+import consola from 'consola'
 import {
   buildSchema,
   isInterfaceType,
@@ -311,7 +312,8 @@ export class SchemaBuilder {
     )
 
     if (!configPath) {
-      console.log('Could not find tsconfig.json')
+      // Benign — no tsconfig means we fall back to defaults; only of interest under --verbose.
+      consola.debug('No tsconfig.json found — using default compiler options')
       return defaultOptions
     }
 
@@ -319,7 +321,8 @@ export class SchemaBuilder {
     const configFile = ts.readConfigFile(configPath, ts.sys.readFile)
 
     if (configFile.error) {
-      console.log('Could not read tsconfig.json', configFile.error)
+      // A tsconfig.json exists but couldn't be parsed — worth surfacing.
+      consola.warn('Could not read tsconfig.json — using default compiler options', configFile.error)
       return defaultOptions
     }
 
