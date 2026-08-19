@@ -88,13 +88,16 @@ export async function defaultFetcher<TData = unknown>(
  * mid-mutation) to pick up the new client.
  */
 function maybeReloadOnVersionMismatch(response: Response, query: string): void {
+  if (typeof window === 'undefined') return
+  // Dev stamps `__PYLON_VERSION__ = 'dev'` on the client while the server sends the
+  // content-hashed pages-manifest version — so they ALWAYS differ. Reloading on that would loop
+  // forever on any page that refetches on mount (e.g. usePaginatedData's SWR revalidation). This
+  // reload is a production deploy signal (pull the new client after a deploy); skip it in dev,
+  // where HMR handles updates.
+  const clientVersion = (window as any).__PYLON_VERSION__
+  if (!clientVersion || clientVersion === 'dev') return
   const serverVersion = response.headers.get('X-Pylon-Version')
-  if (
-    serverVersion &&
-    typeof window !== 'undefined' &&
-    (window as any).__PYLON_VERSION__ &&
-    serverVersion !== (window as any).__PYLON_VERSION__
-  ) {
+  if (serverVersion && serverVersion !== clientVersion) {
     const isMutation = query.trimStart().startsWith('mutation')
     if (!isMutation) window.location.reload()
   }

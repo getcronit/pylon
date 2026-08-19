@@ -60,43 +60,6 @@ export function injectHydrationVite(
         // @ts-ignore
         window.__PYLON_VERSION__ = ${JSON.stringify(version)}
 
-        // DEV navigation/reload tracer: patch every full-page reload/navigation so a reload
-        // LOOP reveals its caller. Logs the stack on rapid repeats and SUPPRESSES after a burst
-        // so the loop breaks and the stacks stay visible. Dev-only (this bootstrap is never in
-        // the prod build). Clear \`sessionStorage.__pylon_nav\` (or hard-reload) to reset.
-        try {
-          var __pylonGuard = function (label, arg, proceed) {
-            var now = Date.now();
-            var hist = [];
-            try { hist = JSON.parse(sessionStorage.getItem('__pylon_nav') || '[]'); } catch (e) {}
-            hist = hist.filter(function (t) { return now - t < 3000; });
-            hist.push(now);
-            try { sessionStorage.setItem('__pylon_nav', JSON.stringify(hist)); } catch (e) {}
-            if (hist.length > 1) {
-              console.error('[pylon dev] rapid reload #' + hist.length + ' — ' + label, arg == null ? '' : arg, '\\ncaller stack:\\n' + ((new Error()).stack || ''));
-            }
-            if (hist.length > 3) {
-              console.error('%c[pylon dev] RELOAD LOOP suppressed — fix the caller shown above, then hard-reload.', 'color:red;font-weight:bold;font-size:13px');
-              return;
-            }
-            proceed();
-          };
-          var __R = Location.prototype.reload;
-          Location.prototype.reload = function () { var self = this, a = arguments; __pylonGuard('location.reload()', undefined, function () { __R.apply(self, a); }); };
-          var __A = Location.prototype.assign;
-          Location.prototype.assign = function (u) { var self = this; __pylonGuard('location.assign()', u, function () { __A.call(self, u); }); };
-          var __RP = Location.prototype.replace;
-          Location.prototype.replace = function (u) { var self = this; __pylonGuard('location.replace()', u, function () { __RP.call(self, u); }); };
-          var __hd = Object.getOwnPropertyDescriptor(Location.prototype, 'href');
-          if (__hd && __hd.set) {
-            Object.defineProperty(location, 'href', {
-              configurable: true,
-              get: function () { return __hd.get.call(location); },
-              set: function (v) { __pylonGuard('location.href =', v, function () { __hd.set.call(location, v); }); }
-            });
-          }
-        } catch (e) { console.warn('[pylon dev] nav tracer setup failed', e); }
-
         async function __pylonHydrate() {
           const lazyMatches = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.matchRoutes(routes, window.location)?.filter(
             (m) => m.route.lazy
