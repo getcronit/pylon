@@ -22,6 +22,7 @@ import {
 } from './manager.js'
 import {appContextKey} from './app-context.js'
 import {batchLoad, createRealm} from './batch-loader.js'
+import {foreignKeyViolation} from './errors.js'
 import {keyedQuery} from './keyed-query.js'
 import {noteQuery} from './n-plus-one.js'
 import {getModelDefinitionOrThrow, type ModelDefinition} from './registry.js'
@@ -646,11 +647,25 @@ export class ManyToManyManager<T extends object> {
       [s.localColumn]: this.ownerPk,
       [s.targetColumn]: this.keyOf(i, s.targetPkProperty)
     }))
-    await getDatabase()
-      .kysely.insertInto(s.joinTable)
-      .values(values as any)
-      .onConflict(oc => oc.columns([s.localColumn, s.targetColumn]).doNothing())
-      .execute()
+    try {
+      await getDatabase()
+        .kysely.insertInto(s.joinTable)
+        .values(values as any)
+        .onConflict(oc => oc.columns([s.localColumn, s.targetColumn]).doNothing())
+        .execute()
+    } catch (err) {
+      // A join-row insert can only fail its FKs two ways: the owner row or a target row
+      // doesn't exist. Turn Postgres's opaque `violates foreign key constraint "<hash>"`
+      // into a message that names the missing side + id (see `foreignKeyViolation`).
+      const ownerName = this.ownerCtor.name
+      const targetName = this.targetCtor.name
+      throw (
+        foreignKeyViolation(err, {
+          action: `link ${ownerName} ↔ ${targetName}`,
+          columns: {[s.localColumn]: ownerName, [s.targetColumn]: targetName}
+        }) ?? err
+      )
+    }
   }
 
   /** Unlink one or more rows by instance OR primary key (target rows untouched). */
