@@ -221,14 +221,21 @@ export async function startDevServer(opts: {port: number}): Promise<DevServer> {
     return chain
   }
 
+  // Only SOURCE-code edits trigger a reload — NOT the JSON/media/log files an app writes into
+  // the project at runtime. We watch all of `cwd` (frontend source lives in arbitrary dirs like
+  // components/, hooks/), so without this filter a request that writes a file loops: write →
+  // reload → the request re-runs → writes again. node_modules/.pylon/.git are excluded below.
+  const SOURCE_RE = /\.([cm]?[jt]sx?|css)$/
   const watcher = chokidar.watch(cwd, {
     ignoreInitial: true,
     ignored: (p: string) => /(^|[/\\])(node_modules|\.pylon|\.git)([/\\]|$)/.test(p),
     awaitWriteFinish: {stabilityThreshold: 200, pollInterval: 50}
   })
   watcher.on('all', (_ev, p) => {
+    if (!SOURCE_RE.test(p)) return
     const k = classify(p)
     if (pending == null || rank[k] > rank[pending]) pending = k
+    consola.info(`[dev] ${k} reload — ${path.relative(cwd, p)}`)
     void sync()
   })
 
