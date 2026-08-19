@@ -46,7 +46,13 @@ const SERVER_EXTERNALS = [
  */
 // CSS/asset imports (even from node_modules, e.g. `nprogress/nprogress.css`) must NOT be
 // externalized — Node can't load them at runtime; the css/image/asset plugins handle them.
-const NON_JS_ASSET = /\.(css|scss|sass|less|styl|png|jpe?g|gif|svg|webp|avif|ico|woff2?|ttf|eot|otf)$/i
+// `.json` is included: a bundler-visible `import x from "pkg/x.json"` (e.g. the app importing
+// `i18n-iso-countries/langs/de.json`) kept external crashes at runtime under Node's strict ESM
+// loader (`ERR_IMPORT_ATTRIBUTE_MISSING` — no `with { type: 'json' }`). Inlining it is the
+// bundler's job (rolldown parses JSON natively — the client bundle already does this). This
+// does NOT affect a dep that dynamically `require`s its OWN `langs/*.json` at runtime: that
+// dep's JS stays external, so its internal requires still resolve from node_modules on disk.
+const NON_JS_ASSET = /\.(css|scss|sass|less|styl|png|jpe?g|gif|svg|webp|avif|ico|woff2?|ttf|eot|otf|json)$/i
 
 const ssrExternalizeNodeModules = () => ({
   name: 'pylon:ssr-externalize-node-modules',

@@ -47,7 +47,14 @@ const preserveRelativeWithExt: Plugin = {
   resolveId(source, importer) {
     if (!importer) return null // entry point — the files we're emitting
     if (!/^\.\.?(\/|$)/.test(source)) return null // bare → handled by `external` below
-    if (/\.(js|mjs|cjs|json|node)$/.test(source)) return {id: source, external: true}
+    // Let rolldown INLINE JSON (its default) instead of mirroring it as an external import:
+    // a bare/relative `import x from './x.json'` kept external needs the `with { type: 'json' }`
+    // attribute Node's strict ESM loader now demands, which the app source rarely writes — so an
+    // externalized `.json` crashes at runtime (`ERR_IMPORT_ATTRIBUTE_MISSING`). Inlining keeps
+    // the output runtime-agnostic (no attribute, no loose file) — the bundler's job, not a
+    // per-runtime loader hook's.
+    if (/\.json$/.test(source)) return null
+    if (/\.(js|mjs|cjs|node)$/.test(source)) return {id: source, external: true}
     const abs = path.resolve(path.dirname(importer), source)
     let rewritten: string
     if (RESOLVE_EXTS.some(x => existsSync(abs + x))) rewritten = `${source}.js`
@@ -87,7 +94,10 @@ export async function transpileApp(
     input: inputMap,
     // packages:'external' equivalent — every bare specifier stays external; relative
     // ones are externalized+rewritten by the plugin above. Net: a 1:1 transpiled mirror.
-    external: id => !/^\.\.?(\/|$)/.test(id) && !path.isAbsolute(id),
+    // EXCEPT `.json`: let rolldown resolve + inline it (a bare `pkg/x.json` import kept
+    // external would crash under Node's strict ESM loader — see the plugin above).
+    external: id =>
+      !/\.json(\?|$)/.test(id) && !/^\.\.?(\/|$)/.test(id) && !path.isAbsolute(id),
     platform: 'node',
     // Read the project's tsconfig so oxc applies `useDefineForClassFields: false` — the
     // ORM field-builder `id = id()` must lower to a constructor assignment, not a
