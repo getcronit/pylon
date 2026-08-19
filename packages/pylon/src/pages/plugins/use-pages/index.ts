@@ -13,6 +13,7 @@ export interface UsePagesOptions {
 
 export function usePages(options: UsePagesOptions = {}): Plugin {
   return {
+    name: 'pages',
     strategy: 'last',
     // We use async functions here so React isn't imported until setup() is called
     setup: async api => {

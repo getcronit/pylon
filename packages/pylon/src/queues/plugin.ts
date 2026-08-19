@@ -52,12 +52,14 @@ export interface UseQueuesOptions {
 }
 
 export interface QueuesPlugin {
+  name: 'queues'
   strategy: 'last'
   setup(app?: unknown): Promise<void>
 }
 
 export function useQueues(options: UseQueuesOptions = {}): QueuesPlugin {
   return {
+    name: 'queues',
     strategy: 'last',
     async setup(app?: unknown) {
       if (options.connection) setConnection(options.connection)

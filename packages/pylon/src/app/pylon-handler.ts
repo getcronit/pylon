@@ -86,10 +86,17 @@ const loadPluginsMiddleware = async (plugins: Plugin[], target: Pylon<any>) => {
     try {
       await plugin.setup?.(target)
     } catch (e) {
-      throw new Error(
-        `Pylon plugin "${plugin.name ?? `#${i}`}" failed during setup: ` +
-          `${e instanceof Error ? (e.stack ?? e.message) : String(e)}`
-      )
+      // Attribute the failure to a plugin WITHOUT drowning the real cause: keep the
+      // message to one human-readable line (the underlying error's `.message`, e.g.
+      // "Module …/de.json needs an import attribute of type: json") and hang the original
+      // error off `cause`. Node prints `[cause]:` with its OWN clean stack — so the root
+      // problem reads at a glance instead of being buried in a nested, duplicated stack
+      // (which is what stringifying `e.stack` into this message used to produce).
+      const label = plugin.name ? `"${plugin.name}"` : `#${i} (unnamed)`
+      const cause = e instanceof Error ? e : new Error(String(e))
+      throw new Error(`Pylon plugin ${label} failed during setup: ${cause.message}`, {
+        cause
+      })
     }
 
     if (plugin.middleware) {
