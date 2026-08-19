@@ -269,7 +269,7 @@ jobs:
   "type": "module",
   "description": "Generated with \`npm create pylon\`",
   "scripts": {
-    "dev": "pylon dev -c \\"bun run .pylon/server.mjs\\"",
+    "dev": "pylon dev",
     "build": "pylon build",
     "start": "bun run .pylon/server.mjs"
   },
@@ -325,7 +325,7 @@ ENV NODE_ENV=production
 # Create .pylon folder (mkdir)
 RUN mkdir -p .pylon
 # RUN bun test
-RUN bun run pylon build
+RUN bun run build
 
 # copy production dependencies and source code into final image
 FROM base AS release
@@ -355,8 +355,7 @@ ENTRYPOINT [ "bun", "run", "/usr/src/pylon/.pylon/server.mjs" ]
     "start": "node --enable-source-maps .pylon/server.mjs"
   },
   "dependencies": {
-    "@getcronit/pylon": "${pylonVersion}",
-    "@hono/node-server": "^1.12.2"
+    "@getcronit/pylon": "${pylonVersion}"
   },
   "repository": {
     "type": "git",
@@ -401,7 +400,7 @@ ENV NODE_ENV=production
 # Create .pylon folder (mkdir)
 RUN mkdir -p .pylon
 # RUN npm test
-RUN npm run pylon build
+RUN npm run build
 
 # copy production dependencies and source code into final image
 FROM base AS release
@@ -427,7 +426,7 @@ ENTRYPOINT [ "node", "/usr/src/pylon/.pylon/server.mjs" ]
   "private": true,
   "scripts": {
     "deploy": "pylon build && wrangler deploy",
-    "dev": "pylon dev -c \\"wrangler dev\\"",
+    "dev": "pylon dev",
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
@@ -579,22 +578,43 @@ compatibility_flags = ["nodejs_compat_v2"]
 }`
     },
     {
+      // Deno projects still need a `package.json`, for two reasons: `pylon dev` and
+      // `pylon build` are Node processes, and Node's TypeScript loader reads the
+      // nearest `package.json` to decide ESM vs CJS — without `"type": "module"` it
+      // treats `pylon.config.ts` as CommonJS and the build dies on `require(esm)`.
+      // It is also the single source of truth for the dependency (Deno reads it, so
+      // `deno.json` no longer needs a duplicate `imports` entry).
+      path: 'package.json',
+      content: `{
+  "name": "__PYLON_NAME__",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Generated with \`npm create pylon\`",
+  "dependencies": {
+    "@getcronit/pylon": "${pylonVersion}"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/getcronit/pylon.git"
+  },
+  "homepage": "https://pylon.cronit.io"
+}
+`
+    },
+    {
       path: 'deno.json',
       content: `{
-  "imports": {
-    "@getcronit/pylon": "npm:@getcronit/pylon@${pylonVersion}"
-  },
   "tasks": {
-    "dev": "pylon dev -c \\"deno run -A --unstable-sloppy-imports .pylon/server.mjs\\"",
+    "dev": "pylon dev",
     "build": "pylon build",
-    "start": "deno run -A .pylon/server.mjs"
+    "start": "deno serve -A --port 3000 .pylon/server.mjs"
   },
   "compilerOptions": {
     "jsx": "precompile",
     "jsxImportSource": "hono/jsx"
   },
-  "nodeModulesDir": "auto",
-  "packageManager": "deno"
+  "nodeModulesDir": "auto"
 }
 `
     }

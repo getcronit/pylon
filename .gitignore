@@ -20,6 +20,9 @@ examples
 .pylon
 .pylon-verify
 
+# create-pylon scaffold e2e workdir (generated projects, removed after each run)
+e2e/.tmp-create-pylon
+
 # pylon eval run workdirs + reports
 .eval-runs
 eval-report.json

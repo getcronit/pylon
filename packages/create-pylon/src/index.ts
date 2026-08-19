@@ -25,6 +25,12 @@ program
   .version(version)
   .arguments('[target]')
   .addOption(new Option('-i, --install', 'Install dependencies'))
+  // Declared separately (not as an `-i, --install` boolean pair) so `install` stays
+  // `undefined` when neither is passed — that's what triggers the interactive prompt.
+  .addOption(new Option('--no-install', 'Skip installing dependencies'))
+  .addOption(
+    new Option('-y, --yes', 'Skip confirmation prompts — for scripts and CI')
+  )
   .addOption(
     new Option('-r, --runtime <runtime>', 'Runtime').choices(
       runtimes.map(({key}) => key)
@@ -42,6 +48,7 @@ program
 
 type ArgOptions = {
   install?: boolean
+  yes?: boolean
   runtime: string
   features: string[]
   packageManager?: PackageManager
@@ -94,6 +101,13 @@ async function main(
       throw new Error(`Invalid runtime selected: ${options.runtime}`)
     }
 
+    // A bare `--features` (no values) makes commander yield `true`, not `[]`. Treat it —
+    // and any non-array — as an explicit "no features" so the flag stays non-interactive
+    // instead of crashing on the `for...of` below.
+    if (options.features !== undefined && !Array.isArray(options.features)) {
+      options.features = []
+    }
+
     if (!options.features) {
       const answer = await consola.prompt('Configure features:', {
         type: 'multiselect',
@@ -118,14 +132,16 @@ async function main(
     }
 
     // Summary of the selected options
-    const confirmCreation = await consola.prompt(
-      `Ready to create the project in ${chalk.blue(targetDir)}?`,
-      {
-        type: 'confirm',
-        initial: true,
-        cancel: 'reject'
-      }
-    )
+    const confirmCreation =
+      options.yes ||
+      (await consola.prompt(
+        `Ready to create the project in ${chalk.blue(targetDir)}?`,
+        {
+          type: 'confirm',
+          initial: true,
+          cancel: 'reject'
+        }
+      ))
 
     if (!confirmCreation) {
       const error = new Error('Prompt cancelled.')
@@ -135,13 +151,12 @@ async function main(
 
     if (fs.existsSync(targetDir)) {
       if (fs.readdirSync(targetDir).length > 0) {
-        const response = await consola.prompt(
-          'Directory not empty. Continue?',
-          {
+        const response =
+          options.yes ||
+          (await consola.prompt('Directory not empty. Continue?', {
             type: 'confirm',
             cancel: 'reject'
-          }
-        )
+          }))
         if (!response) {
           const error = new Error('Prompt cancelled.')
           error.name = 'ConsolaPromptCancelledError'

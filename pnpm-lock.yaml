@@ -147,6 +147,9 @@ importers:
       '@hono/node-server':
         specifier: ^1.12.2
         version: 1.19.9(hono@4.11.9)
+      '@radix-ui/react-slot':
+        specifier: ^1.1.2
+        version: 1.2.4(@types/react@19.2.14)(react@19.2.7)
       '@sentry/react':
         specifier: ^10.5.0
         version: 10.38.0(react@19.2.7)
@@ -159,6 +162,12 @@ importers:
       '@types/react-dom':
         specifier: ^19.0.4
         version: 19.2.3(@types/react@19.2.14)
+      class-variance-authority:
+        specifier: ^0.7.1
+        version: 0.7.1
+      clsx:
+        specifier: ^2.1.1
+        version: 2.1.1
       graphql:
         specifier: ^16.9.0
         version: 16.12.0
@@ -168,9 +177,15 @@ importers:
       react-dom:
         specifier: ^19.0.0
         version: 19.2.7(react@19.2.7)
+      tailwind-merge:
+        specifier: ^3.0.1
+        version: 3.4.0
       tailwindcss:
         specifier: ^4.0.4
         version: 4.1.18
+      tailwindcss-animate:
+        specifier: ^1.0.7
+        version: 1.0.7(tailwindcss@4.1.18)
       vitest:
         specifier: ^2.0.0
         version: 2.1.9(@types/node@24.10.13)(jsdom@28.1.0)(lightningcss@1.30.2)

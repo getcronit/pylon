@@ -51,42 +51,29 @@ interface CreateDirectoryOptions {
   features: Feature[]
 }
 
-const makeIndexFile = (runtime: Runtime, _features: Feature[]) => {
-  let content: string = ''
+/**
+ * The entry is PURE and runtime-agnostic: it assembles the app and default-exports
+ * it. It must NOT serve as a side effect of import — serving is app-owned and lives
+ * in `pylon.config.ts` (`useNodeServer()` on Node; Bun / Deno / workerd auto-serve
+ * the default export of the built `.pylon/server.mjs`).
+ *
+ * The compiler type-introspects the DEFAULT export's `graphql` to derive the schema,
+ * so the entry must be `export default new Pylon({graphql: {...}})`.
+ */
+const makeIndexFile = (_runtime: Runtime, _features: Feature[]) => {
+  return `import {Pylon} from '@getcronit/pylon'
 
-  // Add imports — config (incl. plugins) lives in pylon.config.ts now.
-  content += `import {app} from '@getcronit/pylon'\n\n`
-
-  if (runtime === 'node') {
-    content += `import {serve} from '@hono/node-server'\n`
+export default new Pylon({
+  graphql: {
+    Query: {
+      hello: (): string => {
+        return 'Hello, world!'
+      }
+    },
+    Mutation: {}
   }
-
-  content += '\n\n'
-
-  // Add graphql
-  content += `export const graphql = {
-  Query: {
-    hello: () => {
-      return 'Hello, world!'
-    }
-  },
-  Mutation: {}
-}`
-
-  content += '\n\n'
-
-  if (runtime === 'bun' || runtime === 'cf-workers') {
-    content += `export default app`
-  } else if (runtime === 'node') {
-    content += `serve(app, info => {
-  console.log(\`Server running at \${info.port}\`)
-})`
-  } else if (runtime === 'deno') {
-    content += `Deno.serve({port: 3000}, app.fetch)
+})
 `
-  }
-
-  return content
 }
 
 /**
@@ -94,7 +81,7 @@ const makeIndexFile = (runtime: Runtime, _features: Feature[]) => {
  * Uses `satisfies PylonConfig` (typed + dependency-free for static config);
  * `defineConfig` is also supported for lazy/async config.
  */
-const makeConfigFile = (_runtime: Runtime, features: Feature[]) => {
+const makeConfigFile = (runtime: Runtime, features: Feature[]) => {
   const valueImports: string[] = []
   const plugins: string[] = []
   const extraImportLines: string[] = []
@@ -116,6 +103,16 @@ const makeConfigFile = (_runtime: Runtime, features: Feature[]) => {
     // The pages battery (plugin + runtime) lives under @getcronit/pylon/pages.
     extraImportLines.push("import {usePages} from '@getcronit/pylon/pages/plugin'")
     plugins.push('usePages()')
+  }
+
+  // Serving is app-owned and explicit. The built `.pylon/server.mjs` is a PURE module
+  // (`export default app`) — it does not listen on import. On Node, `useNodeServer()`
+  // binds the port; it is a 'last'-strategy plugin, so it goes LAST in the array to
+  // listen only after every route (incl. the usePages catch-all) is mounted. On Bun,
+  // Deno and workerd it no-ops — those hosts serve the default export themselves.
+  if (runtime === 'node') {
+    valueImports.push('useNodeServer')
+    plugins.push('useNodeServer()')
   }
 
   const pylonImportLine = valueImports.length
@@ -186,9 +183,11 @@ const injectPagesFeatureFiles = async (
   const pagesFiles = [
     {
       path: 'pages/layout.tsx',
-      content: `import '../globals.css'
+      content: `import {LayoutProps} from '@getcronit/pylon/pages'
 
-export default function RootLayout({children}: {children: React.ReactNode}) {
+import '../globals.css'
+
+export default function RootLayout({children}: LayoutProps) {
   return (
     <html lang="en">
       <body>{children}</body>
@@ -202,7 +201,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
       content: `import { Button } from '@/components/ui/button'
 import { PageProps, useData } from '@getcronit/pylon/pages'
 
-const Page: React.FC<PageProps> = props => {
+const Page: React.FC<PageProps> = () => {
   const data = useData()
   return (
     <div className="container">
@@ -223,7 +222,7 @@ export default Page
 
 @custom-variant dark (&:is(.dark *));
 
-@theme {
+@theme inline {
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
 
@@ -428,7 +427,7 @@ export default {
   "rsc": false,
   "tsx": true,
   "tailwind": {
-    "config": "tailwind.config.js",
+    "config": "",
     "css": "globals.css",
     "baseColor": "zinc",
     "cssVariables": true,
@@ -462,7 +461,7 @@ import {cva, type VariantProps} from 'class-variance-authority'
 import {cn} from '@/lib/utils'
 
 const buttonVariants = cva(
-  "inline-flexxx items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-[color,box-shadow] disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0 ring-ring/10 dark:ring-ring/20 dark:outline-ring/40 outline-ring/50 focus-visible:ring-4 focus-visible:outline-1 aria-invalid:focus-visible:ring-0",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-[color,box-shadow] disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0 ring-ring/10 dark:ring-ring/20 dark:outline-ring/40 outline-ring/50 focus-visible:ring-4 focus-visible:outline-1 aria-invalid:focus-visible:ring-0",
   {
     variants: {
       variant: {
