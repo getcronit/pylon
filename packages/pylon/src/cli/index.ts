@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import {program} from 'commander'
 
 import {spawn, type ChildProcess} from 'child_process'
