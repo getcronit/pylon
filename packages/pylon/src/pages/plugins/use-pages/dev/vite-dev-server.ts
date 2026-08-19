@@ -16,6 +16,7 @@
  * `setup/index.tsx` reads the bridge (via globalThis) for two things only: the client
  * bootstrap URL, and `transformHtml` to inject the Vite dev scripts.
  */
+import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 
@@ -137,7 +138,23 @@ export async function createPagesDevServer(
       tsconfigPaths({root: options.root, ignoreConfigErrors: true}),
       react(),
       // `pre`: rewrite useData → compiled docs BEFORE Vite's oxc transpile.
-      useDataStaticAnalyzerVite({entryPaths: [options.appTsxAbs]}),
+      // Hand the analyzer the app's tsconfig so its ts-morph project resolves the
+      // app's path aliases (`@/*`) to REAL files. Without it every non-relative
+      // import falls to the analyzer's `*`→dummy catch-all, so a page that imports
+      // its components + the connection node type via `@/…` (the lokalis convention)
+      // leaves the project too thin for the connection pass to trace inline
+      // node-field reads (`e.actorLabel` in a `DataGridColumn<AuditEvent>` cell) — the
+      // selection collapses to `{ id }`. The prod rolldown build sidesteps this by
+      // feeding the WHOLE module graph through the analyzer (every file is loaded by
+      // absolute path); dev transforms modules on-demand, so it needs the aliases to
+      // pull the same sources in. Guarded on existence so alias-less apps are unaffected.
+      useDataStaticAnalyzerVite({
+        entryPaths: [options.appTsxAbs],
+        tsConfigFilePath: (() => {
+          const tsconfig = path.join(options.root, 'tsconfig.json')
+          return fs.existsSync(tsconfig) ? tsconfig : undefined
+        })()
+      }),
       // Resolve module-imported images to the same URL the rolldown dev SSR emits
       // (`.pylon/__pylon/static/media/…`, served by Hono) — no hydration mismatch.
       pylonImageVite(

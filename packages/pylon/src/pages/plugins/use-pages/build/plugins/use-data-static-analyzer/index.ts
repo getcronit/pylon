@@ -630,18 +630,37 @@ export function createUseDataAnalyzerCore(
 
         manager.updateSourceFile(args.path, contents)
 
-        // Eagerly load this file's RELATIVE imports into the project so JSX
-        // components imported from sibling files (e.g. a row component that reads
-        // connection node fields) resolve during analysis. Without this, the
-        // connection pass may run before the component's file is loaded → the
-        // component body isn't traced → an empty node selection (`{ id }`).
+        // Eagerly load this file's imports (transitively) into the project so JSX
+        // components imported from other files — including through `@/…`-style
+        // tsconfig path aliases and the connection node's TYPE (`@/.pylon/client`) —
+        // resolve during analysis. Without this, the connection pass runs with a thin
+        // project (in prod the rolldown build feeds the WHOLE module graph through
+        // `transform`, so every dep is already loaded; in dev each module is
+        // transformed on-demand, so the project would otherwise hold only this file),
+        // `coreAnalyze` can't trace a node-field read (`e.actorLabel` in a
+        // `DataGridColumn<AuditEvent>` cell renderer) back to the connection node, and
+        // the selection collapses to `{ id }`. We resolve via ts-morph's
+        // `getModuleSpecifierSourceFile()` (which honors tsconfig `paths`, unlike a
+        // `startsWith('.')` text check) and walk imports breadth-first, stopping at
+        // `node_modules` to bound the cost to the app's own source.
         try {
-          const sf = project.getSourceFile(args.path)
-          sf?.getImportDeclarations().forEach(imp => {
-            if (imp.getModuleSpecifierValue().startsWith('.')) {
-              imp.getModuleSpecifierSourceFile()
+          const rootSf = project.getSourceFile(args.path)
+          if (rootSf) {
+            const seen = new Set<string>([args.path])
+            const queue = [rootSf]
+            while (queue.length) {
+              const sf = queue.shift()!
+              for (const imp of sf.getImportDeclarations()) {
+                const dep = imp.getModuleSpecifierSourceFile()
+                if (!dep) continue
+                const depPath = dep.getFilePath()
+                if (seen.has(depPath)) continue
+                seen.add(depPath)
+                if (depPath.includes('/node_modules/')) continue
+                queue.push(dep)
+              }
             }
-          })
+          }
         } catch {}
 
         if (debug) {
