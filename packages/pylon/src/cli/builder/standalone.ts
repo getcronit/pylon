@@ -40,8 +40,13 @@ export interface StandaloneResult {
   fileCount: number
   /** Total bytes copied. */
   byteCount: number
-  /** nft warnings (unresolved dynamic requires) — surfaced but non-fatal. */
+  /** Potentially-actionable unresolved dynamic imports — a bare/relative specifier nft
+   *  couldn't follow that might need `--include`. Benign noise (non-code parse failures,
+   *  optional/other-platform native deps) is filtered out into `ignoredWarnings`. */
   warnings: string[]
+  /** Count of benign trace notes suppressed from `warnings` (parse-failures of non-code files,
+   *  optional deps absent by design). Surfaced only as a number so the real signal stands out. */
+  ignoredWarnings: number
   /** Count of native `*.node` binaries traced — they lock the artifact to one platform. */
   nativeBinaries: number
   /** Distinct native platform tokens detected (e.g. `darwin-arm64`, `linuxmusl-x64`) — the
@@ -81,6 +86,62 @@ function tryResolve(req: NodeRequire, spec: string): string | null {
   } catch {
     return null
   }
+}
+
+/** Optional native deps libraries probe for at load time — absent by design in most installs
+ *  (a `require` in a `try{}`), so nft failing to resolve them is expected, not a problem. */
+const KNOWN_OPTIONAL_DEPS = new Set([
+  'pg-native',
+  'cloudflare:sockets',
+  'pnpapi',
+  'performance',
+  '@valkey/valkey-glide',
+  'node-libcurl'
+])
+
+/**
+ * nft emits a warning for every dynamic/conditional dependency it can't statically follow.
+ * For a DEPLOY trace the overwhelming majority are noise, not problems, and dumping them all
+ * reads like a catastrophe over a working build. Split the benign classes off so only warnings
+ * that could mean a genuinely MISSING runtime file are surfaced; the rest becomes one count.
+ *
+ *   • "Failed to parse <file>" — nft couldn't ANALYSE a file (a minified vendor bundle, license
+ *     text, a prebuilt binary). The file is still copied; this is an analysis gap, never a
+ *     missing dependency.
+ *   • "Failed to resolve <optional/other-platform native dep>" — an optional dep that isn't
+ *     installed, or another platform's `@img/sharp-*` / `@esbuild/*` variant (we bundle the
+ *     build host's; the rest are absent by design).
+ *
+ * Everything else — a real bare/relative specifier that didn't resolve — stays actionable: the
+ * app may need it via `--include`.
+ */
+function classifyTraceWarnings(messages: string[]): {
+  actionable: string[]
+  benign: number
+} {
+  const actionable = new Set<string>()
+  let benign = 0
+  for (const raw of messages) {
+    const first = raw.split('\n')[0].trim()
+    if (/^Failed to parse\b/.test(first)) {
+      benign++
+      continue
+    }
+    const dep = first.match(/Failed to resolve dependency ["']([^"']+)["']/)?.[1]
+    if (
+      dep &&
+      (KNOWN_OPTIONAL_DEPS.has(dep) ||
+        /^@img\/sharp-(libvips|linux|win32|wasm|darwin|freebsd|openbsd|netbsd|android|sunos|aix)/.test(
+          dep
+        ) ||
+        /^@esbuild\//.test(dep))
+    ) {
+      benign++
+      continue
+    }
+    actionable.add(first)
+  }
+  return {actionable: [...actionable], benign}
 }
 
 /** Copy one traced path, PRESERVING symlinks (pnpm's node_modules layout depends on them). */
@@ -285,7 +346,12 @@ export async function buildStandalone(opts: {
     entry,
     fileCount: fileCount + 1,
     byteCount,
-    warnings: [...warnings].map(w => w.message),
+    ...(() => {
+      const {actionable, benign} = classifyTraceWarnings(
+        [...warnings].map(w => w.message)
+      )
+      return {warnings: actionable, ignoredWarnings: benign}
+    })(),
     nativeBinaries,
     nativePlatforms: [...nativePlatforms]
   }

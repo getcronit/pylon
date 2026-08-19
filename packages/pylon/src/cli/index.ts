@@ -145,16 +145,23 @@ program
           }
         }
         if (res.warnings.length) {
-          // First line of each (nft messages can carry a stack); dedupe for the count/list.
-          const uniq = [...new Set(res.warnings.map(w => w.split('\n')[0].trim()))]
+          const suffix = res.ignoredWarnings
+            ? ` (${res.ignoredWarnings} benign trace note${res.ignoredWarnings === 1 ? '' : 's'} — non-code files / optional deps — hidden)`
+            : ''
           consola.warn(
-            `nft could not statically resolve ${uniq.length} dynamic import(s) — usually ` +
-              `optional/conditional deps, safe to ignore. Re-run with --verbose to list them.`
+            `nft couldn't follow ${res.warnings.length} dynamic import(s) that MAY need a runtime ` +
+              `file${suffix}. If the app is missing a data file at runtime, pass it via --include. ` +
+              `Re-run with --verbose to list them.`
           )
           // Rendered only when --verbose raised the level to debug.
           consola.debug(
             `Unresolved dynamic imports (add a real one to --include, or as an explicit trace root):\n` +
-              uniq.map(m => `  • ${m}`).join('\n')
+              res.warnings.map(m => `  • ${m}`).join('\n')
+          )
+        } else if (res.ignoredWarnings) {
+          // Only benign notes — don't alarm anyone at the default level; a quiet line for --verbose.
+          consola.debug(
+            `nft emitted ${res.ignoredWarnings} benign trace note(s) (non-code files / optional deps), all safe to ignore.`
           )
         }
       }
