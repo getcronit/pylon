@@ -31,6 +31,7 @@ let server: ChildProcess | undefined
 let serverLog = ''
 
 const html = async (p: string) => (await fetch(`${base}${p}`)).text()
+const html_ = html
 const byId = (h: string, id: string) => h.match(new RegExp(`id="${id}"[^>]*>([^<]*)<`))?.[1]
 const envelope = (h: string) =>
   JSON.parse(h.match(/window\.__pylonStaticData = (\{.*?\});/)![1])
@@ -225,5 +226,69 @@ describe('@inContext — resolvers see the locale', () => {
     const cache = JSON.stringify(cacheOf(await html('/de')))
     expect(cache).toContain('Server: hallo')
     expect(cache).not.toContain('Server: bonjour')
+  })
+})
+
+describe('the BROWSER client sends the locale too', () => {
+  // SSR being right is only half of it: after hydration a refetch or a mutation is a plain
+  // POST /graphql from the browser, with no page request anywhere. If the browser client
+  // omitted `$__locale`, a refetch would silently return the DEFAULT locale's data and
+  // overwrite the correct SSR result in the store.
+  //
+  // Verified in a real browser by patching `window.fetch` and clicking a refetch: the body
+  // was `{"variables":{"__locale":"de"}}`. These assert the wiring that makes that true.
+  it('reads the locale out of the hydration envelope', async () => {
+    const client = await fs.readFile(
+      path.join(appDir, '.pylon/client/index.ts'),
+      'utf8'
+    )
+    expect(client).toContain('__pylonStaticData?.i18n?.locale')
+    expect(client).toMatch(/createPylonQueryClient\(\{\.\.\.options, locale\}\)/)
+  })
+
+  it('ships that wiring in the client bundle', async () => {
+    const html = await html_('/de')
+    const src = html.match(/src="(\/__pylon\/static\/app-[^"]+\.js)"/)![1]
+    const bundle = await (await fetch(`${base}${src}`)).text()
+    // The envelope read must survive bundling — not be tree-shaken or renamed away.
+    expect(bundle).toContain('__pylonStaticData')
+    expect(bundle).toContain('__locale')
+  })
+})
+
+describe('dev and prod compile the same documents', () => {
+  // `pylon dev` builds the SSR bundle with the rolldown analyzer but the CLIENT bundle with
+  // the Vite one. Only the rolldown path was told about i18n, so dev shipped a server that
+  // knew the locale and a client that did not: SSR rendered German, then the first refetch
+  // sent a directive-less document and the page flipped to English. Prod was unaffected,
+  // which is the worst place for a difference to live.
+  //
+  // Reproduced in a browser against `pylon dev`: the wire carried
+  // `query page_0 { serverGreeting }` with no variables, and the DOM went
+  // "Server: hallo" → "Server: hello".
+  it('threads the i18n flag into the dev (Vite) analyzer', async () => {
+    const devServer = await fs.readFile(
+      path.join(repoRoot, 'packages/pylon/src/pages/plugins/use-pages/dev/vite-dev-server.ts'),
+      'utf8'
+    )
+    expect(devServer).toContain('inContext: options.inContext')
+  })
+
+  it('lets the dev server read the usePages options it needs', async () => {
+    // `usePages` in dev is only a `pages/` directory check, so the plugin's real options are
+    // the sole source for whether i18n is configured.
+    const cli = await fs.readFile(
+      path.join(repoRoot, 'packages/pylon/src/cli/dev/dev-server.ts'),
+      'utf8'
+    )
+    expect(cli).toContain("p?.name === 'pages'")
+    expect(cli).toContain('inContext: Boolean(pagesPlugin?.options?.i18n)')
+
+    const plugin = await fs.readFile(
+      path.join(repoRoot, 'packages/pylon/src/pages/plugins/use-pages/index.ts'),
+      'utf8'
+    )
+    // Options are captured in the factory closure unless the plugin exposes them.
+    expect(plugin).toMatch(/name: 'pages',[\s\S]*?options,/)
   })
 })

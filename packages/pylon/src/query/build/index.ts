@@ -75,8 +75,6 @@ export const client = createPylonQueryClient({...options, locale})
 // Imperative \`op.query\`/\`op.mutation\` run against this client (browser only).
 if (typeof window !== 'undefined') registerOperationClient(client)
 
-/** Fresh per-request client for SSR (isolated store per request). */
-export const createPagesClient = () => createPylonQueryClient(options)
 
 export type {Data}
 export * from './types'

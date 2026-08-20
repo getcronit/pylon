@@ -79,6 +79,13 @@ export type Plugin<
   /** Other plugin `name`s this one must load AFTER (within the same phase). A dep
    *  not present in the phase is assumed satisfied by the other phase. Cycles throw. */
   dependsOn?: string[]
+  /**
+   * The plugin's own options, exposed so tooling can read them.
+   *
+   * `pylon dev` needs `usePages`'s `i18n` before it stands up the client Vite, and options
+   * passed to a factory are otherwise captured in its closure and unreachable.
+   */
+  options?: Record<string, any>
   middleware?: MiddlewareHandler<Env>
   setup?: (app: Pylon<any>) => Promise<void> | void
   /** The one build-side hook: called ONCE per build; returns a watch handle the

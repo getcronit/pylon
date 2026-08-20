@@ -42,6 +42,17 @@ export interface PagesDevServerOptions {
   root: string
   appTsxAbs: string
   version: string
+  /**
+   * Compile `@inContext(locale: $__locale)` into client documents — mirrors what the
+   * rolldown build does for production.
+   *
+   * Without it the two halves of dev disagree: the SSR bundle (built by the rolldown
+   * analyzer) carries the directive while the client bundle does not, so after hydration a
+   * refetch sends a DIFFERENT document — missing the hydration cache entry and losing the
+   * locale. Production would be fine and only dev would be wrong, which is the worst place
+   * for a difference to live.
+   */
+  inContext?: boolean
 }
 
 export interface PagesDevServer {
@@ -145,6 +156,7 @@ export async function createPagesDevServer(
       // absolute path); dev transforms modules on-demand, so it needs the aliases to
       // pull the same sources in. Guarded on existence so alias-less apps are unaffected.
       useDataStaticAnalyzerVite({
+        inContext: options.inContext,
         entryPaths: [options.appTsxAbs],
         tsConfigFilePath: (() => {
           const tsconfig = path.join(options.root, 'tsconfig.json')

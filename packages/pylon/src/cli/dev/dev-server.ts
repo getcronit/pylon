@@ -133,10 +133,19 @@ export async function startDevServer(opts: {port: number}): Promise<DevServer> {
     } | null = null
     if (usePages) {
       const {createPagesDevServer} = (await import('@getcronit/pylon/pages/dev')) as any
+      // Read the usePages plugin's own options: the client analyzer must compile the same
+      // documents the rolldown (SSR) one does, or dev's two halves disagree — see
+      // PagesDevServerOptions.inContext. `usePages` above is only a `pages/` directory
+      // check, so the real config is the only source for this.
+      const pagesPlugin = (await loadConfig())?.plugins?.find(
+        (p: any) => p?.name === 'pages'
+      ) as {options?: {i18n?: unknown}} | undefined
+
       pagesDev = await createPagesDevServer({
         root: cwd,
         appTsxAbs: path.join(outDir, 'app.tsx'),
-        version: 'dev'
+        version: 'dev',
+        inContext: Boolean(pagesPlugin?.options?.i18n)
       })
     }
 

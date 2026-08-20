@@ -39,6 +39,9 @@ export function usePages(options: UsePagesOptions = {}): Plugin {
   return {
     name: 'pages',
     strategy: 'last',
+    // Readable by `pylon dev`, which needs to know about `i18n` before it stands up the
+    // client Vite — and cannot otherwise see options captured in this closure.
+    options,
     // We use async functions here so React isn't imported until setup() is called
     setup: async api => {
       const {setup} = await import('./setup')
