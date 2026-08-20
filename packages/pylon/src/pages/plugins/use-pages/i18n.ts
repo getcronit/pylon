@@ -54,6 +54,21 @@ export interface I18nOptions {
    * `/en/pricing`. Deterministic, never negotiated.
    */
   prefix?: LocalePrefix
+  /**
+   * Directory holding the message catalogs, project-relative — `'./messages'`, containing
+   * `en.ts`, `de.ts`, `fr.json`, one per configured locale.
+   *
+   * A PATH rather than pre-imported objects, because the path is what lets the build own
+   * them: `usePages`'s build hook compiles each catalog into `.pylon/messages/<locale>.js`,
+   * so they need not live under `src/` and an app never wires up imports by hand.
+   *
+   * SERVER-ONLY by design. Catalogs never enter the client bundle: the active locale's
+   * messages travel in the hydration envelope as data, and switching locale is a document
+   * navigation (see `<Link locale>`), so the browser never needs a second catalog. That is
+   * what makes "only the active locale ships" true by construction rather than by bundler
+   * configuration.
+   */
+  catalogs?: string
   /** Cookie carrying the locale. Default `'locale'`. */
   cookie?: string
 }

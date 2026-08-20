@@ -4,6 +4,7 @@ import fs from 'fs/promises'
 import {createRequire} from 'module'
 import path from 'path'
 import {rolldown, type RolldownOutput} from 'rolldown'
+import {buildCatalogs} from './catalogs'
 
 // Resolve from the app's location via real Node resolution — robust to pnpm /
 // monorepo / hoisted layouts where the package isn't under `cwd/node_modules`.
@@ -94,6 +95,20 @@ export const build = async (
   const appTsxAbs = path.resolve(cwd, '.pylon', 'app.tsx')
   const sitemapAbs = path.resolve(cwd, 'pages', 'sitemap.ts')
   const pylonCssPath = nodeRequire.resolve('@getcronit/pylon/pages/index.css')
+
+  // Catalogs are owned by the build because `catalogs` is a configured path: compile each
+  // locale into `.pylon/messages/<locale>.js` so the runtime can import it regardless of
+  // where the app keeps its sources.
+  const buildMessageCatalogs = async () => {
+    const i18n = options.i18n
+    if (!i18n?.catalogs) return
+    await buildCatalogs({
+      cwd,
+      dir: i18n.catalogs,
+      locales: i18n.locales,
+      defaultLocale: i18n.defaultLocale
+    })
+  }
 
   const define = {
     'process.env.NODE_ENV': JSON.stringify(
@@ -354,6 +369,9 @@ export const build = async (
       ])
       await buildAppFile()
       await copyPublicDir()
+      // Before either bundle: the SSR runtime imports these at request time, and a dev
+      // rebuild must pick up an edited catalog.
+      await buildMessageCatalogs()
       if (process.env.PYLON_DEV) {
         // Dev: Vite serves the client, so the rolldown client JS bundle is dead weight.
         // Skip it — the server build traverses the same graph and now writes the CSS

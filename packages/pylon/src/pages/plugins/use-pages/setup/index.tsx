@@ -204,6 +204,43 @@ export const setup = async (
   await loadPages()
   warnLocaleShadowing()
 
+  /**
+   * Loaded catalogs, keyed by locale. Loaded once and cached — a catalog is a static module,
+   * so re-importing it per request would be pure overhead.
+   */
+  const catalogCache = new Map<string, Messages | null>()
+  const catalogFor = async (locale: string): Promise<Messages | undefined> => {
+    if (!options.i18n?.catalogs) return undefined
+    if (catalogCache.has(locale)) return catalogCache.get(locale) ?? undefined
+    let loaded: Messages | null = null
+    try {
+      // Emitted by the build hook from the configured `catalogs` directory, so the runtime
+      // never has to resolve app-relative source paths.
+      loaded = await loadCatalog(await import(`${root}/.pylon/messages/${locale}.js`))
+    } catch {
+      // A locale with no catalog falls back to the default; the build already warned.
+      loaded = null
+    }
+    catalogCache.set(locale, loaded)
+    return loaded ?? undefined
+  }
+
+  /**
+   * The messages this render uses: the active locale merged OVER the default.
+   *
+   * Falling back once here means the browser receives a single, already-complete catalog —
+   * it needs no fallback logic and never has to be sent the default locale as well.
+   */
+  const messagesFor = async (locale: string): Promise<Messages | undefined> => {
+    const i18n = options.i18n
+    if (!i18n?.catalogs) return undefined
+    const active = await catalogFor(locale)
+    if (locale === i18n.defaultLocale) return active
+    const base = await catalogFor(i18n.defaultLocale)
+    if (!base) return active
+    return active ? mergeCatalogs(base, active) : base
+  }
+
   // Dormant in prod (refs set once above; never called). The dev worker drives page
   // hot-swaps through this hook — see rfcs/DEV_SERVER.md (Step 1).
   ;(globalThis as any).__PYLON_DEV_RELOAD_PAGES__ = loadPages
@@ -557,6 +594,8 @@ export const setup = async (
       }
     }
 
+    const messages = i18n ? await messagesFor(i18n.locale) : undefined
+
     // Per-request cookie collector. The tree writes into it during render (via
     // `useResponseCookies`); `flushCookies()` drains it into `c` before any response is
     // built. Safe because the render is fully buffered — see pages/response-cookies.ts.
@@ -637,7 +676,7 @@ export const setup = async (
       <__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider
         client={pagesClient}
         responseCookies={responseCookies}
-        staticData={{context: pagesContext, i18n, metadata}}>
+        staticData={{context: pagesContext, i18n, metadata, messages}}>
         <StaticRouterProvider
           router={createStaticRouter(routeHandler.dataRoutes, ctx)}
           context={ctx}
@@ -752,6 +791,11 @@ export const setup = async (
 
 import {__PYLON_INTERNALS_DO_NOT_USE} from '@getcronit/pylon/pages'
 import {deleteCookie, getCookie, setCookie} from '@getcronit/pylon'
+import {
+  loadCatalog,
+  mergeCatalogs,
+  type Messages
+} from '../catalog'
 import {
   canonicalRedirect,
   I18N_VARY,

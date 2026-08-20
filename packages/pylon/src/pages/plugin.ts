@@ -23,7 +23,8 @@ export {
   type I18nOptions,
   type I18nContext,
   type LocaleRouting,
-  type LocalePrefix
+  type LocalePrefix,
+  type CatalogSource
 } from './plugins/use-pages/index.js'
 
 export {

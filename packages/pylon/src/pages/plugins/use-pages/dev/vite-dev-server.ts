@@ -20,6 +20,11 @@ import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 
+import {
+  patchViteOverlayMessages,
+  sanitizeViteHttpErrors,
+  wrapViteLogger
+} from '../../../../cli/dev/vite-messages.js'
 import {useDataStaticAnalyzerVite} from '../build/plugins/use-data-static-analyzer/index'
 import {injectHydrationVite, pylonImageVite} from '../build/vite-plugins'
 
@@ -77,19 +82,10 @@ export async function createPagesDevServer(
     ) => (req: any, res: any) => void
   }
 
-  // `@vitejs/plugin-react@5` — the version compatible with our transitional `rolldown-vite`
-  // (the fixed 6.x needs Vite 8) — sets `optimizeDeps.esbuildOptions.jsx`, which rolldown-vite
-  // still honors but warns is deprecated in favor of `optimizeDeps.rolldownOptions`. It's not
-  // actionable until the plugin and Vite majors line up, so filter that one line out; every
-  // other warning passes through untouched.
-  const baseLogger = createLogger('warn')
-  const logger = {
-    ...baseLogger,
-    warn(msg: string, opts?: unknown) {
-      if (msg.includes('optimizeDeps.esbuildOptions')) return
-      baseLogger.warn(msg, opts)
-    }
-  }
+  // Vite is a library here — the app has no `vite.config.ts`, so its diagnostics get
+  // restated in Pylon's vocabulary (and its internal-only noise dropped) before they reach
+  // the terminal. See `cli/dev/vite-messages.ts`.
+  const logger = wrapViteLogger(createLogger('warn'))
 
   const server = await createServer({
     root: options.root,
@@ -166,6 +162,10 @@ export async function createPagesDevServer(
     ]
   })
 
+  // The browser error overlay is the surface an app author reads on a broken edit —
+  // normalize what it renders too, not just the terminal.
+  patchViteOverlayMessages(server)
+
   const appTsxUrl =
     '/' + path.relative(options.root, options.appTsxAbs).split(path.sep).join('/')
 
@@ -185,6 +185,8 @@ export async function createPagesDevServer(
     // Topology A: Vite middlewares first; unclaimed requests → the booted Pylon app.
     const honoListener = getRequestListener(fetch)
     httpServer = http.createServer((req, res) => {
+      // Vite writes its 403/500 pages straight to the socket — rewrite them on the way out.
+      sanitizeViteHttpErrors(res)
       server.middlewares(req, res, () => honoListener(req, res))
     })
     await new Promise<void>(resolve =>

@@ -2,7 +2,16 @@ export * as __PYLON_ROUTER_INTERNALS_DO_NOT_USE from 'react-router'
 export * as __PYLON_INTERNALS_DO_NOT_USE from './internals'
 
 export {Image} from './image'
-export {useRouteData, useResponseCookies, useLocale} from './internals'
+export {
+  useRouteData,
+  useResponseCookies,
+  useLocale,
+  useTranslations,
+  useFormatter
+} from './internals'
+export type {SameShape, Messages} from '../plugins/use-pages/catalog'
+
+
 export type {
   ResponseCookies,
   ResponseCookieOptions

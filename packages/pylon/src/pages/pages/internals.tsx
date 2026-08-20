@@ -2,6 +2,15 @@ import {PylonQueryProvider} from '@getcronit/pylon/query'
 import {createContext, useContext, useMemo} from 'react'
 import {PageProps} from '.'
 import {
+  createTranslator,
+  type ArgsFor,
+  type At,
+  type Messages,
+  type Paths
+} from '../plugins/use-pages/catalog'
+// Type-only, so the index → internals → index cycle is erased at runtime.
+import type {Catalog} from '..'
+import {
   createNoopResponseCookies,
   createResponseCookies,
   type ResponseCookies
@@ -26,6 +35,7 @@ const dataClientContext = createContext<{
   pagesContext?: any
   responseCookies?: ResponseCookies
   i18n?: any
+  messages?: Record<string, unknown>
 } | null>(null)
 
 /** Browser singleton — nothing to write to, so one shared no-op is enough. */
@@ -51,6 +61,8 @@ const DataClientProvider: React.FC<{
       canonical: string
       alternates: Array<{hreflang: string; href: string}>
     }
+    /** The active locale's messages, already merged over the default locale's. */
+    messages?: Record<string, unknown>
   }
   /** Server only: the per-request collector the SSR handler flushes after rendering. */
   responseCookies?: ResponseCookies
@@ -82,13 +94,21 @@ const DataClientProvider: React.FC<{
         (window as any).__pylonStaticData?.i18n) ||
       undefined
 
+  // Same channel again: the browser gets the ACTIVE locale's messages only, already merged
+  // over the default on the server, so it needs neither fallback logic nor a second catalog.
+  const messages = isServer
+    ? staticData?.messages
+    : (typeof window !== 'undefined' &&
+        (window as any).__pylonStaticData?.messages) ||
+      undefined
+
   // Server: the request's collector. Client: a no-op that warns — the hook is callable on
   // both sides so components need no `typeof window` guard.
   const cookies = isServer ? responseCookies : noopResponseCookies
 
   const contextValue = useMemo(
-    () => ({client: coreClient, pagesContext, responseCookies: cookies, i18n}),
-    [coreClient, pagesContext, cookies, i18n]
+    () => ({client: coreClient, pagesContext, responseCookies: cookies, i18n, messages}),
+    [coreClient, pagesContext, cookies, i18n, messages]
   )
 
   return (
@@ -111,7 +131,7 @@ const DataClientProvider: React.FC<{
             ))}
           </>
         )}
-        {isServer && (cache || pagesContext || i18n) && (
+        {isServer && (cache || pagesContext || i18n || messages) && (
           <script
             dangerouslySetInnerHTML={{
               // Embed the SSR static data as a single envelope mirroring the
@@ -123,7 +143,8 @@ const DataClientProvider: React.FC<{
               __html: `window.__pylonStaticData = ${serializeForScript({
                 ...(cache ? {cache} : {}),
                 ...(pagesContext ? {context: pagesContext} : {}),
-                ...(i18n ? {i18n} : {})
+                ...(i18n ? {i18n} : {}),
+                ...(messages ? {messages} : {})
               })};`
             }}
           />
@@ -188,12 +209,118 @@ const useLocale = (): {
   return i18n
 }
 
+/**
+ * Translate messages for the active locale.
+ *
+ * ```tsx
+ * const t = useTranslations('checkout')
+ * t('total', {amount: '12.00', count: 3})
+ * ```
+ *
+ * Keys and their placeholders are both checked, inferred from the app's default-locale
+ * catalog via the `Catalog` interface — no codegen, and wrong keys or missing placeholders
+ * are compile errors.
+ *
+ * The signature is written against the concrete `Catalog` on purpose: a generic
+ * `Translate<T>` alias makes TypeScript evaluate `Paths<T>` for an unresolved `T` and fail
+ * with "Type instantiation is excessively deep" at the declaration itself.
+ */
+/**
+ * Keys BELOW a namespace, derived by filtering the full key space with a template literal.
+ *
+ * Deliberately not `Paths<At<Catalog, N>>`: handing `Paths` anything derived from a generic
+ * parameter makes TypeScript evaluate it against an unresolved type and fail with "Type
+ * instantiation is excessively deep" at the declaration, before an app calls it. Here `Paths`
+ * only ever sees the concrete `Catalog`, and the generic does nothing but filter strings.
+ */
+type KeysIn<N extends string> = (Paths<Catalog> & string) extends infer P
+  ? P extends `${N}.${infer Rest}`
+    ? Rest
+    : never
+  : never
+
+/** Every proper key prefix — `'checkout.total'` contributes `'checkout'`, `'a.b.c'` gives `'a' | 'a.b'`. */
+type PrefixesOf<P extends string> = P extends `${infer Head}.${infer Rest}`
+  ? Head | `${Head}.${PrefixesOf<Rest>}`
+  : never
+
+/**
+ * Valid namespaces. Constrained to real prefixes rather than `string`, or
+ * `useTranslations('nope')` would be accepted and every key under it would then resolve to
+ * `never` — an error pointing at the key rather than at the namespace that caused it.
+ */
+type Namespace = PrefixesOf<Paths<Catalog> & string>
+
+function useTranslations(): <K extends Paths<Catalog> & string>(
+  key: K,
+  ...args: ArgsFor<At<Catalog, K>>
+) => string
+function useTranslations<N extends Namespace>(
+  namespace: N
+): <K extends KeysIn<N> & string>(
+  key: K,
+  ...args: ArgsFor<At<Catalog, `${N}.${K}`>>
+) => string
+function useTranslations(namespace?: string): any {
+  const messages = useDataClient().messages
+  if (!messages) {
+    throw new Error(
+      '[pylon] useTranslations() requires message catalogs: ' +
+        'usePages({i18n: {locales, defaultLocale, messages: {...}}}).'
+    )
+  }
+  return useMemo(
+    () => createTranslator(messages as Messages, namespace),
+    [messages, namespace]
+  )
+}
+
+/**
+ * `Intl` formatters bound to the active locale.
+ *
+ * Constructing an `Intl.*Format` is expensive, so they are memoised per locale + options
+ * rather than rebuilt on every render.
+ */
+const useFormatter = () => {
+  const {locale} = useLocale()
+  return useMemo(() => {
+    const numberCache = new Map<string, Intl.NumberFormat>()
+    const dateCache = new Map<string, Intl.DateTimeFormat>()
+    const relativeCache = new Map<string, Intl.RelativeTimeFormat>()
+    const memo = <T,>(cache: Map<string, T>, opts: unknown, make: () => T): T => {
+      const key = JSON.stringify(opts ?? {})
+      let v = cache.get(key)
+      if (!v) {
+        v = make()
+        cache.set(key, v)
+      }
+      return v
+    }
+    return {
+      number: (value: number, options?: Intl.NumberFormatOptions) =>
+        memo(numberCache, options, () => new Intl.NumberFormat(locale, options)).format(value),
+      date: (value: Date | number, options?: Intl.DateTimeFormatOptions) =>
+        memo(dateCache, options, () => new Intl.DateTimeFormat(locale, options)).format(value),
+      relativeTime: (
+        value: number,
+        unit: Intl.RelativeTimeFormatUnit,
+        options?: Intl.RelativeTimeFormatOptions
+      ) =>
+        memo(relativeCache, options, () =>
+          new Intl.RelativeTimeFormat(locale, options)
+        ).format(value, unit)
+    }
+  }, [locale])
+}
+
 export {
   DataClientProvider,
   useDataClient,
   useResponseCookies,
   createResponseCookies,
-  useLocale
+  useLocale,
+  useTranslations,
+  useFormatter
 }
 
 // ====================================================================

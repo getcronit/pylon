@@ -367,9 +367,18 @@ wired by declaration merging, sourced from the app's own catalog rather than a g
 
 ```ts
 declare module '@getcronit/pylon/pages' {
-  interface Catalog extends (typeof import('./messages/en'))['default'] {}
+  interface Register {
+    messages: (typeof import('./messages/en'))['default']
+  }
 }
 ```
+
+A REGISTRY, not `interface Catalog extends …`. That form is illegal — TS2499, "An interface
+can only extend an identifier/qualified-name" — and because an app's `pylon.d.ts` is a
+declaration file, `skipLibCheck: true` (which pylon's own scaffold sets) suppresses the
+error entirely: the augmentation silently does nothing and every key resolves to `never`
+with no explanation. A property type may be any type expression, so the registry has no such
+restriction.
 
 `<Link>` preserves the locale automatically — the param-threading Google's docs do by hand on
 every link.
