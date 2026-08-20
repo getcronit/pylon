@@ -194,3 +194,57 @@ describe('useResponseCookies — writing from inside the render', () => {
     expect(await res.text()).not.toBe('')
   })
 })
+
+describe('useResponseCookies — security properties', () => {
+  it('percent-encodes values, so a value cannot inject a header or an attribute', async () => {
+    // The classic CRLF-injection shape. Hono serialises the value URL-encoded, so `\r\n`
+    // becomes %0D%0A and `;` becomes %3B — neither can start a new header or a new
+    // cookie attribute.
+    // `seen=1` so the layout's own first-visit write stays out of the way.
+    const res = await getAt('/inject', 'seen=1')
+    const cookies = setCookies(res)
+
+    // Exactly one cookie: nothing was smuggled into a second header.
+    expect(cookies).toHaveLength(1)
+    const probe = cookies[0]
+    expect(probe).toMatch(/^probe=/)
+
+    // The CRLF survives only as encoded data, never as a real line break.
+    expect(probe).toContain('%0D%0A')
+    expect(probe).not.toMatch(/[\r\n]/)
+    expect(probe).not.toContain('injected=admin')
+    expect(res.headers.get('X-Evil')).toBeNull()
+
+    // `; HttpOnly` inside the value stays inert data rather than becoming an attribute.
+    expect(probe).toContain('%3B')
+    expect(probe).not.toMatch(/;\s*HttpOnly/i)
+  })
+
+  it('rejects an invalid cookie name at the call site, not at flush time', async () => {
+    // Flush runs after the render, outside its try/catch — an invalid name reaching the
+    // platform there throws an opaque `Headers.append` TypeError and takes the whole
+    // response down. Validating in set() keeps it a normal render error.
+    const res = await getAt('/badname', 'seen=1')
+    expect(res.status).toBe(500)
+    // The throw happened during render, so nothing was queued — and critically the invalid
+    // name never reached the platform, so no malformed header was emitted.
+    expect(setCookies(res)).toHaveLength(0)
+    expect(res.headers.get('X-Injected')).toBeNull()
+  })
+
+  it('defaults to SameSite=Lax and marks the response uncacheable by shared caches', async () => {
+    const res = await get()
+    expect(setCookies(res)[0]).toMatch(/SameSite=Lax/i)
+    // A Set-Cookie response stored by a shared cache would replay one visitor's cookie to
+    // everyone else.
+    expect(res.headers.get('Cache-Control')).toContain('private')
+  })
+
+  it('adds Secure only when the request arrived over TLS', async () => {
+    // Plain HTTP (development): no Secure, or the cookie would be silently dropped.
+    expect(setCookies(await get())[0]).not.toMatch(/Secure/i)
+    // Behind a TLS-terminating proxy.
+    const proxied = await fetch(base, {headers: {'x-forwarded-proto': 'https'}})
+    expect(setCookies(proxied)[0]).toMatch(/Secure/i)
+  })
+})

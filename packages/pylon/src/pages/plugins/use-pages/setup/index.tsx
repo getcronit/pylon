@@ -464,9 +464,35 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
     const responseCookies =
       __PYLON_INTERNALS_DO_NOT_USE.createResponseCookies()
     const flushCookies = () => {
+      const entries = responseCookies.entries()
+      if (entries.length === 0) return
+
+      // Secure-by-default, overridable. Hono's own defaults are `Path=/` and nothing else.
+      // `SameSite=Lax` blocks the cookie on cross-site subrequests (CSRF surface) while
+      // keeping it on top-level navigations, which is what a preference cookie needs.
+      // `Secure` only when the request actually arrived over TLS, so http://localhost in
+      // development still works. An explicit option always wins.
+      const https =
+        c.req.url.startsWith('https:') ||
+        c.req.header('x-forwarded-proto')?.split(',')[0]?.trim() === 'https'
+
       for (const {name, value, options} of responseCookies.entries()) {
-        if (value === null) deleteCookie(c, name, options as any)
-        else setCookie(c, name, value, options as any)
+        const withDefaults = {
+          sameSite: 'Lax',
+          ...(https ? {secure: true} : {}),
+          ...options
+        }
+        if (value === null) deleteCookie(c, name, withDefaults as any)
+        else setCookie(c, name, value, withDefaults as any)
+      }
+
+      // A response carrying Set-Cookie must never be stored by a SHARED cache — one
+      // visitor's cookie would be replayed to everyone else. Most CDNs decline to cache
+      // Set-Cookie responses, but that is convention, not a guarantee, and some are
+      // configured to strip the header and cache the body. Only set it when the app has
+      // not chosen its own policy.
+      if (!c.res.headers.has('Cache-Control')) {
+        c.header('Cache-Control', 'private, no-cache')
       }
     }
 

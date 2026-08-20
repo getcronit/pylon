@@ -53,14 +53,38 @@ export interface ResponseCookies {
   entries(): ResponseCookieEntry[]
 }
 
+/**
+ * RFC 6265 cookie-name token: no control characters, separators, or whitespace.
+ *
+ * Validated at `set()` rather than at flush time. The flush runs AFTER the render, outside
+ * its try/catch, so an invalid name reaching the platform throws there and takes the whole
+ * response down with an opaque `Headers.append` TypeError. Throwing here instead puts the
+ * error inside the render, where the stack points at the offending component and the error
+ * boundary can handle it. (Cookie VALUES need no such check — they are percent-encoded on
+ * serialisation, so `\r\n` and `;` cannot inject headers or attributes.)
+ */
+const COOKIE_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
+
+const assertName = (name: string): void => {
+  if (!COOKIE_NAME.test(name)) {
+    throw new Error(
+      `[pylon] Invalid cookie name ${JSON.stringify(name)}. Cookie names may not contain ` +
+        `control characters, whitespace, or separators (()<>@,;:\\"/[]?={}). If this name ` +
+        `came from user input, validate it before calling useResponseCookies().set().`
+    )
+  }
+}
+
 /** Server-side collector. One per request. */
 export const createResponseCookies = (): ResponseCookies => {
   const pending = new Map<string, ResponseCookieEntry>()
   return {
     set(name, value, options = {}) {
+      assertName(name)
       pending.set(name, {name, value, options})
     },
     delete(name, options = {}) {
+      assertName(name)
       pending.set(name, {name, value: null, options})
     },
     entries: () => [...pending.values()]
