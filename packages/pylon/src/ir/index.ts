@@ -43,4 +43,4 @@ export {
   renameCandidates,
   tableRenameCandidates
 } from './diff.js'
-export type {SchemaChange, Migration, Rename, TableRename} from './diff.js'
+export type {SchemaChange, Migration, Rename, TableRename, CastHint} from './diff.js'

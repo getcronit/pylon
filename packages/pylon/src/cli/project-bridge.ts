@@ -42,6 +42,7 @@ export interface ProjectApp {
       opts?: {
         renames?: Array<{table: string; from: string; to: string}>
         tableRenames?: Array<{from: string; to: string}>
+        castHints?: Array<{table: string; column: string; using?: string; usingDown?: string}>
       }
     ): Promise<{
       name: string
@@ -130,6 +131,7 @@ export interface ProjectApp {
       now?: () => string
       renames?: Array<{table: string; from: string; to: string}>
       tableRenames?: Array<{from: string; to: string}>
+      castHints?: Array<{table: string; column: string; using?: string; usingDown?: string}>
     }
   ): Promise<{
     name: string

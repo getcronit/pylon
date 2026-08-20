@@ -99,7 +99,7 @@ export function defineMigration(migration: MigrationModule): MigrationModule {
  * `stateOnly` recording the delta in the baseline.
  */
 export function schema(changes: SchemaChange[]): Operation {
-  const {up, down, unsupported} = renderChanges(changes)
+  const {up, down, unsupported, unsupportedDown} = renderChanges(changes)
   if (unsupported.length > 0) {
     throw new Error(
       `Schema operation cannot be expressed as SQL:\n` +
@@ -110,15 +110,29 @@ export function schema(changes: SchemaChange[]): Operation {
         `  migrations.stateOnly([/* the same change(s) */])`
     )
   }
+  // A delta that renders forward but not backward (a type change hinted one way
+  // only) isn't invalid — it's irreversible, exactly like a `runSql` with no
+  // `down`. Say so, so `rollback` refuses it up front instead of half-reverting.
+  const irreversible = unsupportedDown.length > 0
   return {
-    reversible: true,
+    reversible: !irreversible,
     changes,
     fingerprint: `schema:${JSON.stringify(changes)}`,
-    preview: direction => (direction === 'up' ? up : down),
+    preview: direction =>
+      direction === 'up'
+        ? up
+        : irreversible
+          ? unsupportedDown.map(u => `-- irreversible: ${u}`)
+          : down,
     up: async ctx => {
       for (const stmt of up) await ctx.exec(stmt)
     },
     down: async ctx => {
+      if (irreversible) {
+        throw new Error(
+          `Irreversible operation: ${unsupportedDown.join('; ')}`
+        )
+      }
       for (const stmt of down) await ctx.exec(stmt)
     }
   }
@@ -174,8 +188,13 @@ export function dropColumn(table: string, column: TableColumn): Operation {
 }
 
 /** Alter a column (type/nullable/default/unique). `down` restores `before`. */
-export function alterColumn(table: string, before: TableColumn, after: TableColumn): Operation {
-  return schema([{kind: 'alterColumn', table, before, after}])
+export function alterColumn(
+  table: string,
+  before: TableColumn,
+  after: TableColumn,
+  opts: {using?: string; usingDown?: string} = {}
+): Operation {
+  return schema([{kind: 'alterColumn', table, before, after, ...opts}])
 }
 
 /** Add a foreign-key constraint. `down` drops it. */

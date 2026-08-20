@@ -360,6 +360,16 @@ db.command('diff')
     '--rename-table <spec...>',
     'Treat a drop+create table as a rename, e.g. --rename-table Old=New (model names)'
   )
+  .option(
+    '--using <spec...>',
+    "Conversion expression for a type change Postgres can't cast on its own, " +
+      'e.g. --using user.age=\'age::integer\''
+  )
+  .option(
+    '--using-down <spec...>',
+    'Conversion expression for the REVERSE of a --using type change (omit and the ' +
+      'migration is irreversible), e.g. --using-down user.age=\'age::text\''
+  )
   .action(async (name, options) => {
     try {
       const renames = ((options.rename as string[]) ?? []).map(spec => {
@@ -376,6 +386,27 @@ db.command('diff')
           throw new Error(`Invalid --rename-table "${spec}" (expected Old=New)`)
         return {from, to}
       })
+      // `--using table.column=<expr>` / `--using-down table.column=<expr>`, merged
+      // per column so one hint carries both directions. The expression may itself
+      // contain `=` (`col::integer = 1`), so only the FIRST `=` separates it.
+      const castHints: Array<{table: string; column: string; using?: string; usingDown?: string}> = []
+      const addCast = (spec: string, key: 'using' | 'usingDown') => {
+        const eq = spec.indexOf('=')
+        const [table, column] = spec.slice(0, eq < 0 ? 0 : eq).split('.')
+        const expr = eq < 0 ? '' : spec.slice(eq + 1)
+        if (!table || !column || !expr) {
+          throw new Error(
+            `Invalid --${key === 'using' ? 'using' : 'using-down'} "${spec}" ` +
+              `(expected table.column=<expression>)`
+          )
+        }
+        const existing = castHints.find(h => h.table === table && h.column === column)
+        if (existing) existing[key] = expr
+        else castHints.push({table, column, [key]: expr})
+      }
+      for (const spec of (options.using as string[]) ?? []) addCast(spec, 'using')
+      for (const spec of (options.usingDown as string[]) ?? []) addCast(spec, 'usingDown')
+
       const {created, destructive, renameCandidates, tableRenameCandidates} = await runDbCommand({
         command: 'diff',
         name,
@@ -383,7 +414,8 @@ db.command('diff')
         models: entryOf(options),
         dir: options.dir,
         renames,
-        tableRenames
+        tableRenames,
+        castHints
       })
       if (created) {
         consola.success(`Created migration ${created}`)

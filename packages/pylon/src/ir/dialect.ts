@@ -34,7 +34,24 @@ export interface Dialect {
   /** Index storage-parameter clause, e.g. ` WITH (m = 16, ef_construction = 64)`
    *  (empty when no params). Values are inlined — storage params take no binds. */
   indexWith(params?: Record<string, number>): string
+  /**
+   * Whether `ALTER COLUMN … TYPE` can convert `before` to `after` on its own.
+   * When false the statement needs an explicit `USING <expr>`; without one
+   * Postgres aborts the migration with "cannot be cast automatically".
+   */
+  castsImplicitly(before: ColumnSpec, after: ColumnSpec): boolean
 }
+
+/**
+ * Which type changes Postgres performs without a `USING` expression. Determined
+ * empirically against Postgres 16 (`ALTER TABLE … ALTER COLUMN … TYPE` over every
+ * pair of types the IR can emit), not from the cast catalog — `pg_cast` describes
+ * expression casts, while ALTER TYPE additionally accepts I/O conversions to the
+ * string types. The four rules below reproduce that matrix exactly.
+ */
+const STRING_TYPES = new Set(['text', 'varchar'])
+const NUMERIC_TYPES = new Set(['integer', 'bigint', 'numeric'])
+const TEMPORAL_TYPES = new Set(['timestamptz', 'date'])
 
 export const postgres: Dialect = {
   columnType(c) {
@@ -65,5 +82,18 @@ export const postgres: Dialect = {
       })
       .join(', ')
     return body ? ` WITH (${body})` : ''
+  },
+  castsImplicitly(before, after) {
+    // Scalar → array never converts on its own (`text` → `text[]` needs an
+    // explicit expression). The reverse does: an array degrades to its text form.
+    if (after.array && !before.array) return false
+    // Otherwise the element types decide, and the rules apply the same whether or
+    // not both sides are arrays (`integer[]` → `text[]` casts, `text[]` →
+    // `integer[]` does not).
+    if (before.sqlType === after.sqlType) return true // width/precision/dim only
+    if (STRING_TYPES.has(after.sqlType)) return true // anything → text/varchar
+    if (NUMERIC_TYPES.has(before.sqlType) && NUMERIC_TYPES.has(after.sqlType)) return true
+    if (TEMPORAL_TYPES.has(before.sqlType) && TEMPORAL_TYPES.has(after.sqlType)) return true
+    return false
   }
 }

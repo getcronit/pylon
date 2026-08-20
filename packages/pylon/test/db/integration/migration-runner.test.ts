@@ -269,3 +269,99 @@ describe.skipIf(!runDb)('MigrationRunner.apply — concurrent migrators (Postgre
     expect(rows.rows.map(r => r.name)).toEqual(['20260101T000000_init'])
   })
 })
+
+/**
+ * Regression: a type change Postgres can't cast on its own.
+ *
+ * `ALTER COLUMN … TYPE integer` on a text column aborts with "cannot be cast
+ * automatically" — a failed deploy with no way forward but hand-editing. The
+ * engine now refuses to generate it unhinted, and renders `USING <expr>` when the
+ * conversion is supplied. This proves the hinted form runs and CONVERTS the rows.
+ */
+describe.skipIf(!runDb)('MigrationRunner — casts needing USING (Postgres)', () => {
+  let db: Database
+  let dir: string
+
+  const snapWith = (sqlType: string): Snapshot => ({
+    version: 1,
+    entities: {
+      Caster: {
+        name: 'Caster',
+        table: 'caster',
+        abstract: false,
+        primaryKey: 'id',
+        implements: [],
+        fields: [
+          {
+            name: 'id',
+            type: {kind: 'scalar', name: 'String', nullable: false},
+            exposed: true,
+            column: {name: 'id', sqlType: 'bigint', primaryKey: true, autoIncrement: true, unique: false, nullable: false}
+          },
+          {
+            name: 'amount',
+            type: {kind: 'scalar', name: 'String', nullable: false},
+            exposed: true,
+            column: {name: 'amount', sqlType: sqlType as never, primaryKey: false, autoIncrement: false, unique: false, nullable: false}
+          }
+        ]
+      }
+    }
+  })
+
+  beforeAll(async () => {
+    db = connect({connectionString})
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pylon-mig-cast-'))
+    await db.kysely.schema.dropTable('caster').ifExists().cascade().execute()
+    await db.kysely.schema.dropTable('_pylon_migrations').ifExists().cascade().execute()
+  })
+
+  afterAll(async () => {
+    if (db) {
+      await db.kysely.schema.dropTable('caster').ifExists().cascade().execute()
+      await db.kysely.schema.dropTable('_pylon_migrations').ifExists().cascade().execute()
+      await db.destroy()
+    }
+    await fs.rm(dir, {recursive: true, force: true})
+    setDefaultDatabase(undefined)
+  })
+
+  it('refuses unhinted, then applies the hinted conversion to real rows', async () => {
+    let clock = 0
+    const runner = (current: () => Snapshot) =>
+      new MigrationRunner({dir, current, now: () => `t${++clock}`})
+
+    await runner(() => snapWith('text')).generate('init', load)
+    await runner(() => snapWith('text')).apply(load, db)
+    await sql`INSERT INTO caster (amount) VALUES ('41'), ('1')`.execute(db.kysely)
+
+    // Unhinted: refused at generate time rather than failing mid-deploy.
+    await expect(runner(() => snapWith('integer')).generate('cast', load)).rejects.toThrow(
+      /cannot be cast from text to integer automatically/
+    )
+
+    // Hinted: generates, and the emitted SQL carries the conversion.
+    const made = await runner(() => snapWith('integer')).generate('cast', load, {
+      castHints: [{table: 'caster', column: 'amount', using: '"amount"::integer', usingDown: '"amount"::text'}]
+    })
+    expect(made).not.toBeNull()
+    const r = runner(() => snapWith('integer'))
+    const plan = await r.plan(load, 'up')
+    expect(plan.at(-1)!.statements.join('\n')).toContain('USING "amount"::integer')
+
+    await r.apply(load, db)
+
+    // The rows converted — and are now genuinely integers, so SUM works.
+    const total = await sql<{sum: string}>`SELECT sum(amount)::text AS sum FROM caster`.execute(
+      db.kysely
+    )
+    expect(total.rows[0].sum).toBe('42')
+
+    // The reverse hint makes it reversible, and rolling back restores text.
+    await r.rollback(load, db)
+    const t = await sql<{data_type: string}>`
+      SELECT data_type FROM information_schema.columns
+      WHERE table_name = 'caster' AND column_name = 'amount'`.execute(db.kysely)
+    expect(t.rows[0].data_type).toBe('text')
+  })
+})

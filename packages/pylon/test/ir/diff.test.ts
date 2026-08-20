@@ -8,7 +8,8 @@ import {
   tableRenameCandidates,
   renderChanges,
   tableSpecOf,
-  type Entity
+  type Entity,
+  type PhysicalSchema
 } from '@/ir/index'
 
 const col = (over: {name: string; sqlType: any} & Record<string, unknown>) => ({
@@ -712,5 +713,86 @@ describe('pgvector ANN index (hnsw + operator class + storage params)', () => {
   it('rejects an unsafe storage-param name (DDL is inlined, not bound)', () => {
     const bad = annEntity('vector_cosine_ops', {['m); DROP TABLE x --']: 1})
     expect(() => makeMigration({}, {Embedding: bad})).toThrow(/storage-param name/)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Type changes Postgres can't perform on its own need `ALTER COLUMN … TYPE …
+// USING <expr>`. Emitting the bare form aborts the migration mid-deploy with
+// "cannot be cast automatically", so the engine reports it rather than emits it.
+// The safe/unsafe split is the empirically-determined matrix in `dialect.ts`.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('type changes requiring USING', () => {
+  const col = (name: string, sqlType: any, extra: Record<string, unknown> = {}) => ({
+    property: name,
+    name,
+    sqlType,
+    primaryKey: false,
+    autoIncrement: false,
+    unique: false,
+    nullable: false,
+    ...extra
+  })
+  const tbl = (c: any): PhysicalSchema => ({
+    T: {name: 'T', table: 't', columns: [c], foreignKeys: [], indexes: []}
+  })
+  const render = (from: any, to: any, hint?: {using?: string; usingDown?: string}) =>
+    renderChanges(
+      diffSchema(tbl(from), tbl(to), {
+        castHints: hint ? [{table: 't', column: to.name, ...hint}] : undefined
+      })
+    )
+
+  it.each([
+    ['integer', 'bigint'],
+    ['integer', 'text'],
+    ['numeric', 'integer'],
+    ['timestamptz', 'date'],
+    ['jsonb', 'text'],
+    ['uuid', 'varchar']
+  ])('emits a bare TYPE change for the auto-castable %s → %s', (from, to) => {
+    const r = render(col('c', from), col('c', to))
+    expect(r.unsupported).toEqual([])
+    expect(r.up.some(s => s.includes('TYPE'))).toBe(true)
+    expect(r.up.some(s => s.includes('USING'))).toBe(false)
+  })
+
+  it.each([
+    ['text', 'integer'],
+    ['text', 'uuid'],
+    ['text', 'jsonb'],
+    ['boolean', 'integer'],
+    ['integer', 'boolean']
+  ])('refuses the un-castable %s → %s without a hint', (from, to) => {
+    const r = render(col('c', from), col('c', to))
+    expect(r.up).toEqual([])
+    expect(r.unsupported).toHaveLength(1)
+    expect(r.unsupported[0]).toMatch(/cannot be cast from .* automatically/)
+    expect(r.unsupported[0]).toMatch(/--using t\.c='<expr>'/)
+  })
+
+  it('scalar → array needs a hint; array → scalar does not', () => {
+    expect(render(col('c', 'text'), col('c', 'text', {array: true})).unsupported).toHaveLength(1)
+    expect(render(col('c', 'text', {array: true}), col('c', 'text')).unsupported).toEqual([])
+  })
+
+  it('emits USING when the conversion is supplied', () => {
+    const r = render(col('c', 'text'), col('c', 'integer'), {using: 'c::integer'})
+    expect(r.unsupported).toEqual([])
+    expect(r.up).toEqual(['ALTER TABLE "t" ALTER COLUMN "c" TYPE integer USING c::integer'])
+  })
+
+  it('reports the reverse separately — a one-way hint is irreversible, not invalid', () => {
+    // integer → boolean needs USING in BOTH directions.
+    const r = render(col('c', 'integer'), col('c', 'boolean'), {using: 'c::boolean'})
+    expect(r.unsupported).toEqual([])
+    expect(r.unsupportedDown).toHaveLength(1)
+    // With both directions hinted it round-trips.
+    const both = render(col('c', 'integer'), col('c', 'boolean'), {
+      using: 'c::boolean',
+      usingDown: 'c::integer'
+    })
+    expect(both.unsupportedDown).toEqual([])
+    expect(both.down).toEqual(['ALTER TABLE "t" ALTER COLUMN "c" TYPE integer USING c::integer'])
   })
 })

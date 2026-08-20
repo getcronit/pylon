@@ -29,6 +29,7 @@ import {
   renderChanges,
   type Entity,
   type PhysicalSchema,
+  type CastHint,
   type Rename,
   type TableRename,
   type SchemaChange
@@ -102,8 +103,18 @@ function opCall(change: SchemaChange): string {
       return `migrations.addColumn(${str(change.table)}, ${arg(change.column)})`
     case 'dropColumn':
       return `migrations.dropColumn(${str(change.table)}, ${arg(change.column)})`
-    case 'alterColumn':
-      return `migrations.alterColumn(${str(change.table)}, ${arg(change.before)}, ${arg(change.after)})`
+    case 'alterColumn': {
+      // The conversion expressions must survive into the file — without them the
+      // stored migration would re-render as a bare (and failing) TYPE change.
+      const opts =
+        change.using || change.usingDown
+          ? `, ${arg({
+              ...(change.using ? {using: change.using} : {}),
+              ...(change.usingDown ? {usingDown: change.usingDown} : {})
+            })}`
+          : ''
+      return `migrations.alterColumn(${str(change.table)}, ${arg(change.before)}, ${arg(change.after)}${opts})`
+    }
     case 'addForeignKey':
       return `migrations.addForeignKey(${arg(change.fk)})`
     case 'dropForeignKey':
@@ -211,13 +222,14 @@ export class MigrationRunner {
   async generate(
     name: string,
     load: MigrationLoader,
-    opts: {renames?: Rename[]; tableRenames?: TableRename[]} = {}
+    opts: {renames?: Rename[]; tableRenames?: TableRename[]; castHints?: CastHint[]} = {}
   ): Promise<GeneratedMigration | null> {
     const prev = await this.foldHistory(load)
     const next = this.currentPhysical()
     const changes = diffSchema(prev, next, {
       renames: opts.renames,
-      tableRenames: opts.tableRenames
+      tableRenames: opts.tableRenames,
+      castHints: opts.castHints
     })
     if (changes.length === 0) return null
 
@@ -230,9 +242,10 @@ export class MigrationRunner {
         `Cannot generate a migration — the diff contains change(s) the engine cannot ` +
           `express as SQL:\n` +
           unsupported.map(u => `  - ${u}`).join('\n') +
-          `\nAuthor this one by hand: \`migrations.runSql('<ddl>', {down: '<ddl>'})\` for ` +
-          `the DDL, plus \`migrations.stateOnly([...])\` so the baseline records it. ` +
-          `(Reverting the model change lets \`db diff\` generate the rest.)`
+          `\nFollow the hint above where one is given. Otherwise author this migration ` +
+          `by hand: \`migrations.runSql('<ddl>', {down: '<ddl>'})\` for the DDL, plus ` +
+          `\`migrations.stateOnly([...])\` so the baseline records it. (Reverting the ` +
+          `model change lets \`db diff\` generate the rest.)`
       )
     }
     const migrationName = `${this.now()}_${name}`

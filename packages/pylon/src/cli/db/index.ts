@@ -96,6 +96,8 @@ export interface DbCommandOptions {
   renames?: Array<{table: string; from: string; to: string}>
   /** `diff`: confirmed TABLE renames (drop+create → renameTable, data-preserving). */
   tableRenames?: Array<{from: string; to: string}>
+  /** `diff`: `ALTER COLUMN … TYPE … USING` conversions for casts Postgres won't do itself. */
+  castHints?: Array<{table: string; column: string; using?: string; usingDown?: string}>
   /** `rename-app`: re-point the ledger after an app was renamed (`<from>` → app). */
   renameApp?: {from: string; to: string}
   /** Entry that imports the models (default `./src/index.ts`). */
@@ -229,7 +231,8 @@ export async function runDbCommandCore(
         if (!group) throw new Error(`Unknown app "${options.app}".`)
         const made = await orm.generateGroup(group, options.name ?? 'migration', loadMigrationFile, {
           renames: options.renames,
-          tableRenames: options.tableRenames
+          tableRenames: options.tableRenames,
+          castHints: options.castHints
         })
         const groupDestructive = (made?.changes as SchemaChange[] | undefined)?.some(isDestructive)
         return {
@@ -242,7 +245,8 @@ export async function runDbCommandCore(
       }
       const created = await runner.generate(options.name ?? 'migration', loadMigrationFile, {
         renames: options.renames,
-        tableRenames: options.tableRenames
+        tableRenames: options.tableRenames,
+        castHints: options.castHints
       })
       const destructive = (created?.changes as SchemaChange[] | undefined)?.some(isDestructive)
       return {

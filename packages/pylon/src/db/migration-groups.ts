@@ -12,7 +12,7 @@
  *     against the GLOBAL registry, so an FK into another group still emits.
  *   - `ledgerPrefix: group.name` — isolate each group's rows in the shared ledger.
  */
-import {joinTableName} from '../ir'
+import {joinTableName, type CastHint} from '../ir'
 import type {Database} from './database.js'
 import {getDatabase} from './database.js'
 import {toIR} from './ir.js'
@@ -157,12 +157,14 @@ export function generateGroup(
   opts: {
     renames?: GeneratedMigration['renameCandidates']
     tableRenames?: GeneratedMigration['tableRenameCandidates']
+    castHints?: CastHint[]
     now?: () => string
   } = {}
 ): Promise<GeneratedMigration | null> {
   return groupRunner(group, {now: opts.now}).generate(name, load, {
     renames: opts.renames,
-    tableRenames: opts.tableRenames
+    tableRenames: opts.tableRenames,
+    castHints: opts.castHints
   })
 }
 

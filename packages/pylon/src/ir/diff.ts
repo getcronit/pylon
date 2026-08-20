@@ -37,7 +37,17 @@ export type SchemaChange =
   | {kind: 'dropTable'; spec: TableSpec}
   | {kind: 'addColumn'; table: string; column: ColumnSpec}
   | {kind: 'dropColumn'; table: string; column: ColumnSpec}
-  | {kind: 'alterColumn'; table: string; before: ColumnSpec; after: ColumnSpec}
+  // `using`/`usingDown` are the `ALTER COLUMN … TYPE … USING <expr>` conversion
+  // expressions. Required (and supplied via a hint) whenever the dialect can't
+  // convert the type on its own; absent for the ordinary widening changes.
+  | {
+      kind: 'alterColumn'
+      table: string
+      before: ColumnSpec
+      after: ColumnSpec
+      using?: string
+      usingDown?: string
+    }
   | {kind: 'addForeignKey'; fk: ForeignKeyChange}
   | {kind: 'dropForeignKey'; fk: ForeignKeyChange}
   | {kind: 'addIndex'; index: IndexSpec}
@@ -97,6 +107,7 @@ function columnEqual(a: ColumnSpec, b: ColumnSpec): boolean {
     a.length === b.length &&
     a.precision === b.precision &&
     a.scale === b.scale &&
+    a.dim === b.dim &&
     a.generatedAs === b.generatedAs &&
     a.defaultSql === b.defaultSql &&
     valueEqual(a.default, b.default) &&
@@ -297,6 +308,19 @@ export interface Rename {
   to: string
 }
 
+/**
+ * A confirmed type-conversion expression for one column, supplied when the diff
+ * changes a column's type in a way Postgres won't convert on its own. `using` is
+ * the forward `ALTER COLUMN … TYPE … USING <expr>` expression; `usingDown` is the
+ * one that reverses it (omit it and the migration is simply irreversible).
+ */
+export interface CastHint {
+  table: string
+  column: string
+  using?: string
+  usingDown?: string
+}
+
 /** A table rename hint (`from`/`to` are the IR keys — model names). */
 export interface TableRename {
   from: string
@@ -306,7 +330,7 @@ export interface TableRename {
 export function diffSchema(
   prev: PhysicalSchema,
   next: PhysicalSchema,
-  opts: {renames?: Rename[]; tableRenames?: TableRename[]} = {}
+  opts: {renames?: Rename[]; tableRenames?: TableRename[]; castHints?: CastHint[]} = {}
 ): SchemaChange[] {
   const renameTables: SchemaChange[] = []
   // Constraint-name resyncs for renamed tables (run right after the table rename).
@@ -405,8 +429,17 @@ export function diffSchema(
     for (const [col, spec] of after) {
       const prevSpec = before.get(col)
       if (!prevSpec) cols.push({kind: 'addColumn', table, column: spec})
-      else if (!columnEqual(prevSpec, spec))
-        cols.push({kind: 'alterColumn', table, before: prevSpec, after: spec})
+      else if (!columnEqual(prevSpec, spec)) {
+        const hint = opts.castHints?.find(h => h.table === table && h.column === spec.name)
+        cols.push({
+          kind: 'alterColumn',
+          table,
+          before: prevSpec,
+          after: spec,
+          ...(hint?.using ? {using: hint.using} : {}),
+          ...(hint?.usingDown ? {usingDown: hint.usingDown} : {})
+        })
+      }
     }
     for (const [col, spec] of before) {
       if (!after.has(col)) cols.push({kind: 'dropColumn', table, column: spec})
@@ -646,13 +679,38 @@ function alterColumnSQL(
   table: string,
   before: ColumnSpec,
   after: ColumnSpec,
-  unsupported: string[]
+  unsupported: string[],
+  using?: string
 ): string[] {
   const out: string[] = []
   const col = `"${after.name}"`
   const t = `ALTER TABLE "${table}" ALTER COLUMN ${col}`
-  if (before.sqlType !== after.sqlType || before.length !== after.length) {
-    out.push(`${t} TYPE ${sqlTypeDDL(after)}`)
+  // Every attribute `sqlTypeDDL` renders from must trigger the TYPE change —
+  // otherwise the delta folds into the baseline as captured while emitting no SQL,
+  // silently diverging the models from the database (`numeric(10,2)` →
+  // `numeric(4,1)`, `vector(3)` → `vector(5)`, `text` → `text[]`).
+  const typeChanged =
+    before.sqlType !== after.sqlType ||
+    before.length !== after.length ||
+    before.precision !== after.precision ||
+    before.scale !== after.scale ||
+    before.dim !== after.dim ||
+    !!before.array !== !!after.array
+  if (typeChanged) {
+    // A type change Postgres can't perform on its own needs an explicit
+    // conversion expression. Emitting the bare `TYPE` form would abort the
+    // migration mid-deploy with "cannot be cast automatically", so report it as
+    // unsupported instead — the caller turns that into a refusal naming the hint.
+    if (using === undefined && !postgres.castsImplicitly(before, after)) {
+      unsupported.push(
+        `${table}.${after.name} cannot be cast from ${before.sqlType}${
+          before.array ? '[]' : ''
+        } to ${after.sqlType}${after.array ? '[]' : ''} automatically — supply the ` +
+          `conversion with \`--using ${table}.${after.name}='<expr>'\``
+      )
+    } else {
+      out.push(`${t} TYPE ${sqlTypeDDL(after)}${using ? ` USING ${using}` : ''}`)
+    }
   }
   if (before.nullable !== after.nullable) {
     out.push(`${t} ${after.nullable ? 'DROP NOT NULL' : 'SET NOT NULL'}`)
@@ -720,7 +778,7 @@ function up(change: SchemaChange, unsupported: string[]): string[] {
     case 'dropColumn':
       return [`ALTER TABLE "${change.table}" DROP COLUMN "${change.column.name}"`]
     case 'alterColumn':
-      return alterColumnSQL(change.table, change.before, change.after, unsupported)
+      return alterColumnSQL(change.table, change.before, change.after, unsupported, change.using)
     case 'addForeignKey':
       return [addForeignKeySQL(change.fk)]
     case 'dropForeignKey':
@@ -749,7 +807,7 @@ function down(change: SchemaChange, unsupported: string[]): string[] {
     case 'dropColumn':
       return [`ALTER TABLE "${change.table}" ADD COLUMN ${columnDDL(change.column)}`]
     case 'alterColumn':
-      return alterColumnSQL(change.table, change.after, change.before, unsupported)
+      return alterColumnSQL(change.table, change.after, change.before, unsupported, change.usingDown)
     case 'addForeignKey':
       return [dropForeignKeySQL(change.fk)]
     case 'dropForeignKey':
@@ -772,14 +830,25 @@ function down(change: SchemaChange, unsupported: string[]): string[] {
  * migration's stored schema operation can render and reverse itself — every
  * change (including FKs) is self-contained.
  */
-export function renderChanges(
-  changes: SchemaChange[]
-): {up: string[]; down: string[]; unsupported: string[]} {
+export function renderChanges(changes: SchemaChange[]): {
+  up: string[]
+  down: string[]
+  unsupported: string[]
+  /**
+   * Deltas the REVERSE direction can't express — almost always a type change
+   * whose forward cast was hinted but whose backward one wasn't (`boolean` →
+   * `integer` needs a `USING` both ways). Reported separately from `unsupported`
+   * because it doesn't invalidate the migration: it only makes it irreversible,
+   * which the operation reflects rather than refuses.
+   */
+  unsupportedDown: string[]
+} {
   const unsupported: string[] = []
+  const unsupportedDown: string[] = []
   const upSQL = changes.flatMap(c => up(c, unsupported))
   // `down` reverses the change order so dependent ops unwind correctly.
-  const downSQL = [...changes].reverse().flatMap(c => down(c, []))
-  return {up: upSQL, down: downSQL, unsupported}
+  const downSQL = [...changes].reverse().flatMap(c => down(c, unsupportedDown))
+  return {up: upSQL, down: downSQL, unsupported, unsupportedDown}
 }
 
 /**
