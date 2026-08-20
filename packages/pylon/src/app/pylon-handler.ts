@@ -20,6 +20,7 @@ import {resolversToGraphQLResolvers} from '../core/define-pylon'
 import {useUnhandledRoute} from '../plugins/use-unhandled-route'
 import {useViewer} from '../plugins/use-viewer'
 import {useGraphqlErrorLogger} from '../plugins/use-graphql-error-logger'
+import {useInContext} from '../plugins/use-in-context'
 
 interface PylonHandlerOptions {
   graphql: {
@@ -130,7 +131,13 @@ export const executeConfig = async (
   // config `plugins` (it now owns the HTTP middleware too). `useViewer` stays: it is
   // core plumbing, not vendor-specific. `useGraphqlErrorLogger` logs execution errors
   // through the runtime logger (envelop plugin; no setup/middleware) — independent of Sentry.
-  const plugins = [useViewer(), useGraphqlErrorLogger(), ...(config?.plugins || [])]
+  const plugins = [
+    useViewer(),
+    useGraphqlErrorLogger(),
+    // Always on: `@inContext` is part of the schema, so the directive must always be read.
+    useInContext(),
+    ...(config?.plugins || [])
+  ]
 
   if (config?.landingPage ?? true) {
     plugins.push(useUnhandledRoute())

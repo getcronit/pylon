@@ -1,3 +1,4 @@
+import {IN_CONTEXT_SDL} from '@getcronit/pylon'
 import ts from 'typescript'
 import fs from 'node:fs'
 import consola from 'consola'
@@ -421,7 +422,13 @@ export class SchemaBuilder {
       ir = pruneUnreferencedObjectTypes(ir)
     }
 
-    const typeDefs = options.contributeIR ? toSDL(ir) : parser.toString()
+    // `@inContext` is part of every Pylon schema: without its DEFINITION here, a query
+    // carrying the directive fails validation before a resolver ever runs. Appended to the
+    // rendered SDL rather than injected into the IR, so it is a schema fact rather than
+    // something an app could accidentally shadow with a type of the same name.
+    const typeDefs =
+      (options.contributeIR ? toSDL(ir) : parser.toString()) +
+      `\n\n${IN_CONTEXT_SDL}\n`
     // Attach the universal `__typename`-first `__resolveType` to every interface/union
     // the SDL declares (ORM path). Driven by the SDL so no orphan resolvers survive.
     const resolvers = options.contributeIR
