@@ -75,8 +75,17 @@ const pylonRoot = (): string =>
 
 export const setup = async (
   app: Parameters<NonNullable<Plugin['setup']>>[0],
-  options: {i18n?: I18nOptions} = {}
+  options: {i18n?: I18nOptions; origin?: string} = {}
 ) => {
+  // Silent absence is the failure mode this whole feature exists to prevent, so say it once
+  // at boot rather than letting a site ship with no alternates and no clue why.
+  if (options.i18n && !options.origin) {
+    console.warn(
+      '[pylon] usePages({i18n}) without `origin`: no canonical or hreflang tags will be ' +
+        'emitted, so search engines will treat each locale as an unrelated page. Set ' +
+        "`origin: 'https://your-site.com'`."
+    )
+  }
   // Read manifests securely from JSON. Anchored at the app root (see pylonRoot), not cwd,
   // so a standalone deploy resolves them from the entry's location no matter the cwd.
   const root = pylonRoot()
@@ -566,11 +575,26 @@ export const setup = async (
 
     const context = staticHandlerContext as StaticHandlerContext
 
+    // Canonical + hreflang for THIS page. Computed AFTER routing so the status is known:
+    // a 404 must not advertise itself as a canonical page with translations, which would
+    // invite search engines to index a URL that does not exist. Also skipped without an
+    // `origin`, since both tags require absolute URLs.
+    const metadata =
+      options.origin && i18n && (context.statusCode ?? 200) < 400
+        ? (() => {
+            const full = new URL(c.req.url).pathname
+            // Strip the active locale's basename to get the path every locale shares.
+            const shared = i18n.basename ? full.slice(i18n.basename.length) || '/' : full
+            const {byLocale, alternates} = localeUrls(options.i18n!, options.origin!, shared)
+            return {canonical: byLocale[i18n.locale], alternates}
+          })()
+        : undefined
+
     const renderComponent = (ctx: StaticHandlerContext) => (
       <__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider
         client={pagesClient}
         responseCookies={responseCookies}
-        staticData={{context: pagesContext, i18n}}>
+        staticData={{context: pagesContext, i18n, metadata}}>
         <StaticRouterProvider
           router={createStaticRouter(routeHandler.dataRoutes, ctx)}
           context={ctx}
@@ -685,7 +709,7 @@ export const setup = async (
 
 import {__PYLON_INTERNALS_DO_NOT_USE} from '@getcronit/pylon/pages'
 import {deleteCookie, getCookie, setCookie} from '@getcronit/pylon'
-import {canonicalRedirect, I18N_VARY, negotiate, type I18nOptions} from '../i18n'
+import {canonicalRedirect, I18N_VARY, localeUrls, negotiate, type I18nOptions} from '../i18n'
 import {appendVary} from '../../vary'
 import {createHash} from 'crypto'
 import type {FormatEnum} from 'sharp'

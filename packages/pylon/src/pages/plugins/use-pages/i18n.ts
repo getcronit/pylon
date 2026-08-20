@@ -293,3 +293,58 @@ export const canonicalRedirect = (
 
   return undefined
 }
+
+/** One `<link rel="alternate" hreflang>` entry. */
+export interface LocaleAlternate {
+  hreflang: string
+  href: string
+}
+
+export interface LocaleUrls {
+  /** Absolute URL of this page in each locale, keyed by locale. */
+  byLocale: Record<string, string>
+  /** The full alternate cluster, including `x-default`. */
+  alternates: LocaleAlternate[]
+}
+
+/**
+ * Absolute URLs for this page in every locale, plus the hreflang cluster.
+ *
+ * `pathname` is the route path WITHOUT any locale basename (`/pricing`), because that is the
+ * one thing every locale shares. Each locale's URL is then built from ITS basename.
+ *
+ * Deliberately computed per locale rather than "the same path under a different prefix": if
+ * translated slugs land later (`/de/kontakt` for `/contact` — see the RFC), only the mapping
+ * from locale to path changes, not the emitter or its callers.
+ *
+ * hreflang requires ABSOLUTE URLs, which is why `origin` is configuration rather than
+ * something derived from the request: behind a proxy the Host header is attacker-influenced,
+ * and a canonical built from a spoofed host points search engines at someone else's domain.
+ */
+export const localeUrls = (
+  options: I18nOptions,
+  origin: string,
+  pathname: string
+): LocaleUrls => {
+  const base = origin.replace(/\/$/, '')
+  // `/` contributes nothing, so `/de` + `/` stays `/de` rather than becoming `/de/` — a
+  // distinct URL to a crawler, and not the one the trailing-slash middleware serves.
+  const suffix = pathname === '/' ? '' : pathname
+
+  const urlFor = (locale: string): string => {
+    const url = `${base}${basenameForLocale(options, locale)}${suffix}`
+    // The site root still needs a path.
+    return url === base ? `${base}/` : url
+  }
+
+  const byLocale = Object.fromEntries(options.locales.map(l => [l, urlFor(l)]))
+
+  return {
+    byLocale,
+    alternates: [
+      ...options.locales.map(l => ({hreflang: l, href: byLocale[l]})),
+      // Whom to serve when no listed language matches: the default locale's version.
+      {hreflang: 'x-default', href: byLocale[options.defaultLocale]}
+    ]
+  }
+}

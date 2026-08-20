@@ -272,3 +272,63 @@ describe('<Link locale> — the language switcher', () => {
     }
   })
 })
+
+describe('canonical + hreflang', () => {
+  const links = (html: string) =>
+    [...html.matchAll(/<link ([^>]*rel="(?:canonical|alternate)"[^>]*)\/?>/g)].map(m => ({
+      rel: m[1].match(/rel="([^"]*)"/)?.[1],
+      // Attribute names are ASCII case-insensitive in HTML, so React's `hrefLang` IS the
+      // spec's `hreflang` — verified in a browser via querySelector('[hreflang]').
+      hreflang: m[1].match(/hrefLang="([^"]*)"/i)?.[1],
+      href: m[1].match(/href="([^"]*)"/)?.[1]
+    }))
+
+  it('makes each locale its own canonical', async () => {
+    // NOT cross-canonicalised: pointing German at the English URL is the classic way to
+    // make search engines drop the German version.
+    const en = links((await page('/pricing')).html).find(l => l.rel === 'canonical')
+    const de = links((await page('/de/pricing')).html).find(l => l.rel === 'canonical')
+    expect(en!.href).toBe('https://example.com/pricing')
+    expect(de!.href).toBe('https://example.com/de/pricing')
+  })
+
+  it('emits the same cluster on every locale — bidirectional and self-referential', async () => {
+    const cluster = (html: string) =>
+      links(html)
+        .filter(l => l.rel === 'alternate')
+        .map(l => `${l.hreflang}=${l.href}`)
+        .sort()
+
+    const en = cluster((await page('/pricing')).html)
+    const de = cluster((await page('/de/pricing')).html)
+    const fr = cluster((await page('/fr/pricing')).html)
+
+    expect(en).toEqual(de)
+    expect(de).toEqual(fr)
+    // Every version lists every version, itself included.
+    expect(en).toEqual([
+      'de=https://example.com/de/pricing',
+      'en=https://example.com/pricing',
+      'fr=https://example.com/fr/pricing',
+      'x-default=https://example.com/pricing'
+    ])
+  })
+
+  it('uses absolute URLs — relative ones are invalid in hreflang', async () => {
+    for (const l of links((await page('/de')).html)) {
+      expect(l.href, `${l.rel} ${l.hreflang}`).toMatch(/^https:\/\/example\.com/)
+    }
+  })
+
+  it('tracks the path, not just the locale', async () => {
+    const home = links((await page('/de')).html).find(l => l.rel === 'canonical')
+    expect(home!.href).toBe('https://example.com/de')
+  })
+
+  it('does NOT advertise a 404 as a canonical page with translations', async () => {
+    // Otherwise a missing URL invites indexing, complete with alternates that do not exist.
+    const res = await get('/es/pricing')
+    expect(res.status).toBe(404)
+    expect(links(await res.text())).toHaveLength(0)
+  })
+})

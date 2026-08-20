@@ -6,6 +6,7 @@ import {usePages} from '@getcronit/pylon/pages/plugin'
 export default {
   plugins: [
     usePages({
+      origin: 'https://example.com',
       i18n: {locales: ['en', 'de', 'fr'], defaultLocale: 'en', routing: 'prefix'}
     }),
     useNodeServer()

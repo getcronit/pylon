@@ -46,11 +46,20 @@ const DataClientProvider: React.FC<{
     cache?: Record<string, unknown>
     context?: any
     i18n?: any
+    /** Server only: `{canonical, alternates}` for this page. */
+    metadata?: {
+      canonical: string
+      alternates: Array<{hreflang: string; href: string}>
+    }
   }
   /** Server only: the per-request collector the SSR handler flushes after rendering. */
   responseCookies?: ResponseCookies
   children: React.ReactNode
 }> = ({children, client, staticData, responseCookies}) => {
+  // Server only: React 19 hoists <link> to <head> wherever it is rendered, so these ride the
+  // existing provider instead of needing the app to place a component. Client-side they are
+  // already in the document — re-rendering them would only risk a hydration mismatch.
+  const metadata = typeof window === 'undefined' ? staticData?.metadata : undefined
   const isServer = typeof window === 'undefined'
   const coreClient = client?.client ?? client
 
@@ -85,6 +94,23 @@ const DataClientProvider: React.FC<{
   return (
     <PylonQueryProvider value={coreClient}>
       <dataClientContext.Provider value={contextValue}>
+        {metadata && (
+          <>
+            {/* Each locale is its OWN canonical. Pointing a translated page at another
+                language's URL is the classic way to make search engines drop it. */}
+            <link rel="canonical" href={metadata.canonical} />
+            {/* The full cluster, identical on every locale — that is what makes it
+                bidirectional and self-referential. One bad entry voids all of it. */}
+            {metadata.alternates.map(a => (
+              <link
+                key={a.hreflang}
+                rel="alternate"
+                hrefLang={a.hreflang}
+                href={a.href}
+              />
+            ))}
+          </>
+        )}
         {isServer && (cache || pagesContext || i18n) && (
           <script
             dangerouslySetInnerHTML={{

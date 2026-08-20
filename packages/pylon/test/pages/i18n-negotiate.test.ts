@@ -3,6 +3,7 @@ import {
   basenameForLocale,
   canonicalRedirect,
   hasLocale,
+  localeUrls,
   matchAcceptLanguage,
   negotiate,
   splitLocalePath,
@@ -285,5 +286,60 @@ describe('canonicalRedirect — deterministic, never negotiated', () => {
 
   it('never treats a non-leading locale segment as a prefix', () => {
     expect(canonicalRedirect(prefixMode, '/docs/en')).toBeUndefined()
+  })
+})
+
+describe('localeUrls — canonical + hreflang cluster', () => {
+  const ORIGIN = 'https://example.com'
+
+  it('builds an absolute URL per locale from each basename', () => {
+    const {byLocale} = localeUrls(prefixMode, ORIGIN, '/pricing')
+    expect(byLocale).toEqual({
+      en: 'https://example.com/pricing',
+      de: 'https://example.com/de/pricing',
+      fr: 'https://example.com/fr/pricing'
+    })
+  })
+
+  it('keeps the site root a single slash, not an empty path', () => {
+    const {byLocale} = localeUrls(prefixMode, ORIGIN, '/')
+    expect(byLocale.en).toBe('https://example.com/')
+    // …and does NOT turn /de into /de/, which is a different URL to a crawler and not the
+    // one the trailing-slash middleware serves.
+    expect(byLocale.de).toBe('https://example.com/de')
+  })
+
+  it('tolerates a trailing slash on the configured origin', () => {
+    expect(localeUrls(prefixMode, 'https://example.com/', '/pricing').byLocale.en).toBe(
+      'https://example.com/pricing'
+    )
+  })
+
+  it('emits a self-referential, bidirectional cluster', () => {
+    // Every version lists EVERY version including itself; a missing return link makes
+    // Google discard the whole cluster.
+    const {alternates} = localeUrls(prefixMode, ORIGIN, '/pricing')
+    expect(alternates.map(a => a.hreflang)).toEqual(['en', 'de', 'fr', 'x-default'])
+    // Identical whichever locale is being rendered — that IS bidirectionality.
+    expect(localeUrls(prefixMode, ORIGIN, '/pricing').alternates).toEqual(alternates)
+  })
+
+  it('points x-default at the default locale', () => {
+    const {alternates} = localeUrls(prefixMode, ORIGIN, '/pricing')
+    const xDefault = alternates.find(a => a.hreflang === 'x-default')!
+    expect(xDefault.href).toBe('https://example.com/pricing')
+  })
+
+  it('uses absolute URLs everywhere — relative ones are invalid in hreflang', () => {
+    for (const a of localeUrls(prefixMode, ORIGIN, '/pricing').alternates) {
+      expect(a.href).toMatch(/^https:\/\//)
+    }
+  })
+
+  it('gives every locale the same URL in cookie mode', () => {
+    // One URL serving several languages: there is nothing to distinguish, which is exactly
+    // why cookie mode is authenticated-UI only.
+    const {byLocale} = localeUrls(cookieMode, ORIGIN, '/pricing')
+    expect(new Set(Object.values(byLocale)).size).toBe(1)
   })
 })

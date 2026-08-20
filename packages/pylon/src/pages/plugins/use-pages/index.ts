@@ -21,6 +21,15 @@ export interface UsePagesOptions {
    * the client cannot disagree with the server.
    */
   i18n?: I18nOptions
+  /**
+   * Absolute site origin, e.g. `https://example.com` — enables `<link rel="canonical">` and,
+   * with `i18n`, the `hreflang` cluster.
+   *
+   * Configuration rather than something derived from the request: both tags require absolute
+   * URLs, and behind a proxy the Host header is attacker-influenced — a canonical built from
+   * a spoofed host points search engines at someone else's domain.
+   */
+  origin?: string
 }
 
 export function usePages(options: UsePagesOptions = {}): Plugin {
