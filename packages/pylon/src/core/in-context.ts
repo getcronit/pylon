@@ -11,7 +11,7 @@
  *
  * ```ts
  * Query: {
- *   products: (): Promise<Product[]> => Product.objects.localized(getLocale())
+ *   greeting: (): string => translations[getLocale() ?? 'en'] ?? translations.en
  * }
  * ```
  *

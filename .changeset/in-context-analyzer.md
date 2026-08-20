@@ -7,8 +7,10 @@ wiring.
 
 ```ts
 Query: {
-  product: (id: number): Promise<Product> =>
-    Product.objects.localized(id, getLocale())
+  productName: async (id: number): Promise<string> =>
+    (await ProductTranslation.objects
+      .filter({productId: id, locale: getLocale() ?? 'en'})
+      .first())?.name ?? (await Product.objects.get({id})).name
 }
 ```
 

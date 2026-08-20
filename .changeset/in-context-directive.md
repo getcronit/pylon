@@ -14,7 +14,7 @@ query Products($__locale: String) @inContext(locale: $__locale) {
 import {getLocale} from '@getcronit/pylon'
 
 Query: {
-  products: (): Promise<Product[]> => Product.objects.localized(getLocale())
+  greeting: (): string => translations[getLocale() ?? 'en'] ?? translations.en
 }
 ```
 
