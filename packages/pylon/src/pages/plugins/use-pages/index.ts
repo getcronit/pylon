@@ -1,5 +1,5 @@
 import type {Plugin} from '@getcronit/pylon'
-export type {Data, Mutations, LayoutProps, MetadataRoute, PageProps} from './types'
+export type {Data, Mutations, LayoutProps, MetadataRoute, PageProps, PagesContext} from './types'
 
 export interface UsePagesOptions {
   /**

@@ -15,5 +15,11 @@ export {
   type Data,
   type LayoutProps,
   type MetadataRoute,
-  type PageProps
+  type PageProps,
+  type PagesContext
 } from './plugins/use-pages/index.js'
+
+export {
+  useRequestContext,
+  type RequestContextOptions
+} from './plugins/use-request-context.js'

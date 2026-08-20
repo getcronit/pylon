@@ -14,6 +14,12 @@ export {createDecorator} from './create-decorator.js'
 export {ServiceError} from './define-pylon.js'
 export {mutation, type UserError} from './mutation.js'
 export {getEnv} from './get-env.js'
+// Cookie helpers, re-exported from Hono. An app cannot `import {getCookie} from 'hono/cookie'`
+// itself: `hono` is PYLON's dependency, not the app's, so under a strict node_modules layout
+// (pnpm) the specifier does not resolve — and under npm's flat hoisting it resolves by
+// accident, which is worse. Reading cookies is the primary way `pagesContext` gets populated,
+// so the helpers ship here. See rfcs/SSR_REQUEST_CONTEXT.md.
+export {getCookie, getSignedCookie, setCookie, setSignedCookie, deleteCookie} from 'hono/cookie'
 // Core is auth-free. Authentication + the Principal live in @getcronit/pylon/auth
 // (OIDC/Zitadel via @getcronit/pylon/auth/zitadel); authz reads the Principal there.
 // The frontend pages battery (usePages + the runtime) lives in @getcronit/pylon/pages.
