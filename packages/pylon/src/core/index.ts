@@ -8,6 +8,11 @@ export {executeConfig, handler} from '../app/pylon-handler.js'
 export {asyncContext, getContext, setContext} from './context.js'
 export type {Bindings, Context, Env, Variables} from './context.js'
 export {getLogger, logger, runWithLogger, getRootLogger, createLogger} from './logger.js'
+// Also exported for the queues battery, which must reach the logger across the feature
+// boundary via this self-ref (a relative import would inline a SECOND logger with its own
+// async context + config). `renderLine` formats the BullMQ per-job log tee; `jobLogLevel`
+// is that tee's threshold from `config.logger.job.level`.
+export {renderLine, jobLogLevel} from './logger.js'
 export type {Logger, LogLevel, LogFields, LogRecord, LogSink, LoggerConfig} from './logger.js'
 import type {LoggerConfig} from './logger.js'
 export {createDecorator} from './create-decorator.js'

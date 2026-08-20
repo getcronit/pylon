@@ -7,7 +7,7 @@
 import {Queue as BullQueue, QueueEvents, Worker, type Job, type JobsOptions} from 'bullmq'
 import {getConnection} from './connection.js'
 import {getOutboxDriver} from './outbox.js'
-import {getRootLogger, jobLogLevel, renderLine, runWithLogger} from '../core/logger.js'
+import {getRootLogger, jobLogLevel, renderLine, runWithLogger} from '@getcronit/pylon'
 
 /** Anything with a synchronous `.parse()` (Zod/Valibot/ArkType, …). Optional. */
 export interface PayloadSchema<T> {

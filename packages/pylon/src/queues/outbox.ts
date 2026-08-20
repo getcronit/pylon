@@ -13,7 +13,7 @@
  */
 import type {JobsOptions} from 'bullmq'
 import {registeredQueues} from './queue.js'
-import {getRootLogger, runWithLogger} from '../core/logger.js'
+import {getRootLogger, runWithLogger} from '@getcronit/pylon'
 
 export interface OutboxRow {
   id: number | string
