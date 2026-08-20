@@ -159,7 +159,50 @@ export const setup = async (
     localeHandlers.clear()
   }
 
+  /**
+   * A top-level route whose segment IS a configured locale is unreachable under
+   * `as-needed` prefixing.
+   *
+   * Only the single-segment case collides: `/de/de` is unambiguous (locale, then page) and
+   * `/docs/de` never was, because a prefix only ever sits at position 0. But bare `/de` can
+   * mean the German home page or the default-locale page named `de`, and the locale has to
+   * win or an entire language becomes unreachable. Under `as-needed` the page then has NO
+   * other URL, since `/en/de` 301s to `/de` — so it is silently dead.
+   *
+   * `always` prefixing has no collision at all (`/en/de` reaches the page), which is why
+   * that is one of the two fixes offered. A warning rather than an error: the app may never
+   * link the route, and failing a build over it would be disproportionate.
+   */
+  const warnLocaleShadowing = () => {
+    const i18n = options.i18n
+    if (!i18n) return
+    if ((i18n.routing ?? 'prefix') !== 'prefix') return
+    if ((i18n.prefix ?? 'as-needed') !== 'as-needed') return
+
+    // Top-level segments = the children of the root route.
+    const topLevel = new Set<string>()
+    for (const root of (routes ?? []) as any[]) {
+      for (const child of root?.children ?? []) {
+        const seg = String(child?.path ?? '').replace(/^\//, '')
+        if (seg && !seg.includes('/') && !seg.startsWith(':') && seg !== '*') {
+          topLevel.add(seg.toLowerCase())
+        }
+      }
+    }
+
+    for (const locale of i18n.locales) {
+      if (!topLevel.has(locale.toLowerCase())) continue
+      console.warn(
+        `[pylon] The route /${locale} is shadowed by the '${locale}' locale and is ` +
+          `unreachable: /${locale} serves that locale's home page, and /${i18n.defaultLocale}/${locale} ` +
+          `redirects back to it. Rename the route, or set prefix: 'always' so every locale ` +
+          `carries a prefix and /${i18n.defaultLocale}/${locale} reaches the page.`
+      )
+    }
+  }
+
   await loadPages()
+  warnLocaleShadowing()
 
   // Dormant in prod (refs set once above; never called). The dev worker drives page
   // hot-swaps through this hook — see rfcs/DEV_SERVER.md (Step 1).
@@ -224,7 +267,7 @@ export const setup = async (
           const sitemapFn = sitemapModule.sitemap || sitemapModule.default
           if (sitemapFn) {
             const items = await sitemapFn()
-            xml = renderSitemapXml(items, baseUrl.origin)
+            xml = renderSitemapXml(items, options.origin ?? baseUrl.origin, options.i18n)
           } else {
             return c.text('Sitemap not found', 404)
           }
@@ -276,7 +319,7 @@ export const setup = async (
 
         if (sitemapFn) {
           const items = await sitemapFn({id})
-          xml = renderSitemapXml(items, baseUrl.origin)
+          xml = renderSitemapXml(items, options.origin ?? baseUrl.origin, options.i18n)
         } else {
           return c.text('Sitemap not found', 404)
         }
@@ -709,7 +752,15 @@ export const setup = async (
 
 import {__PYLON_INTERNALS_DO_NOT_USE} from '@getcronit/pylon/pages'
 import {deleteCookie, getCookie, setCookie} from '@getcronit/pylon'
-import {canonicalRedirect, I18N_VARY, localeUrls, negotiate, type I18nOptions} from '../i18n'
+import {
+  canonicalRedirect,
+  I18N_VARY,
+  localeUrls,
+  localizeSitemapUrl,
+  negotiate,
+  type I18nOptions,
+  type LocaleAlternate
+} from '../i18n'
 import {appendVary} from '../../vary'
 import {createHash} from 'crypto'
 import type {FormatEnum} from 'sharp'
@@ -839,19 +890,38 @@ function escapeXml(unsafe: string): string {
 
 function renderSitemapXml(
   items: MetadataRoute.SitemapItem[],
-  baseUrl: string
+  baseUrl: string,
+  i18n?: I18nOptions
 ): string {
-  let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`
-  xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`
-  for (const item of items) {
-    const isAbsolute =
-      item.url.startsWith('http://') || item.url.startsWith('https://')
-    const loc = isAbsolute
-      ? item.url
-      : `${baseUrl}/${item.url.replace(/^\//, '')}`
+  // Each declared URL becomes one entry per locale, so a localized site does not advertise
+  // only its default language. `undefined` = not localized (no i18n, cookie routing, or the
+  // app wrote the prefix itself), in which case the URL is emitted verbatim as before.
+  const expanded = items.flatMap(item => {
+    const localized = i18n
+      ? localizeSitemapUrl(i18n, baseUrl, item.url)
+      : undefined
+    if (!localized) {
+      const isAbsolute =
+        item.url.startsWith('http://') || item.url.startsWith('https://')
+      const loc = isAbsolute
+        ? item.url
+        : `${baseUrl}/${item.url.replace(/^\//, '')}`
+      return [{item, loc, alternates: undefined as LocaleAlternate[] | undefined}]
+    }
+    return localized.map(l => ({item, loc: l.loc, alternates: l.alternates}))
+  })
 
+  let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`
+  // The xhtml namespace is what makes <xhtml:link> alternates legal in a sitemap.
+  xml += i18n
+    ? `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n`
+    : `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`
+  for (const {item, loc, alternates} of expanded) {
     xml += `  <url>\n`
     xml += `    <loc>${escapeXml(loc)}</loc>\n`
+    for (const a of alternates ?? []) {
+      xml += `    <xhtml:link rel="alternate" hreflang="${escapeXml(a.hreflang)}" href="${escapeXml(a.href)}"/>\n`
+    }
 
     if (item.lastmod) {
       const date =

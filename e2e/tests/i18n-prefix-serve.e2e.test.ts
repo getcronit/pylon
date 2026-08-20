@@ -332,3 +332,52 @@ describe('canonical + hreflang', () => {
     expect(links(await res.text())).toHaveLength(0)
   })
 })
+
+describe('sitemap', () => {
+  const sitemap = async () => (await get('/sitemap.xml')).text()
+  const locs = (xml: string) => [...xml.matchAll(/<loc>([^<]*)<\/loc>/g)].map(m => m[1])
+
+  it('expands each declared URL into one entry per locale', async () => {
+    // The fixture declares '/' and '/pricing' once, in the default locale.
+    const l = locs(await sitemap())
+    expect(l).toContain('https://example.com/pricing')
+    expect(l).toContain('https://example.com/de/pricing')
+    expect(l).toContain('https://example.com/fr/pricing')
+  })
+
+  it('carries the alternate cluster on every entry, in the xhtml namespace', async () => {
+    const xml = await sitemap()
+    expect(xml).toContain('xmlns:xhtml="http://www.w3.org/1999/xhtml"')
+    // Two of the three /pricing entries plus the third — every one repeats all four.
+    const pricingBlocks = [...xml.matchAll(/<url>(?:(?!<\/url>)[\s\S])*pricing[\s\S]*?<\/url>/g)]
+    expect(pricingBlocks.length).toBeGreaterThanOrEqual(3)
+    for (const [block] of pricingBlocks) {
+      if (!block.includes('/pricing<')) continue
+      for (const l of ['en', 'de', 'fr', 'x-default']) {
+        expect(block, l).toContain(`hreflang="${l}"`)
+      }
+    }
+  })
+
+  it('leaves an explicitly prefixed URL unexpanded', async () => {
+    // The fixture declares '/fr/about'; expanding it would invent siblings.
+    const l = locs(await sitemap())
+    expect(l).toContain('https://example.com/fr/about')
+    expect(l).not.toContain('https://example.com/about')
+    expect(l).not.toContain('https://example.com/de/about')
+  })
+
+  it('keeps per-item metadata on every expanded entry', async () => {
+    const xml = await sitemap()
+    // '/pricing' declared one lastmod; all three locale entries should carry it.
+    expect([...xml.matchAll(/<lastmod>2026-01-01<\/lastmod>/g)]).toHaveLength(3)
+  })
+
+  it('uses the configured origin, not the request host', async () => {
+    // Requests arrive on localhost; a sitemap built from the Host header would advertise
+    // localhost URLs — and behind a proxy, whatever host an attacker supplied.
+    const xml = await sitemap()
+    expect(xml).not.toContain('localhost')
+    for (const loc of locs(xml)) expect(loc).toMatch(/^https:\/\/example\.com/)
+  })
+})

@@ -4,6 +4,7 @@ import {
   canonicalRedirect,
   hasLocale,
   localeUrls,
+  localizeSitemapUrl,
   matchAcceptLanguage,
   negotiate,
   splitLocalePath,
@@ -341,5 +342,52 @@ describe('localeUrls — canonical + hreflang cluster', () => {
     // why cookie mode is authenticated-UI only.
     const {byLocale} = localeUrls(cookieMode, ORIGIN, '/pricing')
     expect(new Set(Object.values(byLocale)).size).toBe(1)
+  })
+})
+
+describe('localizeSitemapUrl', () => {
+  const ORIGIN = 'https://example.com'
+
+  it('expands one declared URL into an entry per locale', () => {
+    // A sitemap listing only /pricing tells crawlers the other locales do not exist.
+    const entries = localizeSitemapUrl(prefixMode, ORIGIN, '/pricing')!
+    expect(entries.map(e => e.loc)).toEqual([
+      'https://example.com/pricing',
+      'https://example.com/de/pricing',
+      'https://example.com/fr/pricing'
+    ])
+  })
+
+  it('repeats the full alternate cluster on every entry', () => {
+    // The sitemap equivalent of the bidirectional <head> cluster.
+    const entries = localizeSitemapUrl(prefixMode, ORIGIN, '/pricing')!
+    for (const e of entries) {
+      expect(e.alternates.map(a => a.hreflang)).toEqual(['en', 'de', 'fr', 'x-default'])
+    }
+    expect(entries[0].alternates).toEqual(entries[1].alternates)
+  })
+
+  it('leaves an already-prefixed URL alone — the per-URL opt-out', () => {
+    // The app named an exact URL; expanding it would invent siblings it did not ask for.
+    expect(localizeSitemapUrl(prefixMode, ORIGIN, '/de/about')).toBeUndefined()
+  })
+
+  it('accepts an absolute URL as well as a path', () => {
+    const entries = localizeSitemapUrl(prefixMode, ORIGIN, 'https://example.com/pricing')!
+    expect(entries[0].loc).toBe('https://example.com/pricing')
+  })
+
+  it('does not expand in cookie mode', () => {
+    // Every locale shares one URL there, so there is nothing to expand into.
+    expect(localizeSitemapUrl(cookieMode, ORIGIN, '/pricing')).toBeUndefined()
+  })
+
+  it('handles the site root', () => {
+    const entries = localizeSitemapUrl(prefixMode, ORIGIN, '/')!
+    expect(entries.map(e => e.loc)).toEqual([
+      'https://example.com/',
+      'https://example.com/de',
+      'https://example.com/fr'
+    ])
   })
 })

@@ -348,3 +348,44 @@ export const localeUrls = (
     ]
   }
 }
+
+/** One locale's sitemap entry: its own `<loc>` plus the shared alternate cluster. */
+export interface LocalizedSitemapEntry {
+  loc: string
+  alternates: LocaleAlternate[]
+}
+
+/**
+ * Expand one declared sitemap URL into one entry PER LOCALE.
+ *
+ * A sitemap that lists only `/pricing` tells search engines the other locales do not exist —
+ * discovery of `/de/pricing` would then depend entirely on it being linked from somewhere.
+ * Google's format gives every locale its own `<url>`, each repeating the full alternate set,
+ * which is the sitemap equivalent of the bidirectional `<head>` cluster.
+ *
+ * Returns `undefined` when the URL ALREADY carries a locale prefix: the app said exactly
+ * which URL it meant, so expanding it would invent siblings it did not ask for. That is also
+ * the per-URL opt-out.
+ */
+export const localizeSitemapUrl = (
+  options: I18nOptions,
+  origin: string,
+  url: string
+): LocalizedSitemapEntry[] | undefined => {
+  if ((options.routing ?? 'prefix') !== 'prefix') return undefined
+
+  // Accept an absolute URL or a bare path; we only care about the path.
+  let pathname: string
+  try {
+    pathname = /^https?:\/\//.test(url) ? new URL(url).pathname : url
+  } catch {
+    return undefined
+  }
+  if (!pathname.startsWith('/')) pathname = `/${pathname}`
+
+  // Already localized — respect it verbatim.
+  if (splitLocalePath(options.locales, pathname).locale !== undefined) return undefined
+
+  const {byLocale, alternates} = localeUrls(options, origin, pathname)
+  return options.locales.map(l => ({loc: byLocale[l], alternates}))
+}
