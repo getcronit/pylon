@@ -456,25 +456,31 @@ export class MigrationRunner {
    * concurrent runners.
    */
   async apply(load: MigrationLoader, db: Database = getDatabase()): Promise<string[]> {
-    const applied = await this.appliedMigrations(db)
     const history = await this.loadAll(load)
 
-    // Integrity: an already-applied migration whose file no longer matches the
-    // checksum it was applied with has been tampered with — refuse.
-    for (const {name, mod} of history) {
-      const stored = applied.get(name)
-      if (applied.has(name) && stored && stored !== migrationChecksum(mod)) {
-        throw new Error(
-          `Migration "${name}" was modified after it was applied (checksum mismatch). ` +
-            `Applied migrations are immutable — revert the edit, or use \`pylon db resolve\`.`
-        )
+    // The applied-set is read INSIDE the lock. Reading it first and then locking
+    // is a time-of-check/time-of-use race: two migrators both snapshot an empty
+    // ledger, the first applies the history, and the second — still holding the
+    // stale snapshot — replays it and dies on `relation "…" already exists`. That
+    // is the ordinary case of two replicas (or CI and a human) deploying at once.
+    return this.withLock(db, async () => {
+      const applied = await this.appliedMigrations(db)
+
+      // Integrity: an already-applied migration whose file no longer matches the
+      // checksum it was applied with has been tampered with — refuse.
+      for (const {name, mod} of history) {
+        const stored = applied.get(name)
+        if (applied.has(name) && stored && stored !== migrationChecksum(mod)) {
+          throw new Error(
+            `Migration "${name}" was modified after it was applied (checksum mismatch). ` +
+              `Applied migrations are immutable — revert the edit, or use \`pylon db resolve\`.`
+          )
+        }
       }
-    }
 
-    const pending = history.filter(h => !applied.has(h.name)).map(h => h.name)
-    if (pending.length === 0) return []
+      const pending = history.filter(h => !applied.has(h.name)).map(h => h.name)
+      if (pending.length === 0) return []
 
-    await this.withLock(db, async () => {
       let state: PhysicalSchema = {}
       for (const {name, mod} of history) {
         if (!applied.has(name)) {
@@ -493,8 +499,8 @@ export class MigrationRunner {
         }
         for (const op of mod.operations) state = applyChanges(state, op.changes ?? [])
       }
+      return pending
     })
-    return pending
   }
 
   /**
@@ -582,30 +588,24 @@ export class MigrationRunner {
       return {creates, needs}
     }
 
-    // Load every group's full history (integrity-checking applied rows), as node lists.
+    // Load every group's full history as node lists. Which of them are PENDING —
+    // and the tamper check that depends on the same read — is deliberately NOT
+    // decided here: the applied-set is read inside the lock below, so a concurrent
+    // migrator can't leave us acting on a stale ledger snapshot (see `apply`).
     const perGroup: Node[][] = []
     const nodes: Node[] = []
     for (let gi = 0; gi < runners.length; gi++) {
-      const {runner, group} = runners[gi]
-      const done = await runner.appliedMigrations(db)
+      const {runner} = runners[gi]
       const history = await runner.loadAll(load)
       const list: Node[] = []
       history.forEach(({name, mod}, idx) => {
-        const stored = done.get(name)
-        if (done.has(name) && stored && stored !== migrationChecksum(mod)) {
-          throw new Error(
-            `Migration "${group}:${name}" was modified after it was applied (checksum ` +
-              `mismatch). Applied migrations are immutable — revert the edit, or use ` +
-              `\`pylon db resolve\`.`
-          )
-        }
         const {creates, needs} = tablesOf(mod)
         const node: Node = {
           gi,
           idx,
           name,
           mod,
-          pending: !done.has(name),
+          pending: true, // decided under the lock
           indeg: 0,
           out: [],
           creates: [...creates],
@@ -660,6 +660,24 @@ export class MigrationRunner {
     }
 
     await runners[0].runner.withLock(db, async () => {
+      // Applied-set read under the lock, per group — then the tamper check, so an
+      // edited-after-apply migration is still refused before anything runs.
+      for (let gi = 0; gi < runners.length; gi++) {
+        const {runner, group} = runners[gi]
+        const done = await runner.appliedMigrations(db)
+        for (const n of perGroup[gi]) {
+          const stored = done.get(n.name)
+          if (done.has(n.name) && stored && stored !== migrationChecksum(n.mod)) {
+            throw new Error(
+              `Migration "${group}:${n.name}" was modified after it was applied (checksum ` +
+                `mismatch). Applied migrations are immutable — revert the edit, or use ` +
+                `\`pylon db resolve\`.`
+            )
+          }
+          n.pending = !done.has(n.name)
+        }
+      }
+
       let state: PhysicalSchema = {}
       for (const n of order) {
         const {runner, group} = runners[n.gi]

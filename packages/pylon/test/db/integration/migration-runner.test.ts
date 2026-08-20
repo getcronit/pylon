@@ -190,3 +190,82 @@ describe.skipIf(!runDb)('MigrationRunner.apply — tracked + idempotent (Postgre
     await fs.rm(sdir, {recursive: true, force: true})
   })
 })
+
+/**
+ * Regression: two migrators racing.
+ *
+ * The advisory lock serializes them, but the applied-set must also be READ under
+ * that lock. Reading it first and then locking is time-of-check/time-of-use: both
+ * processes snapshot an empty ledger, the first applies the history, and the
+ * second replays it on top and dies with `relation "…" already exists`. That is
+ * the ordinary case of two replicas — or CI and a human — deploying at once.
+ */
+describe.skipIf(!runDb)('MigrationRunner.apply — concurrent migrators (Postgres)', () => {
+  let db: Database
+  let dir: string
+
+  const current = (): Snapshot => ({
+    version: 1,
+    entities: {
+      Racer: {
+        name: 'Racer',
+        table: 'racer',
+        abstract: false,
+        primaryKey: 'id',
+        implements: [],
+        fields: [
+          {
+            name: 'id',
+            type: {kind: 'scalar', name: 'String', nullable: false},
+            exposed: true,
+            column: {
+              name: 'id',
+              sqlType: 'bigint',
+              primaryKey: true,
+              autoIncrement: true,
+              unique: false,
+              nullable: false
+            }
+          }
+        ]
+      }
+    }
+  })
+
+  beforeAll(async () => {
+    db = connect({connectionString})
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pylon-mig-race-'))
+    await db.kysely.schema.dropTable('racer').ifExists().cascade().execute()
+    await db.kysely.schema.dropTable('_pylon_migrations').ifExists().cascade().execute()
+  })
+
+  afterAll(async () => {
+    if (db) {
+      await db.kysely.schema.dropTable('racer').ifExists().cascade().execute()
+      await db.kysely.schema.dropTable('_pylon_migrations').ifExists().cascade().execute()
+      await db.destroy()
+    }
+    await fs.rm(dir, {recursive: true, force: true})
+    setDefaultDatabase(undefined)
+  })
+
+  it('one applies, the other no-ops — neither fails', async () => {
+    await new MigrationRunner({dir, current, now: () => '20260101T000000'}).generate('init', load)
+
+    // Two runners built BEFORE either applies — the shape a second replica has.
+    const a = new MigrationRunner({dir, current})
+    const b = new MigrationRunner({dir, current})
+    const results = await Promise.all([a.apply(load, db), b.apply(load, db)])
+
+    // Exactly one did the work; the other saw the fresh ledger and did nothing.
+    const applied = results.flat()
+    expect(applied).toEqual(['20260101T000000_init'])
+    expect(results.filter(r => r.length === 0)).toHaveLength(1)
+
+    // And the ledger holds exactly one row for it.
+    const rows = await sql<{name: string}>`SELECT name FROM ${sql.ref('_pylon_migrations')}`.execute(
+      db.kysely
+    )
+    expect(rows.rows.map(r => r.name)).toEqual(['20260101T000000_init'])
+  })
+})
