@@ -6,6 +6,7 @@ export default {
   nav: {home: 'Startseite'},
   checkout: {
     total: 'Gesamt: {amount} für {count} Artikel',
-    empty: 'Ihr Warenkorb ist leer'
+    empty: 'Ihr Warenkorb ist leer',
+    items: {one: '{count} Artikel', other: '{count} Artikel'}
   }
 } satisfies SameShape<typeof en>

@@ -9,7 +9,13 @@ export {
   useTranslations,
   useFormatter
 } from './internals'
-export type {SameShape, Messages} from '../plugins/use-pages/catalog'
+export {setMessageFormatter} from '../plugins/use-pages/catalog'
+export type {
+  SameShape,
+  Messages,
+  PluralMessage,
+  PluralCategory
+} from '../plugins/use-pages/catalog'
 
 
 export type {

@@ -389,7 +389,7 @@ every link.
 `useLocale()`, `Vary`, locale on `pagesContext` and in the hydration envelope. `cookie` routing
 works end to end; prefix negotiation is implemented and unit-tested but not yet routed.
 
-**P2 — `prefix` routing + discoverability.** The load-bearing phase, and deliberately ahead of
+**P2 — `prefix` routing + discoverability.** *(landed)* The load-bearing phase, and deliberately ahead of
 catalogs: URL shape is what an app cannot change later without a migration, so it should be
 right before anyone builds on it. Catalogs are additive and cost nothing to add afterwards.
 
@@ -407,7 +407,7 @@ right before anyone builds on it. Catalogs are additive and cost nothing to add 
 301s; hreflang is complete, self-referencing and includes `x-default`; a crawler request with
 no `Accept-Language` is never redirected; client-side navigation stays within the locale.
 
-**P3 — catalogs, `useTranslations`, and typing.** Catalog convention, envelope key,
+**P3 — catalogs, `useTranslations`, and typing.** *(landed)* Catalog convention, envelope key,
 interpolation, `useFormatter`, the `Catalog` declaration-merge seam, `SameShape` for
 translations. Only the active locale inlined. **Typing needs no build work** — it is the
 `as const` inference above, so this phase is smaller than it looks.
@@ -417,8 +417,17 @@ warning; a missing key falls back to the default locale then to the key; type-le
 `@ts-expect-error` tests for typo'd keys, missing/spurious placeholders, and an incomplete
 translation in both `.ts` and `.json` form.
 
-**P4 — ICU seam + plurals.** `Intl.PluralRules` in core; `intl-messageformat` as an opt-in
-adapter for select/ordinal.
+**P4 — plurals + ICU seam.** *(landed)* Plural messages are objects keyed by CLDR category
+(`{one, other}`) rather than ICU strings — catalogs are TypeScript, so an object is the
+natural shape: no parser, each branch stays an ordinary interpolated string, and the
+categories are visible to the type system. `Intl.PluralRules` selects against the ACTIVE
+locale, falling back to `other` when a translation omits the selected category. `Paths`
+treats a plural object as a leaf, so `cart.items` is the key and `one`/`other` are not.
+
+Full ICU (select, ordinals, nesting) is opt-in via `setMessageFormatter()` — a module-level
+setter rather than config, because config is server-only and a function cannot travel in the
+hydration envelope: a configured formatter would format the SSR pass and not the hydration
+pass, mismatching every ICU message.
 
 **Later, if wanted — `query` routing.** The retrofit encoding, for an app whose URL space
 cannot be restructured. Reuses P2's metadata emission wholesale.

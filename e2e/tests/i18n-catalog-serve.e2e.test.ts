@@ -136,3 +136,29 @@ describe('only the active locale ships', () => {
     }
   })
 })
+
+describe('plural messages', () => {
+  it('selects a category per count', async () => {
+    const h = await html('/')
+    expect(byId(h, 'one')).toBe('1 item')
+    expect(byId(h, 'many')).toBe('7 items')
+  })
+
+  it('uses the locale\'s own plural rules', async () => {
+    // German happens to share the noun form here; the point is the SELECTION runs against
+    // the active locale via Intl.PluralRules, not against English.
+    const h = await html('/de')
+    expect(byId(h, 'one')).toBe('1 Artikel')
+    expect(byId(h, 'many')).toBe('7 Artikel')
+  })
+
+  it('ships plural branches as data, not as a parsed format string', async () => {
+    // The envelope carries {one, other}; selection happens at render on both sides, so the
+    // client needs no ICU parser.
+    const {messages} = envelope(await html('/de'))
+    expect(messages.checkout.items).toEqual({
+      one: '{count} Artikel',
+      other: '{count} Artikel'
+    })
+  })
+})

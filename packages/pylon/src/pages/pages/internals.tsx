@@ -3,6 +3,7 @@ import {createContext, useContext, useMemo} from 'react'
 import {PageProps} from '.'
 import {
   createTranslator,
+  getMessageFormatter,
   type ArgsFor,
   type At,
   type Messages,
@@ -269,9 +270,12 @@ function useTranslations(namespace?: string): any {
         'usePages({i18n: {locales, defaultLocale, messages: {...}}}).'
     )
   }
+  const {locale} = useLocale()
+  // Module-level, so SSR and hydration use the SAME formatter (see setMessageFormatter).
+  const formatMessage = getMessageFormatter()
   return useMemo(
-    () => createTranslator(messages as Messages, namespace),
-    [messages, namespace]
+    () => createTranslator(messages as Messages, {locale, namespace, formatMessage}),
+    [messages, locale, namespace, formatMessage]
   )
 }
 
