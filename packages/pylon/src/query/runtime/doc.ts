@@ -29,6 +29,12 @@ export interface DocInit {
   body: string
   /** Operation name (debug + dedupe aid). */
   name: string
+  /**
+   * The operation declares `$__locale` via `@inContext`. The CLIENT supplies it, so the
+   * locale is merged into `variables` before `opKey` hashes them — which is what keeps two
+   * locales in two cache entries rather than one.
+   */
+  inContext?: boolean
   connection?: ConnectionMeta
   /** For mutations: the single top-level field whose value `mutate()` returns. */
   rootField?: string

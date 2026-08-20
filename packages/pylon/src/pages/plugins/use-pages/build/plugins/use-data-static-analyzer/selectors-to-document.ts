@@ -31,6 +31,8 @@ export interface LoweredQuery {
 }
 
 export interface LowerOptions {
+  /** Emit `@inContext(locale: $__locale)` — set when `usePages({i18n})` is configured. */
+  inContext?: boolean
   scalarTypes?: Record<string, string>
   /** Compile as a Relay connection rooted at this field path. */
   connection?: {path: string[]}
@@ -57,7 +59,8 @@ export function lowerQuery(
       operation: options.operation,
       scalarTypes: options.scalarTypes,
       connection: options.connection,
-      fillObjectLeaves: options.fillObjectLeaves
+      fillObjectLeaves: options.fillObjectLeaves,
+      inContext: options.inContext
     }
   )
 
@@ -69,12 +72,14 @@ export function lowerQuery(
   const argAliasesMeta = compiled.argAliases
     ? `,\n  argAliases: ${JSON.stringify(compiled.argAliases)}`
     : ''
+  // Tells the runtime client to supply `$__locale` before it hashes the variables.
+  const inContextMeta = compiled.inContext ? `,\n  inContext: true` : ''
 
   const docDeclaration =
     `const ${constName} = ${docFn}<${compiled.resultType}>({\n` +
     `  id: ${JSON.stringify(id)},\n` +
     `  name: ${JSON.stringify(compiled.name)},\n` +
-    `  body: ${JSON.stringify(compiled.body)}${connectionMeta}${argAliasesMeta}\n` +
+    `  body: ${JSON.stringify(compiled.body)}${connectionMeta}${argAliasesMeta}${inContextMeta}\n` +
     `})`
 
   let variablesThunk: string | undefined
@@ -172,6 +177,9 @@ export function lowerMutation(
   options: {
     scalarTypes?: Record<string, string>
     docFnName?: string
+    /** Emit `@inContext(locale: $__locale)` — mutations are localized too (a returned
+     *  record's name, a validation message), so they carry it as queries do. */
+    inContext?: boolean
     /** analyze(triggerReturn): nested/relation selectors read off the result. */
     nested?: SelectorNode
   } = {}
@@ -206,6 +214,7 @@ export function lowerMutation(
   const compiled = compileOperation(schema, selectors, {
     name: operationName,
     operation: 'mutation',
+    inContext: options.inContext,
     runtimeArgsField: fieldName,
     scalarTypes: options.scalarTypes
   })
@@ -217,8 +226,9 @@ export function lowerMutation(
     `  id: ${JSON.stringify(id)},\n` +
     `  name: ${JSON.stringify(compiled.name)},\n` +
     `  rootField: ${JSON.stringify(fieldName)},\n` +
-    `  body: ${JSON.stringify(compiled.body)}\n` +
-    `})`
+    `  body: ${JSON.stringify(compiled.body)}` +
+    (compiled.inContext ? `,\n  inContext: true` : '') +
+    `\n})`
 
   return {docConstName: constName, docDeclaration, variablesThunk: undefined, compiled}
 }

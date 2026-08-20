@@ -56,8 +56,21 @@ export const descriptor: SchemaDescriptor = ${JSON.stringify(descriptor)}
 
 const options = {endpoint: ${JSON.stringify(endpoint)}, descriptor}
 
+/**
+ * The locale the SERVER negotiated, read from the hydration envelope.
+ *
+ * Documents compiled with \`@inContext\` are sent with it as \`$__locale\`, so a
+ * post-hydration refetch asks for the same locale the SSR pass did — and, because the
+ * client merges it into the variables before hashing, lands on the same cache entry.
+ * One locale per document: switching locale is a full navigation.
+ */
+const locale =
+  typeof window !== 'undefined'
+    ? (window as any).__pylonStaticData?.i18n?.locale
+    : undefined
+
 /** Shared browser client (singleton). */
-export const client = createPylonQueryClient(options)
+export const client = createPylonQueryClient({...options, locale})
 
 // Imperative \`op.query\`/\`op.mutation\` run against this client (browser only).
 if (typeof window !== 'undefined') registerOperationClient(client)

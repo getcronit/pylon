@@ -25,6 +25,7 @@ import {build} from '../builder/index.js'
 import {buildClient} from '../builder/build-client.js'
 import {findConfigFile} from '../builder/bundler/build-config.js'
 import {createViteHotServer, type ViteHotServer} from './vite-hot-server.js'
+import {sanitizeViteError} from './vite-messages.js'
 import {keepInspectorOnParentOnly} from './inspector.js'
 
 export interface DevServer {
@@ -217,7 +218,7 @@ export async function startDevServer(opts: {port: number}): Promise<DevServer> {
           await session.reloadPages()
         }
       })
-      .catch(e => consola.error('reload failed:', e))
+      .catch(e => consola.error('reload failed:', sanitizeViteError(e)))
     return chain
   }
 

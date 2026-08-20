@@ -24,6 +24,16 @@ export interface PylonQueryClientOptions extends FetcherOptions {
   freshMs?: number
   /** Schema descriptor driving the result wrapper. */
   descriptor?: SchemaDescriptor
+  /**
+   * Locale supplied to documents compiled with `@inContext`.
+   *
+   * Held PER CLIENT, not in a module-level variable. The SSR pass builds one client per
+   * request, so concurrent renders in different locales cannot bleed into each other — the
+   * exact failure that makes a module-global i18next instance unsafe on a server. In the
+   * browser there is one client and one locale, because switching locale is a document
+   * navigation.
+   */
+  locale?: string
 }
 
 /**
@@ -44,7 +54,10 @@ export class PylonQueryClient {
   private readonly options: FetcherOptions
   private readonly freshMs: number
 
+  private readonly locale?: string
+
   constructor(opts: PylonQueryClientOptions = {}) {
+    this.locale = opts.locale
     this.fetcher = opts.fetcher ?? (defaultFetcher as Fetcher)
     this.descriptor = opts.descriptor ?? EMPTY_DESCRIPTOR
     this.options = {endpoint: opts.endpoint, fetchOptions: opts.fetchOptions}
@@ -54,10 +67,26 @@ export class PylonQueryClient {
   }
 
   /** Fire the operation, deduping concurrent identical requests via the store. */
+  /**
+   * Supply `$__locale` for an `@inContext` document.
+   *
+   * Merged BEFORE `opKey` hashes the variables — that is the whole point. Two locales then
+   * produce two cache entries instead of colliding on one, in the store and in the
+   * hydration payload alike.
+   */
+  private withLocale<TVars extends Record<string, unknown>>(
+    d: {inContext?: boolean},
+    variables?: TVars
+  ): TVars | undefined {
+    if (!d.inContext || this.locale === undefined) return variables
+    return {...(variables ?? {}), __locale: this.locale} as unknown as TVars
+  }
+
   fetch<TResult, TVars extends Record<string, unknown>>(
     d: TypedDoc<TResult, TVars>,
-    variables?: TVars
+    rawVariables?: TVars
   ): Promise<TResult> {
+    const variables = this.withLocale(d, rawVariables)
     const key = opKey(d, variables)
     const existing = this.store.get(key)
     if (existing?.promise) return existing.promise as Promise<TResult>
@@ -141,8 +170,9 @@ export class PylonQueryClient {
    */
   ensure<TResult, TVars extends Record<string, unknown>>(
     d: TypedDoc<TResult, TVars>,
-    variables?: TVars
+    rawVariables?: TVars
   ): QueryRead<TResult> {
+    const variables = this.withLocale(d, rawVariables)
     const key = opKey(d, variables)
     const entry = this.store.get(key)
 
@@ -172,8 +202,9 @@ export class PylonQueryClient {
    */
   revalidate<TResult, TVars extends Record<string, unknown>>(
     d: TypedDoc<TResult, TVars>,
-    variables?: TVars
+    rawVariables?: TVars
   ): void {
+    const variables = this.withLocale(d, rawVariables)
     const key = opKey(d, variables)
     const entry = this.store.get(key)
     // No data yet, or a fetch already in flight → render-time `ensure` owns it.
@@ -190,7 +221,10 @@ export class PylonQueryClient {
     d: TypedDoc<TResult, TVars>,
     variables?: TVars
   ): Promise<TResult> {
-    this.store.patch(opKey(d, variables), {promise: undefined, stale: true})
+    this.store.patch(opKey(d, this.withLocale(d, variables)), {
+      promise: undefined,
+      stale: true
+    })
     return this.fetch(d, variables)
   }
 

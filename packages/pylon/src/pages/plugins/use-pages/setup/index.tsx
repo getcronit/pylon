@@ -564,14 +564,6 @@ export const setup = async (
     // hydration, served + HMR'd by Vite) instead of the hashed rolldown bundle.
     const devBridge = (globalThis as any).__PYLON_PAGES_DEV__
     const bootstrapEntry: string = devBridge?.clientEntry ?? staticManifest['app.js']
-    // Per-request client with a request-bound fetcher: the in-process GraphQL
-    // call forwards this request's headers and hits the mounted app directly,
-    // avoiding AsyncLocalStorage (which React's async render breaks out of).
-    const pagesClient = createPylonQueryClient({
-      descriptor: _client.descriptor,
-      fetcher: createServerFetcher(app as any, c.req.raw) as any
-    })
-
     // Locale negotiation. Opt-in, and deliberately REPORT-ONLY: it returns a locale and
     // nothing else, so there is no redirect for this handler to accidentally perform. See
     // ../i18n.ts for why redirecting on Accept-Language breaks search and AI crawlers.
@@ -582,6 +574,17 @@ export const setup = async (
           acceptLanguage: c.req.header('accept-language')
         })
       : undefined
+
+    // Per-request client with a request-bound fetcher: the in-process GraphQL
+    // call forwards this request's headers and hits the mounted app directly,
+    // avoiding AsyncLocalStorage (which React's async render breaks out of).
+    const pagesClient = createPylonQueryClient({
+      descriptor: _client.descriptor,
+      fetcher: createServerFetcher(app as any, c.req.raw) as any,
+      // Supplied to `@inContext` documents. Per REQUEST, not module-level: concurrent
+      // renders in different locales share this process.
+      locale: i18n?.locale
+    })
 
     // The one redirect prefix routing owes: collapse a non-canonical URL onto the canonical
     // one. Deterministic — path + config only, never a cookie or Accept-Language — so a

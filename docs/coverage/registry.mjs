@@ -40,6 +40,9 @@ export const PACKAGES = {
       // relative import would inline a second logger) — not a user-facing feature.
       'renderLine',
       'jobLogLevel',
+      // The `@inContext` SDL string. Exported from core only so the schema builder can
+      // append it across the feature boundary via the self-ref — a schema fact, not an API.
+      'IN_CONTEXT_SDL',
       'getResolveInfo', // low-level GraphQL resolve-info escape hatch
       'asyncContext' // AsyncLocalStorage primitive behind getContext
     ]

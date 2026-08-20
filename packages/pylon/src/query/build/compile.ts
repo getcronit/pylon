@@ -31,9 +31,20 @@ export interface CompiledVariable {
   expr: string
 }
 
+/**
+ * Variable name carrying the locale. Underscore-prefixed so it cannot collide with a field
+ * argument the analyzer derived from user code.
+ */
+export const IN_CONTEXT_VARIABLE = '__locale'
+
 export interface CompileOptions {
   /** Operation name. */
   name: string
+  /**
+   * Emit `@inContext(locale: $__locale)` on the operation, so resolvers can read the
+   * locale via `getLocale()`. Set by the pages build when `usePages({i18n})` is configured.
+   */
+  inContext?: boolean
   /** Operation type — "query" (default) or "mutation". */
   operation?: 'query' | 'mutation'
   /** GraphQL scalar name → TS type (e.g. {Number: "number"}). */
@@ -70,6 +81,8 @@ export interface CompiledOperation {
   name: string
   /** GraphQL operation source sent over the wire. */
   body: string
+  /** The operation declares `$__locale`; the client must supply it. */
+  inContext?: boolean
   /** TS type literal for the result root, e.g. "{ me: { name: string } }". */
   resultType: string
   /** Variables whose values come from the call site (the thunk). */
@@ -200,13 +213,26 @@ export function compileOperation(
     ...ctx.runtimeVarDecls,
     ...ctx.connVarDecls
   ]
+  // `@inContext` carries the locale INSIDE the document, as a variable, so one compiled
+  // document serves every locale AND the locale lands in the client's cache key
+  // (`documentId ~ variablesHash`). A header would leave those keys identical across
+  // locales — see core/in-context.ts.
+  //
+  // The variable declaration and the directive are inseparable: GraphQL rejects a declared
+  // variable that is never used, so the directive is what makes `$__locale` legal. That is
+  // the same constraint that pushed Shopify to a directive.
+  if (options.inContext) allDecls.push(`$${IN_CONTEXT_VARIABLE}: String`)
   const varDecls = allDecls.length ? `(${allDecls.join(', ')})` : ''
+  const directives = options.inContext
+    ? ` @inContext(locale: $${IN_CONTEXT_VARIABLE})`
+    : ''
 
-  const body = `${operation} ${options.name}${varDecls} ${sdl}`
+  const body = `${operation} ${options.name}${varDecls}${directives} ${sdl}`
 
   return {
     name: options.name,
     body,
+    inContext: options.inContext || undefined,
     resultType: ts,
     variables: ctx.variables.map(v => ({name: v.name, expr: v.expr})),
     connection: ctx.connectionMeta,

@@ -35,6 +35,16 @@ const byId = (h: string, id: string) => h.match(new RegExp(`id="${id}"[^>]*>([^<
 const envelope = (h: string) =>
   JSON.parse(h.match(/window\.__pylonStaticData = (\{.*?\});/)![1])
 
+/**
+ * The operation cache, embedded by a SECOND script after the render — the store can only be
+ * collected once the render that populated it has finished, so it cannot ride the first
+ * envelope.
+ */
+const cacheOf = (h: string): Record<string, unknown> => {
+  const raw = h.match(/Object\.assign\(window\.__pylonStaticData \|\| \{\}, \{cache: (\{.*?\})\}\)/)
+  return raw ? (JSON.parse(raw[1]).ops ?? {}) : {}
+}
+
 beforeAll(async () => {
   if (!existsSync(cliBin)) {
     throw new Error(`pylon CLI not built at ${cliBin}. Run \`pnpm --filter pylon-e2e test\`.`)
@@ -160,5 +170,60 @@ describe('plural messages', () => {
       one: '{count} Artikel',
       other: '{count} Artikel'
     })
+  })
+})
+
+describe('@inContext — resolvers see the locale', () => {
+  it('localizes a RESOLVER-returned string from the URL prefix', async () => {
+    // Not from the client catalog: `serverGreeting` is translated inside the resolver via
+    // getLocale(), which reads the operation's @inContext.
+    expect(byId(await html('/'), 'server')).toBe('Server: hello')
+    expect(byId(await html('/de'), 'server')).toBe('Server: hallo')
+    expect(byId(await html('/fr'), 'server')).toBe('Server: bonjour')
+  })
+
+  it('compiles the directive into the document', async () => {
+    // Route modules are chunked, so walk the SSR page output rather than assuming a
+    // flat directory.
+    const root = path.join(appDir, '.pylon/__pylon/pages')
+    const walk = async (dir: string): Promise<string[]> => {
+      const out: string[] = []
+      for (const e of await fs.readdir(dir, {withFileTypes: true})) {
+        const p = path.join(dir, e.name)
+        if (e.isDirectory()) out.push(...(await walk(p)))
+        else if (e.name.endsWith('.js')) out.push(p)
+      }
+      return out
+    }
+    const sources = await Promise.all(
+      (await walk(root)).map(f => fs.readFile(f, 'utf8'))
+    )
+    const joined = sources.join('\n')
+    // The variable declaration and the directive are inseparable — GraphQL rejects a
+    // declared variable that is never used.
+    expect(joined).toContain('$__locale: String')
+    expect(joined).toContain('@inContext(locale: $__locale)')
+  })
+
+  it('gives each locale its OWN cache entry', async () => {
+    // The reason the locale rides in the document rather than a header: pylon-query keys on
+    // `documentId ~ variablesHash`, so with a header both locales would collide on one key
+    // and one language would serve the other's data.
+    const keysFor = async (p: string) => Object.keys(cacheOf(await html(p)))
+
+    const [de, fr] = await Promise.all([keysFor('/de'), keysFor('/fr')])
+    expect(de.length).toBeGreaterThan(0)
+    expect(de).not.toEqual(fr)
+
+    // Same DOCUMENT (id before `~`), different variables hash — one compiled document
+    // serving every locale, which is why the id stays stable.
+    expect(de[0].split('~')[0]).toBe(fr[0].split('~')[0])
+    expect(de[0].split('~')[1]).not.toBe(fr[0].split('~')[1])
+  })
+
+  it('caches the locale-correct payload under that key', async () => {
+    const cache = JSON.stringify(cacheOf(await html('/de')))
+    expect(cache).toContain('Server: hallo')
+    expect(cache).not.toContain('Server: bonjour')
   })
 })

@@ -529,6 +529,12 @@ function rewriteCall(
 }
 
 export interface UseDataStaticAnalyzerOptions {
+  /**
+   * Emit `@inContext(locale: $__locale)` on every compiled operation, so resolvers can read
+   * the locale via `getLocale()`. Set by the pages build when `usePages({i18n})` is
+   * configured; without it nothing about i18n appears in the documents.
+   */
+  inContext?: boolean
   filter?: RegExp
   pylonPackage?: string
   hookName?: string
@@ -810,6 +816,7 @@ export function createUseDataAnalyzerCore(
                       {
                         scalarTypes: options.scalarTypes,
                         docFnName: '__pylonDoc',
+                        inContext: options.inContext,
                         nested
                       }
                     )
@@ -851,7 +858,8 @@ export function createUseDataAnalyzerCore(
                       {
                         scalarTypes: options.scalarTypes,
                         connection: {path: it.path},
-                        docFnName: '__pylonDoc'
+                        docFnName: '__pylonDoc',
+                        inContext: options.inContext
                       }
                     )
                     it.decl = lowered.docDeclaration
@@ -878,6 +886,7 @@ export function createUseDataAnalyzerCore(
                         scalarTypes: options.scalarTypes,
                         operation: it.opType,
                         docFnName: '__pylonDoc',
+                        inContext: options.inContext,
                         fillObjectLeaves: true
                       }
                     )
@@ -897,7 +906,8 @@ export function createUseDataAnalyzerCore(
                       {
                         scalarTypes: options.scalarTypes,
                         connection: it.connection,
-                        docFnName: '__pylonDoc'
+                        docFnName: '__pylonDoc',
+                        inContext: options.inContext
                       }
                     )
                     it.decl = lowered.docDeclaration

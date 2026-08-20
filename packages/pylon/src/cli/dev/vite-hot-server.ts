@@ -17,6 +17,8 @@
  */
 import path from 'path'
 
+import {sanitizeViteError, wrapViteLogger} from './vite-messages.js'
+
 export interface ViteHotServerOptions {
   /** Project root (the consumer app's cwd). */
   root: string
@@ -44,14 +46,18 @@ export async function createViteHotServer(
   // the specifier out of the static graph also avoids demanding its types at build time
   // (mirrors the `tsx/esm/api` pattern in the bundler).
   const viteMod = 'rolldown-vite'
-  const {createServer} = (await import(viteMod)) as {
+  const {createServer, createLogger} = (await import(viteMod)) as {
     createServer: (config: any) => Promise<any>
+    createLogger: (level?: string) => any
   }
 
   const server = await createServer({
     root: options.root,
     configFile: false,
     logLevel: 'warn',
+    // The app never wrote a vite config — rewrite Vite's advice so it doesn't tell the
+    // app author to edit one (see `vite-messages.ts`).
+    customLogger: wrapViteLogger(createLogger('warn')),
     // Middleware mode + no client HMR / no ws / no file watching: this instance is ONLY
     // a server-side module runner. `ws:false` is load-bearing — otherwise it would open
     // a second HMR WebSocket and collide with the usePages dev server on port 24678.
@@ -82,8 +88,14 @@ export async function createViteHotServer(
     '/' + path.relative(options.root, options.entryAbs).split(path.sep).join('/')
 
   const importId = async (id: string): Promise<any> => {
-    if (runner?.import) return runner.import(id)
-    return server.ssrLoadModule(id)
+    try {
+      if (runner?.import) return await runner.import(id)
+      return await server.ssrLoadModule(id)
+    } catch (e) {
+      // A resolve/transform failure in the app's own `src` surfaces here — the supervisor
+      // prints it, so normalize it on the way out.
+      throw sanitizeViteError(e)
+    }
   }
   const importEntry = (): Promise<any> => importId(entryId)
 

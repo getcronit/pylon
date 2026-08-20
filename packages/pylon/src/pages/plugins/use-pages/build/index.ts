@@ -170,6 +170,8 @@ export const build = async (
         injectAppHydrationPlugin(version, appTsxAbs, sentryEnabled),
         useDataStaticAnalyzerRolldown({
           debug: true,
+          // Compiled operations carry `@inContext` only when the app configured i18n.
+          inContext: Boolean(options.i18n),
           manager: analysisManager,
           entryPaths: [appTsxAbs],
           scalarTypes
@@ -220,6 +222,8 @@ export const build = async (
         ssrExternalizeNodeModules(),
         useDataStaticAnalyzerRolldown({
           debug: true,
+          // Compiled operations carry `@inContext` only when the app configured i18n.
+          inContext: Boolean(options.i18n),
           manager: analysisManager,
           entryPaths: [appTsxAbs, ...(hasSitemap ? [sitemapAbs] : [])],
           scalarTypes
