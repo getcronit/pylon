@@ -192,13 +192,27 @@ usePages({
 | Mode | URL | Use when |
 | --- | --- | --- |
 | `prefix` *(default)* | `/pricing` · `/de/pricing` | public content — Google's recommended form, best cache key |
-| `query` | `/pricing?hl=de` | retrofit onto a URL space you cannot restructure |
+| `query` | `/pricing?hl=de` | retrofit only — see below; not on the critical path |
 | `domain` | `example.de/pricing` | per-market sites (deferred — needs per-host config) |
 | `cookie` | `/pricing` | **authenticated app UI only** |
 
 `cookie` is not a peer option. It emits no hreflang or canonical (there is nothing to point
 at), and **`pylon build` warns when it is combined with a sitemap** — turning the trap into a
 diagnostic.
+
+#### `query` is a retrofit, not a stepping stone
+
+An earlier revision sequenced `query` first, on the grounds that it needs no route-tree work
+and would deliver indexable multi-locale URLs a phase early. That was a bad trade: **URL shape
+is the one decision that cannot be cheaply undone.** An app that ships `?hl=de` and later moves
+to `/de/` pays for a full URL migration — 301s on every page, re-crawling, and a period of
+degraded ranking — to save the framework one phase of work. Worse, `query` is the encoding
+Google explicitly rates "Not recommended", so it would be the first mode that works and the
+one nobody should end up on.
+
+It stays supported for the case it is genuinely good at — retrofitting a URL space you cannot
+restructure, which is exactly why Google's own docs use it — but it is not the path new apps
+are led down, and it lands after `prefix`.
 
 #### `prefix: 'as-needed'` is the default, and it is the safest option
 
@@ -218,10 +232,20 @@ What each mode still owes:
   resolve and only one URL is canonical.
 - `always`: `/pricing` **301s to `/en/pricing`** — deterministic, never negotiated.
 
-**The `pages/` tree is untouched.** There is no `[locale]` folder: pylon generates the route
-table, so it mounts the same tree at `/` and at `/:locale` for the non-default locales. Next
-requires physically nesting every route under `app/[lang]`, which is a restructure that is
-expensive to reverse.
+**The `pages/` tree is untouched.** There is no `[locale]` folder. Next requires physically
+nesting every route under `app/[lang]`, which is a restructure that is expensive to reverse.
+
+Mechanically this is React Router's `basename`, not route-table surgery — both routers already
+accept one:
+
+- server — `createStaticHandler(routes, {basename: '/de'})`, one handler per locale built at
+  setup, since `locales` is known from config;
+- client — `createBrowserRouter(routes, {basename})`, where the basename comes from the
+  locale already in the hydration envelope (P1 put it there).
+
+`<Link to="/pricing">` under basename `/de` emits `/de/pricing` on its own, so
+locale-preserving navigation is a consequence rather than a feature to build. The default
+locale simply gets no basename.
 
 **Build-time shadowing check — narrower than it first appears.** Only the *single-segment*
 case is ambiguous. Given locale `de` and a top-level route `pages/de/`:
@@ -305,33 +329,43 @@ every link.
 
 ## Staged plan
 
-**P1 — negotiation only.** `i18n` config, negotiation (no redirects), `hasLocale`,
-`useLocale()`, `Vary`, locale on `pagesContext`, `<html lang>`. Apps can already ship
-translations as data on top of this.
-*Test:* SSR renders the negotiated locale across path/cookie precedence; **a request with no
-`Accept-Language` (the crawler case) is never redirected**; client receives the same locale.
+**P1 — negotiation only.** *(landed)* `i18n` config, negotiation (no redirects), `hasLocale`,
+`useLocale()`, `Vary`, locale on `pagesContext` and in the hydration envelope. `cookie` routing
+works end to end; prefix negotiation is implemented and unit-tested but not yet routed.
 
-**P2 — catalogs, typing, and `query` routing.** Catalog convention, envelope key,
-interpolation, `useFormatter`, the `Catalog` seam, `SameShape`. Plus `routing: 'query'` and the
-canonical/hreflang/`x-default`/sitemap emission — **`query` needs no route-tree work, so
-correct multi-locale indexing lands here**, ahead of the routing phase. Typing needs no build
-work at all.
+**P2 — `prefix` routing + discoverability.** The load-bearing phase, and deliberately ahead of
+catalogs: URL shape is what an app cannot change later without a migration, so it should be
+right before anyone builds on it. Catalogs are additive and cost nothing to add afterwards.
+
+- per-locale `createStaticHandler(routes, {basename})` on the server, `createBrowserRouter`
+  basename from the envelope on the client;
+- `prefix: 'as-needed'` (default) with `/en/*` → `/*` 301s, and `'always'` with the mirror;
+- deterministic `/` handling — never negotiated;
+- `<Link locale="de">` for switching (plain `<Link>` already preserves the locale via
+  basename);
+- **canonical, hreflang, `x-default` and per-locale `MetadataRoute.Sitemap` entries**, emitted
+  automatically — the differentiator, and the thing Next leaves entirely to the reader;
+- the top-level route/locale shadowing warning.
+
+*Test:* `/de/pricing` renders German and `/pricing` English, from ONE `pages/` tree; `/en/*`
+301s; hreflang is complete, self-referencing and includes `x-default`; a crawler request with
+no `Accept-Language` is never redirected; client-side navigation stays within the locale.
+
+**P3 — catalogs, `useTranslations`, and typing.** Catalog convention, envelope key,
+interpolation, `useFormatter`, the `Catalog` declaration-merge seam, `SameShape` for
+translations. Only the active locale inlined. **Typing needs no build work** — it is the
+`as const` inference above, so this phase is smaller than it looks.
+
 *Test:* a German request contains German copy and only the German catalog; no hydration
-warning; missing key falls back to default locale then to the key; hreflang set is complete and
-self-referencing; type-level `@ts-expect-error` tests for typo'd keys, missing/spurious
-placeholders, and an incomplete translation in both `.ts` and `.json` form.
-
-**P3 — `prefix` routing + switching.** The route table mounted at both `/` and `/:locale`
-(no `[locale]` folder), `prefix: 'as-needed'` with `/en/*` → `/*` 301s, `'always'` with the
-mirror-image 301, the build-time locale/route collision check, locale-preserving `<Link>`
-(plus `<Link locale="de">` for the switcher), and client-side switching with lazy catalog
-fetch and cookie persistence (uses `useResponseCookies`). Per-locale chunk splitting lands
-here, in the plugin `build` hook.
-*Test:* `/de/pricing` renders German; switching updates without a full reload and persists; the
-initial HTML carries exactly one catalog.
+warning; a missing key falls back to the default locale then to the key; type-level
+`@ts-expect-error` tests for typo'd keys, missing/spurious placeholders, and an incomplete
+translation in both `.ts` and `.json` form.
 
 **P4 — ICU seam + plurals.** `Intl.PluralRules` in core; `intl-messageformat` as an opt-in
-adapter.
+adapter for select/ordinal.
+
+**Later, if wanted — `query` routing.** The retrofit encoding, for an app whose URL space
+cannot be restructured. Reuses P2's metadata emission wholesale.
 
 ## Risks and open questions
 
