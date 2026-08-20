@@ -13,8 +13,6 @@
 export {
   usePages,
   hasLocale,
-  matchAcceptLanguage,
-  splitLocalePath,
   type Data,
   type LayoutProps,
   type MetadataRoute,

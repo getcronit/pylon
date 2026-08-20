@@ -35,6 +35,11 @@ export const PACKAGES = {
     internal: [
       'executeConfig', // internal boot hook (codegen calls it)
       'handler', // internal request handler factory
+      // Logger plumbing for the BullMQ per-job log tee. Exported from core only so the
+      // queues battery can reach it ACROSS the feature boundary via the self-ref (a
+      // relative import would inline a second logger) — not a user-facing feature.
+      'renderLine',
+      'jobLogLevel',
       'getResolveInfo', // low-level GraphQL resolve-info escape hatch
       'asyncContext' // AsyncLocalStorage primitive behind getContext
     ]
