@@ -214,3 +214,61 @@ describe('links and hydration data carry the locale', () => {
     }
   })
 })
+
+describe('<Link locale> — the language switcher', () => {
+  // A plain <Link> is confined to the active locale by basename, which is right for
+  // navigation and useless for switching language. `locale` crosses that boundary.
+  const anchors = (html: string) =>
+    Object.fromEntries(
+      [...html.matchAll(/<a ([^>]*)>/g)]
+        .map(m => m[1])
+        .map(attrs => [
+          attrs.match(/id="([^"]*)"/)?.[1],
+          attrs.match(/href="([^"]*)"/)?.[1]
+        ])
+        .filter(([id]) => id)
+    ) as Record<string, string>
+
+  it('points at the current page in another locale', async () => {
+    const fromEn = anchors((await page('/')).html)
+    expect(fromEn['switch-de']).toBe('/de')
+
+    const fromDe = anchors((await page('/de')).html)
+    // Back to the DEFAULT locale, which is unprefixed under as-needed.
+    expect(fromDe['switch-en']).toBe('/')
+  })
+
+  it('can target a specific page in another locale', async () => {
+    for (const from of ['/', '/de']) {
+      expect(anchors((await page(from)).html)['switch-fr-pricing']).toBe('/fr/pricing')
+    }
+  })
+
+  it('leaves a same-locale link to normal routing', async () => {
+    // `locale` equal to the active one is not a switch; it stays a router Link, so
+    // client-side navigation still works.
+    expect(anchors((await page('/de')).html)['switch-de']).toBe('/de')
+    expect(anchors((await page('/')).html)['switch-en']).toBe('/')
+  })
+
+  it('annotates the cross-locale anchor with hreflang', async () => {
+    const html = (await page('/')).html
+    expect(html).toMatch(/<a href="\/de" hreflang="de"/i)
+  })
+
+  it('renders a plain anchor, not a router link, when crossing locales', async () => {
+    // Deliberate: a client-side transition would keep <html lang>, the SSR copy and the
+    // hydration envelope from the OLD locale. The other language is a different document.
+    const html = (await page('/')).html
+    const switchTag = html.match(/<a [^>]*id="switch-de"[^>]*>/)![0]
+    expect(switchTag).not.toContain('data-discover')
+  })
+
+  it('does not leak react-router props onto the anchor', async () => {
+    const html = (await page('/')).html
+    const switchTag = html.match(/<a [^>]*id="switch-de"[^>]*>/)![0]
+    for (const prop of ['replace', 'preventScrollReset', 'relative', 'viewTransition']) {
+      expect(switchTag, prop).not.toContain(prop)
+    }
+  })
+})

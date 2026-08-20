@@ -88,6 +88,16 @@ export interface I18nContext {
    * Client and server cannot disagree about where routes are mounted.
    */
   basename: string
+  /**
+   * Every locale's basename, keyed by locale — `{en: '', de: '/de'}`.
+   *
+   * A language switcher has to build a URL for a locale that is NOT the active one, and
+   * React Router's `basename` deliberately confines `<Link>` to the current one. Computing
+   * the others in the browser would mean shipping `routing`/`prefix` config and duplicating
+   * the rule; precomputing them here keeps one source of truth (the map is a handful of
+   * short strings).
+   */
+  basenames: Record<string, string>
 }
 
 /**
@@ -188,6 +198,10 @@ export const splitLocalePath = (
   return {locale, pathname: `/${rest.join('/')}`}
 }
 
+/** Every locale's basename, keyed by locale. */
+export const allBasenames = (options: I18nOptions): Record<string, string> =>
+  Object.fromEntries(options.locales.map(l => [l, basenameForLocale(options, l)]))
+
 export interface NegotiateInput {
   pathname: string
   cookie?: string | null
@@ -223,6 +237,7 @@ export const negotiate = (
       defaultLocale,
       localeWasExplicit: fromPath !== undefined,
       basename: basenameForLocale(options, locale),
+      basenames: allBasenames(options),
       ...(hint && hint !== locale ? {suggestedLocale: hint} : {})
     }
   }
@@ -234,7 +249,8 @@ export const negotiate = (
     locales,
     defaultLocale,
     localeWasExplicit: fromCookie !== undefined || fromHeader !== undefined,
-    basename: ''
+    basename: '',
+    basenames: allBasenames(options)
   }
 }
 

@@ -13,6 +13,11 @@ const Page: React.FC = () => {
       <p id="suggested">{suggestedLocale ?? '(none)'}</p>
       {/* Plain Link: basename makes this locale-preserving on its own. */}
       <Link id="to-pricing" href="/pricing">pricing</Link>
+      {/* Language switcher: same page, other locale. */}
+      <Link id="switch-de" locale="de">Deutsch</Link>
+      <Link id="switch-en" locale="en">English</Link>
+      {/* Cross-locale to a SPECIFIC page. */}
+      <Link id="switch-fr-pricing" href="/pricing" locale="fr">Tarifs</Link>
     </main>
   )
 }

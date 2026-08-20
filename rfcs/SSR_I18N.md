@@ -108,6 +108,53 @@ guide never mentions hreflang or canonicals once — it covers routing and dicti
 leaves the entire discoverability layer to the reader. Pylon owns the layout and knows
 `locales` plus the current path, so it is mechanical.
 
+### Are the whole URLs translated?
+
+Only the prefix is structural. Whether the REST of the path is translated —
+`/de/kontakt` vs `/de/contact` — is a separate decision, and both are legitimate:
+
+- **Untranslated slugs** (`/de/contact`) are what most framework-shaped sites ship, including
+  Next's own guide. One path space, trivial to maintain, and alternates are the same path
+  under different prefixes.
+- **Translated slugs** (`/de/kontakt`) read better and match localized search queries. Google
+  supports non-ASCII words in URLs given UTF-8 encoding. The cost is maintenance: every slug
+  becomes a translated, versioned artifact, and changing one later needs a 301.
+
+Rule of thumb from what real sites do: translate slugs that are **content** and user-facing
+(articles, products, categories, marketing pages), leave **structural** paths alone
+(`/api/...`, `/checkout`, admin). Never translate the locale segment itself — `de` is a code,
+not a word.
+
+**Pylon supports only untranslated slugs today.** `basename` prefixes; the path after it comes
+from the `pages/` tree, so `/de/kontakt` would 404. Adding it means a pathname mapping
+consulted in both directions — incoming (`/de/kontakt` → the `contact` route) and outgoing
+(`<Link href="/contact">` on `/de` → `/de/kontakt`). The colocated, compiler-friendly shape
+would be a static export on the page module (`export const pathnames = {de: 'kontakt'}`),
+which the build can read the same way it reads `useData` selectors. Deliberately deferred —
+but it must be designed before the metadata work hardens, because of the constraint below.
+
+### What this forces on hreflang
+
+**Alternates cannot be assumed to be the same path under a different prefix.** They must be
+computed per locale, so translated slugs remain addable without reworking the emitter.
+
+Three more constraints, all from the spec rather than taste:
+
+- **Absolute URLs.** `hreflang` takes full URLs, not paths — so the framework needs the site
+  origin. It cannot be inferred reliably from a request behind a proxy, so it must be
+  configuration.
+- **Bidirectional and self-referential.** Every version links to every version including
+  itself. A missing return link invalidates the cluster.
+- **Locale variants must NOT canonicalise to each other.** Each locale's page is its own
+  canonical. A cross-locale canonical is the classic way to make Google drop every version
+  but one.
+
+Worth stating plainly why this belongs in the framework at all: surveys of live sites put the
+**hreflang error rate around 75%** — missing return tags, wrong codes, relative URLs — and a
+single bad entry makes Google ignore the whole cluster. This is exactly the sort of
+mechanical, spec-bound, easy-to-get-wrong artifact a framework should generate rather than
+document.
+
 ## Catalogs are TypeScript — which removes a whole build stage
 
 The default-locale catalog is a `.ts` module with `as const`, not JSON:
