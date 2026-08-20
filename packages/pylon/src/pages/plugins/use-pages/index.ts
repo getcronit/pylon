@@ -1,5 +1,9 @@
 import type {Plugin} from '@getcronit/pylon'
 export type {Data, Mutations, LayoutProps, MetadataRoute, PageProps, PagesContext} from './types'
+export {hasLocale, matchAcceptLanguage, splitLocalePath} from './i18n'
+export type {I18nOptions, I18nContext, LocaleRouting} from './i18n'
+
+import type {I18nOptions} from './i18n'
 
 export interface UsePagesOptions {
   /**
@@ -9,6 +13,14 @@ export interface UsePagesOptions {
    * Sentry.
    */
   sentry?: boolean
+  /**
+   * Locale negotiation for SSR. Opt-in: omitted, nothing about i18n runs.
+   *
+   * Negotiation NEVER redirects — see `./i18n.ts` for why that matters for search and AI
+   * crawlers. The result reaches pages as `useLocale()` and is serialised for hydration, so
+   * the client cannot disagree with the server.
+   */
+  i18n?: I18nOptions
 }
 
 export function usePages(options: UsePagesOptions = {}): Plugin {
@@ -18,7 +30,7 @@ export function usePages(options: UsePagesOptions = {}): Plugin {
     // We use async functions here so React isn't imported until setup() is called
     setup: async api => {
       const {setup} = await import('./setup')
-      return setup(api)
+      return setup(api, options)
     },
     build: async api => {
       const {build} = await import('./build')

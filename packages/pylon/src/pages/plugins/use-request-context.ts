@@ -1,4 +1,5 @@
 import type {Context, Plugin} from '@getcronit/pylon'
+import {appendVary} from './vary'
 
 /**
  * Populate `pagesContext` — the request-scoped value every page, layout and
@@ -47,22 +48,6 @@ export interface RequestContextOptions {
    * it matters the moment a CDN sits in front of a context-varying app.
    */
   vary?: string[]
-}
-
-/** Add `value` to a `Vary` header without duplicating an existing entry. */
-const appendVary = (headers: Headers, value: string): void => {
-  const current = headers.get('Vary')
-  if (!current) {
-    headers.set('Vary', value)
-    return
-  }
-  if (current.trim() === '*') return // already the broadest possible
-  const present = current
-    .split(',')
-    .map(v => v.trim().toLowerCase())
-    .filter(Boolean)
-  if (present.includes(value.toLowerCase())) return
-  headers.set('Vary', `${current}, ${value}`)
 }
 
 export function useRequestContext<T>(

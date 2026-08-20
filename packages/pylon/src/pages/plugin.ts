@@ -12,11 +12,17 @@
  */
 export {
   usePages,
+  hasLocale,
+  matchAcceptLanguage,
+  splitLocalePath,
   type Data,
   type LayoutProps,
   type MetadataRoute,
   type PageProps,
-  type PagesContext
+  type PagesContext,
+  type I18nOptions,
+  type I18nContext,
+  type LocaleRouting
 } from './plugins/use-pages/index.js'
 
 export {

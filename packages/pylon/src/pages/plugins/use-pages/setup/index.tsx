@@ -73,7 +73,10 @@ export type {Data, LayoutProps, MetadataRoute, PageProps}
 const pylonRoot = (): string =>
   (globalThis as any).__PYLON_ROOT__ ?? process.cwd()
 
-export const setup: NonNullable<Plugin['setup']> = async app => {
+export const setup = async (
+  app: Parameters<NonNullable<Plugin['setup']>>[0],
+  options: {i18n?: I18nOptions} = {}
+) => {
   // Read manifests securely from JSON. Anchored at the app root (see pylonRoot), not cwd,
   // so a standalone deploy resolves them from the entry's location no matter the cwd.
   const root = pylonRoot()
@@ -458,6 +461,17 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
       fetcher: createServerFetcher(app as any, c.req.raw) as any
     })
 
+    // Locale negotiation. Opt-in, and deliberately REPORT-ONLY: it returns a locale and
+    // nothing else, so there is no redirect for this handler to accidentally perform. See
+    // ../i18n.ts for why redirecting on Accept-Language breaks search and AI crawlers.
+    const i18n = options.i18n
+      ? negotiate(options.i18n, {
+          pathname: new URL(c.req.url).pathname,
+          cookie: getCookie(c, options.i18n.cookie ?? 'locale'),
+          acceptLanguage: c.req.header('accept-language')
+        })
+      : undefined
+
     // Per-request cookie collector. The tree writes into it during render (via
     // `useResponseCookies`); `flushCookies()` drains it into `c` before any response is
     // built. Safe because the render is fully buffered — see pages/response-cookies.ts.
@@ -520,7 +534,7 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
       <__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider
         client={pagesClient}
         responseCookies={responseCookies}
-        staticData={{context: pagesContext}}>
+        staticData={{context: pagesContext, i18n}}>
         <StaticRouterProvider
           router={createStaticRouter(handler.dataRoutes, ctx)}
           context={ctx}
@@ -622,6 +636,11 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
     }
 
     flushCookies()
+    if (i18n) {
+      // Both headers can change the rendered output: in cookie mode they pick the locale,
+      // in prefix mode they feed `suggestedLocale`, which is rendered.
+      for (const header of I18N_VARY) appendVary(c.res.headers, header)
+    }
     c.status(context.statusCode as any)
     c.header('Content-Type', 'text/html')
     return c.html(html)
@@ -629,7 +648,9 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
 }
 
 import {__PYLON_INTERNALS_DO_NOT_USE} from '@getcronit/pylon/pages'
-import {deleteCookie, setCookie} from '@getcronit/pylon'
+import {deleteCookie, getCookie, setCookie} from '@getcronit/pylon'
+import {I18N_VARY, negotiate, type I18nOptions} from '../i18n'
+import {appendVary} from '../../vary'
 import {createHash} from 'crypto'
 import type {FormatEnum} from 'sharp'
 import glob from 'tiny-glob/sync.js'

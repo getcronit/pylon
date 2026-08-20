@@ -25,6 +25,7 @@ const dataClientContext = createContext<{
   client: any
   pagesContext?: any
   responseCookies?: ResponseCookies
+  i18n?: any
 } | null>(null)
 
 /** Browser singleton — nothing to write to, so one shared no-op is enough. */
@@ -44,6 +45,7 @@ const DataClientProvider: React.FC<{
   staticData?: {
     cache?: Record<string, unknown>
     context?: any
+    i18n?: any
   }
   /** Server only: the per-request collector the SSR handler flushes after rendering. */
   responseCookies?: ResponseCookies
@@ -62,19 +64,28 @@ const DataClientProvider: React.FC<{
         (window as any).__pylonStaticData?.context) ||
       undefined
 
+  // Same channel as `context`: the client reads the SERVER's negotiated locale rather than
+  // deriving its own from `navigator.language`. That is what makes hydration parity
+  // structural — there is no second opinion for the client to hold.
+  const i18n = isServer
+    ? staticData?.i18n
+    : (typeof window !== 'undefined' &&
+        (window as any).__pylonStaticData?.i18n) ||
+      undefined
+
   // Server: the request's collector. Client: a no-op that warns — the hook is callable on
   // both sides so components need no `typeof window` guard.
   const cookies = isServer ? responseCookies : noopResponseCookies
 
   const contextValue = useMemo(
-    () => ({client: coreClient, pagesContext, responseCookies: cookies}),
-    [coreClient, pagesContext, cookies]
+    () => ({client: coreClient, pagesContext, responseCookies: cookies, i18n}),
+    [coreClient, pagesContext, cookies, i18n]
   )
 
   return (
     <PylonQueryProvider value={coreClient}>
       <dataClientContext.Provider value={contextValue}>
-        {isServer && (cache || pagesContext) && (
+        {isServer && (cache || pagesContext || i18n) && (
           <script
             dangerouslySetInnerHTML={{
               // Embed the SSR static data as a single envelope mirroring the
@@ -85,7 +96,8 @@ const DataClientProvider: React.FC<{
               // rendered on the server flashed away on the client.
               __html: `window.__pylonStaticData = ${serializeForScript({
                 ...(cache ? {cache} : {}),
-                ...(pagesContext ? {context: pagesContext} : {})
+                ...(pagesContext ? {context: pagesContext} : {}),
+                ...(i18n ? {i18n} : {})
               })};`
             }}
           />
@@ -124,7 +136,39 @@ const useDataClient = () => {
 const useResponseCookies = (): ResponseCookies =>
   useDataClient().responseCookies ?? noopResponseCookies
 
-export {DataClientProvider, useDataClient, useResponseCookies, createResponseCookies}
+/**
+ * The locale this render is using, plus what negotiation decided about it.
+ *
+ * Identical on the server and in the browser — the client reads the server's result out of
+ * the hydration envelope instead of consulting `navigator.language`, so the two cannot
+ * disagree and there is no locale flash.
+ *
+ * Throws when `usePages({i18n})` is not configured, rather than inventing a default: a
+ * silent `'en'` would look like it worked and mistranslate everything.
+ */
+const useLocale = (): {
+  locale: string
+  locales: readonly string[]
+  defaultLocale: string
+  localeWasExplicit: boolean
+  suggestedLocale?: string
+} => {
+  const i18n = useDataClient().i18n
+  if (!i18n) {
+    throw new Error(
+      '[pylon] useLocale() requires i18n to be configured: usePages({i18n: {locales, defaultLocale}}).'
+    )
+  }
+  return i18n
+}
+
+export {
+  DataClientProvider,
+  useDataClient,
+  useResponseCookies,
+  createResponseCookies,
+  useLocale
+}
 
 // ====================================================================
 // 3. CORE CONTEXT AND PROVIDER
