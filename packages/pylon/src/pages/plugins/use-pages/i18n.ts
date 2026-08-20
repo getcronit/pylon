@@ -16,6 +16,18 @@
 
 export type LocaleRouting = 'cookie' | 'prefix'
 
+/**
+ * Whether the default locale gets a prefix of its own.
+ *
+ * `'as-needed'` (default) serves it unprefixed: `/pricing` is English, `/de/pricing` German.
+ * That is not merely tidier — it removes the redirect trap by construction. Under
+ * `'always'` there is a locale-less `/pricing` that must redirect somewhere, and choosing
+ * that destination is exactly the decision `Accept-Language` cannot make (see the module
+ * header). Under `'as-needed'` the unprefixed URL IS a real, canonical, indexable page, so
+ * nothing is left to negotiate at.
+ */
+export type LocalePrefix = 'as-needed' | 'always'
+
 export interface I18nOptions {
   /** Supported locales. The first request-provided match wins; order is not significant. */
   locales: readonly string[]
@@ -29,11 +41,19 @@ export interface I18nOptions {
    *   second URL to canonicalise and a crawler sees a single-language site.
    * - `'prefix'` — the URL is authoritative (`/de/pricing`). Required for anything public.
    *
-   * Defaults to `'cookie'` in this phase. Locale ROUTING — mounting the route tree under a
-   * locale segment on both server and client — lands with a later phase, and `'prefix'`
-   * becomes the default then.
+   * Defaults to `'prefix'`. Public content needs it: a cookie-only site serves several
+   * languages at one URL, so there is no second URL to canonicalise and a crawler — which
+   * sends neither cookies nor `Accept-Language` — only ever sees one language.
    */
   routing?: LocaleRouting
+  /**
+   * Prefix strategy for `routing: 'prefix'`. Default `'as-needed'`.
+   *
+   * Each mode owes one deterministic redirect so that only one URL per locale is canonical:
+   * `'as-needed'` 301s `/en/pricing` → `/pricing`, `'always'` 301s `/pricing` →
+   * `/en/pricing`. Deterministic, never negotiated.
+   */
+  prefix?: LocalePrefix
   /** Cookie carrying the locale. Default `'locale'`. */
   cookie?: string
 }
@@ -60,6 +80,31 @@ export interface I18nContext {
    * suggestion is a link rather than a 302 that crawlers cannot follow correctly.
    */
   suggestedLocale?: string
+  /**
+   * React Router basename for this locale — `'/de'`, or `''` for the one served unprefixed.
+   *
+   * Computed HERE, server-side, and shipped in the hydration envelope so the browser uses
+   * the same value rather than re-deriving it from config it would have to be told about.
+   * Client and server cannot disagree about where routes are mounted.
+   */
+  basename: string
+}
+
+/**
+ * Where this locale's routes are mounted. `''` means the site root.
+ *
+ * Only `prefix` routing produces a basename: in cookie mode every locale lives at the same
+ * URLs, and in `as-needed` the default locale is the unprefixed site.
+ */
+export const basenameForLocale = (
+  options: I18nOptions,
+  locale: string
+): string => {
+  if ((options.routing ?? 'prefix') !== 'prefix') return ''
+  const bare =
+    (options.prefix ?? 'as-needed') === 'as-needed' &&
+    normalise(locale) === normalise(options.defaultLocale)
+  return bare ? '' : `/${locale}`
 }
 
 const normalise = (tag: string): string => tag.trim().toLowerCase()
@@ -162,7 +207,7 @@ export const negotiate = (
   input: NegotiateInput
 ): I18nContext => {
   const {locales, defaultLocale} = options
-  const routing: LocaleRouting = options.routing ?? 'cookie'
+  const routing: LocaleRouting = options.routing ?? 'prefix'
 
   const fromCookie = resolve(locales, input.cookie)
   const fromHeader = matchAcceptLanguage(locales, input.acceptLanguage)
@@ -177,6 +222,7 @@ export const negotiate = (
       locales,
       defaultLocale,
       localeWasExplicit: fromPath !== undefined,
+      basename: basenameForLocale(options, locale),
       ...(hint && hint !== locale ? {suggestedLocale: hint} : {})
     }
   }
@@ -187,7 +233,8 @@ export const negotiate = (
     locale,
     locales,
     defaultLocale,
-    localeWasExplicit: fromCookie !== undefined || fromHeader !== undefined
+    localeWasExplicit: fromCookie !== undefined || fromHeader !== undefined,
+    basename: ''
   }
 }
 
@@ -199,3 +246,34 @@ export const negotiate = (
  * which is rendered, so a shared cache must not hand one visitor's suggestion to another.
  */
 export const I18N_VARY: readonly string[] = ['Cookie', 'Accept-Language']
+
+/**
+ * The one redirect prefix routing owes, so exactly one URL per locale is canonical.
+ *
+ * `'as-needed'`: `/en/pricing` → `/pricing`. `'always'`: `/pricing` → `/en/pricing`.
+ *
+ * DETERMINISTIC — it depends only on the path and the config, never on a cookie or
+ * `Accept-Language`. That distinction is the whole point: a predictable redirect is fine for
+ * crawlers (they follow it and index the target), while a *varying* one sends every crawler
+ * to the default locale because they send neither signal. Returns `undefined` when the URL is
+ * already canonical, which is the common case.
+ */
+export const canonicalRedirect = (
+  options: I18nOptions,
+  pathname: string
+): string | undefined => {
+  if ((options.routing ?? 'prefix') !== 'prefix') return undefined
+  const {locale, pathname: rest} = splitLocalePath(options.locales, pathname)
+  const asNeeded = (options.prefix ?? 'as-needed') === 'as-needed'
+  const isDefault = locale !== undefined && normalise(locale) === normalise(options.defaultLocale)
+
+  // as-needed: the default locale must not carry a prefix.
+  if (asNeeded && isDefault) return rest === '/' ? '/' : rest
+
+  // always: every locale must carry one, so an unprefixed path gains the default's.
+  if (!asNeeded && locale === undefined) {
+    return `/${options.defaultLocale}${pathname === '/' ? '' : pathname}`
+  }
+
+  return undefined
+}

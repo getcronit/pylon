@@ -1,5 +1,7 @@
 import {describe, expect, it} from 'vitest'
 import {
+  basenameForLocale,
+  canonicalRedirect,
   hasLocale,
   matchAcceptLanguage,
   negotiate,
@@ -221,5 +223,67 @@ describe('hasLocale', () => {
     expect(hasLocale(LOCALES, 'es')).toBe(false)
     expect(hasLocale(LOCALES, undefined)).toBe(false)
     expect(hasLocale(LOCALES, '')).toBe(false)
+  })
+})
+
+describe('basenameForLocale', () => {
+  it('gives the default locale no basename under as-needed', () => {
+    expect(basenameForLocale(prefixMode, 'en')).toBe('')
+  })
+
+  it('prefixes every other locale', () => {
+    expect(basenameForLocale(prefixMode, 'de')).toBe('/de')
+  })
+
+  it('prefixes the default too under `always`', () => {
+    const always: I18nOptions = {...prefixMode, prefix: 'always'}
+    expect(basenameForLocale(always, 'en')).toBe('/en')
+    expect(basenameForLocale(always, 'de')).toBe('/de')
+  })
+
+  it('never produces one in cookie mode', () => {
+    // Every locale lives at the same URLs there.
+    expect(basenameForLocale(cookieMode, 'de')).toBe('')
+  })
+
+  it('is what negotiate reports, so the client cannot re-derive it differently', () => {
+    expect(negotiate(prefixMode, {pathname: '/de/pricing'}).basename).toBe('/de')
+    expect(negotiate(prefixMode, {pathname: '/pricing'}).basename).toBe('')
+  })
+})
+
+describe('canonicalRedirect — deterministic, never negotiated', () => {
+  it('strips the default locale prefix under as-needed', () => {
+    expect(canonicalRedirect(prefixMode, '/en/pricing')).toBe('/pricing')
+    expect(canonicalRedirect(prefixMode, '/en')).toBe('/')
+  })
+
+  it('leaves an already-canonical URL alone', () => {
+    // The common case: no redirect at all.
+    expect(canonicalRedirect(prefixMode, '/pricing')).toBeUndefined()
+    expect(canonicalRedirect(prefixMode, '/de/pricing')).toBeUndefined()
+    expect(canonicalRedirect(prefixMode, '/')).toBeUndefined()
+  })
+
+  it('adds the default prefix under `always`', () => {
+    const always: I18nOptions = {...prefixMode, prefix: 'always'}
+    expect(canonicalRedirect(always, '/pricing')).toBe('/en/pricing')
+    expect(canonicalRedirect(always, '/')).toBe('/en')
+    expect(canonicalRedirect(always, '/de/pricing')).toBeUndefined()
+  })
+
+  it('does nothing in cookie mode', () => {
+    expect(canonicalRedirect(cookieMode, '/en/pricing')).toBeUndefined()
+  })
+
+  it('does not depend on cookies or Accept-Language', () => {
+    // The signature takes neither — a varying redirect is impossible to express, which is
+    // the point: crawlers send neither signal, so varying on them funnels them all to one
+    // locale. Deterministic redirects they simply follow.
+    expect(canonicalRedirect.length).toBe(2)
+  })
+
+  it('never treats a non-leading locale segment as a prefix', () => {
+    expect(canonicalRedirect(prefixMode, '/docs/en')).toBeUndefined()
   })
 })

@@ -1,7 +1,7 @@
 import type {Plugin} from '@getcronit/pylon'
 export type {Data, Mutations, LayoutProps, MetadataRoute, PageProps, PagesContext} from './types'
 export {hasLocale, matchAcceptLanguage, splitLocalePath} from './i18n'
-export type {I18nOptions, I18nContext, LocaleRouting} from './i18n'
+export type {I18nOptions, I18nContext, LocaleRouting, LocalePrefix} from './i18n'
 
 import type {I18nOptions} from './i18n'
 

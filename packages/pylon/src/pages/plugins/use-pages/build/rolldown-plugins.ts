@@ -374,7 +374,16 @@ export function injectAppHydrationPlugin(
           window.__PYLON_VERSION__ = "${version}"
           async function hydrate() {
             // Determine if any of the initial routes are lazy
-            const lazyMatches = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.matchRoutes(routes, window.location)?.filter(
+            // Prefix routing: the basename the SERVER matched under, read from the hydration
+            // envelope rather than re-derived, so the two cannot disagree. It must reach
+            // matchRoutes as well as the router: without it /de/pricing strips to nothing,
+            // matches no route, and the lazy route modules below are never pre-resolved - the
+            // router then renders HydrateFallback over the server's real markup and React
+            // reports a hydration mismatch.
+            // @ts-ignore
+            const __pylonBasename = (window as any).__pylonStaticData?.i18n?.basename || undefined
+
+            const lazyMatches = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.matchRoutes(routes, window.location, __pylonBasename)?.filter(
               (m) => m.route.lazy
             );
 
@@ -401,7 +410,11 @@ export function injectAppHydrationPlugin(
             }
 
             // @ts-ignore
-            const router = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.createBrowserRouter(routes)
+            const router = __pylonBasename
+              // @ts-ignore
+              ? __PYLON_ROUTER_INTERNALS_DO_NOT_USE.createBrowserRouter(routes, {basename: __pylonBasename})
+              // @ts-ignore
+              : __PYLON_ROUTER_INTERNALS_DO_NOT_USE.createBrowserRouter(routes)
 
             // @ts-ignore
             window.__PYLON_NAVIGATE__ = router.navigate

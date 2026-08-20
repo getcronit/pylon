@@ -94,6 +94,25 @@ export const setup = async (
   // Definite-assignment: set by loadPages() (awaited before any request), which TS
   // can't see through the closure.
   let handler!: ReturnType<typeof createStaticHandler>
+  /**
+   * One static handler per locale, keyed by basename ('' = the unprefixed default).
+   *
+   * Prefix routing is React Router's `basename`, not a duplicated route table: the SAME
+   * `routes` object is matched under `/de`, so `pages/` needs no `[locale]` folder. Locales
+   * are known from config, so these are built once at load rather than per request.
+   */
+  const localeHandlers = new Map<string, ReturnType<typeof createStaticHandler>>()
+
+  /** The handler for a basename, built on first use. `''` is the root handler. */
+  const handlerFor = (basename: string | undefined) => {
+    if (!basename) return handler
+    let h = localeHandlers.get(basename)
+    if (!h) {
+      h = createStaticHandler(routes, {basename})
+      localeHandlers.set(basename, h)
+    }
+    return h
+  }
 
   // Load (or reload) the page layer into the mutable refs above. Reassigns local
   // refs + globals only — it introduces NO new dynamic imports beyond the existing
@@ -126,6 +145,9 @@ export const setup = async (
     // after a rebuild resolves a NEW specifier — cache-clean, no invalidation hack.
     routes = (await import(`${root}/${pagesManifest['app.js']}`)).default
     handler = createStaticHandler(routes)
+    // Stale handlers close over the PREVIOUS routes object; a dev hot-swap would otherwise
+    // keep serving the old tree on every prefixed URL.
+    localeHandlers.clear()
   }
 
   await loadPages()
@@ -472,6 +494,17 @@ export const setup = async (
         })
       : undefined
 
+    // The one redirect prefix routing owes: collapse a non-canonical URL onto the canonical
+    // one. Deterministic — path + config only, never a cookie or Accept-Language — so a
+    // crawler follows it to a stable target instead of being funnelled to one locale.
+    if (options.i18n) {
+      const url = new URL(c.req.url)
+      const canonical = canonicalRedirect(options.i18n, url.pathname)
+      if (canonical !== undefined && canonical !== url.pathname) {
+        return c.redirect(`${canonical}${url.search}`, 301)
+      }
+    }
+
     // Per-request cookie collector. The tree writes into it during render (via
     // `useResponseCookies`); `flushCookies()` drains it into `c` before any response is
     // built. Safe because the render is fully buffered — see pages/response-cookies.ts.
@@ -513,7 +546,10 @@ export const setup = async (
     // =====================================================================
     // PHASE 1: Route Matching & Loader Execution
     // =====================================================================
-    const staticHandlerContext = await handler.query(c.req.raw, {
+    // Prefix routing: match under the locale's basename so `/de/pricing` resolves the same
+    // route `/pricing` does. React Router strips the basename itself.
+    const routeHandler = handlerFor(i18n?.basename)
+    const staticHandlerContext = await routeHandler.query(c.req.raw, {
       requestContext: {pagesContext}
     })
 
@@ -536,7 +572,7 @@ export const setup = async (
         responseCookies={responseCookies}
         staticData={{context: pagesContext, i18n}}>
         <StaticRouterProvider
-          router={createStaticRouter(handler.dataRoutes, ctx)}
+          router={createStaticRouter(routeHandler.dataRoutes, ctx)}
           context={ctx}
         />
       </__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider>
@@ -649,7 +685,7 @@ export const setup = async (
 
 import {__PYLON_INTERNALS_DO_NOT_USE} from '@getcronit/pylon/pages'
 import {deleteCookie, getCookie, setCookie} from '@getcronit/pylon'
-import {I18N_VARY, negotiate, type I18nOptions} from '../i18n'
+import {canonicalRedirect, I18N_VARY, negotiate, type I18nOptions} from '../i18n'
 import {appendVary} from '../../vary'
 import {createHash} from 'crypto'
 import type {FormatEnum} from 'sharp'

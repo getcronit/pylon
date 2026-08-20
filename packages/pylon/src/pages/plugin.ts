@@ -22,7 +22,8 @@ export {
   type PagesContext,
   type I18nOptions,
   type I18nContext,
-  type LocaleRouting
+  type LocaleRouting,
+  type LocalePrefix
 } from './plugins/use-pages/index.js'
 
 export {
