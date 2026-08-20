@@ -136,7 +136,12 @@ export const Image: React.FC<ImageProps> = props => {
         width={values.width}
         height={values.height}
         style={{
-          backgroundImage: `url(${values.blurDataURL})`,
+          // QUOTED on purpose. React server-renders this value verbatim, while
+          // the browser's CSSOM re-serializes `url(…)` as `url("…")` — so an
+          // unquoted URL is one string in the HTML and another in the DOM, and
+          // hydration reports a style mismatch on every Image. Emitting the
+          // quotes ourselves makes both sides agree.
+          backgroundImage: `url("${values.blurDataURL}")`,
           backgroundSize: 'cover',
           height: props.fill ? '100%' : undefined,
           width: props.fill ? '100%' : undefined,
