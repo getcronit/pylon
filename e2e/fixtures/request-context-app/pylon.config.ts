@@ -15,7 +15,8 @@ export default {
       c => ({
         theme: getCookie(c, 'theme') ?? 'system',
         sidebarOpen: getCookie(c, 'sidebar') !== 'closed',
-        locale: getCookie(c, 'locale') ?? 'en'
+        locale: getCookie(c, 'locale') ?? 'en',
+        seen: getCookie(c, 'seen') === '1'
       }),
       {vary: ['Cookie']}
     ),

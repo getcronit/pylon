@@ -458,6 +458,18 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
       fetcher: createServerFetcher(app as any, c.req.raw) as any
     })
 
+    // Per-request cookie collector. The tree writes into it during render (via
+    // `useResponseCookies`); `flushCookies()` drains it into `c` before any response is
+    // built. Safe because the render is fully buffered — see pages/response-cookies.ts.
+    const responseCookies =
+      __PYLON_INTERNALS_DO_NOT_USE.createResponseCookies()
+    const flushCookies = () => {
+      for (const {name, value, options} of responseCookies.entries()) {
+        if (value === null) deleteCookie(c, name, options as any)
+        else setCookie(c, name, value, options as any)
+      }
+    }
+
     // =====================================================================
     // PHASE 1: Route Matching & Loader Execution
     // =====================================================================
@@ -481,6 +493,7 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
     const renderComponent = (ctx: StaticHandlerContext) => (
       <__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider
         client={pagesClient}
+        responseCookies={responseCookies}
         staticData={{context: pagesContext}}>
         <StaticRouterProvider
           router={createStaticRouter(handler.dataRoutes, ctx)}
@@ -503,10 +516,14 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
       if (isResponse(errorOrResponse)) {
         const status = errorOrResponse.status
 
-        // Component-level redirect (e.g. auth check).
+        // Component-level redirect (e.g. auth check). A render already ran, so any cookie
+        // it queued (e.g. persisting a negotiated locale) must still be sent.
         if (status >= 300 && status < 400) {
           const location = errorOrResponse.headers.get('Location')
-          if (location) return c.redirect(location, status as any)
+          if (location) {
+            flushCookies()
+            return c.redirect(location, status as any)
+          }
         }
 
         // Component-level data error (404/403): hand it to React Router so the
@@ -543,6 +560,7 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
         html = await renderToHtml(renderComponent(context), bootstrapEntry)
       } catch (criticalError) {
         console.error('CRITICAL RENDER ERROR', criticalError)
+        flushCookies()
         c.status(500)
         c.header('Content-Type', 'text/html')
         return c.html(
@@ -577,6 +595,7 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
       html = await devBridge.transformHtml(c.req.url, html)
     }
 
+    flushCookies()
     c.status(context.statusCode as any)
     c.header('Content-Type', 'text/html')
     return c.html(html)
@@ -584,6 +603,7 @@ export const setup: NonNullable<Plugin['setup']> = async app => {
 }
 
 import {__PYLON_INTERNALS_DO_NOT_USE} from '@getcronit/pylon/pages'
+import {deleteCookie, setCookie} from '@getcronit/pylon'
 import {createHash} from 'crypto'
 import type {FormatEnum} from 'sharp'
 import glob from 'tiny-glob/sync.js'

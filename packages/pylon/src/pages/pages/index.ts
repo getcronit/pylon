@@ -2,7 +2,11 @@ export * as __PYLON_ROUTER_INTERNALS_DO_NOT_USE from 'react-router'
 export * as __PYLON_INTERNALS_DO_NOT_USE from './internals'
 
 export {Image} from './image'
-export {useRouteData} from './internals'
+export {useRouteData, useResponseCookies} from './internals'
+export type {
+  ResponseCookies,
+  ResponseCookieOptions
+} from './response-cookies'
 export {Link} from './link'
 
 export * from '@/pages/components/dev-overlay'

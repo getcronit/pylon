@@ -33,9 +33,22 @@ const base = `http://localhost:${PORT}`
 let server: ChildProcess | undefined
 let serverLog = ''
 
+/** GET a path with an optional Cookie header. */
+const getAt = (path: string, cookie?: string) =>
+  fetch(`${base}${path}`, {
+    headers: cookie ? {Cookie: cookie} : {},
+    redirect: 'manual'
+  })
+
 /** GET `/` with an optional Cookie header. */
-const get = (cookie?: string) =>
-  fetch(base, {headers: cookie ? {Cookie: cookie} : {}})
+const get = (cookie?: string) => getAt('/', cookie)
+
+/** Every `Set-Cookie` on a response, as raw strings. */
+const setCookies = (res: Response): string[] =>
+  // getSetCookie() keeps them separate; a plain get() would join them into one string.
+  typeof (res.headers as any).getSetCookie === 'function'
+    ? (res.headers as any).getSetCookie()
+    : [res.headers.get('set-cookie')].filter(Boolean) as string[]
 
 const textOf = async (cookie?: string) => (await get(cookie)).text()
 
@@ -116,7 +129,7 @@ describe('useRequestContext at SSR', () => {
 
     const {context} = JSON.parse(payload!)
     // Exactly what the server rendered from — so the client cannot disagree.
-    expect(context).toEqual({theme: 'dark', sidebarOpen: false, locale: 'de'})
+    expect(context).toEqual({theme: 'dark', sidebarOpen: false, locale: 'de', seen: false})
   })
 
   it('beats the usePages catch-all even when listed after it in `plugins`', async () => {
@@ -144,5 +157,40 @@ describe('Vary', () => {
       .map(v => v.trim().toLowerCase())
       .filter(v => v === 'cookie')
     expect(cookieEntries).toHaveLength(1)
+  })
+})
+
+describe('useResponseCookies — writing from inside the render', () => {
+  it('sets a cookie queued by the layout during SSR', async () => {
+    const cookies = setCookies(await get())
+    expect(cookies).toHaveLength(1)
+    expect(cookies[0]).toMatch(/^seen=1/)
+    expect(cookies[0]).toContain('Max-Age=31536000')
+    expect(cookies[0]).toContain('Path=/')
+    expect(cookies[0]).toMatch(/SameSite=Lax/i)
+  })
+
+  it('queues nothing when the layout decides not to write', async () => {
+    // The write is conditional on the incoming cookie, so a return visit is a no-op —
+    // proving the collector is driven by the render rather than set unconditionally.
+    expect(setCookies(await get('seen=1'))).toHaveLength(0)
+  })
+
+  it('emits exactly ONE Set-Cookie when the error path renders twice', async () => {
+    // /boom throws, so the handler renders the tree a second time with the error context
+    // populated. The layout queues `seen` on BOTH renders. Keyed by name, the collector
+    // collapses them; an append-style collector would emit two identical headers here.
+    const res = await getAt('/boom')
+    expect(res.status).toBe(500)
+
+    const cookies = setCookies(res)
+    expect(cookies).toHaveLength(1)
+    expect(cookies[0]).toMatch(/^seen=1/)
+  })
+
+  it('still renders the error boundary while doing so', async () => {
+    const res = await getAt('/boom')
+    expect(res.status).toBe(500)
+    expect(await res.text()).not.toBe('')
   })
 })

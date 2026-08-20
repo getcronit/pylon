@@ -1,6 +1,11 @@
 import {PylonQueryProvider} from '@getcronit/pylon/query'
 import {createContext, useContext, useMemo} from 'react'
 import {PageProps} from '.'
+import {
+  createNoopResponseCookies,
+  createResponseCookies,
+  type ResponseCookies
+} from './response-cookies'
 
 /**
  * Serialize a value for safe embedding inside an inline `<script>` tag.
@@ -19,7 +24,11 @@ const serializeForScript = (value: unknown): string =>
 const dataClientContext = createContext<{
   client: any
   pagesContext?: any
+  responseCookies?: ResponseCookies
 } | null>(null)
+
+/** Browser singleton — nothing to write to, so one shared no-op is enough. */
+const noopResponseCookies = createNoopResponseCookies()
 
 /**
  * Provides the pylon-query client to `useData`/`usePaginatedData` (via
@@ -36,8 +45,10 @@ const DataClientProvider: React.FC<{
     cache?: Record<string, unknown>
     context?: any
   }
+  /** Server only: the per-request collector the SSR handler flushes after rendering. */
+  responseCookies?: ResponseCookies
   children: React.ReactNode
-}> = ({children, client, staticData}) => {
+}> = ({children, client, staticData, responseCookies}) => {
   const isServer = typeof window === 'undefined'
   const coreClient = client?.client ?? client
 
@@ -51,9 +62,13 @@ const DataClientProvider: React.FC<{
         (window as any).__pylonStaticData?.context) ||
       undefined
 
+  // Server: the request's collector. Client: a no-op that warns — the hook is callable on
+  // both sides so components need no `typeof window` guard.
+  const cookies = isServer ? responseCookies : noopResponseCookies
+
   const contextValue = useMemo(
-    () => ({client: coreClient, pagesContext}),
-    [coreClient, pagesContext]
+    () => ({client: coreClient, pagesContext, responseCookies: cookies}),
+    [coreClient, pagesContext, cookies]
   )
 
   return (
@@ -91,7 +106,25 @@ const useDataClient = () => {
   return context
 }
 
-export {DataClientProvider, useDataClient}
+/**
+ * Queue a cookie on the SSR response from inside a page or layout.
+ *
+ * ```tsx
+ * const cookies = useResponseCookies()
+ * if (!context.localeWasExplicit) {
+ *   cookies.set('locale', context.locale, {path: '/', maxAge: 31536000, sameSite: 'Lax'})
+ * }
+ * ```
+ *
+ * Writes are keyed by cookie name and flushed once, after the render completes — so the
+ * error path's second render overwrites rather than emitting a duplicate `Set-Cookie`.
+ * Only safe for idempotent writes; see `response-cookies.ts` for the full contract.
+ * In the browser this is a no-op that warns once.
+ */
+const useResponseCookies = (): ResponseCookies =>
+  useDataClient().responseCookies ?? noopResponseCookies
+
+export {DataClientProvider, useDataClient, useResponseCookies, createResponseCookies}
 
 // ====================================================================
 // 3. CORE CONTEXT AND PROVIDER
