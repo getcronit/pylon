@@ -62,6 +62,22 @@ describe('MigrationRunner — generate / status (file workflow, no DB)', () => {
   const fileContents = (r: MigrationRunner, name: string) =>
     fs.readFile(path.join(dir, `${name}.ts`), 'utf8')
 
+  // Regression: `generate` must not emit a migration whose unsupported half
+  // renders to no SQL. Such a file applies cleanly and folds into the baseline as
+  // captured, leaving the database silently behind the models with `status`,
+  // `check` and `deploy` all reporting "up to date".
+  it('refuses to generate a change it cannot render as SQL (primary-key change)', async () => {
+    const noPk = entity('User', [{name: 'code', sqlType: 'text'}])
+    const withPk = entity('User', [{name: 'code', sqlType: 'text', pk: true}])
+    await runnerFor(() => noPk).generate('init', load)
+
+    await expect(runnerFor(() => withPk).generate('pk', load)).rejects.toThrow(
+      /cannot express as SQL[\s\S]*primary-key change on user\.code/
+    )
+    // and nothing half-written was left behind
+    expect((await fs.readdir(dir)).filter(f => f.endsWith('_pk.ts'))).toEqual([])
+  })
+
   it('generates an initial migration (TS file); no snapshot.json', async () => {
     const r = runnerFor(() => v1)
     const m = await r.generate('init', load)

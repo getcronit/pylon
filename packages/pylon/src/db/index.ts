@@ -379,6 +379,8 @@ export const migrations = {
   // authoring (migration files)
   defineMigration: migrationOps.defineMigration,
   schema: migrationOps.schema,
+  /** Baseline-only bookkeeping for a change `schema()` can't render (pair with `runSql`). */
+  stateOnly: migrationOps.stateOnly,
   // named schema operations (Django-style; built-in reverse)
   createTable: migrationOps.createTable,
   dropTable: migrationOps.dropTable,

@@ -87,9 +87,29 @@ export function defineMigration(migration: MigrationModule): MigrationModule {
   return migration
 }
 
-/** A declarative schema delta (from the IR diff). Always reversible. */
+/**
+ * A declarative schema delta (from the IR diff). Always reversible.
+ *
+ * REFUSES a delta the renderer cannot fully express (a primary-key change on an
+ * existing column; adding or removing generated-ness). Those render to NO SQL
+ * while still folding into the reconstructed baseline — so the migration would
+ * apply as a silent no-op and every gate afterwards (`status`, `check`, `deploy`)
+ * would report "up to date" against a database that never received the change.
+ * Express it explicitly instead: a `runSql` carrying the real DDL, paired with a
+ * `stateOnly` recording the delta in the baseline.
+ */
 export function schema(changes: SchemaChange[]): Operation {
-  const {up, down} = renderChanges(changes)
+  const {up, down, unsupported} = renderChanges(changes)
+  if (unsupported.length > 0) {
+    throw new Error(
+      `Schema operation cannot be expressed as SQL:\n` +
+        unsupported.map(u => `  - ${u}`).join('\n') +
+        `\nApplying it would be a no-op that still counts as captured, silently ` +
+        `diverging the models from the database. Author it explicitly instead:\n` +
+        `  migrations.runSql('<ddl>', {down: '<ddl>'}),\n` +
+        `  migrations.stateOnly([/* the same change(s) */])`
+    )
+  }
   return {
     reversible: true,
     changes,
@@ -101,6 +121,27 @@ export function schema(changes: SchemaChange[]): Operation {
     down: async ctx => {
       for (const stmt of down) await ctx.exec(stmt)
     }
+  }
+}
+
+/**
+ * Record a schema delta in the reconstructed baseline WITHOUT emitting any SQL —
+ * the "state" half of Django's `SeparateDatabaseAndState`.
+ *
+ * This is the escape hatch for a change `schema()` refuses: run the real DDL with
+ * an adjacent `runSql`, then `stateOnly` the delta so the folded baseline — and
+ * therefore `status`/`check`/`deploy` — matches the database. You are ASSERTING
+ * the database already looks this way; nothing verifies it, so only ever pair it
+ * with the operation that makes it true.
+ */
+export function stateOnly(changes: SchemaChange[]): Operation {
+  return {
+    reversible: true,
+    changes,
+    fingerprint: `state:${JSON.stringify(changes)}`,
+    preview: () => ['-- stateOnly(): baseline bookkeeping only, no SQL'],
+    up: async () => {},
+    down: async () => {}
   }
 }
 

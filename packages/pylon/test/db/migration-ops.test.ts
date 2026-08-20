@@ -10,7 +10,8 @@ import {
   renameColumn,
   run,
   runSql,
-  schema
+  schema,
+  stateOnly
 } from '@/db/migration-ops'
 import type {MigrationContext, Operation} from '@/db/migration-ops'
 
@@ -185,5 +186,85 @@ describe('migration reversibility = all operations reversible', () => {
       operations: [schema([createWidget]), runSql('x') as Operation]
     })
     expect(isReversible(m)).toBe(false)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Regression: a change the renderer can't express must never become a migration
+// that applies as a no-op yet still folds into the baseline as captured — that
+// silently diverges the models from the database, with `status`/`check`/`deploy`
+// all reporting "up to date" afterwards.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('schema() refuses changes it cannot render', () => {
+  const col = (name: string, extra: Record<string, unknown> = {}) => ({
+    property: name,
+    name,
+    sqlType: 'text' as const,
+    primaryKey: false,
+    autoIncrement: false,
+    unique: false,
+    nullable: false,
+    ...extra
+  })
+
+  it('throws on a primary-key change instead of emitting an empty operation', () => {
+    expect(() =>
+      schema([
+        {
+          kind: 'alterColumn',
+          table: 'beta',
+          before: col('code'),
+          after: col('code', {primaryKey: true})
+        }
+      ])
+    ).toThrow(/cannot be expressed as SQL[\s\S]*primary-key change on beta\.code/)
+  })
+
+  it('throws on adding/removing generated-ness', () => {
+    expect(() =>
+      schema([
+        {
+          kind: 'alterColumn',
+          table: 'gamma',
+          before: col('doc', {sqlType: 'tsvector', generatedAs: "to_tsvector('simple', code)"}),
+          after: col('doc', {sqlType: 'tsvector'})
+        }
+      ])
+    ).toThrow(/generated-column add\/remove on gamma\.doc/)
+  })
+
+  it('points at the runSql + stateOnly escape hatch', () => {
+    expect(() =>
+      schema([
+        {kind: 'alterColumn', table: 'beta', before: col('code'), after: col('code', {primaryKey: true})}
+      ])
+    ).toThrow(/migrations\.runSql[\s\S]*migrations\.stateOnly/)
+  })
+
+  it('still accepts a fully renderable alter (nullable flip)', () => {
+    const op = schema([
+      {kind: 'alterColumn', table: 'beta', before: col('code'), after: col('code', {nullable: true})}
+    ])
+    expect(op.preview('up')).toEqual(['ALTER TABLE "beta" ALTER COLUMN "code" DROP NOT NULL'])
+  })
+})
+
+describe('stateOnly()', () => {
+  it('carries its changes for the fold but emits no SQL', async () => {
+    const changes = [
+      {
+        kind: 'alterColumn' as const,
+        table: 'beta',
+        before: {property: 'code', name: 'code', sqlType: 'text' as const, primaryKey: false, autoIncrement: false, unique: false, nullable: false},
+        after: {property: 'code', name: 'code', sqlType: 'text' as const, primaryKey: true, autoIncrement: false, unique: false, nullable: false}
+      }
+    ]
+    const op = stateOnly(changes)
+    expect(op.changes).toEqual(changes)
+    expect(op.reversible).toBe(true)
+    const {ctx, sql} = recordingCtx()
+    await op.up(ctx)
+    await op.down(ctx)
+    expect(sql).toEqual([])
   })
 })

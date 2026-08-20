@@ -222,6 +222,19 @@ export class MigrationRunner {
     if (changes.length === 0) return null
 
     const {unsupported} = renderChanges(changes)
+    // Refuse rather than emit a migration whose unsupported half renders to no SQL:
+    // it would apply cleanly, fold into the baseline as captured, and leave the
+    // database silently behind the models with every gate reporting "up to date".
+    if (unsupported.length > 0) {
+      throw new Error(
+        `Cannot generate a migration — the diff contains change(s) the engine cannot ` +
+          `express as SQL:\n` +
+          unsupported.map(u => `  - ${u}`).join('\n') +
+          `\nAuthor this one by hand: \`migrations.runSql('<ddl>', {down: '<ddl>'})\` for ` +
+          `the DDL, plus \`migrations.stateOnly([...])\` so the baseline records it. ` +
+          `(Reverting the model change lets \`db diff\` generate the rest.)`
+      )
+    }
     const migrationName = `${this.now()}_${name}`
     const dependencies = await this.heads(load) // the migration(s) this one builds on
     await fs.mkdir(this.dir, {recursive: true})
