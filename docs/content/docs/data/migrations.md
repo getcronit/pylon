@@ -115,6 +115,24 @@ export default migrations.defineMigration({
 })
 ```
 
+### Schema changes the diff can't express
+
+Occasionally a schema change has no generated form — `pylon db diff` reports it can't
+express the delta as SQL. Author it by hand with `migrations.runSql(up, {down})` for the
+DDL, then record the same delta in the **baseline** with `migrations.stateOnly([...])` so
+`pylon db status`/`check`/`deploy` see the folded schema and don't try to regenerate it:
+
+```ts
+migrations.runSql(`alter table "user" add column "handle" citext`, {
+  down: `alter table "user" drop column "handle"`
+}),
+// baseline bookkeeping only — no SQL runs. You are ASSERTING the DB now looks this way,
+// so ONLY ever pair it with the adjacent runSql above.
+migrations.stateOnly([
+  {kind: 'addColumn', table: 'user', column: {property: 'handle', name: 'handle', sqlType: 'text', primaryKey: false, autoIncrement: false, nullable: false, unique: false}}
+])
+```
+
 ## Renaming columns and tables
 
 A diff can't tell a rename from a delete-and-recreate — it only sees your models.
