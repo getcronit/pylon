@@ -7,6 +7,16 @@ interface ImageValuesProps {
   width?: number
   height?: number
   blurDataURL?: string
+  /**
+   * How wide the image renders, as a CSS `sizes` list — e.g.
+   * `'(max-width: 768px) 100vw, 50vw'`.
+   *
+   * This is what makes `srcset` work. Without it the browser must assume the
+   * image fills the viewport and picks the largest candidate, which is the
+   * opposite of the point. A `fill` image with no `sizes` defaults to
+   * `100vw`, which is usually true and always safe.
+   */
+  sizes?: string
 }
 
 export interface ImageProps extends Omit<ImageValuesProps, 'src'> {
@@ -24,6 +34,21 @@ export interface ImageProps extends Omit<ImageValuesProps, 'src'> {
    */
   priority?: boolean
 }
+
+/**
+ * Candidate widths for `srcset`.
+ *
+ * The small end covers icons and thumbnails, the large end common device
+ * widths at 1x and 2x. The proxy clamps anything wider than the source, so an
+ * oversized candidate costs nothing — it resolves to the original width.
+ */
+const WIDTH_LADDER = [
+  16, 32, 48, 64, 96, 128, 256, 384, 640, 750, 828, 1080, 1200, 1920, 2048,
+  3840
+]
+
+/** Widths worth offering when the image spans a share of the viewport. */
+const VIEWPORT_WIDTHS = [640, 750, 828, 1080, 1200, 1920, 2048, 3840]
 
 interface PylonBuildSrc {
   url: string
@@ -47,6 +72,8 @@ const usePylonImageValues = (
   width?: number
   height?: number
   blurDataURL?: string
+  srcSet?: string
+  sizes?: string
   preloads: string[]
 } => {
   return useMemo(() => {
@@ -121,11 +148,42 @@ const usePylonImageValues = (
       preloads.push(blurDataURL)
     }
 
+    // One candidate URL, differing only in width. `h` is dropped: the proxy
+    // derives it from the source's aspect ratio, so every candidate stays in
+    // proportion instead of being squeezed to one fixed height.
+    const at = (w: number) => {
+      const p = new URLSearchParams(pylonMediaSearchParams)
+      p.set('w', String(w))
+      p.delete('h')
+      return `/__pylon/image?${p.toString()}`
+    }
+
+    let srcSet: string | undefined
+    let sizes = props.sizes
+
+    if (sizes) {
+      // The caller said how wide it renders, so offer the full ladder and let
+      // the browser choose against `sizes`.
+      srcSet = WIDTH_LADDER.map(w => `${at(w)} ${w}w`).join(', ')
+    } else if (width) {
+      // A fixed-size image. Density descriptors, not widths — with no `sizes`
+      // a `w` descriptor would make the browser assume full-viewport and pull
+      // the largest file for a small slot.
+      srcSet = `${at(width)} 1x, ${at(width * 2)} 2x`
+    } else {
+      // No width and no `sizes`: the image is being stretched to its
+      // container. Assume the viewport, which is what `fill` usually means.
+      sizes = '100vw'
+      srcSet = VIEWPORT_WIDTHS.map(w => `${at(w)} ${w}w`).join(', ')
+    }
+
     return {
       width,
       height,
       blurDataURL,
       src: finalSrc,
+      srcSet,
+      sizes,
       preloads
     }
   }, [props])
@@ -137,13 +195,22 @@ export const Image: React.FC<ImageProps> = props => {
   return (
     <>
       {props.priority && (
-        <link rel="preload" as="image" href={values.src} fetchPriority="high" />
+        <link
+          rel="preload"
+          as="image"
+          href={values.src}
+          imageSrcSet={values.srcSet}
+          imageSizes={values.sizes}
+          fetchPriority="high"
+        />
       )}
       {values.preloads.map((src, index) => (
         <link key={index} rel="preload" as="image" href={src} />
       ))}
       <img
         src={values.src}
+        srcSet={values.srcSet}
+        sizes={values.sizes}
         alt={props.alt}
         className={props.className}
         width={values.width}

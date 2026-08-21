@@ -869,6 +869,12 @@ const calculateDimensions = (
   if (!width && !height) {
     return {width: originalWidth, height: originalHeight}
   }
+  // Never enlarge. A `srcset` offers candidate widths without knowing how big
+  // the source actually is, so a 2000px master asked for 3840 would otherwise
+  // be upscaled — a bigger file that looks worse than the original. Clamping
+  // makes an oversized candidate collapse onto the real maximum instead.
+  if (width) width = Math.min(width, originalWidth)
+  if (height) height = Math.min(height, originalHeight)
   if (width && !height) {
     // Calculate height based on the aspect ratio
     height = Math.round((width * originalHeight) / originalWidth)
