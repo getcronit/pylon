@@ -33,6 +33,18 @@ export interface ImageProps extends Omit<ImageValuesProps, 'src'> {
    * else: marking everything priority is the same as marking nothing.
    */
   priority?: boolean
+  /**
+   * Override the loading strategy. Defaults to `'lazy'`; `priority` forces
+   * `'eager'` regardless.
+   *
+   * Separate from `priority` because the two answer different questions.
+   * `priority` says "this is the LCP" and preloads it — right for one image
+   * per page. `loading="eager"` just says "do not defer this", which is what
+   * you need for images the lazy heuristic gets wrong: anything inside a
+   * carousel or marquee that is moved into view by a transform rather than by
+   * scrolling, where the browser may never decide it became visible.
+   */
+  loading?: 'lazy' | 'eager'
 }
 
 /**
@@ -227,7 +239,7 @@ export const Image: React.FC<ImageProps> = props => {
           width: props.fill ? '100%' : undefined,
           ...props.style
         }}
-        loading={props.priority ? 'eager' : 'lazy'}
+        loading={props.priority ? 'eager' : (props.loading ?? 'lazy')}
         fetchPriority={props.priority ? 'high' : undefined}
       />
     </>
