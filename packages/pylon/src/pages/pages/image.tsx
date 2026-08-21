@@ -13,6 +13,16 @@ export interface ImageProps extends Omit<ImageValuesProps, 'src'> {
   src: string
   fill?: boolean
   style?: React.CSSProperties
+  /**
+   * Load this image eagerly, at high priority, and preload it.
+   *
+   * Images are lazy by default, which is right for almost all of them — but
+   * wrong for the one that IS the Largest Contentful Paint. A lazy hero is
+   * discovered only after layout, so the browser starts fetching it late and
+   * LCP moves out by exactly that delay. Set this on the hero and on nothing
+   * else: marking everything priority is the same as marking nothing.
+   */
+  priority?: boolean
 }
 
 interface PylonBuildSrc {
@@ -126,6 +136,9 @@ export const Image: React.FC<ImageProps> = props => {
 
   return (
     <>
+      {props.priority && (
+        <link rel="preload" as="image" href={values.src} fetchPriority="high" />
+      )}
       {values.preloads.map((src, index) => (
         <link key={index} rel="preload" as="image" href={src} />
       ))}
@@ -147,7 +160,8 @@ export const Image: React.FC<ImageProps> = props => {
           width: props.fill ? '100%' : undefined,
           ...props.style
         }}
-        loading="lazy"
+        loading={props.priority ? 'eager' : 'lazy'}
+        fetchPriority={props.priority ? 'high' : undefined}
       />
     </>
   )
