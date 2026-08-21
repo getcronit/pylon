@@ -195,6 +195,13 @@ function parseChainSelector(
   const walk = (expr: Node): boolean => {
     if (Node.isIdentifier(expr)) return true // the arrow param `q`
     if (Node.isParenthesizedExpression(expr)) return walk(expr.getExpression())
+    // Type-only wrappers are erased at runtime, so the connection PATH is unchanged: see
+    // through them. A nullable single-entity lookup (`q.post({id})`) needs a `!` (or an `as`)
+    // to satisfy the type-checker before a `.comments` connection access — `q.post({id})!.comments`
+    // is the SAME path as `q.post({id}).comments`.
+    if (Node.isNonNullExpression(expr) || Node.isAsExpression(expr)) {
+      return walk(expr.getExpression())
+    }
     if (Node.isPropertyAccessExpression(expr)) {
       if (!walk(expr.getExpression())) return false
       path.push(expr.getName())
