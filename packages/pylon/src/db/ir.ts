@@ -23,6 +23,7 @@ import type {
   SqlType
 } from './registry.js'
 import {allModels, nodeEnabledFor, resolveColumnSqlType} from './registry.js'
+import {snakeCase} from './util.js'
 
 /**
  * Map a SQL column to a GraphQL scalar. The ORM knows precise intent the raw
@@ -207,8 +208,12 @@ export function entityFromDefinition(def: ModelDefinition): Entity {
     def.relations.map(rel => rel.fkColumn).filter((c): c is string => !!c)
   )
   // Single-column secondary indexes from `{index: true}` field options.
+  // Resolve an index property to its column name. Falls back to `snakeCase(prop)` — pylon's
+  // default column naming — not the raw property, so an index over a column not in `def.columns`
+  // (e.g. an STI subtype's own multi-word column, resolved before the fold) still snake-cases
+  // correctly (`emailUid` → `email_uid`) instead of leaking the camelCase property into the DDL.
   const columnFor = (prop: string) =>
-    def.columns.find(c => c.propertyKey === prop)?.columnName ?? prop
+    def.columns.find(c => c.propertyKey === prop)?.columnName ?? snakeCase(prop)
   const singleColumn = def.columns
     .filter(col => col.index)
     .map(col => {
