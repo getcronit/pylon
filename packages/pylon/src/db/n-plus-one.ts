@@ -22,8 +22,13 @@ const ENABLED =
   process.env.NODE_ENV !== 'production' || process.env.PYLON_BATCH_HINTS === '1'
 const THRESHOLD = Math.max(2, Number(process.env.PYLON_NPLUS1_THRESHOLD ?? 12))
 
+// Frames to walk PAST when naming the caller: the ORM's own files, the driver, node.
+// Both layouts are listed because the ORM moved (`pylon-db/{dist,src}` → `pylon/{dist,
+// src}/db`) and this pattern didn't follow it — so every advisory named
+// `pylon/dist/db/manager.js:<line>` instead of the app code that triggered it, and
+// unrelated call sites collapsed into one bucket.
 const INTERNAL =
-  /[/\\]pylon-db[/\\](dist|src)[/\\]|[/\\]node_modules[/\\](kysely|pg)[/\\]|node:internal/
+  /[/\\]pylon-db[/\\](dist|src)[/\\]|[/\\]pylon[/\\](dist|src)[/\\]db[/\\]|[/\\]node_modules[/\\](kysely|pg)[/\\]|node:internal/
 
 type Rec = {
   count: number
