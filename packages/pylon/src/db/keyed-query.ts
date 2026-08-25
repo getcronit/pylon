@@ -67,12 +67,22 @@ function pathToken(p: KeyProjection<any>): string {
     ? `c:${p.column}`
     : `t:${getModelDefinitionOrThrow(p.through).tableName}.${p.on}->${p.to}#${p.key}?${canon(p.where ?? {})}`
 }
-/** Batch identity: two callers coalesce iff same table + shared where + paths + scope
- *  (the key value is the batch dimension, not part of the token). */
+/** Batch identity: two callers coalesce iff same table + STI discriminator + shared
+ *  where + paths + scope (the key value is the batch dimension, not part of the token).
+ *
+ *  The discriminator MUST be in here. Single-table inheritance puts every subtype in
+ *  one table and applies `kind = '<value>'` as an implicit scope rather than a member
+ *  of `opts.where`, so keying on the table alone made sibling subtypes indistinguishable:
+ *  ask one request for `TicketEmail.count()`, `TicketNote.count()` and
+ *  `TicketEvent.count()` and all three coalesced into a single batch, so every one
+ *  returned the FIRST one's numbers. Silently — each was correct when queried alone,
+ *  which makes it a nasty one to catch. A query on the abstract BASE carries no
+ *  discriminator and so still gets its own token, which is right: it spans all subtypes. */
 function tokenFor(root: ModelCtor<any>, opts: KeyedQueryOptions<any>, kind: string): string {
   const def = getModelDefinitionOrThrow(root)
+  const sti = def.sti ? `@${def.sti.column}=${String(def.sti.value)}` : ''
   return (
-    `${kind}:${def.tableName}${opts.unscoped ? '!u' : ''}` +
+    `${kind}:${def.tableName}${sti}${opts.unscoped ? '!u' : ''}` +
     `?w=${canon(opts.where ?? {})}&p=${opts.paths.map(pathToken).sort().join('|')}`
   )
 }
