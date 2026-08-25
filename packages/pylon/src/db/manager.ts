@@ -685,6 +685,36 @@ export interface Edge<T> {
   node: T
 }
 
+/** A Connection minus its total — what the page half of `paginate()` produces. */
+export type PageOf<T> = Omit<Connection<T>, 'totalCount'>
+
+/**
+ * A Connection whose fields resolve LAZILY: `totalCount` runs the (batched) count only
+ * if selected; `nodes`/`edges`/`pageInfo`/`startIndex` run the page fetch once, shared,
+ * only if selected. GraphQL's default resolver reads `source[field]`, so an unselected
+ * getter never fires — which is what lets a `totalCount`-only list query collapse to a
+ * single grouped count instead of a page query per row.
+ *
+ * The getters hand back PROMISES (typed as values, since every GraphQL consumer awaits
+ * them). Reach for this only where that holds; `paginate()` stays eager for everyone else.
+ */
+export function lazyConnection<T>(
+  totalCount: () => Promise<number>,
+  page: () => Promise<PageOf<T>>
+): Connection<T> {
+  let pagePromise: Promise<PageOf<T>> | undefined
+  const getPage = () => (pagePromise ??= page())
+  const conn = {} as Connection<T>
+  const def = (name: string, get: () => unknown) =>
+    Object.defineProperty(conn, name, {enumerable: true, configurable: true, get})
+  def('totalCount', () => totalCount())
+  def('nodes', () => getPage().then(p => p.nodes))
+  def('edges', () => getPage().then(p => p.edges))
+  def('pageInfo', () => getPage().then(p => p.pageInfo))
+  def('startIndex', () => getPage().then(p => p.startIndex))
+  return conn
+}
+
 export interface Connection<T> {
   /** Relay edges (node + cursor). Mirrors `nodes` for clients that want either. */
   edges: Edge<T>[]
@@ -1304,7 +1334,39 @@ export class QuerySet<T extends object> {
     return {startIndex: Number((row as any).count), values}
   }
 
+  /**
+   * Relay page + total. EAGER by design: both halves are resolved before this
+   * settles, so `(await qs.paginate()).nodes` is a real array. GraphQL relation
+   * fields take `paginateLazy()` instead — see there for why.
+   */
   async paginate(args: PaginateArgs = {}): Promise<Connection<T>> {
+    const [page, totalCount] = await Promise.all([this.paginatePage(args), this.count()])
+    return {...page, totalCount}
+  }
+
+  /**
+   * The same page, but as a Connection whose fields resolve ONLY IF READ — the shape
+   * a GraphQL relation field wants (its default resolver reads `source[field]`, so an
+   * unselected getter never fires).
+   *
+   * This is what keeps `{ timeline { totalCount } }` on a LIST from being an N+1:
+   * `totalCount` alone is one grouped count for every parent row, while the eager
+   * form would ALSO run each parent's keyset page query and throw the rows away.
+   * Measured over 20 tickets: 40 queries → 1.
+   *
+   * Not the default for `paginate()` because the laziness is visible in the return —
+   * the getters hand back promises, so an unawaited `conn.nodes` is a promise, not an
+   * array. GraphQL always awaits; direct ORM callers don't have to think about it.
+   */
+  paginateLazy(args: PaginateArgs = {}): Connection<T> {
+    return lazyConnection(
+      () => this.count(),
+      () => this.paginatePage(args)
+    )
+  }
+
+  /** The page half of `paginate()` — everything except `totalCount`. */
+  private async paginatePage(args: PaginateArgs = {}): Promise<PageOf<T>> {
     // Defensive: kNN distance ordering has no seekable keyset cursor (same reason
     // relevance rank doesn't — see anchorSeek). The typed API already prevents this
     // (`.nearest()` returns the narrow `NearestQuerySet`, which has no `.paginate()`),
@@ -1318,7 +1380,7 @@ export class QuerySet<T extends object> {
     // The `query` DSL is merged into the filter, then we re-enter without it
     // (one level — the keyset logic below is unchanged).
     if (args.query) {
-      return this.query(args.query).paginate({...args, query: undefined})
+      return this.query(args.query).paginatePage({...args, query: undefined})
     }
     // A chained `.orderBy(...)` also drives the keyset, so
     // `qs.orderBy('createdAt').paginate()` pages by createdAt instead of silently
@@ -1340,10 +1402,10 @@ export class QuerySet<T extends object> {
     ) {
       const keys = orderBy === undefined ? [] : Array.isArray(orderBy) ? orderBy : [orderBy]
       const seek = await this.anchorSeek(args.anchor, keys)
-      if (seek) return this.paginateComposite(keys, args, seek)
+      if (seek) return this.paginateCompositePage(keys, args, seek)
     }
     // Composite keyset (opt-in) — the single-string path below is left untouched.
-    if (Array.isArray(orderBy)) return this.paginateComposite(orderBy, args)
+    if (Array.isArray(orderBy)) return this.paginateCompositePage(orderBy, args)
     noteQuery(this.ctor, 'paginate', this.state.where) // paginated relations aren't batched → N+1 advisory
     const raw = orderBy ?? this.def.primaryKey?.propertyKey
     if (!raw) {
@@ -1427,7 +1489,6 @@ export class QuerySet<T extends object> {
     return {
       edges,
       nodes: edges.map(e => e.node),
-      totalCount: await this.count(), // filters + tenant, no cursor window
       startIndex: backward ? 0 : args.skip ?? 0,
       pageInfo: {
         hasNextPage: backward ? args.before !== undefined : hasExtra,
@@ -1447,13 +1508,13 @@ export class QuerySet<T extends object> {
    * forward order (first when paging backward), matching the single-key path. The cursor
    * is the ordered tuple of the keyset column values.
    */
-  private async paginateComposite(
+  private async paginateCompositePage(
     keys: string[],
     args: PaginateArgs,
     /** Deep-link seek (from `anchor`): fetch forward from these keyset values,
      *  INCLUSIVE of the anchor row itself, positioned at absolute `startIndex`. */
     seek?: {startIndex: number; values: unknown[]}
-  ): Promise<Connection<T>> {
+  ): Promise<PageOf<T>> {
     noteQuery(this.ctor, 'paginate', this.state.where) // not batched → N+1 advisory (dev-only)
     // Property → column + natural direction, PK appended as tiebreaker (shared with
     // `anchorSeek`, so a seek's `values` line up with these columns positionally).
@@ -1534,7 +1595,6 @@ export class QuerySet<T extends object> {
     return {
       edges,
       nodes: edges.map((e: {node: T}) => e.node),
-      totalCount: await this.count(),
       startIndex: seek ? seek.startIndex : backward ? 0 : args.skip ?? 0,
       pageInfo: {
         hasNextPage: backward ? args.before !== undefined : hasExtra,

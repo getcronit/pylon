@@ -12,6 +12,8 @@ import {
   deleteManyInstances,
   type Edge,
   encodeCursor,
+  lazyConnection,
+  type PageOf,
   hydrate,
   ModelCtor,
   type PageInfo,
@@ -47,6 +49,15 @@ export function asPaginated<T extends object, M extends Paginatable<T>>(
   mgr: M,
   def?: ModelDefinition
 ): M {
+  // LAZY where the manager offers it. This is the GraphQL boundary, and GraphQL's
+  // default resolver awaits whatever `source[field]` returns — so the connection can
+  // defer each half until it's actually selected. That's what stops a relation
+  // connection read per row (`{ tickets { nodes { timeline { totalCount } } } }`)
+  // from running a keyset page query per parent just to throw the rows away.
+  const page = (m: Paginatable<T>, args: PaginateArgs) => {
+    const lazy = (m as {paginateLazy?: (a: PaginateArgs) => Connection<T>}).paginateLazy
+    return lazy ? lazy.call(m, args) : m.paginate(args)
+  }
   const call = (
     first?: number,
     after?: string,
@@ -63,10 +74,10 @@ export function asPaginated<T extends object, M extends Paginatable<T>>(
       const where = parseSearchQuery(query, def) as unknown as WhereInput<T>
       const m = mgr as unknown as {filter?: (w: WhereInput<T>) => Paginatable<T>}
       if (Object.keys(where).length && typeof m.filter === 'function') {
-        return m.filter(where).paginate(args)
+        return page(m.filter(where), args)
       }
     }
-    return mgr.paginate(args)
+    return page(mgr, args)
   }
   return new Proxy(call, {
     get(target, prop, receiver) {
@@ -298,6 +309,11 @@ export class RelatedQuerySet<T extends object> extends QuerySet<T> {
     return super.paginate(orderBy ? {...args, orderBy} : args)
   }
 
+  paginateLazy(args: PaginateArgs = {}): Connection<T> {
+    const orderBy = args.orderBy ?? this.relOrderProperty
+    return super.paginateLazy(orderBy ? {...args, orderBy} : args)
+  }
+
   private keyed() {
     const where =
       this.relWhere.length === 0
@@ -337,7 +353,7 @@ export interface RelatedManager<T extends object> extends Array<T> {}
 // both chainable (`user.posts.filter(...).all()`) and thenable
 // (`await user.posts`), and can create children with the FK pre-filled.
 export class RelatedManager<T extends object> {
-  private readonly base: QuerySet<T>
+  private _base?: RelatedQuerySet<T>
 
   constructor(
     private readonly ctor: ModelCtor<T>,
@@ -345,10 +361,23 @@ export class RelatedManager<T extends object> {
     private readonly fkValue: unknown,
     /** Declared default ordering (property name, optional `-` prefix = desc). */
     private readonly orderProperty?: string
-  ) {
-    this.base = new QuerySet(ctor).filter({
-      [fkProperty]: fkValue
-    } as WhereInput<T>)
+  ) {}
+
+  /** The FK-scoped queryset every read delegates to. A `RelatedQuerySet` (not a plain
+   *  `QuerySet`) so its `count()`/`exists()` route through the keyed engine and BATCH
+   *  across parents — otherwise a connection's `totalCount` was one query per parent
+   *  even though `RelatedManager.count()` right next to it was batched. Built lazily:
+   *  `fkColumn` reads the model definition, which isn't finalized while the accessors
+   *  are being constructed. */
+  private get base(): RelatedQuerySet<T> {
+    return (this._base ??= new RelatedQuerySet(
+      this.ctor,
+      this.fkProperty,
+      this.fkColumn,
+      this.fkValue,
+      [],
+      this.orderProperty
+    ))
   }
 
   // The first overload is the ORM query filter; the second exists only to stay
@@ -425,11 +454,20 @@ export class RelatedManager<T extends object> {
    * own keyset query (inherent to cursor pagination; fine for detail views).
    */
   paginate(args?: PaginateArgs): Promise<Connection<T>> {
-    // Default the keyset order to the relation's DECLARED `orderBy` (as `.all()` does),
-    // so a paginated connection is chronological/declared-ordered rather than PK order.
-    // An explicit `args.orderBy` (incl. a composite array) still wins.
+    return this.base.paginate(this.withDeclaredOrder(args))
+  }
+
+  /** Lazy twin for GraphQL relation fields — see `QuerySet.paginateLazy`. */
+  paginateLazy(args?: PaginateArgs): Connection<T> {
+    return this.base.paginateLazy(this.withDeclaredOrder(args))
+  }
+
+  /** Default the keyset order to the relation's DECLARED `orderBy` (as `.all()` does),
+   *  so a paginated connection is chronological/declared-ordered rather than PK order.
+   *  An explicit `args.orderBy` (incl. a composite array) still wins. */
+  private withDeclaredOrder(args?: PaginateArgs): PaginateArgs {
     const orderBy = args?.orderBy ?? this.orderProperty
-    return this.base.paginate(orderBy ? {...args, orderBy} : args)
+    return orderBy ? {...args, orderBy} : (args ?? {})
   }
 
   /** Create a child row with the parent foreign key already set. */
@@ -571,6 +609,19 @@ export class ManyToManyManager<T extends object> {
    * the join. Like the hasMany case, a paginated relation is NOT N+1-batched.
    */
   async paginate(args: PaginateArgs = {}): Promise<Connection<T>> {
+    const [page, totalCount] = await Promise.all([this.paginatePage(args), this.count()])
+    return {...page, totalCount}
+  }
+
+  /** Lazy twin for GraphQL relation fields — see `QuerySet.paginateLazy`. */
+  paginateLazy(args: PaginateArgs = {}): Connection<T> {
+    return lazyConnection<T>(
+      () => this.count(),
+      () => this.paginatePage(args)
+    )
+  }
+
+  private async paginatePage(args: PaginateArgs = {}): Promise<PageOf<T>> {
     noteQuery(this.targetCtor, 'paginate') // paginated relation isn't batched → advisory
     const s = this.spec()
     const targetDef = getModelDefinitionOrThrow(this.targetCtor)
@@ -626,7 +677,6 @@ export class ManyToManyManager<T extends object> {
     return {
       edges,
       nodes: edges.map(e => e.node),
-      totalCount: await this.count(),
       // Through-relation connections don't resolve `anchor` (rare deep-link target);
       // startIndex still reflects an explicit forward `skip` so the field is total.
       startIndex: backward ? 0 : args.skip ?? 0,
@@ -1002,9 +1052,11 @@ export class HasManyThroughManager<T extends object> {
    */
   paginate(args: PaginateArgs = {}): Promise<Connection<T>> {
     const p = this.plan()
-    const page = async (): Promise<{edges: Edge<T>[]; nodes: T[]; pageInfo: PageInfo}> => {
+    // `startIndex` is 0: the window is taken in memory over the owner's full ordered
+    // set, and this path never resolves an `anchor` (no absolute rank to report).
+    const page = async (): Promise<PageOf<T>> => {
       const sorted = this.sortRows(await this.rows(p), p)
-      return windowInMemory(sorted, args, p.targetPkProperty)
+      return {...windowInMemory(sorted, args, p.targetPkProperty), startIndex: 0}
     }
     return Promise.resolve(lazyConnection<T>(() => this.count(), page))
   }
@@ -1015,29 +1067,6 @@ export class HasManyThroughManager<T extends object> {
   ): Promise<R1 | R2> {
     return this.all().then(onfulfilled, onrejected)
   }
-}
-
-/**
- * A Connection whose fields resolve LAZILY: `totalCount` runs the (batched) count
- * only if selected; `nodes`/`edges`/`pageInfo` run the page fetch once, shared,
- * only if selected. GraphQL's default resolver reads `source[field]`, so an
- * unselected getter never fires — which is what lets a `totalCount`-only list
- * query batch to a single grouped count instead of a per-row page query.
- */
-function lazyConnection<T>(
-  totalCount: () => Promise<number>,
-  page: () => Promise<{edges: Edge<T>[]; nodes: T[]; pageInfo: PageInfo}>
-): Connection<T> {
-  let pagePromise: Promise<{edges: Edge<T>[]; nodes: T[]; pageInfo: PageInfo}> | undefined
-  const getPage = () => (pagePromise ??= page())
-  const conn = {} as Connection<T>
-  const def = (name: string, get: () => unknown) =>
-    Object.defineProperty(conn, name, {enumerable: true, configurable: true, get})
-  def('totalCount', () => totalCount())
-  def('nodes', () => getPage().then(p => p.nodes))
-  def('edges', () => getPage().then(p => p.edges))
-  def('pageInfo', () => getPage().then(p => p.pageInfo))
-  return conn
 }
 
 /** In-memory Relay window over an already-ordered list; cursors = target PK. */
