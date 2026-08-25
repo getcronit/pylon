@@ -2,10 +2,13 @@ import type {FieldDesc, SchemaDescriptor} from './descriptor'
 import {stableStringify} from './hash'
 
 /**
- * Per-operation routing for a ROOT field read with multiple different-args call sites:
- * fieldName → (stableStringify(callArgs) → response alias). Built at the read path from
- * the doc's `argAliases` metadata + the resolved variables. Lets `data.field(args)` resolve
+ * Per-operation routing for a field read with multiple different-args call sites:
+ * `Type.field` → (stableStringify(callArgs) → response alias). Built at the read path from
+ * the doc's `argAliases` metadata + the resolved variables. Lets `data.…field(args)` resolve
  * to the aliased response slot whose args match the call (instead of always the first).
+ *
+ * Keyed by OWNER TYPE + field so it works at any depth — the reader knows the type of the
+ * object it is reading from, but not its document path.
  *
  * Supplied as a thunk because the variables it needs are evaluated lazily (TDZ-safe) at
  * first field access; the thunk is invoked inside the field call, past that point.
@@ -14,7 +17,7 @@ export type ArgAliasMap = Record<string, Record<string, string>>
 export type ArgAliasMapSource = ArgAliasMap | (() => ArgAliasMap | undefined)
 
 /**
- * Build the read-time `ArgAliasMap` from a doc's compile-time `argAliases` (fieldName →
+ * Build the read-time `ArgAliasMap` from a doc's compile-time `argAliases` (`Type.field` →
  * branches of `{alias, arg→variable}`) plus the operation's resolved `variables`. Each
  * branch's resolved args are hashed the SAME way a field call's args are — so
  * `data.field(args)` routes to the branch whose args match.
@@ -68,9 +71,9 @@ interface Ctx {
   deref: Deref
   /** Operation label for diagnostics (which doc served this read). */
   debugLabel?: string
-  /** Root type name — arg-alias routing only applies to fields on this type. */
+  /** Root type name (still needed for the root object's own descriptor lookup). */
   rootType: string
-  /** Per-field arg→alias routing for same-field/different-args root reads (may be a thunk). */
+  /** `Type.field` → arg→alias routing for same-field/different-args reads (may be a thunk). */
   argAliasMap?: ArgAliasMapSource
 }
 
@@ -151,14 +154,17 @@ function buildField(
 
   if (fd.callable) {
     // Same field read with different args at multiple call sites → the compiler emitted an
-    // aliased response slot per branch; route this call to the slot whose args match. Only
-    // for root fields carrying an argAliases entry; everything else ignores args (the args
-    // are baked into the document + variables at build time). The map thunk is resolved
-    // INSIDE the call (not at property-access), so root-resolution timing is unchanged.
+    // aliased response slot per branch; route this call to the slot whose args match. Any
+    // field carrying an argAliases entry qualifies, at any depth (it used to be root-only,
+    // so a nested `ticket.timeline({query})` read three ways silently served the first
+    // one's data three times); everything else ignores args, which are baked into the
+    // document + variables at build time. The map thunk is resolved INSIDE the call (not
+    // at property-access), so root-resolution timing is unchanged.
     const call = (...args: unknown[]) => {
-      const src = ownerType === ctx.rootType ? ctx.argAliasMap : undefined
+      const src = ctx.argAliasMap
       const map = typeof src === 'function' ? src() : src
-      const aliases = map?.[fieldName]
+      // `Type.field`; the bare name is the pre-typed-key fallback for a stale build.
+      const aliases = map?.[`${ownerType}.${fieldName}`] ?? map?.[fieldName]
       if (aliases) {
         const alias = aliases[stableStringify(args[0] ?? {})] ?? fieldName
         const getAliased = () => {

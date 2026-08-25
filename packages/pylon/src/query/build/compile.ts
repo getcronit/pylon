@@ -202,7 +202,8 @@ export function compileOperation(
     connectionPath: options.connection?.path,
     connectionMeta: undefined,
     fillObjectLeaves: options.fillObjectLeaves ?? false,
-    argAliases: {}
+    argAliases: {},
+    argAliasRegistry: new Map()
   }
 
   // Root operation type is not an entity → no __typename/id injection.
@@ -257,8 +258,12 @@ interface Ctx {
   connectionMeta?: ConnectionMeta
   /** op: expand bare-object returns to allScalars (see CompileOptions). */
   fillObjectLeaves: boolean
-  /** Accumulated per root-field arg-branch aliases (see CompiledOperation.argAliases). */
+  /** Accumulated per-field arg-branch aliases (see CompiledOperation.argAliases). */
   argAliases: Record<string, ArgAliasBranch[]>
+  /** `Type.field` → (raw args source → response alias). One registry per operation, so a
+   *  field read with the same args at two different positions resolves to the same slot
+   *  and the branch that owns the BASE name is picked once, not per position. */
+  argAliasRegistry: Map<string, Map<string, string>>
 }
 
 function pathsEqual(a: string[], b: string[]): boolean {
@@ -329,15 +334,20 @@ function compileObject(
     const value = effectiveNode[key]
     const fieldPath = [...currentPath, key]
 
-    // ROOT field read at MULTIPLE different-args call sites → the analyzer models it as an
-    // array of arg-branches. Emit one aliased field per branch (branch 0 keeps the base
-    // name) instead of collapsing to first-args, and record the arg→variable map so the
-    // runtime can route `data.field(args)` to the matching branch. Scoped to root fields
-    // (where the collisions occur) and skipped for connection/runtime-arg fields.
-    const branches =
-      currentPath.length === 0 && Array.isArray(value)
-        ? (value.filter(b => b && typeof b === 'object') as SelectorNode[])
-        : null
+    // A field read at MULTIPLE different-args call sites → the analyzer models it as an
+    // array of arg-branches. Emit one aliased field per branch instead of collapsing to
+    // first-args, and record the arg→variable map so the runtime can route
+    // `data.…field(args)` to the matching branch.
+    //
+    // This used to be restricted to ROOT fields, on the theory that's "where the
+    // collisions occur". They occur at any depth: three reads of
+    // `ticket.timeline({query: "kind:EMAIL" | "kind:NOTE" | "kind:EVENT"}).totalCount`
+    // compiled to ONE `timeline(query: $v1)` and reported the first branch's number for
+    // all three — silently, since each is a plausible count. Skipped for
+    // connection/runtime-arg fields, which own their args by other means.
+    const branches = Array.isArray(value)
+      ? (value.filter(b => b && typeof b === 'object') as SelectorNode[])
+      : null
     const isConnField =
       !!ctx.connectionPath && pathsEqual(fieldPath, ctx.connectionPath)
     const isRuntimeArgsField =
@@ -350,15 +360,33 @@ function compileObject(
       branches.every(b => b.__args !== undefined) &&
       new Set(branches.map(b => b.__args)).size === branches.length
     if (branches && isArgBranchSet && !isConnField && !isRuntimeArgsField) {
-      const meta: ArgAliasBranch[] = []
-      branches.forEach((branch, i) => {
-        const alias = i === 0 ? key : `${key}__pqArg__${i}`
+      // Keyed by OWNER TYPE + field, not by field name alone: the runtime knows the type
+      // of the object it is reading from, but not its document path (a connection's rows
+      // are reached as `edges.node`, which no compile-time path matches), so `Type.field`
+      // is the identity both sides can agree on.
+      const aliasKey = `${type.name}.${key}`
+      let slots = ctx.argAliasRegistry.get(aliasKey)
+      if (!slots) ctx.argAliasRegistry.set(aliasKey, (slots = new Map()))
+      const meta: ArgAliasBranch[] = ctx.argAliases[aliasKey] ?? []
+      let tsEmitted = false
+      for (const branch of branches) {
+        const argsSrc = branch.__args as string
+        // First args ever seen for this field keep the BASE name — a bare, argument-less
+        // read (`data.field`) has to land somewhere.
+        let alias = slots.get(argsSrc)
+        if (alias === undefined) {
+          alias = slots.size === 0 ? key : `${key}__pqArg__${slots.size}`
+          slots.set(argsSrc, alias)
+        }
         const {sdl, ts, argVars} = compileField(ctx, field, branch, fieldPath)
-        selections.push(i === 0 ? `${key}${sdl}` : `${alias}: ${key}${sdl}`)
-        if (i === 0) tsMembers.push(`${key}: ${ts}`) // TS type needs the base only once
-        meta.push({alias, args: argVars ?? {}})
-      })
-      ctx.argAliases[key] = meta
+        selections.push(alias === key ? `${key}${sdl}` : `${alias}: ${key}${sdl}`)
+        if (!tsEmitted) {
+          tsMembers.push(`${key}: ${ts}`) // TS type needs the field only once
+          tsEmitted = true
+        }
+        if (!meta.some(m => m.alias === alias)) meta.push({alias, args: argVars ?? {}})
+      }
+      ctx.argAliases[aliasKey] = meta
       continue
     }
 

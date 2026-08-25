@@ -14,6 +14,7 @@ const schema = buildSchema(/* GraphQL */ `
     name: String
     age: Int!
     role: Role
+    tally(kind: String): Int
   }
   enum Role {
     ADMIN
@@ -87,12 +88,70 @@ describe('compileOperation', () => {
         '{ count(filter: $v0) count__pqArg__1: count(filter: $v1) }'
     )
     // Metadata so the runtime can map a call's args → the right alias (by arg→variable).
+    // Metadata so the runtime can map a call's args → the right alias (by arg→variable).
+    // Keyed by OWNER TYPE + field: the reader knows the type of the object it reads from,
+    // but not its document path, so `Type.field` is the identity both sides can agree on.
     expect(op.argAliases).toEqual({
-      count: [
+      'Query.count': [
         {alias: 'count', args: {filter: 'v0'}},
         {alias: 'count__pqArg__1', args: {filter: 'v1'}}
       ]
     })
+  })
+
+  it('aliases arg-branches on a NESTED field too, not just root ones', () => {
+    // Regression: aliasing was scoped to root fields, so three reads of one nested field
+    // with different args compiled to a single `tally(kind: $v0)` and reported the FIRST
+    // branch's number for all three — silently, since every value is a plausible count.
+    const op = compile({
+      me: {
+        tally: [
+          {__args: '{ kind: a }'},
+          {__args: '{ kind: b }'},
+          {__args: '{ kind: c }'}
+        ]
+      }
+    })
+    expect(op.body).toBe(
+      'query Test($v0: String, $v1: String, $v2: String) ' +
+        '{ me { tally(kind: $v0) tally__pqArg__1: tally(kind: $v1) ' +
+        'tally__pqArg__2: tally(kind: $v2) __typename id } }'
+    )
+    expect(op.argAliases).toEqual({
+      'User.tally': [
+        {alias: 'tally', args: {kind: 'v0'}},
+        {alias: 'tally__pqArg__1', args: {kind: 'v1'}},
+        {alias: 'tally__pqArg__2', args: {kind: 'v2'}}
+      ]
+    })
+  })
+
+  it('gives one field+args ONE slot, however many places read it', () => {
+    // Two positions of the same type reading the same field: the registry is per
+    // operation, so `{kind: a}` resolves to the same alias in both and the branch that
+    // owns the base name is chosen once — otherwise the second position would renumber
+    // and the runtime map (one entry per Type.field) would disagree with the document.
+    const op = compile({
+      me: {tally: [{__args: '{ kind: a }'}, {__args: '{ kind: b }'}]},
+      user: {
+        __args: '{ id: uid }',
+        tally: [{__args: '{ kind: b }'}, {__args: '{ kind: c }'}]
+      }
+    })
+    // `b` keeps the alias it was first given, so both positions read the same slot; it
+    // still allocates its own variable at the second position (v3), which resolves to the
+    // same value — so the runtime's args→alias hash agrees with either one.
+    expect(op.argAliases).toEqual({
+      'User.tally': [
+        {alias: 'tally', args: {kind: 'v0'}},
+        {alias: 'tally__pqArg__1', args: {kind: 'v1'}},
+        {alias: 'tally__pqArg__2', args: {kind: 'v4'}}
+      ]
+    })
+    expect(op.body).toContain('me { tally(kind: $v0) tally__pqArg__1: tally(kind: $v1)')
+    expect(op.body).toContain(
+      'user(id: $v2) { tally__pqArg__1: tally(kind: $v3) tally__pqArg__2: tally(kind: $v4)'
+    )
   })
 
   it('aliases a conflicting union-member field; merges same-typed ones', () => {

@@ -16,6 +16,7 @@ const schema = buildSchema(/* GraphQL */ `
     name: String
     verified: Boolean!
     friends: [User!]!
+    tally(kind: String): Int
   }
   type Post {
     id: ID!
@@ -38,10 +39,10 @@ describe('wrapResult', () => {
   it('routes a callable root field to the alias matching the CALL args', () => {
     // Same root field read with two different args → the compiler emitted two aliased
     // response slots + an arg→alias map. `data.count({filter})` must resolve to the slot
-    // whose args match the call (not always the first).
+    // whose args match the call (not always the first). Keyed by `Type.field`.
     const root = {count: 10, count__pqArg__1: 20}
     const argAliasMap = {
-      count: {
+      'Query.count': {
         [stableStringify({filter: 'a'})]: 'count',
         [stableStringify({filter: 'b'})]: 'count__pqArg__1'
       }
@@ -59,6 +60,58 @@ describe('wrapResult', () => {
     expect(data.count({filter: 'b'})).toBe(20)
     // An unmatched / no-args call falls back to the base field.
     expect(data.count()).toBe(10)
+  })
+
+  it('routes a NESTED callable field by owner type, not just root fields', () => {
+    // Regression: routing was gated on `ownerType === rootType`, so a nested field read
+    // with several arg-sets always resolved to the base slot — every call returned the
+    // first branch's value while looking perfectly plausible.
+    const root = {me: {__typename: 'User', tally: 1, tally__pqArg__1: 2, tally__pqArg__2: 3}}
+    const argAliasMap = {
+      'User.tally': {
+        [stableStringify({kind: 'a'})]: 'tally',
+        [stableStringify({kind: 'b'})]: 'tally__pqArg__1',
+        [stableStringify({kind: 'c'})]: 'tally__pqArg__2'
+      }
+    }
+    const data = wrapResult<any>(
+      () => root,
+      descriptor,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      argAliasMap
+    )
+    expect(data.me.tally({kind: 'a'})).toBe(1)
+    expect(data.me.tally({kind: 'b'})).toBe(2)
+    expect(data.me.tally({kind: 'c'})).toBe(3)
+    // Unmatched args fall back to the base slot rather than returning undefined.
+    expect(data.me.tally({kind: 'zzz'})).toBe(1)
+  })
+
+  it('a same-named field on ANOTHER type routes independently', () => {
+    // `Query.count` and a hypothetical `User.count` must not share routing — which is
+    // exactly what a bare field-name key would have done.
+    const root = {count: 10, count__pqArg__1: 20, me: {__typename: 'User', tally: 7}}
+    const argAliasMap = {
+      'Query.count': {
+        [stableStringify({filter: 'a'})]: 'count',
+        [stableStringify({filter: 'b'})]: 'count__pqArg__1'
+      }
+    }
+    const data = wrapResult<any>(
+      () => root,
+      descriptor,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      argAliasMap
+    )
+    expect(data.count({filter: 'b'})).toBe(20)
+    // No entry for User.tally → plain read, args ignored (the pre-existing behaviour).
+    expect(data.me.tally({kind: 'b'})).toBe(7)
   })
 
   it('keeps callable arg-fields callable (args ignored at read time)', () => {
