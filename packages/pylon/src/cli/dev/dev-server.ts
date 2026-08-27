@@ -177,7 +177,13 @@ export async function startDevServer(opts: {port: number}): Promise<DevServer> {
     return {
       reloadServer: async () => {
         defs = compile()
-        if (defs.schemaChanged) await buildPagesArtifacts(true)
+        if (defs.schemaChanged) {
+          await buildPagesArtifacts(true)
+          // Pages were rebuilt → their bundle hashes changed. Reload the in-memory pages
+          // manifest too (as `reloadPages` does), otherwise the SSR runtime keeps serving —
+          // or importing — the previous, now-replaced bundle hash.
+          await (globalThis as any).__PYLON_DEV_RELOAD_PAGES__?.()
+        }
         runner.invalidate()
         const next = (await runner.importApp()).default
         swapHook()?.(defs.typeDefs, next.graphql, defs.resolvers)
@@ -210,24 +216,57 @@ export async function startDevServer(opts: {port: number}): Promise<DevServer> {
   let pending: Kind | null = null
   let gen = 0
   let chain: Promise<void> = Promise.resolve()
+
+  // --- SSR rebuild latch (dev) -------------------------------------------------
+  // The instant a source file changes, Vite serves its new module to the browser ON-DEMAND,
+  // but the SSR bundle is a rolldown artifact rebuilt asynchronously. Between the two a full
+  // reload would SSR the STALE bundle while the browser loads the NEW client → hydration
+  // mismatch. So we latch the SSR handler (it awaits `__PYLON_DEV_REBUILD__` before rendering)
+  // the MOMENT a source file changes — not when the rebuild starts — and release it only once
+  // the ensuing rebuild + manifest reload finish, making the two planes consistent by
+  // construction. Dev server and SSR handler share one process, so a global is the seam. A
+  // safety timeout guarantees a missed release can never wedge dev SSR.
+  let releaseGate: (() => void) | null = null
+  let gateTimeout: ReturnType<typeof setTimeout> | null = null
+  const beginRebuild = () => {
+    if (releaseGate) return // already latched for this burst of edits
+    ;(globalThis as any).__PYLON_DEV_REBUILD__ = new Promise<void>(r => (releaseGate = r))
+    gateTimeout = setTimeout(endRebuild, 10_000)
+  }
+  const endRebuild = () => {
+    if (gateTimeout) clearTimeout(gateTimeout)
+    gateTimeout = null
+    ;(globalThis as any).__PYLON_DEV_REBUILD__ = undefined
+    const release = releaseGate
+    releaseGate = null
+    release?.()
+  }
+
   const sync = () => {
     const g = ++gen
     const kind = pending ?? 'server'
     pending = null
     chain = chain
       .then(async () => {
-        if (g !== gen) return
-        if (kind === 'config') {
-          // Durable plugin graph changed → rebuild the whole session in-process.
-          await session.teardown()
-          session = await bootSession()
-        } else if (kind === 'server') {
-          await session.reloadServer()
-        } else {
-          await session.reloadPages()
+        if (g !== gen) return // superseded by a newer edit — its sync() releases the latch
+        try {
+          if (kind === 'config') {
+            // Durable plugin graph changed → rebuild the whole session in-process.
+            await session.teardown()
+            session = await bootSession()
+          } else if (kind === 'server') {
+            await session.reloadServer()
+          } else {
+            await session.reloadPages()
+          }
+        } finally {
+          endRebuild()
         }
       })
-      .catch(e => consola.error('reload failed:', sanitizeViteError(e)))
+      .catch(e => {
+        endRebuild()
+        consola.error('reload failed:', sanitizeViteError(e))
+      })
     return chain
   }
 
@@ -235,18 +274,23 @@ export async function startDevServer(opts: {port: number}): Promise<DevServer> {
   // the project at runtime. We watch all of `cwd` (frontend source lives in arbitrary dirs like
   // components/, hooks/), so without this filter a request that writes a file loops: write →
   // reload → the request re-runs → writes again. node_modules/.pylon/.git are excluded below.
+  // No `awaitWriteFinish`: the latch must fire on the FIRST event (any settle delay would
+  // reopen the mismatch window), so we debounce the REBUILD instead — it reads files only after
+  // 200ms of quiet, i.e. once writes have settled.
   const SOURCE_RE = /\.([cm]?[jt]sx?|css)$/
   const watcher = chokidar.watch(cwd, {
     ignoreInitial: true,
-    ignored: (p: string) => /(^|[/\\])(node_modules|\.pylon|\.git)([/\\]|$)/.test(p),
-    awaitWriteFinish: {stabilityThreshold: 200, pollInterval: 50}
+    ignored: (p: string) => /(^|[/\\])(node_modules|\.pylon|\.git)([/\\]|$)/.test(p)
   })
+  let debounce: ReturnType<typeof setTimeout> | null = null
   watcher.on('all', (_ev, p) => {
     if (!SOURCE_RE.test(p)) return
     const k = classify(p)
     if (pending == null || rank[k] > rank[pending]) pending = k
+    beginRebuild() // latch SSR immediately, ahead of the debounced rebuild
     consola.info(`[dev] ${k} reload — ${path.relative(cwd, p)}`)
-    void sync()
+    if (debounce) clearTimeout(debounce)
+    debounce = setTimeout(() => void sync(), 200)
   })
 
   return {

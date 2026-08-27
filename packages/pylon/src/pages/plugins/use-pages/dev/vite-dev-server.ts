@@ -98,7 +98,23 @@ export async function createPagesDevServer(
   // the terminal. See `cli/dev/vite-messages.ts`.
   const logger = wrapViteLogger(createLogger('warn'))
 
-  const server = await createServer({
+  // Own the app's http.Server up front so Vite can run HMR OVER IT (same origin + port)
+  // rather than opening its own ws server on Vite's fixed default port 24678. Two pylon dev
+  // servers would otherwise fight over that one hardcoded port: the loser can't bind it, and
+  // its browser silently connects to the WINNER's HMR socket — cross-wiring updates between
+  // apps (stray reloads, "hot update for a module I don't have"). Sharing the app port means
+  // each dev server has its own HMR channel and can never collide. `server`/`honoListener`
+  // are assigned just below / in `frontPort`; the handler only runs once the server is
+  // listening, by which point both are set.
+  let server: any
+  let honoListener: ((req: any, res: any) => void) | null = null
+  const httpServer = http.createServer((req, res) => {
+    // Vite writes its 403/500 pages straight to the socket — rewrite them on the way out.
+    sanitizeViteHttpErrors(res)
+    server.middlewares(req, res, () => honoListener?.(req, res))
+  })
+
+  server = await createServer({
     root: options.root,
     configFile: false,
     customLogger: logger,
@@ -106,9 +122,10 @@ export async function createPagesDevServer(
     // Distinct dep-cache dir from the server-plane module runner (the other Vite in this
     // worker) so they don't clobber each other's optimize hashes.
     cacheDir: path.join(options.root, 'node_modules', '.vite-pylon-pages'),
-    // Middleware mode: Vite serves client assets + the HMR ws (React Fast Refresh) but
-    // binds no port itself — we own the http.Server below and hand it the middleware stack.
-    server: {middlewareMode: true},
+    // Middleware mode: Vite serves client assets and runs React Fast Refresh, but binds no
+    // port itself — `hmr.server` points the HMR websocket at our shared http.Server (above),
+    // so it upgrades over the app port instead of Vite's fixed 24678 (see the note there).
+    server: {middlewareMode: true, hmr: {server: httpServer}},
     // Single instance of the framework/react across the client graph — otherwise the
     // workspace `@getcronit/pylon/pages` (treated as source) can load twice, giving two
     // React contexts → "useDataClient must be used within a DataClientProvider".
@@ -191,18 +208,12 @@ export async function createPagesDevServer(
   }
   ;(globalThis as any).__PYLON_PAGES_DEV__ = bridge
 
-  let httpServer: http.Server | null = null
-
   const frontPort: PagesDevServer['frontPort'] = async (fetch, port) => {
-    // Topology A: Vite middlewares first; unclaimed requests → the booted Pylon app.
-    const honoListener = getRequestListener(fetch)
-    httpServer = http.createServer((req, res) => {
-      // Vite writes its 403/500 pages straight to the socket — rewrite them on the way out.
-      sanitizeViteHttpErrors(res)
-      server.middlewares(req, res, () => honoListener(req, res))
-    })
+    // Topology A: Vite middlewares first (via the shared http.Server above); unclaimed
+    // requests → the booted Pylon app.
+    honoListener = getRequestListener(fetch)
     await new Promise<void>(resolve =>
-      httpServer!.listen(port, () => {
+      httpServer.listen(port, () => {
         console.log(`Pylon running at http://localhost:${port}`)
         resolve()
       })
@@ -213,7 +224,7 @@ export async function createPagesDevServer(
     frontPort,
     close: async () => {
       await server.close()
-      if (httpServer) await new Promise<void>(r => httpServer!.close(() => r()))
+      await new Promise<void>(r => httpServer.close(() => r()))
     }
   }
 }

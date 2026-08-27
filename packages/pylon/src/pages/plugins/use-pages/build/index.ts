@@ -364,13 +364,20 @@ export const build = async (
   return {
     dispose: async () => {},
     rebuild: async () => {
-      // Clean the hashed-output dirs first: rolldown's content hashes change with
-      // every edit, so without this old bundles/CSS/chunks accumulate unbounded
-      // across dev rebuilds. `public` lives in a sibling dir and is untouched.
-      await Promise.all([
-        fs.rm(DIST_STATIC_DIR, {recursive: true, force: true}),
-        fs.rm(DIST_PAGES_DIR, {recursive: true, force: true})
-      ])
+      // PROD: clean the hashed-output dirs UP FRONT so stale bundles don't accumulate.
+      // DEV: do NOT delete the live output before the new bundle is written — the SSR runtime
+      // resolves each matched route's `lazy()` on the server (React Router `createStaticHandler`),
+      // so a request landing mid-rebuild would `import()` a just-deleted route chunk and fail.
+      // New files are content-hashed (they coexist with the old) and the manifest is swapped
+      // atomically via `updateFileIfChanged`, so the swap is seamless. We sweep the now-stale
+      // generations AFTER the new build instead (see `pruneStaleOutputs`). `public` is a sibling
+      // dir, untouched.
+      if (!process.env.PYLON_DEV) {
+        await Promise.all([
+          fs.rm(DIST_STATIC_DIR, {recursive: true, force: true}),
+          fs.rm(DIST_PAGES_DIR, {recursive: true, force: true})
+        ])
+      }
       await buildAppFile()
       await copyPublicDir()
       // Before either bundle: the SSR runtime imports these at request time, and a dev
@@ -382,12 +389,50 @@ export const build = async (
         // (the SSR precedence `<link>`s), so one build does it all.
         const collectedCss = await runServerBuild(true)
         await writeDevStaticManifest(collectedCss)
+        // Race-free cleanup: with the up-front clean skipped in dev, sweep the prior
+        // generations now that the new bundle + manifest are in place — but only files
+        // untouched for a grace window, so any SSR request still mid-flight against the
+        // previous bundle keeps its chunks. Bounds `.pylon` growth without reintroducing
+        // the delete-before-write race.
+        await Promise.all([
+          pruneStaleOutputs(DIST_PAGES_DIR),
+          pruneStaleOutputs(DIST_STATIC_DIR)
+        ])
       } else {
         await Promise.all([runClientBuild(), runServerBuild()])
       }
     },
     cancel: async () => {}
   }
+}
+
+/**
+ * Delete content-hashed dev bundles left behind by skipping the up-front clean. Only files
+ * whose last write was more than `graceMs` ago are removed, so a fresh build's outputs (just
+ * written) and anything an in-flight SSR request is still importing survive; genuinely stale
+ * generations from earlier in the session are swept. `manifest.json` is stable-named (written
+ * via `updateFileIfChanged`, so it may keep an old mtime) and is always kept.
+ */
+async function pruneStaleOutputs(dir: string, graceMs = 15_000): Promise<void> {
+  const cutoff = Date.now() - graceMs
+  let entries: Awaited<ReturnType<typeof fs.readdir>>
+  try {
+    entries = (await fs.readdir(dir, {recursive: true, withFileTypes: true})) as any
+  } catch {
+    return // dir may not exist yet on the very first build
+  }
+  await Promise.all(
+    (entries as any[]).map(async e => {
+      if (!e.isFile() || e.name === 'manifest.json') return
+      const p = path.join(e.parentPath ?? dir, e.name)
+      try {
+        const st = await fs.stat(p)
+        if (st.mtimeMs < cutoff) await fs.rm(p, {force: true})
+      } catch {
+        // raced with another rebuild's sweep — fine, it's gone either way
+      }
+    })
+  )
 }
 
 function hashCss(css: string): string {

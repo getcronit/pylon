@@ -559,6 +559,18 @@ export const setup = async (
   )
 
   app.get('*', async c => {
+    // Dev rebuild latch: if a pages rebuild is in flight, wait for it (and its manifest
+    // reload) to finish before rendering. Vite serves the client on-demand (always current),
+    // but the SSR bundle is a rolldown artifact that lags a rebuild by ~100ms — so a reload
+    // landing mid-rebuild would SSR the OLD bundle while the client loads the NEW code, i.e. a
+    // hydration mismatch. Holding the render until the rebuild settles makes the two planes
+    // consistent by construction. The global is only ever set by the dev supervisor, so this
+    // is a single `undefined` check (no-op) in production. Loop so a rebuild that starts during
+    // the wait is also awaited; rebuilds are single-flight, so it settles.
+    let inFlight: Promise<void> | undefined
+    while ((inFlight = (globalThis as any).__PYLON_DEV_REBUILD__)) {
+      await inFlight
+    }
     const pagesContext = c.get('pagesContext' as any) || {}
     // Dev (Topology A): bootstrap the browser from the Vite client entry (app.tsx +
     // hydration, served + HMR'd by Vite) instead of the hashed rolldown bundle.
