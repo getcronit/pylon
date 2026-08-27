@@ -87,6 +87,30 @@ function remarkPylonDirectives() {
   }
 }
 
+/**
+ * Turn ```mermaid fences into `<pre class="mermaid">…</pre>` BEFORE Shiki runs —
+ * Shiki has no `mermaid` grammar and would either throw or render the source as
+ * plain text. The raw diagram source is preserved as the element's text; the
+ * client enhancer (`useDocsEnhancers`) renders it to SVG after hydration, and if
+ * that never runs the source still shows as a readable fallback.
+ */
+function rehypeMermaid() {
+  return (tree: any) => {
+    visit(tree, 'element', (node: any, index: number | undefined, parent: any) => {
+      if (node.tagName !== 'pre' || index == null || !parent) return
+      const code = node.children?.find((c: any) => c.tagName === 'code')
+      const classes: string[] = code?.properties?.className ?? []
+      if (!classes.includes('language-mermaid')) return
+      parent.children[index] = {
+        type: 'element',
+        tagName: 'pre',
+        properties: {className: ['mermaid']},
+        children: [{type: 'text', value: hastToString(code)}]
+      }
+    })
+  }
+}
+
 /** Shiki transformer: lift the fenced `title="…"` meta onto the <pre>. */
 function transformerCodeTitle() {
   return {
@@ -195,6 +219,7 @@ function getBase() {
         },
         content: {type: 'text', value: '#'}
       })
+      .use(rehypeMermaid)
       .use(rehypeShiki, {
         theme: 'github-dark-default',
         transformers: [

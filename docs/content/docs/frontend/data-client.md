@@ -98,4 +98,6 @@ import {useData, usePaginatedData, useMutation, op} from '@getcronit/pylon/pages
 ```
 
 Everything — render reads, pagination, mutations, imperative ops — flows through
-the same store, so the UI stays consistent without manual cache wiring.
+the same store, so the UI stays consistent without manual cache wiring. For a full
+tour of the store, the read lifecycle, and the completeness gate that makes partial
+reads impossible, see [how the data client works](/docs/frontend/data-client-internals).

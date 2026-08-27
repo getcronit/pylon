@@ -195,6 +195,22 @@
     padding: 1rem 1.1rem;
     overflow-x: auto;
   }
+  /* Mermaid diagrams. Before the client renders them, the raw source stays
+     visible (dimmed) as a readable fallback — so a render failure or disabled JS
+     degrades to text, never to a blank space. Once rendered, it's a centered SVG. */
+  .prose pre.mermaid {
+    text-align: center;
+    color: var(--color-fg-muted);
+    background: transparent !important;
+    border-color: transparent;
+  }
+  .prose pre.mermaid[data-processed] {
+    color: inherit;
+  }
+  .prose pre.mermaid svg {
+    max-width: 100%;
+    height: auto;
+  }
   .prose pre code {
     background: transparent;
     border: 0;
