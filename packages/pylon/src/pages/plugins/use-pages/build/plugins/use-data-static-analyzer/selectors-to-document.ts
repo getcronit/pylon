@@ -74,12 +74,16 @@ export function lowerQuery(
     : ''
   // Tells the runtime client to supply `$__locale` before it hashes the variables.
   const inContextMeta = compiled.inContext ? `,\n  inContext: true` : ''
+  // Completeness shape → the runtime read gate (never renders a partial op).
+  const shapeMeta = compiled.shape
+    ? `,\n  shape: ${JSON.stringify(compiled.shape)}`
+    : ''
 
   const docDeclaration =
     `const ${constName} = ${docFn}<${compiled.resultType}>({\n` +
     `  id: ${JSON.stringify(id)},\n` +
     `  name: ${JSON.stringify(compiled.name)},\n` +
-    `  body: ${JSON.stringify(compiled.body)}${connectionMeta}${argAliasesMeta}${inContextMeta}\n` +
+    `  body: ${JSON.stringify(compiled.body)}${connectionMeta}${argAliasesMeta}${inContextMeta}${shapeMeta}\n` +
     `})`
 
   let variablesThunk: string | undefined

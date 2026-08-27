@@ -167,36 +167,6 @@ describe('wrapResult', () => {
     expect(data.me?.name).toBeUndefined()
   })
 
-  it('a NON-NULL object field that is transiently absent reads safely (no crash mid-refetch)', () => {
-    // Repro of the composer crash: on send the ticket refetches and this non-null connection
-    // (`timeline: Timeline!`) is momentarily missing from the op result while the response
-    // merges. The schema says it can't be null, so a read must DEGRADE to undefined — not
-    // throw `undefined.totalCount` and crash the caller.
-    const s = buildSchema(/* GraphQL */ `
-      type Query { ticket: Ticket }
-      type Ticket { id: ID!, timeline: Timeline! }
-      type Timeline { totalCount: Int! }
-    `)
-    const data = wrapResult<any>(() => ({ticket: {id: '1'}}), describeSchema(s))
-    expect(() => data.ticket.timeline.totalCount).not.toThrow()
-    expect(data.ticket.timeline.totalCount).toBeUndefined()
-    // and the app-side `?? 0` still works because it's a plain undefined, not a throw
-    expect(data.ticket.timeline.totalCount ?? 0).toBe(0)
-  })
-
-  it('a NULLABLE object field that is absent stays undefined (still guardable with ?.)', () => {
-    // The safe-wrapper must NOT over-apply: a genuinely nullable field returns undefined so
-    // `if (!x)` / `x?.` keep working — only NON-NULL fields get the crash-proof wrapper.
-    const s = buildSchema(/* GraphQL */ `
-      type Query { ticket: Ticket }
-      type Ticket { id: ID!, maybe: Timeline }
-      type Timeline { totalCount: Int! }
-    `)
-    const data = wrapResult<any>(() => ({ticket: {id: '1'}}), describeSchema(s))
-    expect(data.ticket.maybe).toBeUndefined()
-    expect(data.ticket.maybe?.totalCount).toBeUndefined()
-  })
-
   it('serializes back to raw data via toJSON', () => {
     const raw = {me: {name: 'Ada', verified: false}}
     const data = wrap(raw)

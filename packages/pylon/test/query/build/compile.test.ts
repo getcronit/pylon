@@ -171,6 +171,24 @@ describe('compileOperation', () => {
     expect(op.body).not.toContain('label__pqAbs__')
     // TS still reads `status`/`label` (merged-optional across members).
     expect(op.resultType).toContain('status?:')
+    // The completeness shape mirrors `normalize`'s un-aliasing: the stored key is
+    // the BASE `status`, gated on the concrete member — not `status__pqAbs__A`.
+    expect(op.shape).toEqual([
+      {
+        k: 'hit',
+        s: [
+          {k: '__typename'},
+          {k: 'status', t: 'A'},
+          {k: 'label', t: 'A'},
+          {k: '__typename', t: 'A'},
+          {k: 'id', t: 'A'},
+          {k: 'status', t: 'B'},
+          {k: 'label', t: 'B'},
+          {k: '__typename', t: 'B'},
+          {k: 'id', t: 'B'}
+        ]
+      }
+    ])
   })
 
   it('renders enums as string-literal unions', () => {
@@ -288,5 +306,23 @@ describe('compileOperation', () => {
   it('merges conditional branches into one selection', () => {
     const op = compile({me: [{name: true}, {age: true}] as any})
     expect(op.body).toBe('query Test { me { name age __typename id } }')
+  })
+
+  describe('completeness shape', () => {
+    it('mirrors the selection: response keys + nesting, injected meta included', () => {
+      const op = compile({me: {name: true, role: true}})
+      expect(op.shape).toEqual([
+        {k: 'me', s: [{k: 'name'}, {k: 'role'}, {k: '__typename'}, {k: 'id'}]}
+      ])
+    })
+
+    it('keeps arg-alias keys as-is (checked under the key they arrive as)', () => {
+      const op = compile({
+        me: {tally: [{__args: '{ kind: a }', kind: true}, {__args: '{ kind: b }', kind: true}] as any}
+      })
+      const keys = op.shape?.[0].s?.map(f => f.k)
+      expect(keys).toContain('tally')
+      expect(keys).toContain('tally__pqArg__1')
+    })
   })
 })

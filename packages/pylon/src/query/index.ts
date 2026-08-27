@@ -1,6 +1,6 @@
 // ── Runtime ──────────────────────────────────────────────────────────────
 export {doc, opKey} from './runtime/doc'
-export type {ConnectionMeta, DocInit, TypedDoc} from './runtime/doc'
+export type {ConnectionMeta, DocInit, ShapeField, TypedDoc} from './runtime/doc'
 export type {FieldDesc, SchemaDescriptor} from './runtime/descriptor'
 export {Store} from './runtime/store'
 export type {StoreEntry} from './runtime/store'

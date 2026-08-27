@@ -10,12 +10,57 @@ import {
   isObjectType,
   isScalarType,
   isUnionType,
+  Kind,
+  parse,
   type GraphQLField,
   type GraphQLInterfaceType,
   type GraphQLOutputType,
-  type GraphQLUnionType
+  type GraphQLUnionType,
+  type SelectionSetNode
 } from 'graphql'
-import type {ConnectionMeta} from '../runtime/doc'
+import type {ConnectionMeta, ShapeField} from '../runtime/doc'
+
+/**
+ * Derive the compact completeness `shape` (see runtime `ShapeField`) from the
+ * finished wire `body`. The body IS the selection — deriving from it (rather than
+ * a hand-maintained parallel structure) keeps the shape provably in lockstep with
+ * what's sent, while parsing stays at BUILD time so the runtime ships no parser.
+ *
+ * Response keys are field aliases where present (so `timeline__pqArg__0` etc. are
+ * checked under the key they actually arrive as); inline fragments tag their fields
+ * with a `__typename` condition so a Ticket-only field isn't demanded of a Task.
+ */
+function buildShape(body: string): ShapeField[] {
+  const op = parse(body).definitions.find(
+    d => d.kind === Kind.OPERATION_DEFINITION
+  )
+  return op && 'selectionSet' in op ? shapeOfSelectionSet(op.selectionSet) : []
+}
+
+function shapeOfSelectionSet(sel: SelectionSetNode): ShapeField[] {
+  const out: ShapeField[] = []
+  for (const s of sel.selections) {
+    if (s.kind === Kind.FIELD) {
+      // Mirror `normalize`: a `__pqAbs__` union-branch alias is stored under its
+      // BASE name (`status__pqAbs__Ticket` → `status`), so the shape must check
+      // that same base key — an arg-alias (`timeline__pqArg__0`) is NOT rewritten
+      // and stays as-is.
+      const rawKey = (s.alias ?? s.name).value
+      const abs = rawKey.indexOf('__pqAbs__')
+      const field: ShapeField = {k: abs === -1 ? rawKey : rawKey.slice(0, abs)}
+      if (s.selectionSet) field.s = shapeOfSelectionSet(s.selectionSet)
+      out.push(field)
+    } else if (s.kind === Kind.INLINE_FRAGMENT) {
+      // Flatten `... on X { … }` into its fields, each gated on the concrete type.
+      const t = s.typeCondition?.name.value
+      for (const inner of shapeOfSelectionSet(s.selectionSet)) {
+        out.push(t ? {...inner, t} : inner)
+      }
+    }
+    // FragmentSpread: the compiler emits only INLINE fragments → nothing to do.
+  }
+  return out
+}
 
 /** One selector node from the use-data analyzer (mirrors its `SelectorNode`). */
 export type SelectorNode = {
@@ -95,6 +140,11 @@ export interface CompiledOperation {
    * to the branch whose args match. Absent when no field has multiple arg-branches.
    */
   argAliases?: Record<string, ArgAliasBranch[]>
+  /**
+   * Compact selection shape (response keys + nesting) driving the runtime
+   * completeness gate. Present for queries; absent for mutations.
+   */
+  shape?: ShapeField[]
 }
 
 const DEFAULT_SCALARS: Record<string, string> = {
@@ -237,7 +287,10 @@ export function compileOperation(
     resultType: ts,
     variables: ctx.variables.map(v => ({name: v.name, expr: v.expr})),
     connection: ctx.connectionMeta,
-    argAliases: Object.keys(ctx.argAliases).length ? ctx.argAliases : undefined
+    argAliases: Object.keys(ctx.argAliases).length ? ctx.argAliases : undefined,
+    // Completeness shape drives the runtime read gate — queries only. Mutations
+    // don't flow through `ensure`/Suspense, so they carry no shape.
+    shape: operation === 'mutation' ? undefined : buildShape(body)
   }
 }
 

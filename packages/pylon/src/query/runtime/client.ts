@@ -7,6 +7,7 @@ import {
   type GraphQLRequest
 } from './fetcher'
 import {isRef, normalize} from './normalize'
+import {isSatisfied} from './satisfied'
 import {Store} from './store'
 import {wrapResult, type ArgAliasMapSource} from './wrap'
 
@@ -55,6 +56,14 @@ export class PylonQueryClient {
   private readonly freshMs: number
 
   private readonly locale?: string
+
+  /**
+   * Ops we've already refetched once for completeness (see `ensure`). A loop
+   * backstop: if a completeness-driven refetch resolves and the op is STILL
+   * incomplete (a pathological shared-entity race, or a server that omits a
+   * selected field), we serve the data we have instead of suspending forever.
+   */
+  private readonly completenessRefetch = new Set<string>()
 
   constructor(opts: PylonQueryClientOptions = {}) {
     this.locale = opts.locale
@@ -187,7 +196,28 @@ export class PylonQueryClient {
     // mounted query (a request storm). Mount/variables-change revalidation lives
     // in `revalidate()`, called from an effect. Cross-query freshness after a
     // mutation comes from entity normalization, not from refetching.
-    if (entry?.data !== undefined) return {key, data: entry.data as TResult}
+    if (entry?.data !== undefined) {
+      // COMPLETENESS GATE: only render an operation whose whole selection is in
+      // the store. A shared entity another op populated without a field THIS op
+      // selected would otherwise be served, and that missing field surfaces as an
+      // `undefined` hole that crashes component code (`x.totalCount`). When the
+      // cached data is INCOMPLETE we suspend and refetch instead — the refetch of
+      // THIS document fills every field it selected, so the read never sees a hole.
+      // (`shape` absent → gate off → unchanged behavior; complete-but-stale still
+      // serves immediately, so SWR never over-suspends on a mutation re-render.)
+      if (isSatisfied(d.shape, entry.data, this.deref)) {
+        this.completenessRefetch.delete(key)
+        return {key, data: entry.data as TResult}
+      }
+      if (entry.promise) return {key, promise: entry.promise}
+      // Backstop: at most ONE completeness refetch per episode. If it already ran
+      // and the op is still incomplete, serve what we have rather than loop.
+      if (this.completenessRefetch.has(key)) {
+        return {key, data: entry.data as TResult}
+      }
+      this.completenessRefetch.add(key)
+      return {key, promise: this.fetch(d, variables)}
+    }
 
     if (entry?.promise) return {key, promise: entry.promise}
     return {key, promise: this.fetch(d, variables)}

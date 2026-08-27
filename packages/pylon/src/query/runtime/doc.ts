@@ -22,6 +22,27 @@ export interface ConnectionMeta {
   anchor?: string
 }
 
+/**
+ * A compact, build-time projection of the operation's selection set — response
+ * keys and their nesting, mirroring the wire `body`. It drives the runtime
+ * COMPLETENESS gate (`isSatisfied`): a component only renders an operation once
+ * every field it selected is present in the store. That is what makes partial
+ * reads structurally impossible (see `./satisfied`), so the runtime needs no
+ * GraphQL parser — the compiler derives this from the finished `body`.
+ */
+export interface ShapeField {
+  /** Response key (alias or field name) as it appears in the data. */
+  k: string
+  /** Sub-selection for object/list fields; absent = leaf (presence-only check). */
+  s?: ShapeField[]
+  /**
+   * Inline-fragment type condition: this field is only required when the owning
+   * object's runtime `__typename` equals `t` (a field selected inside
+   * `... on Ticket { … }` isn't expected on a Task).
+   */
+  t?: string
+}
+
 export interface DocInit {
   /** Stable, content-addressed document id (build-time hash of `body`). */
   id: string
@@ -29,6 +50,12 @@ export interface DocInit {
   body: string
   /** Operation name (debug + dedupe aid). */
   name: string
+  /**
+   * Selection shape driving the completeness gate (`./satisfied`). Present on
+   * compiled query documents; absent on hand-authored / mutation docs, where its
+   * absence disables gating (back-compat: those never suspended on completeness).
+   */
+  shape?: ShapeField[]
   /**
    * The operation declares `$__locale` via `@inContext`. The CLIENT supplies it, so the
    * locale is merged into `variables` before `opKey` hashes them — which is what keeps two

@@ -79,31 +79,6 @@ interface Ctx {
 
 const IDENTITY: Deref = value => value
 
-// ── DEV diagnostic: partial-entity reads ────────────────────────────────────
-// Fires when component code reads a schema field that is MISSING from the cached
-// entity (the entity was populated by a query that didn't select it). This is the
-// silent "hole" that surfaces as `undefined` and crashes downstream
-// (`undefined.map`). Deduped per op|entity|field. Temporary instrumentation to
-// capture the exact op/entity/field/state at the bug site.
-const seenHoles = new Set<string>()
-function reportPartialRead(owner: any, fieldName: string, ctx: Ctx): void {
-  if (owner == null || typeof owner !== 'object') return
-  if (fieldName in owner) return // present (even if null) → genuinely loaded
-  if (!owner.__typename) return // only entity-like nodes (skip the inline op root)
-  const id = owner.id ?? '?'
-  const tag = `${ctx.debugLabel ?? '?'}|${owner.__typename}:${id}.${fieldName}`
-  if (seenHoles.has(tag)) return
-  seenHoles.add(tag)
-  // eslint-disable-next-line no-console
-  console.warn(
-    `[pylon-query] PARTIAL READ — op "${ctx.debugLabel ?? '?'}" read ` +
-      `${owner.__typename}:${id}.${fieldName}, but that field is ABSENT from the cached ` +
-      `entity (a narrower query populated it). Present fields: [${Object.keys(owner).join(', ')}]. ` +
-      `Returning undefined instead of refetching → this is the partial-read bug.`,
-    {op: ctx.debugLabel, entity: owner}
-  )
-}
-
 export function wrapResult<T = any>(
   getRoot: () => any,
   descriptor: SchemaDescriptor,
@@ -149,8 +124,6 @@ function buildField(
 
   // Truly unknown field → raw value.
   if (!fd) return getValue()
-
-  reportPartialRead(getOwner(), fieldName, ctx)
 
   if (fd.callable) {
     // Same field read with different args at multiple call sites → the compiler emitted an
@@ -231,14 +204,12 @@ function buildValue(getValue: () => any, fd: FieldDesc, ctx: Ctx): unknown {
   }
 
   const v = getValue()
-  // A genuinely NULLABLE object → hand back the null/undefined so the app can guard it
-  // (`if (!x)`, `x?.field`). A NON-NULL object that is nonetheless absent is a PARTIAL /
-  // transient read — e.g. a connection that momentarily dropped out of the op result during
-  // a refetch merge: the schema says it can't be null, so wrap the absent value instead of
-  // returning a bare `undefined`. Nested reads then degrade to `undefined` (buildObject is
-  // null-safe) rather than throwing `x.totalCount` and crashing the caller. `reportPartialRead`
-  // in buildField has already logged the hole.
-  if (v == null && !fd.nonNull) return v
+  // An absent object (null, or a transiently-missing field) is handed back as-is for the
+  // app to guard (`if (!x)`, `x?.field`) — never wrapped into a null-safe sub-object. The
+  // completeness gate (`client.ensure` → `isSatisfied`) guarantees a component never renders
+  // an operation whose selection isn't fully in the store, so a selected non-null object is
+  // present by the time it is read. See runtime/satisfied.ts.
+  if (v == null) return v
   return buildObject(getValue, fd.type, ctx)
 }
 
