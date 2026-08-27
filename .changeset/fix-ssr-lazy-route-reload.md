@@ -21,7 +21,11 @@ chunk. In dev that up-front clean is now skipped — output files are content-ha
 and coexist with the old ones, and the manifest is swapped atomically, so a rebuild
 never deletes a chunk a live request needs; stale generations are swept *after* the
 new bundle is in place, and only once untouched for a grace window, so `.pylon`
-doesn't grow unbounded and no in-flight request loses a chunk. Production still
+doesn't grow unbounded and no in-flight request loses a chunk. That sweep is
+mtime-based, so `updateFileIfChanged` now bumps a file's mtime even when it skips an
+unchanged rewrite — otherwise a rarely-changing but always-referenced output (the
+framework `index.css`) would keep an old mtime, get swept, and 404 its manifest link
+(the persistent stale-CSS state that required a dev restart). Production still
 cleans up front as before.
 `reloadServer` also now reloads the in-memory pages manifest after a schema-driven
 pages rebuild (as `reloadPages` already did), so SSR never points at a stale hash.

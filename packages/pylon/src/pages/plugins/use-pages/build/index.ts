@@ -76,7 +76,17 @@ async function updateFileIfChanged(filePath: string, newContent: Buffer) {
   await fs.mkdir(path.dirname(filePath), {recursive: true})
   try {
     const current = await fs.readFile(filePath)
-    if (current.equals(newContent)) return false
+    if (current.equals(newContent)) {
+      // Content unchanged → skip the rewrite, but bump the mtime so the dev prune
+      // (`pruneStaleOutputs`, which sweeps files untouched for a grace window) treats this
+      // still-current, still-referenced file as fresh. Without this, a file that rarely
+      // changes but is always in the manifest — the framework `index.css` — keeps its old
+      // mtime, gets pruned, and its manifest link 404s. The prune's safety depends on every
+      // current output being touched each rebuild; this keeps that invariant.
+      const now = new Date()
+      await fs.utimes(filePath, now, now).catch(() => {})
+      return false
+    }
   } catch (err: any) {
     if (err.code !== 'ENOENT') throw err
   }
