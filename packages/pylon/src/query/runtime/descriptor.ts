@@ -23,6 +23,16 @@ export interface FieldDesc {
    * (`data.field(args)`). A callable with any required arg is call-only.
    */
   optionalArgs?: boolean
+  /**
+   * True if the field's return type is non-null (`T!`). Lets the wrapper distinguish a
+   * genuinely-nullable field (where `undefined`/`null` is a correct answer the app guards
+   * with `?.`) from a non-null OBJECT field that is only TRANSIENTLY absent — e.g. a
+   * connection that momentarily drops out of the op result during a refetch merge. The
+   * schema says the latter can't be null, so the wrapper returns a null-safe sub-object
+   * (nested reads degrade to `undefined`) instead of a bare `undefined` that throws on
+   * `x.totalCount`. Emitted only for non-null fields, so absence = nullable (back-compat).
+   */
+  nonNull?: boolean
 }
 
 export interface SchemaDescriptor {

@@ -231,7 +231,14 @@ function buildValue(getValue: () => any, fd: FieldDesc, ctx: Ctx): unknown {
   }
 
   const v = getValue()
-  if (v == null) return v
+  // A genuinely NULLABLE object → hand back the null/undefined so the app can guard it
+  // (`if (!x)`, `x?.field`). A NON-NULL object that is nonetheless absent is a PARTIAL /
+  // transient read — e.g. a connection that momentarily dropped out of the op result during
+  // a refetch merge: the schema says it can't be null, so wrap the absent value instead of
+  // returning a bare `undefined`. Nested reads then degrade to `undefined` (buildObject is
+  // null-safe) rather than throwing `x.totalCount` and crashing the caller. `reportPartialRead`
+  // in buildField has already logged the hole.
+  if (v == null && !fd.nonNull) return v
   return buildObject(getValue, fd.type, ctx)
 }
 

@@ -47,6 +47,9 @@ function describeObject(
     const desc: FieldDesc = {type: named.name}
     if (isListAnywhere(field.type)) desc.list = true
     if (isScalarType(named) || isEnumType(named)) desc.scalar = true
+    // Top-level non-null (`T!`) — the wrapper uses it to treat a transiently-absent object
+    // field as a partial read (safe wrapper) rather than a genuine null (see FieldDesc).
+    if (isNonNullType(field.type)) desc.nonNull = true
     if (field.args.length > 0) {
       desc.callable = true
       // An arg is optional if it's nullable (not NonNull) or carries a default.
