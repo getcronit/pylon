@@ -36,6 +36,10 @@
       "import": "./dist/queues/plugin.js",
       "types": "./dist/queues/plugin.d.ts"
     },
+    "./queues/run-worker": {
+      "import": "./dist/queues/run-worker.js",
+      "types": "./dist/queues/run-worker.d.ts"
+    },
     "./auth": {
       "import": "./dist/auth/index.js",
       "types": "./dist/auth/index.d.ts"

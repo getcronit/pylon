@@ -1,7 +1,7 @@
 import type {Env} from './context.js'
 
 export {createPubSub as experimentalCreatePubSub} from 'graphql-yoga'
-export {executeConfig, handler} from '../app/pylon-handler.js'
+export {executeConfig, handler, currentRole} from '../app/pylon-handler.js'
 // Split value vs type re-exports: mixing types into a value `export {}` breaks when
 // a per-module transpiler loads this file (the project runner via tsx) — types have
 // no runtime binding, so `export {Bindings}` fails with "no exported member".
@@ -66,6 +66,18 @@ export interface BuildContext {
   readonly out: {sdl?: string; clientDir?: string}
 }
 
+/**
+ * The process run-role, set via `PYLON_ROLE` and read by `executeConfig`:
+ *  - `web` (default / unset) — serve HTTP; do not consume queues.
+ *  - `worker` — consume queues + drain the outbox; bind no port.
+ *  - `all` — do both (dev, or a single-process deploy).
+ *
+ * A plugin's `roles` is scoped to the concrete `web`/`worker` split (`PluginRole`); `all`
+ * is a process mode that runs both sides, never a per-plugin tag.
+ */
+export type PylonRole = 'web' | 'worker' | 'all'
+export type PluginRole = 'web' | 'worker'
+
 export type Plugin<
   PluginContext extends Record<string, any> = {},
   TServerContext extends Record<string, any> = {},
@@ -73,6 +85,17 @@ export type Plugin<
 > = YogaPlugin<PluginContext, TServerContext, TUserContext> & {
   /** Identity — used for dependency ordering and error attribution. */
   name?: string
+  /**
+   * Which run-roles this plugin participates in. Omitted = every role (back-compat — the
+   * default for infra plugins like `useDatabase`/`useIdentity` and any user plugin).
+   * `executeConfig` SKIPS a plugin whose `roles` is set and excludes the current role, so a
+   * worker never runs — nor imports the deps of — web-only plugins: `usePages` and
+   * `useNodeServer` tag themselves `['web']`, keeping React/react-router/manifests and the
+   * HTTP listener out of the worker process (and its standalone trace). A plugin that runs
+   * everywhere but BEHAVES by role (e.g. `useQueues`: wire the ORM/outbox always, consume
+   * only in `worker`/`all`) leaves this unset and reads the role itself.
+   */
+  roles?: PluginRole[]
   /** `strategy` is the COARSE phase (relative to the GraphQL handler mount):
    *  'first' = before it, 'last' = after it (e.g. `usePages` catch-all routes). */
   strategy?: 'first' | 'last'

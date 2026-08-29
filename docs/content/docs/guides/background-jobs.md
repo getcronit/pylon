@@ -128,23 +128,21 @@ your app's module graph is enough to register the receiver and the processor.
 
 ## 4. Run workers in production
 
-In production, run a dedicated worker process. The worker entry imports your app to
-register the queues, then starts the workers and drains the outbox:
-
-```ts title="src/worker.ts"
-import {startWorkers, runOutboxRelay} from '@getcronit/pylon/queues'
-import './index.js' // side-effect: registers queues, processors, and signals
-
-await startWorkers()
-runOutboxRelay()
-```
+In production, run a dedicated worker process. There is nothing to author — no
+`src/worker.ts`. `pylon build` emits `.pylon/worker.mjs` next to `.pylon/server.mjs`
+from the same build; run it as its own process:
 
 ```bash
-pylon worker   # runs ./src/worker.ts (unbundled, via the loader)
+node .pylon/server.mjs   # web
+node .pylon/worker.mjs   # worker — consumes queues + drains the outbox, no HTTP
 ```
 
-`runOutboxRelay()` moves committed outbox rows to the queue. The user row and the
-job commit together, or not at all — **exactly-once enqueue-iff-commit**.
+`worker.mjs` boots your app + `pylon.config` in *worker role* (registers the queues
+on import, runs the config's plugin setups); `executeConfig` skips the web-only
+plugins by role, so the worker binds no port and never imports the frontend. In dev,
+run the same thing from source with **`pylon dev --worker`**. The outbox relay moves
+committed rows to the queue, so the user row and the job commit together, or not at
+all — **exactly-once enqueue-iff-commit**.
 
 :::tip
 This keeps the write transaction short: the `postSave` hook only records intent

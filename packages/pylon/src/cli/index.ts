@@ -26,6 +26,7 @@ import {buildClient} from './builder/build-client'
 import {runDbCommand} from './db'
 import {generatePylonTypes} from './pull'
 import {treeKillSync} from './tree-kill'
+import {findConfigFile} from './builder/bundler/build-config'
 
 dotenv.config()
 
@@ -52,10 +53,17 @@ function tsxRun(entry: string): string {
   return `node --require ${preflight} --import ${loader} ${entry}`
 }
 
-/** Default worker runner: the loader on the worker entry (unbundled). Override with `-c`
- *  (e.g. prod: `node .pylon/src/worker.js` after `pylon build`). */
-function defaultWorkerCommand(entry: string): string {
-  return tsxRun(entry)
+/**
+ * The dev worker command: run the internal bootstrap (queues/run-worker) unbundled through the
+ * loader. The bootstrap imports the app + config from env-passed paths and boots them in worker
+ * role — nothing for the user to author. Used by `pylon dev --worker`; production runs the
+ * generated `.pylon/worker.mjs` directly instead.
+ */
+function defaultWorkerCommand(): string {
+  // dist/cli/index.js → dist/queues/run-worker.js. `.js` (already transpiled) but the loader
+  // stays active so the bootstrap can import the user's `src/index.ts`.
+  const bootstrap = path.join(path.dirname(fileURLToPath(import.meta.url)), '../queues/run-worker.js')
+  return tsxRun(bootstrap)
 }
 
 /** The app entry that, when imported, constructs your `Pylon` and registers its models. */
@@ -748,11 +756,40 @@ program
   .command('dev')
   .description('Start the Pylon Development Server')
   .option(
+    '--worker',
+    'Run a background WORKER instead of the web server — consume queues + drain the outbox, no HTTP, with watch/restart. Production equivalent: `node .pylon/worker.mjs`.'
+  )
+  .option(
     '--inspect [port]',
     'Open the Node inspector on the dev process so breakpoints in your resolvers bind (default port 9229). Attach via chrome://inspect.'
   )
   .option('--inspect-brk [port]', 'Like --inspect, but wait for a debugger to attach before booting.')
   .action(async options => {
+    // Worker mode: run the queue worker from source (no web server), then stop here.
+    if (options.worker) {
+      let worker: {close(): Promise<void>} | undefined
+      try {
+        worker = await startWorkerDev()
+      } catch (e) {
+        consola.error(
+          '[Pylon] Dev worker failed to start:',
+          e instanceof Error ? (e.stack ?? e.message) : e
+        )
+        process.exit(1)
+      }
+      consola.success(
+        'Pylon dev worker — consuming queues + draining the outbox. Watching src for changes.'
+      )
+      const shutdownWorker = async () => {
+        await worker?.close().catch(() => {})
+        process.exit(0)
+      }
+      process.on('SIGINT', shutdownWorker)
+      process.on('SIGTERM', shutdownWorker)
+      process.on('SIGHUP', shutdownWorker)
+      return
+    }
+
     // Debugging: open the inspector on THIS process (where the resolvers run) via node:inspector
     // rather than relying on an inherited `--inspect` — so `pnpm pylon dev --inspect` works
     // cleanly (the package-manager wrapper never steals the port) and DevTools attaches to the
@@ -818,73 +855,81 @@ We value your feedback—help us make Pylon even better!`)
     await new Promise<void>(() => {})
   })
 
-program
-  .command('worker')
-  .description(
-    'Run the Pylon background worker (queue consumers + outbox relay) — unbundled, via the loader. The entry should call startWorkers()/runOutboxRelay() from @getcronit/pylon/queues.'
-  )
-  .option('-e, --entry <path>', 'Worker entry that starts the queue workers', './src/worker.ts')
-  .option(
-    '-c, --command <command>',
-    'Command to run the worker (default: node + the tsx loader on the entry)'
-  )
-  .action(async options => {
-    const entry = path.resolve(process.cwd(), options.entry)
-    try {
-      await fs.access(entry)
-    } catch {
-      consola.error(
-        `Worker entry not found: ${options.entry}\n` +
-          `Create one that registers your queues and starts them, e.g.:\n\n` +
-          `  import {startWorkers, runOutboxRelay} from '@getcronit/pylon/queues'\n` +
-          `  import './index' // side-effect import: registers queues + processors\n\n` +
-          `  await startWorkers()\n` +
-          `  await runOutboxRelay()\n`
-      )
-      process.exit(1)
-    }
+/**
+ * `pylon dev --worker`: run the app as a background WORKER from source — consume queues +
+ * drain the outbox, no HTTP server — restarting on a `src`/`pylon.config` change. This is the
+ * dev twin of production's `node .pylon/worker.mjs`: it boots `src/index.ts` + `pylon.config`
+ * in worker role (PYLON_ROLE=worker) unbundled via the loader, so `executeConfig` gates out
+ * the web-only plugins (usePages, useNodeServer) — the worker never serves or imports them.
+ */
+async function startWorkerDev(): Promise<{close(): Promise<void>}> {
+  const cwd = process.cwd()
+  const appEntry = path.resolve(cwd, './src/index.ts')
+  try {
+    await fs.access(appEntry)
+  } catch {
+    consola.error(
+      'App entry not found: ./src/index.ts — `pylon dev --worker` boots your app to run its queues.'
+    )
+    process.exit(1)
+  }
+  const configFile = findConfigFile(cwd)
+  // The run-worker bootstrap reads these; PYLON_ROLE=worker makes executeConfig skip the
+  // web-only plugins and useQueues start consuming. NODE_ENV=development for dev parity.
+  const env: Record<string, string> = {
+    PYLON_ROLE: 'worker',
+    NODE_ENV: 'development',
+    __PYLON_WORKER_APP__: appEntry
+  }
+  if (configFile) env.__PYLON_WORKER_CONFIG__ = configFile
 
-    // No bundling — run the worker entry through the loader (unbundled), like the server,
-    // so it shares Node's one-instance-per-file module graph. For a production deploy,
-    // point `-c` at the transpiled output (`pylon build` emits `.pylon/src/worker.js`):
-    // e.g. `pylon worker -c "node .pylon/src/worker.js"`.
-    const command: string = options.command ?? defaultWorkerCommand(options.entry)
-
-    let worker: ChildProcess | null = startWorkerProcess(command)
-
-    const shutdown = (signal: NodeJS.Signals) => {
-      if (worker?.pid) {
-        try {
-          treeKillSync(worker.pid)
-        } catch (e: any) {
-          consola.error('Failed to stop worker process', e)
-        }
+  let child: ChildProcess | null = startWorkerProcess(defaultWorkerCommand(), env)
+  const killChild = () => {
+    if (child?.pid) {
+      try {
+        treeKillSync(child.pid)
+      } catch (e: any) {
+        consola.error('Failed to stop worker process', e)
       }
-      worker = null
-      process.exit(signal === 'SIGINT' ? 0 : 0)
     }
-    process.on('SIGINT', () => shutdown('SIGINT'))
-    process.on('SIGTERM', () => shutdown('SIGTERM'))
-    process.on('exit', () => worker?.pid && treeKillSync(worker.pid))
+  }
 
-    consola.success('Pylon worker started — consuming queues + relaying the outbox.')
-
-    await new Promise<void>(resolve => {
-      worker?.on('exit', code => {
-        if (code && code !== 0) consola.error(`Worker exited with code ${code}`)
-        resolve()
-      })
-    })
+  // Watch src + the config; debounce a burst of writes into one restart.
+  const watchPaths = [path.join(cwd, 'src')]
+  if (configFile) watchPaths.push(configFile)
+  let debounce: ReturnType<typeof setTimeout> | undefined
+  const watcher = chokidar.watch(watchPaths, {
+    ignoreInitial: true,
+    awaitWriteFinish: {stabilityThreshold: 150, pollInterval: 30}
+  })
+  watcher.on('all', () => {
+    if (debounce) clearTimeout(debounce)
+    debounce = setTimeout(() => {
+      consola.info('Change detected — restarting worker…')
+      killChild()
+      child = startWorkerProcess(defaultWorkerCommand(), env)
+    }, 150)
   })
 
-const startWorkerProcess = (command: string) => {
+  return {
+    close: async () => {
+      if (debounce) clearTimeout(debounce)
+      await watcher.close().catch(() => {})
+      killChild()
+      child = null
+    }
+  }
+}
+
+const startWorkerProcess = (command: string, extraEnv: Record<string, string> = {}) => {
   const [script, ...args] = command.split(' ')
   const child = spawn(script, args, {
     stdio: 'inherit',
     env: {
       ...process.env,
       NODE_ENV: process.env.NODE_ENV ?? 'production',
-      FORCE_COLOR: '1'
+      FORCE_COLOR: '1',
+      ...extraEnv
     }
   })
   child.on('error', err => consola.error(err))

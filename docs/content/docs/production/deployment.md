@@ -79,9 +79,10 @@ The launcher `chdir`s into the app dir before starting, so a `content/` read res
 exactly as it does in development.
 
 :::note
-`--standalone` traces the **app server**. If you also run the [worker](/docs/queues/overview),
-deploy it from the regular build (`node .pylon/src/worker.js`) — see
-[Run the worker alongside the app](#run-the-worker-alongside-the-app).
+`--standalone` traces **both** the app server and the [worker](/docs/queues/overview) entry, so
+the artifact runs either — `node .pylon/standalone/server.mjs` or
+`node .pylon/standalone/worker.mjs`. Tracing the worker costs nothing when the app has no
+queues. See [Run the worker alongside the app](#run-the-worker-alongside-the-app).
 :::
 
 ## Environment
@@ -219,7 +220,8 @@ services:
 
   worker:
     image: my-pylon-app
-    command: pylon worker
+    # Same build as the app, a different entry: consumes queues, binds no port.
+    command: node .pylon/worker.mjs
     environment: [DATABASE_URL, REDIS_URL]
 ```
 

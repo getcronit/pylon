@@ -225,6 +225,12 @@ export async function buildStandalone(opts: {
   // analysis can't see. @hono/node-server is imported as `const s='@hono/node-server'` in
   // useNodeServer; sharp (+ its native platform packages) is optional image tooling.
   const roots = [serverEntry]
+  // The background-worker entry (emitted next to server.mjs). Tracing it as a root pulls the
+  // worker's own dynamic deps (bullmq/ioredis, the pg-outbox driver) into the artifact so
+  // `node .pylon/standalone/worker.mjs` runs with no install. Costs ~nothing when the app has
+  // no queues: worker.mjs → app + config, which import bullmq only if the app actually uses it.
+  const workerEntry = path.join(outDir, 'worker.mjs')
+  if (fs.existsSync(workerEntry)) roots.push(workerEntry)
   const hono = tryResolve(req, '@hono/node-server')
   if (hono) roots.push(hono)
   const sharp = tryResolve(req, 'sharp')

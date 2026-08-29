@@ -5,16 +5,18 @@
  *  - binds the ORM so jobs can use `Model.objects` (each job runs inside the
  *    ambient DB connection),
  *  - wires the transactional outbox (when pylon-db is present),
- *  - optionally starts the workers + relay IN THIS PROCESS (dev). In production
- *    run a separate worker (`pylon worker`); the web process only enqueues.
+ *  - starts the workers + relay IN THIS PROCESS when told to: `worker: 'in-process'`
+ *    (dev), or automatically when the process is the dedicated worker (`pylon worker`
+ *    sets `PYLON_ROLE=worker`). The web process leaves this off and only enqueues.
  *  - optionally mounts a global Bull dashboard (all registered queues), gated by
  *    an injected `authorize` (so pylon-queues stays auth-agnostic).
  */
 import type {RedisOptions} from 'ioredis'
 import {setConnection} from './connection.js'
 import {createPgOutbox} from './pg-outbox.js'
-import {runOutboxRelay, setOutboxDriver} from './outbox.js'
+import {getOutboxDriver, runOutboxRelay, setOutboxDriver} from './outbox.js'
 import {registeredQueues, setJobRunner, startWorkers} from './queue.js'
+import {currentRole} from '@getcronit/pylon'
 
 export interface QueueDashboardOptions {
   /** Mount path. Default `/admin/queues`. */
@@ -40,8 +42,10 @@ export interface UseQueuesOptions {
   /** Wire the Postgres transactional outbox (needs pylon-db). Default: true. */
   outbox?: boolean
   /**
-   * Start workers + the outbox relay in THIS process. Use `'in-process'` for dev;
-   * in production leave it off and run a dedicated `pylon worker`.
+   * Start workers + the outbox relay in THIS process. Use `'in-process'` for dev.
+   * Leave it off for production: `pylon worker` boots this same config with
+   * `PYLON_ROLE=worker`, which starts the workers regardless of this option — so the
+   * web process (no `PYLON_ROLE`) only enqueues while the worker process consumes.
    */
   worker?: 'in-process' | false
   /**
@@ -76,9 +80,18 @@ export function useQueues(options: UseQueuesOptions = {}): QueuesPlugin {
         /* pylon-db not installed → queues still work, without ORM/outbox. */
       }
 
-      if (options.worker === 'in-process') {
+      // Start consuming when explicitly asked (`worker: 'in-process'`) OR when the process
+      // run-role consumes (`worker`, or `all` for a single process that also serves). This is
+      // what lets ONE config drive both roles: the web process only enqueues; the worker (or
+      // an `all` process) boots the same config and consumes. `useQueues` itself stays
+      // role-untagged (it must wire the ORM/outbox in EVERY role so enqueue-in-txn works) —
+      // only its consuming BEHAVIOR is role-gated here.
+      const role = currentRole()
+      if (options.worker === 'in-process' || role === 'worker' || role === 'all') {
         await startWorkers()
-        runOutboxRelay()
+        // Only run the relay when the outbox is actually wired (a driver was set above);
+        // otherwise there is nothing to drain and the poll loop would spin uselessly.
+        if (getOutboxDriver()) runOutboxRelay()
       }
 
       if (options.dashboard && app) await mountDashboard(app, options.dashboard)

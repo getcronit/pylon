@@ -23,8 +23,18 @@ pylon dev -c "bun run .pylon/server.mjs"
 | Option | Default | Description |
 | --- | --- | --- |
 | `-c, --command <cmd>` | runs `.pylon/server.mjs` through the built-in tsx loader | Command that runs the app in dev. On Node, omit it and use the default; new projects set it per runtime (e.g. `bun run .pylon/server.mjs`, `deno run -A --unstable-sloppy-imports .pylon/server.mjs`, `wrangler dev`). |
+| `--worker` | _(off)_ | Run a background [queue worker](/docs/queues/overview) instead of the web server — consume queues + drain the outbox, no HTTP, from source with watch/restart. Production equivalent: `node .pylon/worker.mjs`. |
 | `--inspect [port]` | `9229` | Open the Node inspector on the dev process for breakpoint debugging (see below). |
 | `--inspect-brk [port]` | `9229` | Like `--inspect`, but wait for a debugger to attach before booting. |
+
+### Run a worker in dev
+
+`pylon dev --worker` boots your app in *worker role* (`PYLON_ROLE=worker`) from
+source and restarts on `src`/`pylon.config` changes — the dev twin of production's
+`node .pylon/worker.mjs`. It consumes queues and drains the outbox but serves no
+HTTP: `executeConfig` gates out the web-only plugins (`usePages`, `useNodeServer`)
+by role, so the worker never binds a port or imports the frontend. Run it in a
+second terminal next to `pylon dev`, or on its own to work jobs in isolation.
 
 On each change `dev` rebuilds the server, regenerates the typed client **only when
 the schema changes**, rebuilds the page bundles, and restarts — a failed build
@@ -68,25 +78,18 @@ The output is **unbundled** — run `.pylon/server.mjs` with the command your se
 plugin expects (for example `node .pylon/server.mjs`), alongside your production
 `node_modules`. See [Deployment](/docs/production/deployment).
 
-## pylon worker
+## Running a queue worker
 
-Run a [queue worker](/docs/queues/overview). By default it runs `./src/worker.ts`
-unbundled through the loader; the worker entry imports your app to register queues
-and processors, then starts the workers and drains the outbox. Pass `-o` to emit a
-bundle instead.
+There is no `pylon worker` command and no worker entry to author. The worker is the
+same app in a different run-role:
 
-```bash
-pylon worker
-pylon worker -e ./src/worker.ts -o ./.pylon/worker.js
-```
+- **Dev:** `pylon dev --worker` (see [above](#run-a-worker-in-dev)).
+- **Production:** `node .pylon/worker.mjs` — emitted by `pylon build` next to
+  `server.mjs`.
 
-| Option | Default | Description |
-| --- | --- | --- |
-| `-e, --entry <path>` | `./src/worker.ts` | Worker entry to run |
-| `-o, --output <path>` | _(none)_ | If set, bundle the worker to this path instead of running unbundled |
-| `-c, --command <cmd>` | runtime default | Command that runs the worker |
-
-Run it alongside your app — same image, different command.
+Both boot your app + `pylon.config` in *worker role*; `executeConfig` skips the
+web-only plugins so the worker consumes queues without serving HTTP. See
+[queues](/docs/queues/overview) and [deployment](/docs/production/deployment).
 
 ## pylon pull
 

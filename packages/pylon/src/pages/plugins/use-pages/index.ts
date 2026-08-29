@@ -39,6 +39,11 @@ export function usePages(options: UsePagesOptions = {}): Plugin {
   return {
     name: 'pages',
     strategy: 'last',
+    // Frontend/SSR is a WEB-role concern. In a worker (PYLON_ROLE=worker) executeConfig skips
+    // this plugin, so its `setup` never runs — React/react-router/pylon-query and the page
+    // manifests never import in the worker process (nor its standalone trace). The `build`
+    // hook is unaffected (build has no run-role).
+    roles: ['web'],
     // Readable by `pylon dev`, which needs to know about `i18n` before it stands up the
     // client Vite — and cannot otherwise see options captured in this closure.
     options,

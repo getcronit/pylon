@@ -15,7 +15,6 @@ database layer, and (optionally) a frontend. The layout is small and predictable
 my-app/
 ├─ src/
 │  ├─ index.ts          # the entry — exports `default new Pylon(...)`
-│  ├─ worker.ts         # optional — background-job worker entry
 │  └─ apps/             # optional — composable feature modules
 │     ├─ blog.ts
 │     └─ shop.ts

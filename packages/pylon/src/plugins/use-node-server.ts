@@ -43,6 +43,9 @@ export function useNodeServer(options: NodeServerOptions = {}): Plugin {
   return {
     name: 'node-server',
     strategy: 'last',
+    // Serving is a WEB-role concern. In a worker (PYLON_ROLE=worker) executeConfig skips this
+    // plugin entirely, so no port is bound and @hono/node-server never imports there.
+    roles: ['web'],
     setup: async app => {
       // Non-Node runtimes auto-serve the default export — leave serving to the host.
       if (!isNodeRuntime()) return

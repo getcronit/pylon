@@ -220,23 +220,32 @@ setOutboxDriver(await createPgOutbox())
 
 ## Run workers in production
 
-In production, run a dedicated worker process. The worker entry imports your app
-to register the queues, then starts the workers and drains the outbox:
-
-```ts title="src/worker.ts"
-import {startWorkers, runOutboxRelay} from '@getcronit/pylon/queues'
-import './index.js' // side-effect: registers queues, processors, and crons
-
-await startWorkers()
-runOutboxRelay()
-```
+In production, run a dedicated worker process. There is **nothing to author** — no
+`src/worker.ts`. `pylon build` emits a second entry, `.pylon/worker.mjs`, next to
+`.pylon/server.mjs` from the same build. Run it as its own process:
 
 ```bash
-pylon worker   # runs ./src/worker.ts (unbundled, via the loader)
+node .pylon/server.mjs   # web — serves HTTP
+node .pylon/worker.mjs   # worker — consumes queues + drains the outbox, no HTTP
 ```
 
-Run it alongside your app — same image, different command. See
+`worker.mjs` boots your app + `pylon.config` in *worker role* (`PYLON_ROLE=worker`):
+it registers the queues on import and runs the config's plugin setups (the DB
+connection, the ORM-per-job binding, the outbox), then starts the consumers and
+relay. `executeConfig` **skips the web-only plugins by role** — `usePages` and
+`useNodeServer` (tagged `roles: ['web']`) never run in the worker, so it binds no
+port and never imports the frontend graph. In dev, run the same thing from source
+with **`pylon dev --worker`**.
+
+The one config drives both processes; the role decides what runs. Run the worker
+alongside your app — same image, different command. See
 [deployment](/docs/production/deployment).
+
+:::tip
+Want a single process that both serves and consumes (a small deploy)? Run
+`PYLON_ROLE=all node .pylon/server.mjs` — `all` role serves *and* starts the
+consumers.
+:::
 
 ## Transactional outbox
 

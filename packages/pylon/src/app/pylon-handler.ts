@@ -12,7 +12,7 @@ import {readFileSync} from 'fs'
 import {MiddlewareHandler} from 'hono'
 import path from 'path'
 import {app, Pylon} from '.'
-import {Plugin, PylonConfig} from '../core'
+import {Plugin, PylonConfig, PylonRole} from '../core'
 import {Context} from '../core/context'
 import {configureLogger} from '../core/logger'
 import {topoSortPlugins} from './plugin-order'
@@ -106,6 +106,21 @@ const loadPluginsMiddleware = async (plugins: Plugin[], target: Pylon<any>) => {
   }
 }
 
+/**
+ * The current process run-role, from `PYLON_ROLE` (default `web`). `server.mjs` leaves it
+ * unset (→ web, or `all` if the operator opts a single process into consuming too); the
+ * generated `worker.mjs` and `pylon dev --worker` set `worker`.
+ */
+export const currentRole = (): PylonRole => {
+  const r = process.env.PYLON_ROLE
+  return r === 'worker' || r === 'all' ? r : 'web'
+}
+
+/** Does `plugin` run under `role`? `all` runs everything; an untagged plugin runs everywhere;
+ *  otherwise the plugin must list the role. */
+const roleAllows = (role: PylonRole, plugin: Plugin): boolean =>
+  role === 'all' || !plugin.roles || plugin.roles.includes(role)
+
 // `target` defaults to the singleton `app` so the existing generated entry —
 // `executeConfig(config)` — is unchanged. Passing a specific Pylon lets a separate
 // instance be configured independently (the basis of multi-instance composition).
@@ -149,11 +164,18 @@ export const executeConfig = async (
 
   const pluginsStrategy = args?.pluginsStrategy || 'first'
 
+  // The process run-role gates which plugins load. In a worker, web-only plugins (usePages,
+  // useNodeServer — tagged `roles:['web']`) are skipped ENTIRELY: their setup never runs and
+  // their heavy deps (React/react-router/manifests, the HTTP listener) never import. `all`
+  // (dev / single-process) runs both sides; a plugin without `roles` runs in every role.
+  const role = currentRole()
+
   await loadPluginsMiddleware(
     plugins.filter(p => {
       if (!p.strategy) {
         p.strategy = 'first'
       }
+      if (!roleAllows(role, p)) return false
 
       return p.strategy === pluginsStrategy
     }),

@@ -69,9 +69,12 @@ describe('useNodeServer setup guard', () => {
     }
   })
 
-  it('is a `last`-strategy plugin named node-server', () => {
+  it('is a `last`-strategy plugin named node-server, scoped to the web role', () => {
     const plugin = useNodeServer()
     expect(plugin.name).toBe('node-server')
     expect(plugin.strategy).toBe('last')
+    // Web-only: executeConfig gates it out of the worker (PYLON_ROLE=worker) so no port
+    // binds there and @hono/node-server never imports in the worker process.
+    expect(plugin.roles).toEqual(['web'])
   })
 })
