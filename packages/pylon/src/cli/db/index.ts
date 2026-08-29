@@ -122,6 +122,14 @@ export interface DbCommandResult {
   renameCandidates?: Array<{table: string; from: string; to: string}>
   /** `diff`: possible TABLE renames not confirmed via --rename-table (data-loss warning). */
   tableRenameCandidates?: Array<{from: string; to: string}>
+  /** apps mode `diff`: one entry per app that actually had changes. */
+  diffs?: Array<{
+    app: string
+    created: string
+    destructive: boolean
+    renameCandidates: Array<{table: string; from: string; to: string}>
+    tableRenameCandidates: Array<{from: string; to: string}>
+  }>
   applied?: string[]
   /** `rollback`: reversed migration names. */
   rolledBack?: string[]
@@ -232,26 +240,43 @@ export async function runDbCommandCore(
     }
     case 'diff': {
       if (groups) {
-        if (!options.app) {
+        // Default to EVERY app. Requiring `--app` made the common case ("I changed
+        // some models, capture it") fail with a list to copy from, and left you
+        // running the command once per app to find which ones actually drifted.
+        // `--app` still narrows to one. Apps with no changes generate nothing.
+        const targets = options.app
+          ? [groups.find(g => g.name === options.app)]
+          : typeof orm.orderGroups === 'function'
+            ? orm.orderGroups(groups)
+            : groups
+        if (options.app && !targets[0]) {
           throw new Error(
-            `This project uses apps — specify one: \`pylon db diff --app <name>\` ` +
-              `(apps: ${groups.map(g => g.name).join(', ')}).`
+            `Unknown app "${options.app}" (apps: ${groups.map(g => g.name).join(', ')}).`
           )
         }
-        const group = groups.find(g => g.name === options.app)
-        if (!group) throw new Error(`Unknown app "${options.app}".`)
-        const made = await orm.generateGroup(group, options.name ?? 'migration', loadMigrationFile, {
-          renames: options.renames,
-          tableRenames: options.tableRenames,
-          castHints: options.castHints
-        })
-        const groupDestructive = (made?.changes as SchemaChange[] | undefined)?.some(isDestructive)
+        const diffs: NonNullable<DbCommandResult['diffs']> = []
+        for (const group of targets as typeof groups) {
+          const made = await orm.generateGroup(group, options.name ?? 'migration', loadMigrationFile, {
+            renames: options.renames,
+            tableRenames: options.tableRenames,
+            castHints: options.castHints
+          })
+          if (!made) continue
+          diffs.push({
+            app: group.name,
+            created: made.name,
+            destructive: (made.changes as SchemaChange[] | undefined)?.some(isDestructive) ?? false,
+            renameCandidates: made.renameCandidates ?? [],
+            tableRenameCandidates: made.tableRenameCandidates ?? []
+          })
+        }
         return {
           command: 'diff',
-          created: made?.name ?? null,
-          destructive: groupDestructive ?? false,
-          renameCandidates: made?.renameCandidates ?? [],
-          tableRenameCandidates: made?.tableRenameCandidates ?? []
+          created: diffs.length === 1 ? diffs[0].created : null,
+          destructive: diffs.some(d => d.destructive),
+          diffs,
+          renameCandidates: diffs.flatMap(d => d.renameCandidates),
+          tableRenameCandidates: diffs.flatMap(d => d.tableRenameCandidates)
         }
       }
       const created = await runner.generate(options.name ?? 'migration', loadMigrationFile, {

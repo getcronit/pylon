@@ -90,3 +90,25 @@ describe('pylon db error reporting', () => {
     expect(r.out).toMatch(/at .*runDbCommandCore/)
   })
 })
+
+/**
+ * Regression: `pylon db diff` in apps mode covered ONE app per invocation and
+ * refused without `--app`, so capturing "I changed some models" meant re-running
+ * it once per app to discover which had drifted. It now defaults to every app.
+ */
+describe('pylon db diff across all apps', () => {
+  it('needs no --app and reports every app', () => {
+    const r = pylonDb('diff')
+    expect(r.status, r.out).toBe(0)
+    expect(r.out).not.toMatch(/specify one/)
+    // Fixture is in sync, so the answer is "nothing", stated once for the project.
+    expect(r.out).toMatch(/No schema changes in any app/)
+  })
+
+  it('names the apps when --app is wrong, without demanding one otherwise', () => {
+    const r = pylonDb('diff', '--app', 'nope')
+    expect(r.status).toBe(1)
+    expect(r.out).toMatch(/Unknown app "nope"/)
+    expect(r.out).toMatch(/blog/)
+  })
+})

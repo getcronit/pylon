@@ -33,8 +33,8 @@ import {treeKillSync} from './tree-kill'
  * Most CLI failures are EXPECTED — a missing `--app`, an absent DATABASE_URL, a
  * refused migration. Printing the Error object dumps a stack through the user's
  * own node_modules paths, which reads like a crash and buries the one line that
- * matters. Show the message; keep the stack behind `-v/--verbose` (or
- * PYLON_DEBUG=1) for when it's genuinely a bug.
+ * matters. Show the message; keep the stack behind `--verbose` (or PYLON_DEBUG)
+ * for when it's genuinely a bug.
  */
 function fail(error: unknown): never {
   reportFailure(error)
@@ -446,7 +446,7 @@ db.command('diff')
       for (const spec of (options.using as string[]) ?? []) addCast(spec, 'using')
       for (const spec of (options.usingDown as string[]) ?? []) addCast(spec, 'usingDown')
 
-      const {created, destructive, renameCandidates, tableRenameCandidates} = await runDbCommand({
+      const {created, destructive, renameCandidates, tableRenameCandidates, diffs} = await runDbCommand({
         command: 'diff',
         name,
         app: options.app,
@@ -456,6 +456,31 @@ db.command('diff')
         tableRenames,
         castHints
       })
+      // Apps mode: one migration per app that drifted (none for the rest).
+      if (diffs) {
+        if (diffs.length === 0) {
+          consola.info('No schema changes in any app — nothing to generate')
+        } else {
+          for (const d of diffs) consola.success(`app ${d.app}: created migration ${d.created}`)
+          for (const d of diffs) {
+            for (const r of d.tableRenameCandidates)
+              consola.warn(
+                `app ${d.app}: possible table rename ${r.from} → ${r.to} was emitted as ` +
+                  `drop+create (destroys the table's data). If it's a rename, regenerate with ` +
+                  `--app ${d.app} --rename-table ${r.from}=${r.to}`
+              )
+            for (const r of d.renameCandidates)
+              consola.warn(
+                `app ${d.app}: possible rename ${r.table}.${r.from} → ${r.table}.${r.to} was ` +
+                  `emitted as drop+add (destroys data). If it's a rename, regenerate with ` +
+                  `--app ${d.app} --rename ${r.table}.${r.from}=${r.table}.${r.to}`
+              )
+            if (d.destructive)
+              consola.warn(`app ${d.app}: this migration drops a table or column — it will destroy data.`)
+          }
+        }
+        return
+      }
       if (created) {
         consola.success(`Created migration ${created}`)
         for (const r of tableRenameCandidates ?? [])
