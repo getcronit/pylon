@@ -23,18 +23,28 @@ The build emits everything needed to run (alongside your `node_modules`):
 
 | File | What it is |
 |---|---|
-| `.pylon/server.mjs` | The runnable entry — imports your app, mounts the GraphQL handler + plugins, and serves |
+| `.pylon/server.mjs` | The **web** entry — imports your app, mounts the GraphQL handler + plugins, and serves HTTP |
+| `.pylon/worker.mjs` | The **worker** entry — same app, [consumes queues](/docs/queues/overview) + drains the outbox, no HTTP |
 | `.pylon/src/` | Your transpiled source, so the original `src/` isn't shipped |
 | `.pylon/schema.graphql` | The compiled GraphQL schema (SDL) |
 | `.pylon/client/` | The typed query client, derived from the schema |
+
+Two entries, same build: `server.mjs` serves, `worker.mjs` consumes. Run one process
+each (a web app with no queues just never runs `worker.mjs`).
 
 Run it with whichever runtime you targeted in
 [runtimes](/docs/production/runtimes):
 
 ```bash
-node .pylon/server.mjs        # Node.js
+node .pylon/server.mjs        # Node.js — web
 bun run .pylon/server.mjs     # Bun
 wrangler deploy             # Cloudflare Workers
+```
+
+If you use queues, run the worker as a second process from the **same build**:
+
+```bash
+node .pylon/worker.mjs        # background worker (see Queues)
 ```
 
 ## Standalone build
@@ -53,13 +63,15 @@ and it works with any package manager (npm, pnpm, yarn, bun): the trace copies f
 not a lockfile.
 
 ```bash
-node .pylon/standalone/start.mjs
+node .pylon/standalone/start.mjs          # web
+node .pylon/standalone/start-worker.mjs   # worker (if you use queues)
 ```
 
-The generated `start.mjs` is a stable entry point you can run from any directory — it
-`chdir`s into the app so your own cwd-relative reads (say, a `content/` folder) resolve.
-The framework itself anchors to the entry location, so `.pylon/**` (schema, SSR chunks,
-static assets) resolves no matter the working directory.
+These generated `start.mjs` / `start-worker.mjs` are stable entry points at the artifact
+root — the standalone twins of `.pylon/server.mjs` / `.pylon/worker.mjs`. Each `chdir`s
+into the app so your own cwd-relative reads (say, a `content/` folder) resolve, then runs
+its entry. The framework itself anchors to the entry location, so `.pylon/**` (schema, SSR
+chunks, static assets) resolves no matter the working directory.
 
 Tracing — not bundling — is what makes this safe: `sharp`'s native binaries, the
 content-hashed usePages SSR route chunks (imported at runtime), and the unbundled
@@ -79,10 +91,10 @@ The launcher `chdir`s into the app dir before starting, so a `content/` read res
 exactly as it does in development.
 
 :::note
-`--standalone` traces **both** the app server and the [worker](/docs/queues/overview) entry, so
-the artifact runs either — `node .pylon/standalone/server.mjs` or
-`node .pylon/standalone/worker.mjs`. Tracing the worker costs nothing when the app has no
-queues. See [Run the worker alongside the app](#run-the-worker-alongside-the-app).
+`--standalone` traces **both** entries, so the artifact runs either — `node
+.pylon/standalone/start.mjs` (web) or `node .pylon/standalone/start-worker.mjs` (worker).
+Tracing the worker costs nothing when the app has no queues. See [Run the worker alongside
+the app](#run-the-worker-alongside-the-app).
 :::
 
 ## Environment
@@ -224,6 +236,10 @@ services:
     command: node .pylon/worker.mjs
     environment: [DATABASE_URL, REDIS_URL]
 ```
+
+If the image was built with `--standalone`, use the launcher names instead:
+`node .pylon/standalone/start.mjs` for the app and
+`node .pylon/standalone/start-worker.mjs` for the worker.
 
 :::warning
 Apply migrations as a discrete release step before rolling out new app instances — see

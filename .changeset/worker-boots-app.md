@@ -10,7 +10,8 @@ run-role**, selected by `PYLON_ROLE` (`web` \| `worker` \| `all`):
 
 - **Production:** `pylon build` emits `.pylon/worker.mjs` next to `.pylon/server.mjs` from the
   same build. Run `node .pylon/server.mjs` (web) and `node .pylon/worker.mjs` (worker) as
-  separate processes. `--standalone` traces both entries.
+  separate processes. `--standalone` traces both entries and emits matching root launchers,
+  `.pylon/standalone/start.mjs` (web) and `.pylon/standalone/start-worker.mjs` (worker).
 - **Dev:** `pylon dev --worker` runs the worker from source with watch/restart — the dev twin
   of `node .pylon/worker.mjs`. The `pylon worker` command is removed.
 - **Single process:** `PYLON_ROLE=all node .pylon/server.mjs` serves *and* consumes.
