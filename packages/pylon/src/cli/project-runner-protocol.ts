@@ -9,5 +9,8 @@ export const RESULT_CLOSE = ' /PYLON_RUNNER_RESULT '
 export interface RunnerEnvelope<T = unknown> {
   ok: boolean
   result?: T
+  /** The failure's MESSAGE only — what the user reads. */
   error?: string
+  /** The child's stack, kept separate so it's shown only when asked for. */
+  stack?: string
 }

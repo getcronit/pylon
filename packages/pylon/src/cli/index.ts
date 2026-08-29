@@ -26,6 +26,34 @@ import {buildClient} from './builder/build-client'
 import {runDbCommand} from './db'
 import {generatePylonTypes} from './pull'
 import {treeKillSync} from './tree-kill'
+
+/**
+ * Report a command failure and exit.
+ *
+ * Most CLI failures are EXPECTED — a missing `--app`, an absent DATABASE_URL, a
+ * refused migration. Printing the Error object dumps a stack through the user's
+ * own node_modules paths, which reads like a crash and buries the one line that
+ * matters. Show the message; keep the stack behind `-v/--verbose` (or
+ * PYLON_DEBUG=1) for when it's genuinely a bug.
+ */
+function fail(error: unknown): never {
+  reportFailure(error)
+  process.exit(1)
+}
+
+/** Shared by `fail` and the top-level catch (which sets exitCode instead). */
+function reportFailure(error: unknown): void {
+  const verbose =
+    process.env.PYLON_DEBUG === '1' ||
+    process.argv.includes('--verbose') ||
+    process.argv.includes('-v')
+  if (verbose || !(error instanceof Error)) consola.error(error)
+  else {
+    consola.error(error.message)
+    if (error.stack) consola.log(`\nRun with --verbose for the stack trace.`)
+  }
+}
+
 import {findConfigFile} from './builder/bundler/build-config'
 
 dotenv.config()
@@ -352,8 +380,7 @@ db.command('status')
         }
       }
     } catch (error) {
-      consola.error(error)
-      process.exit(1)
+      fail(error)
     }
   })
 
@@ -447,8 +474,7 @@ db.command('diff')
           consola.warn('This migration drops a table or column — it will destroy data.')
       } else consola.info('No schema changes — nothing to generate')
     } catch (error) {
-      consola.error(error)
-      process.exit(1)
+      fail(error)
     }
   })
 
@@ -475,8 +501,7 @@ db.command('plan')
         for (const stmt of statements) consola.log(`${stmt};`)
       }
     } catch (error) {
-      consola.error(error)
-      process.exit(1)
+      fail(error)
     }
   })
 
@@ -520,8 +545,7 @@ db.command('check')
         `Up to date${check!.unapplied.length ? ` (${check!.unapplied.length} unapplied)` : ''}.`
       )
     } catch (error) {
-      consola.error(error)
-      process.exit(1)
+      fail(error)
     }
   })
 
@@ -545,8 +569,7 @@ db.command('migrate')
         consola.success(`Applied ${applied.length} migration(s): ${applied.join(', ')}`)
       else consola.info('Database is up to date')
     } catch (error) {
-      consola.error(error)
-      process.exit(1)
+      fail(error)
     }
   })
 
@@ -568,8 +591,7 @@ db.command('rollback')
         consola.success(`Rolled back ${rolledBack.length} migration(s): ${rolledBack.join(', ')}`)
       else consola.info('No applied migrations to roll back')
     } catch (error) {
-      consola.error(error)
-      process.exit(1)
+      fail(error)
     }
   })
 
@@ -591,8 +613,7 @@ db.command('resolve')
       })
       consola.success(`Marked ${resolved!.name} as ${resolved!.as}`)
     } catch (error) {
-      consola.error(error)
-      process.exit(1)
+      fail(error)
     }
   })
 
@@ -620,8 +641,7 @@ db.command('rename-app')
         `Re-pointed ${renamedApp!.rows} ledger row(s) from "${renamedApp!.from}:" to "${renamedApp!.to}:". Run \`pylon db migrate\` next.`
       )
     } catch (error) {
-      consola.error(error)
-      process.exit(1)
+      fail(error)
     }
   })
 
@@ -636,8 +656,7 @@ db.command('seed')
       await runDbCommand({command: 'seed', seed: options.seed, models: entryOf(options)})
       consola.success('Seed complete')
     } catch (error) {
-      consola.error(error)
-      process.exit(1)
+      fail(error)
     }
   })
 
@@ -669,8 +688,7 @@ db.command('baseline')
       )
       consola.info('Review the generated models before committing.')
     } catch (error) {
-      consola.error(error)
-      process.exit(1)
+      fail(error)
     }
   })
 
@@ -691,8 +709,7 @@ db.command('merge')
       if (!merged) consola.info('No divergent heads — nothing to merge')
       else consola.success(`Merged heads [${merged.heads.join(', ')}] into ${merged.name}`)
     } catch (error) {
-      consola.error(error)
-      process.exit(1)
+      fail(error)
     }
   })
 
@@ -716,8 +733,7 @@ db.command('squash')
           `Squashed ${squashed.replaced.length} migration(s) into ${squashed.name}`
         )
     } catch (error) {
-      consola.error(error)
-      process.exit(1)
+      fail(error)
     }
   })
 
@@ -743,8 +759,7 @@ db.command('deploy')
         consola.success(`Deployed ${applied.length} migration(s): ${applied.join(', ')}`)
       else consola.info('Database is up to date')
     } catch (error) {
-      consola.error(error)
-      process.exit(1)
+      fail(error)
     }
   })
 
@@ -758,8 +773,7 @@ db.command('push')
       await runDbCommand({command: 'push', models: entryOf(options)})
       consola.success('Schema pushed to the database')
     } catch (error) {
-      consola.error(error)
-      process.exit(1)
+      fail(error)
     }
   })
 
@@ -992,7 +1006,7 @@ const startDevServer = (
 try {
   await program.parseAsync(process.argv)
 } catch (error) {
-  consola.error(error)
+  reportFailure(error)
 
   // A CLI command that threw (e.g. a failed build, a config that won't load) must
   // exit non-zero so CI/scripts actually catch it. `exitCode` (not `exit()`) lets

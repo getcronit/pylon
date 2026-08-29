@@ -129,6 +129,12 @@ async function introspectQueues(entryUrl: string): Promise<unknown[]> {
 // e.g. an ioredis publisher or bullmq queue the project opened — which the project
 // must close.
 main().catch((e: unknown) => {
-  emit({ok: false, error: e instanceof Error ? (e.stack ?? e.message) : String(e)})
+  // Message and stack travel separately: the parent puts the stack behind
+  // --verbose, so an expected failure ("specify an app") reads as one line.
+  emit({
+    ok: false,
+    error: e instanceof Error ? e.message : String(e),
+    stack: e instanceof Error ? e.stack : undefined
+  })
   process.exitCode = 1
 })

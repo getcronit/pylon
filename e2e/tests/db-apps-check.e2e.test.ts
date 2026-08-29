@@ -69,3 +69,24 @@ describe('pylon db in apps mode (no root migrations dir)', () => {
     expect(r.out).toMatch(/CREATE TABLE/)
   })
 })
+
+/**
+ * Regression: an expected failure (no DATABASE_URL, an unknown app, a refused
+ * migration) used to print the child's stack THROUGH the parent's — two traces of
+ * the user's own node_modules for a one-line problem. Only `--verbose` shows them.
+ */
+describe('pylon db error reporting', () => {
+  it('prints an expected failure as one line, not a stack', () => {
+    const r = pylonDb('migrate') // no DATABASE_URL in this env
+    expect(r.status).toBe(1)
+    expect(r.out).toMatch(/requires DATABASE_URL to be set/)
+    expect(r.out).not.toMatch(/at .*project-runner/)
+    expect(r.out).toMatch(/--verbose for the stack trace/)
+  })
+
+  it('--verbose brings the stack back', () => {
+    const r = pylonDb('migrate', '--verbose')
+    expect(r.status).toBe(1)
+    expect(r.out).toMatch(/at .*runDbCommandCore/)
+  })
+})

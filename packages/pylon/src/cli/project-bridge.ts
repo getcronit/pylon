@@ -236,7 +236,13 @@ export async function spawnProjectRunner<T = unknown>(
     fsp.rm(resultFile, {force: true}).catch(() => {})
   }
   const envelope = JSON.parse(raw) as RunnerEnvelope<T>
-  if (!envelope.ok) throw new Error(envelope.error ?? 'project runner failed')
+  if (!envelope.ok) {
+    // Re-throw the child's failure as if it were ours: the message is what the
+    // user sees, and the child's stack replaces our (useless) spawn-site one.
+    const err = new Error(envelope.error ?? 'project runner failed')
+    if (envelope.stack) err.stack = envelope.stack
+    throw err
+  }
   return envelope.result as T
 }
 let runnerSeq = 0
