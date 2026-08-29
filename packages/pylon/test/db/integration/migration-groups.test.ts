@@ -134,8 +134,8 @@ describe('apps via models.app() + derived migration groups (Postgres)', () => {
 
     it('status reports nothing pending; deploy is a no-op once applied', async () => {
       expect(await statusGroups(groups, load, database)).toEqual([
-        {group: 'accounts', pendingChanges: 0, unapplied: []},
-        {group: 'billing', pendingChanges: 0, unapplied: []}
+        {group: 'accounts', pendingChanges: 0, pending: [], unapplied: []},
+        {group: 'billing', pendingChanges: 0, pending: [], unapplied: []}
       ])
       expect(await deployGroups(groups, load, database)).toEqual([
         {group: 'accounts', applied: []},

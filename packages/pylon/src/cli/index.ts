@@ -322,10 +322,14 @@ db.command('status')
         dir: options.dir
       })
       if (appsStatus) {
-        for (const a of appsStatus)
+        for (const a of appsStatus) {
           consola.info(
             `app ${a.app}: ${a.pendingChanges} uncaptured change(s), ${a.unapplied.length} unapplied`
           )
+          for (const d of (a.pending ?? []).slice(0, 25)) consola.log(`    - ${d}`)
+          if ((a.pending?.length ?? 0) > 25)
+            consola.log(`    … and ${a.pending!.length - 25} more`)
+        }
       } else {
         const pending = status!.pendingChanges.length
         consola.info(
@@ -491,6 +495,10 @@ db.command('check')
       const problems: string[] = []
       if (check!.uncaptured > 0)
         problems.push(`${check!.uncaptured} uncaptured model change(s) — run \`pylon db diff\``)
+      // Name them. A bare count can't be told apart from a mis-scoped diff, which
+      // is exactly how an apps-mode bug once read as "345 uncaptured changes".
+      const detail = check!.uncapturedDetail ?? []
+      const shown = detail.slice(0, 25)
       if (check!.tampered.length > 0)
         problems.push(`tampered migration(s): ${check!.tampered.join(', ')}`)
       const d = check!.drift
@@ -503,6 +511,9 @@ db.command('check')
       if (missing > 0) problems.push(`database missing ${missing} expected table(s)/column(s)`)
       if (problems.length > 0) {
         for (const p of problems) consola.error(p)
+        for (const d of shown) consola.log(`    - ${d}`)
+        if (detail.length > shown.length)
+          consola.log(`    … and ${detail.length - shown.length} more`)
         process.exit(1)
       }
       consola.success(

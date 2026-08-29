@@ -564,6 +564,54 @@ export function diffEntities(
   return diffSchema(physicalSchemaOf(prev), physicalSchemaOf(next))
 }
 
+/**
+ * A one-line, human-readable description of a schema change — so tooling can say
+ * WHAT is uncaptured rather than just how many things are. Reporting only a count
+ * ("345 uncaptured model change(s)") gives no way to tell a real drift from a
+ * mis-scoped diff.
+ */
+export function describeChange(change: SchemaChange): string {
+  const type = (c: ColumnSpec) => `${postgres.columnType(c)}${c.nullable ? '' : ' NOT NULL'}`
+  switch (change.kind) {
+    case 'createTable':
+      return `create table "${change.spec.table}" (${change.spec.columns.length} column(s))`
+    case 'dropTable':
+      return `drop table "${change.spec.table}" — DESTROYS DATA`
+    case 'addColumn':
+      return `add column "${change.table}"."${change.column.name}" ${type(change.column)}`
+    case 'dropColumn':
+      return `drop column "${change.table}"."${change.column.name}" — DESTROYS DATA`
+    case 'alterColumn': {
+      const {before: b, after: a} = change
+      const parts: string[] = []
+      if (postgres.columnType(b) !== postgres.columnType(a))
+        parts.push(`${postgres.columnType(b)} → ${postgres.columnType(a)}`)
+      if (b.nullable !== a.nullable) parts.push(a.nullable ? 'drop NOT NULL' : 'set NOT NULL')
+      if (b.unique !== a.unique) parts.push(a.unique ? 'add UNIQUE' : 'drop UNIQUE')
+      if (b.primaryKey !== a.primaryKey) parts.push(a.primaryKey ? 'add PRIMARY KEY' : 'drop PRIMARY KEY')
+      if (b.defaultSql !== a.defaultSql) parts.push(a.defaultSql ? `default ${a.defaultSql}` : 'drop default')
+      if (!valueEqual(b.default, a.default)) parts.push('default value')
+      if (b.check !== a.check) parts.push(a.check ? `check (${a.check})` : 'drop check')
+      if (b.generatedAs !== a.generatedAs) parts.push('generated expression')
+      return `alter column "${change.table}"."${a.name}" (${parts.join(', ') || 'no rendered difference'})`
+    }
+    case 'addForeignKey':
+      return `add foreign key "${change.fk.table}"."${change.fk.column}" → "${change.fk.refTable}"."${change.fk.refColumn}"`
+    case 'dropForeignKey':
+      return `drop foreign key "${change.fk.name}" on "${change.fk.table}"`
+    case 'addIndex':
+      return `add ${change.index.unique ? 'unique ' : ''}index "${change.index.name}" on "${change.index.table}" (${change.index.columns.join(', ')})`
+    case 'dropIndex':
+      return `drop index "${change.index.name}"`
+    case 'renameColumn':
+      return `rename column "${change.table}"."${change.from}" → "${change.to}"`
+    case 'renameConstraint':
+      return `rename constraint "${change.from}" → "${change.to}" on "${change.table}"`
+    case 'renameTable':
+      return `rename table "${change.fromTable}" → "${change.toTable}"`
+  }
+}
+
 /** Whether a change destroys data (drops a table or column). */
 export function isDestructive(change: SchemaChange): boolean {
   return change.kind === 'dropTable' || change.kind === 'dropColumn'

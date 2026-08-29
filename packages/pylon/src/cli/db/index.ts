@@ -12,7 +12,7 @@ import {promises as fs} from 'node:fs'
 import path from 'node:path'
 import {pathToFileURL} from 'node:url'
 import {rolldown} from 'rolldown'
-import {isDestructive, type SchemaChange} from '../../ir'
+import {describeChange, isDestructive, type SchemaChange} from '../../ir'
 import {spawnProjectRunner, type ProjectApp} from '../project-bridge.js'
 
 let migrationCounter = 0
@@ -131,8 +131,14 @@ export interface DbCommandResult {
   renamedApp?: {from: string; to: string; rows: number}
   /** `plan`: per-migration SQL preview. */
   plan?: Array<{name: string; statements: string[]}>
-  /** `check`: CI gate result. */
-  check?: {uncaptured: number; tampered: string[]; unapplied: string[]; drift?: SchemaDrift}
+  /** `check`: CI gate result. `uncapturedDetail` names each uncaptured change. */
+  check?: {
+    uncaptured: number
+    uncapturedDetail?: string[]
+    tampered: string[]
+    unapplied: string[]
+    drift?: SchemaDrift
+  }
   status?: {pendingChanges: unknown[]; migrations: string[]; unapplied: string[]}
   /** `status`/`check`: live-DB drift (when a database is available). */
   drift?: SchemaDrift
@@ -147,7 +153,7 @@ export interface DbCommandResult {
   /** apps mode: per-app applied migrations (`migrate`/`deploy`). */
   apps?: Array<{app: string; applied: string[]}>
   /** apps mode: per-app status (`status`). */
-  appsStatus?: Array<{app: string; pendingChanges: number; unapplied: string[]}>
+  appsStatus?: Array<{app: string; pendingChanges: number; pending?: string[]; unapplied: string[]}>
   /** `baseline`: the bootstrap result — migration written + stubs file + table count. */
   baseline?: {migration: string | null; modelsFile: string; tables: number}
 }
@@ -211,7 +217,12 @@ export async function runDbCommandCore(
         : undefined
       if (groups) {
         const res = await orm.statusGroups(groups, loadMigrationFile, db)
-        const appsStatus = res.map(r => ({app: r.group, pendingChanges: r.pendingChanges, unapplied: r.unapplied}))
+        const appsStatus = res.map(r => ({
+          app: r.group,
+          pendingChanges: r.pendingChanges,
+          pending: r.pending ?? [],
+          unapplied: r.unapplied
+        }))
         const drift = db ? await orm.schemaDrift(db) : undefined
         return {command: 'status', appsStatus, drift}
       }
@@ -258,20 +269,57 @@ export async function runDbCommandCore(
       }
     }
     case 'plan': {
-      const plan = await runner.plan(loadMigrationFile, options.down ? 'down' : 'up')
+      const direction = options.down ? 'down' : 'up'
+      // Apps mode: same scoping gap as `check` — the root dir holds no migrations,
+      // so planning it prints nothing for a project that has plenty. Plan each app.
+      if (groups) {
+        const ordered = typeof orm.orderGroups === 'function' ? orm.orderGroups(groups) : groups
+        const plan: Array<{name: string; statements: string[]}> = []
+        for (const group of ordered) {
+          const steps = await new orm.MigrationRunner({dir: group.dir!}).plan(
+            loadMigrationFile,
+            direction
+          )
+          plan.push(...steps.map(s => ({...s, name: `${group.name}:${s.name}`})))
+        }
+        return {command: 'plan', plan}
+      }
+      const plan = await runner.plan(loadMigrationFile, direction)
       return {command: 'plan', plan}
     }
     case 'check': {
       const db = process.env.DATABASE_URL
         ? orm.connect({connectionString: process.env.DATABASE_URL})
         : undefined
+      const drift = db ? await orm.schemaDrift(db) : undefined
+      // Apps mode: the migrations live in each app's own directory, so checking
+      // the ROOT runner diffs an empty history against every model in the project
+      // and reports the whole schema as uncaptured. Scope it per group, exactly
+      // as `status`/`diff`/`migrate`/`deploy` do.
+      if (groups) {
+        const res = await orm.statusGroups(groups, loadMigrationFile, db)
+        const tampered =
+          db && typeof orm.integrityErrorsGroups === 'function'
+            ? await orm.integrityErrorsGroups(groups, loadMigrationFile, db)
+            : []
+        return {
+          command: 'check',
+          check: {
+            uncaptured: res.reduce((n, r) => n + r.pendingChanges, 0),
+            uncapturedDetail: res.flatMap(r => (r.pending ?? []).map(p => `${r.group}: ${p}`)),
+            tampered,
+            unapplied: res.flatMap(r => r.unapplied.map(u => `${r.group}:${u}`)),
+            drift
+          }
+        }
+      }
       const status = await runner.status(loadMigrationFile, db)
       const tampered = db ? await runner.integrityErrors(loadMigrationFile, db) : []
-      const drift = db ? await orm.schemaDrift(db) : undefined
       return {
         command: 'check',
         check: {
           uncaptured: status.pendingChanges.length,
+          uncapturedDetail: (status.pendingChanges as SchemaChange[]).map(describeChange),
           tampered,
           unapplied: status.unapplied,
           drift

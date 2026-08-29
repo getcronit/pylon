@@ -40,6 +40,7 @@ export {
   renderChanges,
   applyChanges,
   isDestructive,
+  describeChange,
   renameCandidates,
   tableRenameCandidates
 } from './diff.js'

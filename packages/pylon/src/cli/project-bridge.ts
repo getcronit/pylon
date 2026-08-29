@@ -155,7 +155,15 @@ export interface ProjectApp {
     groups: GroupLike[],
     load: (filePath: string) => Promise<unknown>,
     db?: unknown
-  ): Promise<Array<{group: string; pendingChanges: number; unapplied: string[]}>>
+  ): Promise<Array<{group: string; pendingChanges: number; pending?: string[]; unapplied: string[]}>>
+  /** Groups in dependency order (siblings by name). */
+  orderGroups?(groups: GroupLike[]): GroupLike[]
+  /** Tampered migrations across every group, labelled `"<app>:<migration>"`. */
+  integrityErrorsGroups?(
+    groups: GroupLike[],
+    load: (filePath: string) => Promise<unknown>,
+    db?: unknown
+  ): Promise<string[]>
 }
 
 /** A declared app == a pylon-db `MigrationGroup` (`export const apps` in the

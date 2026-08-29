@@ -271,6 +271,7 @@ export {
   renameGroupApp,
   deployGroups,
   statusGroups,
+  integrityErrorsGroups,
   type MigrationGroup,
   type GroupApplyResult,
   type GroupStatus

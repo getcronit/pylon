@@ -12,7 +12,7 @@
  *     against the GLOBAL registry, so an FK into another group still emits.
  *   - `ledgerPrefix: group.name` — isolate each group's rows in the shared ledger.
  */
-import {joinTableName, type CastHint} from '../ir'
+import {describeChange, joinTableName, type CastHint} from '../ir'
 import type {Database} from './database.js'
 import {getDatabase} from './database.js'
 import {toIR} from './ir.js'
@@ -249,9 +249,25 @@ export async function deployGroups(
   return applyOrdered(groups, load, db)
 }
 
+/** Tampered migrations across every group, labelled `"<app>:<migration>"`. */
+export async function integrityErrorsGroups(
+  groups: MigrationGroup[],
+  load: MigrationLoader,
+  db: Database = getDatabase()
+): Promise<string[]> {
+  const out: string[] = []
+  for (const group of orderGroups(groups)) {
+    const bad = await groupRunner(group).integrityErrors(load, db)
+    out.push(...bad.map(n => `${group.name}:${n}`))
+  }
+  return out
+}
+
 export interface GroupStatus {
   group: string
   pendingChanges: number
+  /** One readable line per uncaptured change — so callers can report WHAT, not just how many. */
+  pending: string[]
   unapplied: string[]
 }
 
@@ -264,7 +280,12 @@ export async function statusGroups(
   const out: GroupStatus[] = []
   for (const group of orderGroups(groups)) {
     const status = await groupRunner(group).status(load, db)
-    out.push({group: group.name, pendingChanges: status.pendingChanges.length, unapplied: status.unapplied})
+    out.push({
+      group: group.name,
+      pendingChanges: status.pendingChanges.length,
+      pending: status.pendingChanges.map(describeChange),
+      unapplied: status.unapplied
+    })
   }
   return out
 }
