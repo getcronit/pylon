@@ -176,6 +176,16 @@ export function getDatabase(): Database {
   return db
 }
 
+/**
+ * True when a database is currently reachable — either an ambient bound
+ * connection (inside `Database.run()`) or a process-wide default from
+ * `connect()`. Lets callers gate ORM wiring on "is a DB connected?" without
+ * provoking `getDatabase()`'s throw.
+ */
+export function hasDatabase(): boolean {
+  return (databaseContext.getStore() ?? defaultDatabase) !== undefined
+}
+
 /** True when the ambient bound database is a transaction (for the outbox path). */
 export function inTransaction(): boolean {
   return databaseContext.getStore()?.transactional === true

@@ -6,8 +6,9 @@
  *    ambient DB connection),
  *  - wires the transactional outbox (when pylon-db is present),
  *  - starts the workers + relay IN THIS PROCESS when told to: `worker: 'in-process'`
- *    (dev), or automatically when the process is the dedicated worker (`pylon worker`
- *    sets `PYLON_ROLE=worker`). The web process leaves this off and only enqueues.
+ *    (dev), or automatically when the process runs as a worker (`PYLON_ROLE=worker` —
+ *    set by `.pylon/worker.mjs` and `pylon dev --worker`). The web process leaves this
+ *    off and only enqueues.
  *  - optionally mounts a global Bull dashboard (all registered queues), gated by
  *    an injected `authorize` (so pylon-queues stays auth-agnostic).
  */
@@ -16,7 +17,7 @@ import {setConnection} from './connection.js'
 import {createPgOutbox} from './pg-outbox.js'
 import {getOutboxDriver, runOutboxRelay, setOutboxDriver} from './outbox.js'
 import {registeredQueues, setJobRunner, startWorkers} from './queue.js'
-import {currentRole} from '@getcronit/pylon'
+import {currentRole, getRootLogger} from '@getcronit/pylon'
 
 export interface QueueDashboardOptions {
   /** Mount path. Default `/admin/queues`. */
@@ -43,9 +44,10 @@ export interface UseQueuesOptions {
   outbox?: boolean
   /**
    * Start workers + the outbox relay in THIS process. Use `'in-process'` for dev.
-   * Leave it off for production: `pylon worker` boots this same config with
-   * `PYLON_ROLE=worker`, which starts the workers regardless of this option — so the
-   * web process (no `PYLON_ROLE`) only enqueues while the worker process consumes.
+   * Leave it off for production: the worker entry (`node .pylon/worker.mjs`, or
+   * `pylon dev --worker`) boots this same config with `PYLON_ROLE=worker`, which starts
+   * the workers regardless of this option — so the web process (no `PYLON_ROLE`) only
+   * enqueues while the worker process consumes.
    */
   worker?: 'in-process' | false
   /**
@@ -69,13 +71,37 @@ export function useQueues(options: UseQueuesOptions = {}): QueuesPlugin {
       if (options.connection) setConnection(options.connection)
 
       // Optional ORM integration: bind the DB per job + wire the outbox.
+      //
+      // Guard on `hasDatabase()`, NOT just on pylon-db being importable. In the
+      // monorepo (and any app with pylon-db installed) the import always
+      // succeeds, but that says nothing about whether a database is CONNECTED.
+      // `useDatabase()` is a 'first'-strategy plugin (it calls `connect()` in
+      // setup) and `useQueues()` is 'last', so by the time this runs a DB is
+      // connected IFF the app configured one. Binding `getDatabase().run` when
+      // none is connected would make every job's runner throw "No active
+      // database" — so a queues-only app (no `useDatabase()`) must keep the
+      // default passthrough runner and skip the outbox.
       try {
-        const {getDatabase} = (await import('@getcronit/pylon/db')) as {
+        const {getDatabase, hasDatabase} = (await import(
+          '@getcronit/pylon/db'
+        )) as {
           getDatabase: () => {run: <T>(fn: () => T) => T}
+          hasDatabase: () => boolean
         }
-        // Run each job inside the ambient DB connection → Model.objects works.
-        setJobRunner((_job, fn) => getDatabase().run(fn))
-        if (options.outbox !== false) setOutboxDriver(await createPgOutbox())
+        if (hasDatabase()) {
+          // Run each job inside the ambient DB connection → Model.objects works.
+          setJobRunner((_job, fn) => getDatabase().run(fn))
+          if (options.outbox !== false) setOutboxDriver(await createPgOutbox())
+        } else if (options.outbox === true) {
+          // Outbox was EXPLICITLY requested but there is no database to back it.
+          // (Default is `undefined`/true — don't warn on the implicit default;
+          // only when the user opted in and there's nothing to persist to.)
+          getRootLogger()
+            .withTag('queues')
+            .warn(
+              'outbox: true was set but no database is connected (no useDatabase()) — the transactional outbox is disabled.'
+            )
+        }
       } catch {
         /* pylon-db not installed → queues still work, without ORM/outbox. */
       }
