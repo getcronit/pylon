@@ -44,7 +44,10 @@ export const PACKAGES = {
       // append it across the feature boundary via the self-ref — a schema fact, not an API.
       'IN_CONTEXT_SDL',
       'getResolveInfo', // low-level GraphQL resolve-info escape hatch
-      'asyncContext' // AsyncLocalStorage primitive behind getContext
+      'asyncContext', // AsyncLocalStorage primitive behind getContext
+      // Reads PYLON_ROLE for the run-role gate. Plumbing the queues battery reads across
+      // the feature boundary via the self-ref; the role is set by the worker entry, not users.
+      'currentRole'
     ]
   },
 
@@ -73,6 +76,7 @@ export const PACKAGES = {
       'migrations.isReversible',
       'migrations.MigrationRunner',
       'db.setDefaultDatabase', // wiring seam; docs teach db.connect
+      'db.hasDatabase', // "is a DB connected?" predicate; used by useQueues to gate its ORM/outbox wiring
       'db.onCommit', // low-level tx hook; docs teach signals
       'db.syncSchema', // programmatic guts of `pylon db push` (the documented UX)
       'db.dropTables', // ditto — test/prototyping teardown
@@ -139,6 +143,7 @@ export const PACKAGES = {
     mode: 'all-minus-internal',
     internal: [
       'registeredQueues', // registry read used internally
+      'startWorkers', // starts the consumers; called by the worker entry / useQueues, not users
       'setJobRunner', // test/runner seam
       'manager', // low-level manager accessor
       'getQueueDefinition',
