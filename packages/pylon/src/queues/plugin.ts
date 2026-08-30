@@ -13,7 +13,7 @@
  *    an injected `authorize` (so pylon-queues stays auth-agnostic).
  */
 import type {RedisOptions} from 'ioredis'
-import {setConnection} from './connection.js'
+import {closeConnection, setConnection} from './connection.js'
 import {createPgOutbox} from './pg-outbox.js'
 import {getOutboxDriver, runOutboxRelay, setOutboxDriver} from './outbox.js'
 import {registeredQueues, setJobRunner, startWorkers} from './queue.js'
@@ -69,6 +69,16 @@ export function useQueues(options: UseQueuesOptions = {}): QueuesPlugin {
     strategy: 'last',
     async setup(app?: unknown) {
       if (options.connection) setConnection(options.connection)
+
+      // Own our teardown (same pattern as useDatabase): drop the shared Redis
+      // connection on graceful shutdown. Without this, ioredis's reconnect timers
+      // keep firing (and, with Redis down, keep the event loop alive) after `Ctrl+C`
+      // — so the dev server never has to know queues exist. `disconnect(false)` is
+      // synchronous and returns even when Redis is unreachable, so it can't wedge exit.
+      const onShutdown = () => void closeConnection()
+      process.once('SIGINT', onShutdown)
+      process.once('SIGTERM', onShutdown)
+      process.once('SIGHUP', onShutdown)
 
       // Optional ORM integration: bind the DB per job + wire the outbox.
       //
