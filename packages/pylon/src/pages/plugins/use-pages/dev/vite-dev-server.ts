@@ -224,7 +224,15 @@ export async function createPagesDevServer(
     frontPort,
     close: async () => {
       await server.close()
-      await new Promise<void>(r => httpServer.close(() => r()))
+      // Force-drop still-open sockets before waiting on the close callback. A
+      // long-lived SSE stream (e.g. a realtime `/events` connection) or the Vite
+      // HMR WebSocket never ends on its own, so `httpServer.close()` alone would
+      // wait forever for them — that's the `Ctrl+C` hang. `closeAllConnections`
+      // (Node 18.2+) destroys them so `close()` actually resolves.
+      await new Promise<void>(r => {
+        httpServer.close(() => r())
+        httpServer.closeAllConnections?.()
+      })
     }
   }
 }

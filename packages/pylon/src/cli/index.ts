@@ -883,8 +883,18 @@ https://github.com/getcronit/pylon/issues
 
 We value your feedback—help us make Pylon even better!`)
 
+    let shuttingDown = false
     const shutdown = async () => {
+      // A second Ctrl+C while we're already tearing down means "I'm done waiting" —
+      // exit hard rather than queueing another graceful close.
+      if (shuttingDown) process.exit(1)
+      shuttingDown = true
+      // Backstop: never hang forever if a close stalls (a stuck socket, a wedged
+      // watcher). Unref'd so it doesn't itself keep the loop alive.
+      const force = setTimeout(() => process.exit(1), 4000)
+      force.unref?.()
       await dev?.close().catch(() => {})
+      clearTimeout(force)
       process.exit(0)
     }
     process.on('SIGINT', shutdown)

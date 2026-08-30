@@ -171,7 +171,15 @@ export async function startDevServer(opts: {port: number}): Promise<DevServer> {
         {fetch: app.fetch, port: opts.port},
         (info: any) => consola.success(`Pylon running at http://localhost:${info.port}`)
       )
-      closeServer = () => new Promise<void>(r => (s.close ? s.close(() => r()) : r()))
+      // Force-drop open sockets (long-lived SSE, keep-alive) so `close()` resolves
+      // promptly instead of waiting on connections that never end — see the pages
+      // dev server for the same `Ctrl+C`-hang fix.
+      closeServer = () =>
+        new Promise<void>(r => {
+          if (!s.close) return r()
+          s.close(() => r())
+          s.closeAllConnections?.()
+        })
     }
 
     return {
