@@ -1,6 +1,5 @@
 import {useCallback, useEffect, useRef, useState, useSyncExternalStore} from 'react'
 import {opKey, type TypedDoc} from '../runtime/doc'
-import {buildArgAliasMap, type ArgAliasMap} from '../runtime/wrap'
 import {usePylonQueryClient} from './context'
 
 export interface PageInfo {
@@ -78,24 +77,22 @@ function getAtPath(obj: any, path: string[]): any {
  * the WRAPPED view so normalized refs are dereferenced (an intermediate field
  * with an `id` — e.g. `post` in `post.comments` — is a ref in the raw root).
  *
- * `argAliasMap` routes same-field/different-args reads (e.g. a node reading
- * `timeline({query:"kind:EMAIL"}).totalCount` AND `timeline({query:"kind:NOTE"})`)
- * to their aliased response slots. WITHOUT it, `wrapData`'s field router has no
- * aliases and both callable reads silently collapse to the base selection — every
- * row would report the first branch's count. It's the SAME plumbing `useQueryDoc`
- * does for the non-paginated path; the paginated path used to omit it.
+ * Wrapping via `client.wrapDoc` (not raw `wrapData`) derives the arg-alias
+ * routing from `doc.argAliases` + the base variables, so a node reading the same
+ * field with different args (`timeline({query:"kind:EMAIL"})` AND
+ * `timeline({query:"kind:NOTE"})`) resolves each to its own slot. `getVariables`
+ * returns the base vars — the alias-distinguishing vars (v0/v1) live there and
+ * are the same for every window, so cursor/first/after don't affect them.
  */
 function readConnection(
   client: any,
+  doc: any,
   data: any,
   path: string[],
-  argAliasMap?: ArgAliasMap
+  getVariables: () => Record<string, unknown> | undefined
 ): any {
   if (data == null) return undefined
-  return getAtPath(
-    client.wrapData(() => data, undefined, undefined, undefined, argAliasMap),
-    path
-  )
+  return getAtPath(client.wrapDoc(doc, () => data, getVariables), path)
 }
 
 /**
@@ -135,13 +132,11 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
   const [startIndex, setStartIndex] = useState(0)
   const [isLoadingMore, setLoadingMore] = useState(false)
   const baseRef = useRef<Record<string, unknown>>({})
-  // Arg-alias routing for same-field/different-args reads on the wrapped tree
-  // (see `readConnection`). Built each render from `doc.argAliases` + the base
-  // vars — the alias-distinguishing vars (v0/v1) live in the base and are merged
-  // into every window, so cursor/first/after don't affect them and one map serves
-  // all windows. Held in a ref so the loader callbacks read the latest without it
-  // entering their dependency arrays.
-  const argAliasMapRef = useRef<ArgAliasMap | undefined>(undefined)
+  // Stable getter for the current base vars — `readConnection`/`wrapDoc` build the
+  // arg-alias map from these lazily. `baseRef` is stable and always holds the
+  // latest base, so one getter serves the render loop and every loader callback
+  // without entering their dependency arrays.
+  const getBase = useCallback(() => baseRef.current, [])
 
   const readBase = (): Record<string, unknown> => {
     const v = (variablesThunk ? variablesThunk() : {}) as Record<string, unknown>
@@ -178,7 +173,7 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
       const eff = liveWindows()
       const tail = eff[eff.length - 1]
       const tailData = client.store.get(opKey(doc, tail.vars))?.data
-      const endCursor = readConnection(client, tailData, conn.path, argAliasMapRef.current)
+      const endCursor = readConnection(client, doc, tailData, conn.path, getBase)
         ?.pageInfo?.endCursor
       if (endCursor == null || !conn.after) return
       const vars = {
@@ -201,7 +196,7 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
     async (n?: number) => {
       const eff = liveWindows()
       const headData = client.store.get(opKey(doc, eff[0].vars))?.data
-      const startCursor = readConnection(client, headData, conn.path, argAliasMapRef.current)
+      const startCursor = readConnection(client, doc, headData, conn.path, getBase)
         ?.pageInfo?.startCursor
       if (startCursor == null || !conn.before) return
       const vars = {
@@ -216,9 +211,10 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
         const added =
           readConnection(
             client,
+            doc,
             client.store.get(opKey(doc, vars))?.data,
             conn.path,
-            argAliasMapRef.current
+            getBase
           )?.edges?.length ?? 0
         setWindows([{vars}, ...eff])
         setStartIndex(s => Math.max(0, s - added))
@@ -272,7 +268,7 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
       try {
         await client.fetch(doc, vars as TVars)
         const data = client.store.get(opKey(doc, vars))?.data
-        const c = readConnection(client, data, conn.path, argAliasMapRef.current)
+        const c = readConnection(client, doc, data, conn.path, getBase)
         // If the id isn't in the filtered set the server falls back to a plain first
         // page (which wouldn't contain it) — signal that as `null` so the caller can
         // decide (e.g. widen the filter), and DON'T clobber the current window.
@@ -306,12 +302,6 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
   // fall back to a single fresh window. Done during render (bounded by the sig
   // ref) so this render already uses the reset window for Suspense + merge.
   const base = readBase()
-  // Rebuild the arg-alias map from the resolved base vars (cheap; stable unless the
-  // filter changes) and publish it to the ref the loaders read.
-  const argAliasMap = doc.argAliases
-    ? buildArgAliasMap(doc.argAliases, base as Record<string, unknown>)
-    : undefined
-  argAliasMapRef.current = argAliasMap
   const baseSig = JSON.stringify(base)
   const sigRef = useRef(baseSig)
   let resetting = false
@@ -342,7 +332,7 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
   effWindows.forEach((w, idx) => {
     const data =
       idx === 0 ? headRead.data : client.store.get(opKey(doc, w.vars))?.data
-    const connWrapped = readConnection(client, data, conn.path, argAliasMap)
+    const connWrapped = readConnection(client, doc, data, conn.path, getBase)
     if (connWrapped == null) return
     if (idx === 0) {
       firstConn = connWrapped

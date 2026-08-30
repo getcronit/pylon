@@ -44,7 +44,10 @@ async function run(
   // client.fetch always fetches (no cache read) and normalizes the result into
   // the entity table, so a mutation updates every useData reader.
   const data = await registered.fetch(docOrSelector, variables as any)
-  return selector(registered.wrapData(() => data))
+  // wrapDoc (not raw wrapData) so a selector reading one field with different args
+  // at multiple call sites routes each to its own slot — same arg-alias seam the
+  // hook read paths use.
+  return selector(registered.wrapDoc(docOrSelector, () => data, () => variables))
 }
 
 export interface Operation {

@@ -1,5 +1,5 @@
 import type {SchemaDescriptor} from './descriptor'
-import {opKey, type TypedDoc} from './doc'
+import {opKey, type DocInit, type TypedDoc} from './doc'
 import {
   defaultFetcher,
   type FetcherOptions,
@@ -9,7 +9,7 @@ import {
 import {isRef, normalize} from './normalize'
 import {isSatisfied} from './satisfied'
 import {Store} from './store'
-import {wrapResult, type ArgAliasMapSource} from './wrap'
+import {buildArgAliasMap, wrapResult, type ArgAliasMapSource} from './wrap'
 
 /** Empty descriptor — every field falls back to raw values (no wrapping). */
 const EMPTY_DESCRIPTOR: SchemaDescriptor = {query: 'Query', types: {}}
@@ -302,6 +302,34 @@ export class PylonQueryClient {
       debugLabel,
       argAliasMap
     )
+  }
+
+  /**
+   * Wrap an operation root for component reads, deriving the arg-alias routing
+   * from the document's `argAliases` and its resolved variables.
+   *
+   * EVERY read path (single-op, paginated, imperative `op`) must wrap through
+   * this, not raw `wrapData` — the map-building and the wrapping are one
+   * invariant, and splitting them across call sites is exactly how the paginated
+   * path silently regressed (both `timeline({query:…})` reads collapsed to the
+   * base slot). Centralizing here makes routing impossible to forget: a caller
+   * that has the doc gets it for free.
+   *
+   * `getVariables` is a thunk so the (possibly TDZ-sensitive, lazily-evaluated)
+   * variables are read at field-access time, and the map is built lazily — only
+   * if a field carrying `argAliases` is actually read.
+   */
+  wrapDoc<T = any>(
+    doc: Pick<DocInit, 'argAliases' | 'name'>,
+    getRoot: () => unknown,
+    getVariables?: () => Record<string, unknown> | undefined,
+    rootExtras?: Record<string, unknown>
+  ): T {
+    const {argAliases} = doc
+    const argAliasMap: ArgAliasMapSource | undefined = argAliases
+      ? () => buildArgAliasMap(argAliases, getVariables?.())
+      : undefined
+    return this.wrapData<T>(getRoot, rootExtras, undefined, doc.name, argAliasMap)
   }
 
   /**
