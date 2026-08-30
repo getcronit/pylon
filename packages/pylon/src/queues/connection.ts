@@ -16,6 +16,17 @@ const WARN_INTERVAL_MS = 10_000
  * single throttled, actionable line instead. The connection keeps retrying in the
  * background, so queues recover automatically once Redis is reachable again.
  */
+/**
+ * Attach an `error` handler to a connection WE create. Without ANY `error`
+ * listener, ioredis's `silentEmit` logs every failed reconnect itself as
+ * `[ioredis] Unhandled error event: … ECONNREFUSED` — a flood when Redis is down.
+ * The handler collapses connection failures to one throttled, actionable line.
+ *
+ * Only connections we construct need this: BullMQ attaches its own handler to the
+ * blocking clients it derives internally (Worker/QueueEvents), so we cover the
+ * shared connection (here) and the QueueEvents duplicate we hand it (see
+ * `duplicateConnection`) — not BullMQ's internals.
+ */
 function attachErrorHandler(conn: IORedis): IORedis {
   conn.on('error', err => {
     const code = (err as {code?: string})?.code
@@ -66,6 +77,16 @@ export function setConnection(conn: IORedis | RedisOptions | string): void {
       : conn instanceof IORedis
         ? attachErrorHandler(conn)
         : attachErrorHandler(new IORedis({...conn, maxRetriesPerRequest: null}))
+}
+
+/**
+ * A separate blocking connection off the shared one, WITH the error handler
+ * attached. BullMQ needs an isolated connection for blocking reads (QueueEvents);
+ * a bare `getConnection().duplicate()` is a fresh ioredis instance with no
+ * listeners, so it floods `[ioredis] Unhandled error event` when Redis is down.
+ */
+export function duplicateConnection(): IORedis {
+  return attachErrorHandler(getConnection().duplicate())
 }
 
 export async function closeConnection(): Promise<void> {

@@ -5,7 +5,7 @@
  * registers into the worker registry); `cron` is the functional convenience for scheduled jobs.
  */
 import {Queue as BullQueue, QueueEvents, Worker, type Job, type JobsOptions} from 'bullmq'
-import {getConnection} from './connection.js'
+import {duplicateConnection, getConnection} from './connection.js'
 import {getOutboxDriver} from './outbox.js'
 import {getRootLogger, jobLogLevel, renderLine, runWithLogger} from '@getcronit/pylon'
 
@@ -107,8 +107,11 @@ export class QueueDefinition<T, R = void> {
    */
   private get queueEvents(): QueueEvents {
     if (!this._events) {
+      // `duplicateConnection()` (not a bare `.duplicate()`) so this blocking
+      // connection carries the shared error handler — otherwise a down Redis
+      // floods `[ioredis] Unhandled error event` from this un-listened instance.
       this._events = new QueueEvents(this.name, {
-        connection: getConnection().duplicate() as any
+        connection: duplicateConnection() as any
       })
     }
     return this._events
