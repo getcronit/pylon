@@ -98,24 +98,41 @@ export function appGroups(): MigrationGroup[] {
 }
 
 /**
- * Topologically order groups: every group comes after the groups it depends on.
- * Deterministic (siblings by name). Throws on a cycle or an unknown dependency.
+ * Best-effort topological order of groups: every group comes after the groups it
+ * depends on where the graph allows it. Deterministic (siblings by name). Throws on
+ * an unknown dependency; TOLERATES a cycle.
+ *
+ * Whole-group acyclicity is deliberately NOT required. A legitimate mutual cross-app
+ * FK (e.g. `tickets.TicketEvent.relatedTaskId → tasks` AND
+ * `tasks.TaskEvent.relatedTicketId → tickets`) makes the two GROUPS mutually
+ * dependent, but that is still applyable: `MigrationRunner.applyGroupsInterleaved`
+ * orders the individual MIGRATIONS by the tables they create vs. reference, so as
+ * long as the two FK directions live in different migrations (the normal case — one
+ * side was added later) there is a valid migration order even though the group graph
+ * has a cycle. A genuinely unresolvable ordering (two migrations that each need a
+ * table the other creates) is caught there with a precise error.
+ *
+ * So this function only needs to produce a deterministic, reasonable order for
+ * building runners and reporting — it must not reject an applyable schema. On a back
+ * edge we simply skip it (break the cycle) instead of throwing.
  */
 export function orderGroups(groups: MigrationGroup[]): MigrationGroup[] {
   const byName = new Map(groups.map(g => [g.name, g]))
   const out: MigrationGroup[] = []
-  const visiting = new Set<string>()
+  const onStack = new Set<string>()
   const visited = new Set<string>()
   const visit = (g: MigrationGroup): void => {
     if (visited.has(g.name)) return
-    if (visiting.has(g.name)) throw new Error(`Migration-group dependency cycle at "${g.name}".`)
-    visiting.add(g.name)
+    // Back edge → part of a cycle. Skip it: the interleaved apply resolves the real
+    // ordering at migration granularity (see the doc comment above).
+    if (onStack.has(g.name)) return
+    onStack.add(g.name)
     for (const dep of g.dependencies ?? []) {
       const d = byName.get(dep)
       if (!d) throw new Error(`Group "${g.name}" depends on unknown group "${dep}".`)
       visit(d)
     }
-    visiting.delete(g.name)
+    onStack.delete(g.name)
     visited.add(g.name)
     out.push(g)
   }

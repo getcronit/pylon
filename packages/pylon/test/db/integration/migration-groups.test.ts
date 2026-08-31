@@ -22,6 +22,7 @@ import {
   generateGroup,
   migrateGroups,
   models,
+  orderGroups,
   setDefaultDatabase,
   statusGroups,
   type MigrationGroup,
@@ -61,6 +62,23 @@ describe('apps via models.app() + derived migration groups (Postgres)', () => {
     expect(byName.billing.models).toEqual([Invoice])
     expect(byName.accounts.dependencies).toEqual([]) // no FK out
     expect(byName.billing.dependencies).toEqual(['accounts']) // inferred from FK
+  })
+
+  it('orders a DAG, and TOLERATES a mutual cross-app cycle (no throw)', () => {
+    // A legit mutual cross-app FK (e.g. tickets↔tasks) makes the groups mutually
+    // dependent. That must NOT throw here — the interleaved apply resolves the real
+    // order at migration granularity; this only needs a deterministic best-effort.
+    const a: MigrationGroup = {name: 'a', dependencies: ['b']}
+    const b: MigrationGroup = {name: 'b', dependencies: ['a']}
+    const c: MigrationGroup = {name: 'c', dependencies: ['a']}
+    const ordered = orderGroups([c, a, b])
+    expect(ordered.map(g => g.name).sort()).toEqual(['a', 'b', 'c'])
+    // the acyclic edge is still honoured: c comes after its dep a
+    expect(ordered.findIndex(g => g.name === 'c')).toBeGreaterThan(
+      ordered.findIndex(g => g.name === 'a')
+    )
+    // an UNKNOWN dependency is still a hard error
+    expect(() => orderGroups([{name: 'x', dependencies: ['missing']}])).toThrow(/unknown group/)
   })
 
   describe.skipIf(!runDb)('against the database', () => {
