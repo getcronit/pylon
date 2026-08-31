@@ -75,6 +75,17 @@ interface Ctx {
   rootType: string
   /** `Type.field` → arg→alias routing for same-field/different-args reads (may be a thunk). */
   argAliasMap?: ArgAliasMapSource
+  /**
+   * Read-path identity cache: `rawEntityObject → wrapped proxy`, so an entity the
+   * store left untouched (structural sharing keeps its object reference) hands back
+   * the SAME proxy across renders — making a `feed.nodes[i]` reference stable and a
+   * `React.memo`'d row able to skip. Supplied as a thunk (resolved lazily at first
+   * object read, past any TDZ — the variables it may need to key the per-operation
+   * bucket aren't safe to touch at the top of render). `null`/absent ⇒ no caching.
+   */
+  getIdentityCache?: () => WeakMap<object, unknown> | undefined
+  /** Memoized result of `getIdentityCache` for this wrap (per-render). */
+  identityCache?: WeakMap<object, unknown> | null
 }
 
 const IDENTITY: Deref = value => value
@@ -86,14 +97,16 @@ export function wrapResult<T = any>(
   deref: Deref = IDENTITY,
   rootTypeName: string = descriptor.query,
   debugLabel?: string,
-  argAliasMap?: ArgAliasMapSource
+  argAliasMap?: ArgAliasMapSource,
+  getIdentityCache?: () => WeakMap<object, unknown> | undefined
 ): T {
   const ctx: Ctx = {
     descriptor,
     deref,
     debugLabel,
     rootType: rootTypeName,
-    argAliasMap
+    argAliasMap,
+    getIdentityCache
   }
   return buildObject(
     () => ctx.deref(getRoot()),
@@ -210,7 +223,30 @@ function buildValue(getValue: () => any, fd: FieldDesc, ctx: Ctx): unknown {
   // an operation whose selection isn't fully in the store, so a selected non-null object is
   // present by the time it is read. See runtime/satisfied.ts.
   if (v == null) return v
+
+  // Identity cache: key the wrapped proxy on the RESOLVED raw object `v`. The store's
+  // structural sharing keeps an untouched entity's `v` stable across renders, so the same
+  // `v` → the same proxy → a stable `feed.nodes[i]` and a `React.memo`'d row can skip. The
+  // proxy is frozen to this exact `v` (`() => v`); a changed entity is a new object (cache
+  // miss → new proxy), and liveness comes from the parent re-dereffing to that new `v`.
+  const cache = resolveIdentityCache(ctx)
+  if (cache) {
+    const hit = cache.get(v)
+    if (hit !== undefined) return hit
+    const proxy = buildObject(() => v, fd.type, ctx)
+    cache.set(v, proxy)
+    return proxy
+  }
   return buildObject(getValue, fd.type, ctx)
+}
+
+/** Lazily resolve (and memoize per-wrap) the identity cache — its per-operation
+ *  bucket may key on variables that are only TDZ-safe to read at first field access. */
+function resolveIdentityCache(ctx: Ctx): WeakMap<object, unknown> | undefined {
+  if (ctx.identityCache !== undefined) return ctx.identityCache ?? undefined
+  const cache = ctx.getIdentityCache?.() ?? null
+  ctx.identityCache = cache
+  return cache ?? undefined
 }
 
 function buildObject(

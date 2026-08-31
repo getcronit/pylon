@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {mergeEntityFields} from '@/query/runtime/store'
+import {mergeEntityFields, Store} from '@/query/runtime/store'
 
 describe('mergeEntityFields (non-destructive entity merge)', () => {
   it('keeps fields absent from the incoming write', () => {
@@ -61,5 +61,53 @@ describe('mergeEntityFields (non-destructive entity merge)', () => {
 
   it('returns incoming when there is no existing entity', () => {
     expect(mergeEntityFields(undefined, {a: 1})).toEqual({a: 1})
+  })
+})
+
+// Structural sharing: a merge that changes nothing must return the SAME object
+// (and keep unchanged nested arrays/objects/refs by identity). This is the store
+// half of read-path identity — an entity untouched by a refetch keeps its object
+// reference, which is what lets a wrapped node stay `===` across renders (and a
+// `React.memo`'d feed row skip). Without it, every refetch mints fresh objects for
+// every entity and identity is impossible upstream.
+describe('mergeEntityFields structural sharing', () => {
+  it('returns the SAME object when the write changes nothing', () => {
+    const existing = {__typename: 'T', id: '1', a: 1, b: 'two'}
+    expect(mergeEntityFields(existing, {a: 1, b: 'two'})).toBe(existing)
+  })
+
+  it('keeps an unchanged ref field by identity (a fresh {__ref} equal by target)', () => {
+    const existing = {id: '1', user: {__ref: 'User:9'}}
+    // Incoming carries a DIFFERENT {__ref} object with the same target — a refetch
+    // always re-materializes refs. Value-equal ⇒ the entity must not change identity.
+    expect(mergeEntityFields(existing, {user: {__ref: 'User:9'}})).toBe(existing)
+  })
+
+  it('keeps an unchanged ref-list by identity (array and entity both stable)', () => {
+    const existing = {id: '1', nodes: [{__ref: 'A:1'}, {__ref: 'A:2'}]}
+    const merged = mergeEntityFields(existing, {nodes: [{__ref: 'A:1'}, {__ref: 'A:2'}]})
+    expect(merged).toBe(existing)
+    expect(merged.nodes).toBe(existing.nodes)
+  })
+
+  it('shares the unchanged parts and replaces only what changed', () => {
+    const existing = {id: '1', a: 1, sub: {__typename: 'S', x: 1}}
+    const merged = mergeEntityFields(existing, {a: 2, sub: {__typename: 'S', x: 1}})
+    expect(merged).not.toBe(existing) // `a` changed → new top-level object
+    expect(merged.a).toBe(2)
+    expect(merged.sub).toBe(existing.sub) // `sub` unchanged → shared by identity
+  })
+
+  it('Store.mergeEntities keeps an unchanged entity stable across an identical refetch', () => {
+    const store = new Store()
+    store.mergeEntities({'T:1': {__typename: 'T', id: '1', title: 'Hi', author: {__ref: 'User:2'}}})
+    const first = store.getEntity('T:1')
+    // Identical refetch (the use-live-events case): same data, fresh objects on the wire.
+    store.mergeEntities({'T:1': {__typename: 'T', id: '1', title: 'Hi', author: {__ref: 'User:2'}}})
+    expect(store.getEntity('T:1')).toBe(first)
+    // A real change still produces a new object.
+    store.mergeEntities({'T:1': {__typename: 'T', id: '1', title: 'Bye', author: {__ref: 'User:2'}}})
+    expect(store.getEntity('T:1')).not.toBe(first)
+    expect(store.getEntity('T:1')!.title).toBe('Bye')
   })
 })

@@ -172,4 +172,56 @@ describe('wrapResult', () => {
     const data = wrap(raw)
     expect(JSON.parse(JSON.stringify(data))).toEqual(raw)
   })
+
+  // Reference stability — the question behind `React.memo` on a virtualized feed row.
+  // A memo comparator like `(a, b) => a.item === b.item` can only ever SKIP a re-render
+  // if the wrapper hands back the SAME node object across renders.
+  describe('reference identity — React.memo viability', () => {
+    // Without an identity cache the wrap layer is a pure projection and mints a fresh
+    // Proxy at every value boundary — the baseline that made memo impossible.
+    it('mints a fresh proxy on each access when no identity cache is supplied', () => {
+      const data = wrap({me: {__typename: 'User', friends: [{__typename: 'User', name: 'Ada'}]}})
+      expect(data.me.friends[0]).not.toBe(data.me.friends[0])
+      expect(data.me).not.toBe(data.me)
+    })
+
+    // With a per-operation identity cache, the same raw node hands back the SAME proxy —
+    // both within a wrap and across wraps (consecutive renders read the same store data).
+    const wrapCached = (data: any, cache: WeakMap<object, unknown>) =>
+      wrapResult<any>(() => data, descriptor, undefined, undefined, undefined, undefined, undefined, () => cache)
+
+    it('returns the SAME proxy for one node across repeated reads in a wrap', () => {
+      const cache = new WeakMap<object, unknown>()
+      const data = wrapCached({me: {__typename: 'User', friends: [{__typename: 'User', name: 'Ada'}]}}, cache)
+      const first = data.me.friends[0]
+      const second = data.me.friends[0]
+      expect(first.name).toBe('Ada')
+      expect(first).toBe(second)
+      expect(data.me).toBe(data.me)
+    })
+
+    it('returns the SAME proxy for an unchanged raw node across re-wraps (renders)', () => {
+      // The store keeps an untouched entity's object reference (structural sharing), so
+      // two renders read the SAME raw node object → the shared cache hands back one proxy.
+      const cache = new WeakMap<object, unknown>()
+      const root = {me: {__typename: 'User', friends: [{__typename: 'User', name: 'Ada'}]}}
+      const render1 = wrapCached(root, cache)
+      const render2 = wrapCached(root, cache)
+      expect(render1.me.friends[0]).toBe(render2.me.friends[0])
+      expect(render1.me).toBe(render2.me)
+    })
+
+    it('gives a DIFFERENT proxy once the raw node is replaced (a real change)', () => {
+      // A changed entity is a new raw object (immutable store write) → cache miss → new
+      // proxy, so a `React.memo` correctly re-renders exactly the rows that changed.
+      const cache = new WeakMap<object, unknown>()
+      const v1 = {__typename: 'User', name: 'Ada'}
+      const v2 = {__typename: 'User', name: 'Grace'}
+      const a = wrapCached({me: v1}, cache).me
+      const b = wrapCached({me: v2}, cache).me
+      expect(a).not.toBe(b)
+      expect(a.name).toBe('Ada')
+      expect(b.name).toBe('Grace')
+    })
+  })
 })

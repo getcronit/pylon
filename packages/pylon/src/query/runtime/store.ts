@@ -63,20 +63,50 @@ export function mergeEntityFields(
   incoming: Record<string, unknown>
 ): Record<string, unknown> {
   if (!existing) return incoming
-  const out: Record<string, unknown> = {...existing}
+  // Structural sharing: copy `existing` only once we hit a field that actually
+  // changes. A refetch that returns identical data (the use-live-events case) then
+  // returns the SAME object — so an untouched entity keeps its reference across
+  // renders, which is what lets a wrapped node stay `===` and a memo'd row skip.
+  let out = existing
   for (const k of Object.keys(incoming)) {
     const b = incoming[k]
     if (b === undefined) continue // never let an undefined erase a loaded field
-    const a = out[k]
-    if (isInlineObject(a) && isInlineObject(b)) {
-      out[k] = mergeEntityFields(a, b)
-    } else if (isUnderSelectedList(a, b)) {
-      // keep `a` (the ref-bearing list); `b` is an under-selection artifact
-    } else {
-      out[k] = b
+    const a = existing[k]
+    const merged = mergeValue(a, b)
+    if (merged !== a || !(k in existing)) {
+      if (out === existing) out = {...existing}
+      out[k] = merged
     }
   }
   return out
+}
+
+/**
+ * Merge one field value, preserving `existing`'s identity when the incoming value
+ * is equal. Refs compare by target (`__ref`), inline objects recurse (sharing their
+ * unchanged sub-tree), lists recurse element-wise and keep the old array when every
+ * element is unchanged. The merge SEMANTICS are unchanged from the field-by-field
+ * version above (incoming scalars/arrays/refs still win a real change, under-selected
+ * lists are still rejected) — only identity is now preserved on no-ops.
+ */
+function mergeValue(a: unknown, b: unknown): unknown {
+  if (a === b) return a
+  if (isRef(a) && isRef(b)) return a.__ref === (b as {__ref: string}).__ref ? a : b
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (isUnderSelectedList(a, b)) return a // narrower-op artifact — keep the ref list
+    if (a.length !== b.length) return b // add/remove/reorder → incoming wins wholesale
+    let out = a
+    for (let i = 0; i < b.length; i++) {
+      const merged = mergeValue(a[i], b[i])
+      if (merged !== a[i]) {
+        if (out === a) out = a.slice()
+        out[i] = merged
+      }
+    }
+    return out
+  }
+  if (isInlineObject(a) && isInlineObject(b)) return mergeEntityFields(a, b)
+  return b
 }
 
 /**

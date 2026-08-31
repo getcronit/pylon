@@ -14,6 +14,9 @@ import {buildArgAliasMap, wrapResult, type ArgAliasMapSource} from './wrap'
 /** Empty descriptor — every field falls back to raw values (no wrapping). */
 const EMPTY_DESCRIPTOR: SchemaDescriptor = {query: 'Query', types: {}}
 
+/** Max live read-path identity buckets (one per base operation key), LRU-evicted. */
+const IDENTITY_BUCKET_LIMIT = 64
+
 export type Fetcher = <TData = unknown>(
   request: GraphQLRequest,
   options: FetcherOptions
@@ -64,6 +67,36 @@ export class PylonQueryClient {
    * selected field), we serve the data we have instead of suspending forever.
    */
   private readonly completenessRefetch = new Set<string>()
+
+  /**
+   * Read-path identity caches, one `WeakMap<rawEntity, proxy>` per operation key
+   * (doc + variables). Bucketing per operation keeps proxy identity within a single
+   * operation's renders — where its arg-alias routing is value-stable — and never
+   * lets two operations with different variables share a proxy (which could misroute
+   * a callable field). Entries are WeakMap-held, so an evicted entity's proxy is GC'd;
+   * the outer Map is bounded by the number of live operation keys.
+   */
+  private readonly identityCaches = new Map<string, WeakMap<object, unknown>>()
+
+  private identityBucket(key: string): WeakMap<object, unknown> {
+    let bucket = this.identityCaches.get(key)
+    if (bucket) {
+      // Touch for LRU recency (re-insert moves it to the end of the Map order).
+      this.identityCaches.delete(key)
+      this.identityCaches.set(key, bucket)
+      return bucket
+    }
+    bucket = new WeakMap<object, unknown>()
+    this.identityCaches.set(key, bucket)
+    // Bound the number of live operation buckets (each is a tiny WeakMap; entries
+    // GC with their entities). Evict the least-recently-used base op — its next
+    // read just rebuilds proxies, no correctness impact.
+    if (this.identityCaches.size > IDENTITY_BUCKET_LIMIT) {
+      const oldest = this.identityCaches.keys().next().value
+      if (oldest !== undefined) this.identityCaches.delete(oldest)
+    }
+    return bucket
+  }
 
   constructor(opts: PylonQueryClientOptions = {}) {
     this.locale = opts.locale
@@ -291,7 +324,8 @@ export class PylonQueryClient {
     rootExtras?: Record<string, unknown>,
     rootTypeName?: string,
     debugLabel?: string,
-    argAliasMap?: ArgAliasMapSource
+    argAliasMap?: ArgAliasMapSource,
+    getIdentityCache?: () => WeakMap<object, unknown> | undefined
   ): T {
     return wrapResult<T>(
       getRoot,
@@ -300,7 +334,8 @@ export class PylonQueryClient {
       this.deref,
       rootTypeName ?? this.descriptor.query,
       debugLabel,
-      argAliasMap
+      argAliasMap,
+      getIdentityCache
     )
   }
 
@@ -320,7 +355,7 @@ export class PylonQueryClient {
    * if a field carrying `argAliases` is actually read.
    */
   wrapDoc<T = any>(
-    doc: Pick<DocInit, 'argAliases' | 'name'>,
+    doc: Pick<DocInit, 'argAliases' | 'name' | 'id'>,
     getRoot: () => unknown,
     getVariables?: () => Record<string, unknown> | undefined,
     rootExtras?: Record<string, unknown>
@@ -329,7 +364,15 @@ export class PylonQueryClient {
     const argAliasMap: ArgAliasMapSource | undefined = argAliases
       ? () => buildArgAliasMap(argAliases, getVariables?.())
       : undefined
-    return this.wrapData<T>(getRoot, rootExtras, undefined, doc.name, argAliasMap)
+    // Per-operation identity bucket. Keyed by opKey (doc + variables) so proxy
+    // identity is scoped to one operation instance — resolved lazily (inside the
+    // wrap, at first object read) because the variables aren't TDZ-safe to touch
+    // at the top of render. `doc.id` may be absent for a raw/imperative doc; then
+    // there is no stable key, so caching is skipped (getRoot-only reads).
+    const getIdentityCache = doc.id
+      ? () => this.identityBucket(opKey(doc as Pick<DocInit, 'id'>, getVariables?.()))
+      : undefined
+    return this.wrapData<T>(getRoot, rootExtras, undefined, doc.name, argAliasMap, getIdentityCache)
   }
 
   /**

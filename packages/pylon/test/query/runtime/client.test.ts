@@ -1,4 +1,6 @@
+import {buildSchema} from 'graphql'
 import {describe, expect, it, vi} from 'vitest'
+import {describeSchema} from '@/query/build/describe-schema'
 import {createPylonQueryClient} from '@/query/runtime/client'
 import {doc, opKey} from '@/query/runtime/doc'
 
@@ -177,5 +179,67 @@ describe('PylonQueryClient', () => {
     const read = client.ensure(M)
     expect('error' in read).toBe(false)
     expect((read as any).data.tasks).toEqual({id: 't1'})
+  })
+
+  // ── read-path identity (React.memo viability) ────────────────────────────────
+  // End-to-end proof that the store's structural sharing + the wrap layer's identity
+  // cache make an UNCHANGED node keep its wrapped-proxy reference across a refetch —
+  // the property a virtualized feed needs so a `React.memo`'d row can skip. A CHANGED
+  // node must still get a fresh proxy so exactly the changed row re-renders.
+  describe('read-path identity across refetches', () => {
+    const schema = buildSchema(/* GraphQL */ `
+      type Query {
+        feed: Feed!
+      }
+      type Feed {
+        nodes: [Node!]!
+      }
+      type Node {
+        id: ID!
+        title: String
+      }
+    `)
+    const descriptor = describeSchema(schema)
+    const FEED = doc<{feed: {nodes: {id: string; title: string}[]}}>({
+      id: 'q_feed',
+      body: 'query Feed { feed { nodes { __typename id title } } }',
+      name: 'Feed'
+    })
+    const feedData = (t0: string, t1: string) => ({
+      feed: {
+        nodes: [
+          {__typename: 'Node', id: '1', title: t0},
+          {__typename: 'Node', id: '2', title: t1}
+        ]
+      }
+    })
+    const readNodes = (client: any) =>
+      client.wrapDoc(FEED, () => client.ensure(FEED).data).feed.nodes as any[]
+
+    it('keeps a node proxy stable across an identical refetch, and replaces only the changed one', async () => {
+      const data = feedData('Alpha', 'Beta')
+      const fetcher = vi.fn(async () => ({data: structuredClone(data)}))
+      const client = createPylonQueryClient({fetcher: fetcher as any, descriptor})
+      await client.fetch(FEED)
+
+      const before = readNodes(client)
+      const [n1, n2] = before
+      expect(n1.title).toBe('Alpha')
+
+      // Identical refetch (the use-live-events / dataRefetch case): fresh objects on
+      // the wire, same values. Both node proxies must survive by identity.
+      await client.refetch(FEED)
+      const afterSame = readNodes(client)
+      expect(afterSame[0]).toBe(n1)
+      expect(afterSame[1]).toBe(n2)
+
+      // Change ONE node → only that proxy is replaced; the untouched node stays `===`.
+      fetcher.mockImplementation(async () => ({data: feedData('Alpha', 'Beta!')}))
+      await client.refetch(FEED)
+      const afterChange = readNodes(client)
+      expect(afterChange[0]).toBe(n1) // node 1 untouched → same proxy → memo skips
+      expect(afterChange[1]).not.toBe(n2) // node 2 changed → fresh proxy → row re-renders
+      expect(afterChange[1].title).toBe('Beta!')
+    })
   })
 })
