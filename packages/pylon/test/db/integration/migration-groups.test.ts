@@ -20,14 +20,18 @@ import {
   db,
   deployGroups,
   generateGroup,
+  getModelDefinitionOrThrow,
   migrateGroups,
+  MigrationRunner,
   models,
   orderGroups,
   setDefaultDatabase,
   statusGroups,
+  toIR,
   type MigrationGroup,
   type MigrationLoader,
-  type Relation
+  type Relation,
+  type Snapshot
 } from '@/db/index'
 
 class Account extends models.Model {
@@ -47,6 +51,31 @@ class Invoice extends models.Model {
   declare account: Relation<Account>
 }
 new Pylon({name: 'billing', db: {models: [Invoice]}})
+
+// A MUTUAL cross-app FK (the tickets↔tasks shape from the cycle-tolerance fix):
+// `tickets.Ticket.relatedTaskId → tasks.Task` AND `tasks.Task.relatedTicketId →
+// tickets.Ticket`. Each side FKs the other's table ⇒ the two GROUPS depend on each
+// other (a cycle in the group graph). Both FK columns are nullable so a row on
+// either side can exist before its counterpart.
+class Ticket extends models.Model {
+  static config = {table: 'app_ticket'} satisfies ModelConfig<Ticket>
+  static objects = db.manager(Ticket)
+  id = models.ID()
+  title = models.Text()
+  relatedTaskId = models.ForeignKey(() => Task, {nullable: true, onDelete: 'set null'})
+  declare relatedTask: Relation<Task>
+}
+new Pylon({name: 'tickets', db: {models: [Ticket]}})
+
+class Task extends models.Model {
+  static config = {table: 'app_task'} satisfies ModelConfig<Task>
+  static objects = db.manager(Task)
+  id = models.ID()
+  name = models.Text()
+  relatedTicketId = models.ForeignKey(() => Ticket, {nullable: true, onDelete: 'set null'})
+  declare relatedTicket: Relation<Ticket>
+}
+new Pylon({name: 'tasks', db: {models: [Task]}})
 
 const load: MigrationLoader = async filePath =>
   (await import(pathToFileURL(filePath).href)).default
@@ -81,6 +110,51 @@ describe('apps via models.app() + derived migration groups (Postgres)', () => {
     expect(() => orderGroups([{name: 'x', dependencies: ['missing']}])).toThrow(/unknown group/)
   })
 
+  it('emits BOTH cross-app FK constraints for a mutual cycle (NOT soft columns)', async () => {
+    // Empirical check on the claim that a cross-app FK forming an app cycle gets
+    // downgraded to a constraint-less "soft" column. It does not: `groupRunner`
+    // resolves each group's FK targets against the GLOBAL universe, so each side's
+    // generated migration still emits a real `addForeignKey` to the other app's
+    // table. The cyclic group graph exists PRECISELY because those FKs are real.
+    const byName = Object.fromEntries(appGroups().map(g => [g.name, g]))
+    expect(byName.tickets.dependencies).toContain('tasks') // inferred from the real FK
+    expect(byName.tasks.dependencies).toContain('tickets') // …in both directions ⇒ cycle
+
+    const ticketsDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pylon-fk-tickets-'))
+    const tasksDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pylon-fk-tasks-'))
+    try {
+      const now = () => '20260101T000000'
+      const ticketsMig = await generateGroup({...byName.tickets, dir: ticketsDir}, 'init', load, {now})
+      const tasksMig = await generateGroup({...byName.tasks, dir: tasksDir}, 'init', load, {now})
+
+      // Pull the FK specs out of each group's generated migration changes.
+      const fks = (m: {changes: Array<{kind: string; fk?: unknown}>} | null) =>
+        (m?.changes ?? []).filter(c => c.kind === 'addForeignKey').map(c => c.fk)
+
+      // tickets → tasks: a REAL constraint on app_ticket.related_task_id → app_task.
+      expect(fks(ticketsMig)).toContainEqual(
+        expect.objectContaining({
+          table: 'app_ticket',
+          column: 'related_task_id',
+          refTable: 'app_task',
+          onDelete: 'set null'
+        })
+      )
+      // tasks → tickets: the mirror constraint. Both materialize — neither is dropped.
+      expect(fks(tasksMig)).toContainEqual(
+        expect.objectContaining({
+          table: 'app_task',
+          column: 'related_ticket_id',
+          refTable: 'app_ticket',
+          onDelete: 'set null'
+        })
+      )
+    } finally {
+      await fs.rm(ticketsDir, {recursive: true, force: true})
+      await fs.rm(tasksDir, {recursive: true, force: true})
+    }
+  })
+
   describe.skipIf(!runDb)('against the database', () => {
     let database: Database
     let accountsDir: string
@@ -103,9 +177,12 @@ describe('apps via models.app() + derived migration groups (Postgres)', () => {
       database = connect({connectionString})
       accountsDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pylon-grp-accounts-'))
       billingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pylon-grp-billing-'))
-      // derive groups, then give each a (temp) migrations dir
+      // derive groups, then give each a (temp) migrations dir. Scope to THIS
+      // block's apps — other suites register their own apps into the same registry.
       const dirs: Record<string, string> = {accounts: accountsDir, billing: billingDir}
-      groups = appGroups().map(g => ({...g, dir: dirs[g.name]}))
+      groups = appGroups()
+        .filter(g => dirs[g.name])
+        .map(g => ({...g, dir: dirs[g.name]}))
       await cleanDb()
       const now = () => '20260101T000000' // identical file name in both → ledger collision test
       for (const g of groups) await generateGroup(g, 'init', load, {now})
@@ -160,5 +237,145 @@ describe('apps via models.app() + derived migration groups (Postgres)', () => {
         {group: 'billing', applied: []}
       ])
     })
+  })
+})
+
+/**
+ * Runtime enforcement of a MUTUAL cross-app FK (tickets↔tasks) on a real Postgres.
+ * Proves the two constraints are not "soft" columns but real, DB-enforced FKs —
+ * AND that the staged (production-shape) migration set applies through the cyclic
+ * group graph via the cycle-tolerant `orderGroups` + interleaved apply.
+ *
+ * The two FK directions are deliberately staged across migrations (tickets:init
+ * FKs tasks, then a later tasks migration FKs back to tickets). Both directions in
+ * the two INITs would be genuinely unresolvable — each init would need the other's
+ * table before it exists — and `applyGroupsInterleaved` rightly rejects that. The
+ * "one side added later" staging is exactly how such a cycle arises in practice.
+ */
+describe.skipIf(!runDb)('mutual cross-app FK enforced at the database (Postgres)', () => {
+  let database: Database
+  let ticketsDir: string
+  let tasksDir: string
+  let groups: MigrationGroup[]
+  let applied: Awaited<ReturnType<typeof migrateGroups>>
+
+  const cleanDb = async () => {
+    await database.kysely.schema.dropTable('app_ticket').ifExists().cascade().execute()
+    await database.kysely.schema.dropTable('app_task').ifExists().cascade().execute()
+    for (const p of ['tickets:%', 'tasks:%']) {
+      await database.kysely
+        .deleteFrom('_pylon_migrations' as never)
+        .where('name' as never, 'like', p as never)
+        .execute()
+        .catch(() => {})
+    }
+  }
+
+  // Drop every `belongsTo` FK from a snapshot (keeping the scalar FK columns) — so a
+  // stage-1 migration creates the table WITHOUT the constraint, which a later
+  // migration then adds. That is what makes the mutual cycle applyable.
+  const withoutForeignKeys = (snap: Snapshot): Snapshot => ({
+    version: snap.version,
+    entities: Object.fromEntries(
+      Object.entries(snap.entities).map(([name, e]) => [
+        name,
+        {...e, fields: e.fields.filter(f => f.relation?.kind !== 'belongsTo')}
+      ])
+    )
+  })
+
+  beforeAll(async () => {
+    database = connect({connectionString})
+    ticketsDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pylon-cyc-tickets-'))
+    tasksDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pylon-cyc-tasks-'))
+    await cleanDb()
+
+    const ticketDef = getModelDefinitionOrThrow(Ticket)
+    const taskDef = getModelDefinitionOrThrow(Task)
+    const snapOf = (def: typeof ticketDef): Snapshot => {
+      const ir = toIR([def])
+      return {version: ir.version, entities: ir.entities}
+    }
+    // Monotonic timestamps shared across both runners so file order is deterministic.
+    let n = 0
+    const now = () => `20260101T${String(++n).padStart(6, '0')}`
+    // When false, the tasks snapshot omits its back-FK (stage 1); flipped on for the
+    // follow-up migration that adds it (stage 3).
+    let tasksHasBackFk = false
+
+    const ticketsRunner = new MigrationRunner({
+      dir: ticketsDir,
+      current: () => snapOf(ticketDef),
+      resolveAgainst: () => toIR().entities, // the whole registry — cross-app FK resolves
+      ledgerPrefix: 'tickets',
+      now
+    })
+    const tasksRunner = new MigrationRunner({
+      dir: tasksDir,
+      current: () => (tasksHasBackFk ? snapOf(taskDef) : withoutForeignKeys(snapOf(taskDef))),
+      resolveAgainst: () => toIR().entities,
+      ledgerPrefix: 'tasks',
+      now
+    })
+
+    // Stage the two FK directions into separate migrations (the applyable shape).
+    await tasksRunner.generate('init', load) // app_task (+ related_ticket_id col, no FK)
+    await ticketsRunner.generate('init', load) // app_ticket + FK → app_task
+    tasksHasBackFk = true
+    await tasksRunner.generate('add_related_ticket_fk', load) // FK app_task → app_ticket
+
+    const byName = Object.fromEntries(appGroups().map(g => [g.name, g]))
+    groups = [
+      {...byName.tickets, dir: ticketsDir},
+      {...byName.tasks, dir: tasksDir}
+    ]
+    // Applies through the CYCLIC group graph (orderGroups tolerates it; the
+    // interleaved apply finds the real per-migration order).
+    applied = await migrateGroups(groups, load, database)
+  })
+
+  afterAll(async () => {
+    if (database) {
+      await cleanDb()
+      await database.destroy()
+    }
+    setDefaultDatabase(undefined)
+    await fs.rm(ticketsDir, {recursive: true, force: true})
+    await fs.rm(tasksDir, {recursive: true, force: true})
+  })
+
+  it('applies the staged mutual cycle without a cross-group cycle error', () => {
+    const byGroup = Object.fromEntries(applied.map(r => [r.group, r.applied.length]))
+    expect(byGroup.tickets).toBe(1) // init
+    expect(byGroup.tasks).toBe(2) // init + add_related_ticket_fk
+  })
+
+  it('enforces BOTH cross-app FK constraints (neither is a soft column)', async () => {
+    const task = await Task.objects.create({name: 'build'})
+    const ticket = await Ticket.objects.create({title: 'bug', relatedTaskId: task.id})
+    await Task.objects.filter({id: task.id}).update({relatedTicketId: ticket.id})
+
+    // Both directions resolve to the linked row's id — the columns hold real refs.
+    expect((await Ticket.objects.get({id: ticket.id})).relatedTaskId).toBe(task.id)
+    expect((await Task.objects.get({id: task.id})).relatedTicketId).toBe(ticket.id)
+
+    // A dangling reference in EITHER direction is rejected by Postgres.
+    await expect(
+      Ticket.objects.create({title: 'x', relatedTaskId: 9_999_999})
+    ).rejects.toThrow(/foreign key|violates|app_ticket_related_task_id/i)
+    await expect(
+      Task.objects.create({name: 'y', relatedTicketId: 9_999_999})
+    ).rejects.toThrow(/foreign key|violates|app_task_related_ticket_id/i)
+  })
+
+  it('carries ON DELETE SET NULL across the app boundary', async () => {
+    const task = await Task.objects.create({name: 'ship'})
+    const ticket = await Ticket.objects.create({title: 'release', relatedTaskId: task.id})
+    await Task.objects.filter({id: task.id}).update({relatedTicketId: ticket.id})
+
+    // Deleting the ticket nulls the tasks-side FK — proving the constraint carries
+    // its referential action, not just its presence.
+    await Ticket.objects.filter({id: ticket.id}).delete()
+    expect((await Task.objects.get({id: task.id})).relatedTicketId).toBeNull()
   })
 })
