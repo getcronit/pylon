@@ -178,12 +178,20 @@ export function validateInstance(
     // so re-running its (possibly format-strict) validators would wrongly reject
     // rows created under a different id scheme (e.g. a cuid → snowflake switch).
     if (!created && col.primaryKey) continue
+    const value = (instance as Record<string, unknown>)[col.propertyKey]
+    // A lazy column that was never loaded/set reads back as its loader FUNCTION (a
+    // deferred `() => Promise<value>`), which is never a real column value — it just
+    // isn't part of this write, so skip it. Without this, updating any OTHER field on
+    // an instance whose lazy column wasn't selected (e.g. setting `summary` on a
+    // TicketEmail whose lazy `content` wasn't loaded) fails validation ("must be a
+    // string"). A loaded/assigned lazy column is a plain value and validates normally.
+    if (col.lazy && typeof value === 'function') continue
     // FK columns store a `bigint` fallback but follow the target PK's type
     // (e.g. a cuid `text`); validate against the resolved type.
     const resolved = col.fkInferType
       ? {...col, sqlType: resolveColumnSqlType(def, col)}
       : col
-    issues.push(...validateColumn(resolved, (instance as Record<string, unknown>)[col.propertyKey]))
+    issues.push(...validateColumn(resolved, value))
   }
   return issues
 }

@@ -1838,6 +1838,11 @@ function rowFromInstance(
     if (col.primaryKey && !includePrimaryKey) continue
     const value = instance[col.propertyKey]
     if (value === undefined) continue
+    // An unloaded lazy column reads back as its loader function (a deferred
+    // `() => Promise<value>`), never a real value — it wasn't touched by this save, so
+    // don't write the loader back over the DB's value. A loaded/assigned lazy column is
+    // a plain value and persists normally.
+    if (col.lazy && typeof value === 'function') continue
     data[col.columnName] = dbValueForColumn(col, value)
   }
   return data
