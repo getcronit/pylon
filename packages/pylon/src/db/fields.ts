@@ -15,6 +15,7 @@ import {
   HasManyThroughManager,
   loadBelongsTo,
   loadHasOne,
+  loadLazyColumn,
   ManyToManyManager,
   type Relation,
   RelatedManager
@@ -89,7 +90,15 @@ export interface FieldOptions {
   schema?: FieldSchema
   /** Force hidden from the generated GraphQL API. */
   hidden?: boolean
+  /** LAZY (deferred) load — see {@link ColumnDefinition.lazy}. Excluded from the
+   *  hydration SELECT; the property becomes a no-arg async accessor that batch-loads
+   *  on demand. Use for big columns (email bodies, rendered HTML) so lists stay light. */
+  lazy?: boolean
 }
+
+/** A deferred column value: a no-arg async accessor that loads on demand. Assignable
+ *  FROM the raw value too, so writes (`create({col: raw})`) keep type-checking. */
+export type Lazy<T> = (() => Promise<T>) | T
 
 type NullableOpts = FieldOptions & {nullable: true}
 
@@ -161,10 +170,14 @@ export function uuid(options: FieldOptions = {}): string | null {
   return field('uuid', base, options) as string | null
 }
 
+export function text(options: FieldOptions & {lazy: true; nullable: true}): Lazy<string | null>
+export function text(options: FieldOptions & {lazy: true}): Lazy<string>
 export function text(options: NullableOpts): string | null
 export function text(options?: FieldOptions): string
-export function text(options: FieldOptions = {}): string | null {
-  return field('text', {}, options) as string | null
+// Return type is the widest overload (lazy accessor OR string|null); every caller sees
+// a narrower one via the overloads above.
+export function text(options: FieldOptions = {}): Lazy<string | null> {
+  return field('text', {}, options) as Lazy<string | null>
 }
 
 export function varchar(length: number, options: NullableOpts): string | null
@@ -958,6 +971,7 @@ function buildColumn(key: string, b: FieldBuilder): ColumnDefinition {
     unique: b.options.unique ?? b.base.unique ?? false,
     nullable: b.options.nullable ?? false,
     hidden,
+    lazy: b.options.lazy ?? false,
     // `{index}` may be a boolean shorthand or a tuning object — normalize to a flag
     // plus the resolved options (read by `entityFromDefinition`).
     index: !!b.options.index,
@@ -1292,6 +1306,9 @@ const isProxyColumn = (ctor: Function, k: PropertyKey): boolean =>
   typeof k === 'string' &&
   !!getModelDefinition(ctor)?.columns.some(c => c.propertyKey === k)
 
+const isLazyColumn = (ctor: Function, k: string): boolean =>
+  !!getModelDefinition(ctor)?.columns.find(c => c.propertyKey === k)?.lazy
+
 /**
  * Swallow a field-initializer builder → harvest schema (idempotent, only until the
  * model is finalized) + seed a literal default. MUST run in BOTH `set` and
@@ -1320,7 +1337,20 @@ export const modelHandler: ProxyHandler<any> = {
     return Reflect.defineProperty(t, k, desc)
   },
   get(t, k, r) {
-    if (isProxyColumn(t.constructor, k)) return proxyStore(t)[k as string]
+    if (isProxyColumn(t.constructor, k)) {
+      const store = proxyStore(t)
+      // A LAZY column absent from the store (excluded from the hydration SELECT) reads
+      // as a no-arg async accessor that batch-loads by PK on demand. graphql-js's
+      // default resolver invokes it only when the field is actually selected, so a list
+      // never loads the column. A value already in the store (written on create, or
+      // eagerly loaded) is returned as-is — no round-trip, and writes stay plain.
+      if (typeof k === 'string' && !(k in store) && isLazyColumn(t.constructor, k)) {
+        const def = getModelDefinitionOrThrow(t.constructor)
+        const id = store[def.primaryKey!.propertyKey]
+        return () => loadLazyColumn(def, k, id)
+      }
+      return store[k as string]
+    }
     return Reflect.get(t, k, r) // relation accessors (prototype), methods, symbols
   },
   set(t, k, v, r) {

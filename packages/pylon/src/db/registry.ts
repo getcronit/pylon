@@ -39,6 +39,16 @@ export interface ColumnDefinition {
    * source of truth.
    */
   hidden: boolean
+  /**
+   * LAZY (deferred) column: excluded from the default hydration `SELECT`, so a list/
+   * connection query never pays to load it. The property reads as a no-arg async
+   * accessor that batch-loads the value by primary key on demand (one `SELECT id, col
+   * WHERE id IN (…)` per request), and graphql-js's default resolver invokes it only
+   * when the field is actually selected. For big text/blob columns (email bodies,
+   * rendered HTML) this is the difference between a light feed query and dragging
+   * megabytes into memory per row. Still a normal column in the DB + on write.
+   */
+  lazy?: boolean
   length?: number
   /** `numeric(precision, scale)` — decimal precision (total digits). */
   precision?: number

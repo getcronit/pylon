@@ -134,6 +134,48 @@ export function loadBelongsTo<R extends object>(
   )
 }
 
+const lazyColumnRealm = createRealm<unknown, unknown>()
+
+/** Batch-load a single DEFERRED (`lazy`) column value by primary key — the on-demand
+ *  loader behind a lazy column's accessor. Many accesses in one tick collapse into one
+ *  `SELECT id, col WHERE id IN (…)`, tenant + read-policy scoped like every other read.
+ *  The token folds in the column name so distinct lazy columns don't share a batch. */
+export function loadLazyColumn(
+  def: ModelDefinition,
+  propertyKey: string,
+  id: unknown
+): Promise<unknown> {
+  const pk = def.primaryKey
+  if (!pk) throw new Error(`Cannot lazy-load "${def.tableName}.${propertyKey}": no primary key.`)
+  const col = def.columns.find(c => c.propertyKey === propertyKey)
+  if (!col) throw new Error(`Unknown lazy column "${def.tableName}.${propertyKey}".`)
+  if (id === null || id === undefined) return Promise.resolve(null)
+  const pkCol = pk.columnName
+  return batchLoad<unknown, unknown>(
+    lazyColumnRealm,
+    `${def.tableName}.${col.columnName}`,
+    id,
+    async keys => {
+      const db = getDatabase()
+      const rows = await applyTenantWhere(
+        applyPolicyWhere(
+          db.kysely
+            .selectFrom(def.tableName)
+            .select([pkCol, col.columnName] as any)
+            .where(pkCol as any, 'in', keys as any),
+          def,
+          'read'
+        ),
+        def
+      ).execute()
+      const byKey = new Map<unknown, unknown>()
+      for (const row of rows) byKey.set((row as any)[pkCol], (row as any)[col.columnName])
+      return byKey
+    },
+    () => null
+  )
+}
+
 /** A resolved relation default ordering: column name + direction. */
 export interface RelationOrder {
   column: string

@@ -1865,8 +1865,10 @@ function copyRowOnto(def: ModelDefinition, instance: any, row: any): void {
  * table/alias for joined queries. Replaces `selectAll()` on the read paths.
  */
 export function selectableColumns(def: ModelDefinition, table?: string): string[] {
-  // A column excluded from the default read projection.
-  const excluded = (c: ColumnDefinition) => (c.generatedAs && c.hidden) || c.sqlType === 'vector'
+  // A column excluded from the default read projection. `lazy` columns are loaded
+  // on demand via loadLazyColumn (the property's no-arg async accessor), never eagerly.
+  const excluded = (c: ColumnDefinition) =>
+    (c.generatedAs && c.hidden) || c.sqlType === 'vector' || !!c.lazy
   const names = new Set(def.columns.filter(c => !excluded(c)).map(c => c.columnName))
   // STI base: also select every subclass's own columns (they live on the shared
   // table), so a base query can materialise the concrete subclass with all its fields.
