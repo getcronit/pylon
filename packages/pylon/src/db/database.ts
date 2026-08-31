@@ -1,6 +1,6 @@
 import {AsyncLocalStorage} from 'node:async_hooks'
 import {Kysely, PostgresDialect} from 'kysely'
-import {Pool, types, type PoolConfig} from 'pg'
+import {Client, Pool, types, type PoolConfig} from 'pg'
 import {dbLog} from './app-context.js'
 
 // `pg` returns int8 (bigint/bigserial) as a string to avoid precision loss.
@@ -164,6 +164,95 @@ export function connect(options: DatabaseOptions): Database {
 
 export function setDefaultDatabase(db: Database | undefined): void {
   defaultDatabase = db
+}
+
+/** Postgres error codes we special-case when ensuring a database exists. */
+const PG_INVALID_CATALOG = '3D000' // database does not exist
+const PG_DUPLICATE_DATABASE = '42P04' // database already exists (create race)
+const PG_INSUFFICIENT_PRIVILEGE = '42501'
+
+const pgCode = (err: unknown): string | undefined =>
+  typeof err === 'object' && err !== null ? (err as {code?: string}).code : undefined
+
+/** Turn a raw CREATE DATABASE failure into an actionable message. */
+function createDatabaseError(err: unknown, database: string): Error {
+  if (pgCode(err) === PG_INSUFFICIENT_PRIVILEGE) {
+    return new Error(
+      `Cannot create database "${database}": the connecting role lacks the CREATEDB ` +
+        `privilege. Grant it (\`ALTER ROLE <role> CREATEDB\`) or create the database ` +
+        `manually: \`CREATE DATABASE "${database}"\`.`
+    )
+  }
+  return err instanceof Error ? err : new Error(String(err))
+}
+
+/**
+ * Ensure the target database named in `connectionString` exists, creating it if it
+ * doesn't. Returns whether it had to create it.
+ *
+ * Mirrors what `prisma migrate dev` / `prisma db push` do for you: pylon migrations
+ * create TABLES, but the database itself must exist first. Used by the DEV commands
+ * (`pylon db push`, `pylon db migrate`, `pylon db create`) — NOT by `deploy`, whose
+ * production database is provisioned out of band.
+ *
+ * Strategy: first probe the target directly (a plain connect); if that succeeds it
+ * already exists and we need no elevated access at all. Only when the probe reports
+ * "database does not exist" (SQLSTATE 3D000) do we connect to a maintenance database
+ * on the same server (`postgres`, then `template1`) and issue `CREATE DATABASE`.
+ * Any OTHER probe failure (bad auth, unreachable host) is rethrown untouched — those
+ * are not ours to fix. A concurrent creator (42P04) is treated as success; a missing
+ * CREATEDB privilege (42501) is rethrown with a manual-creation instruction.
+ */
+export async function ensureDatabase(
+  connectionString: string
+): Promise<{created: boolean; database: string}> {
+  const database = decodeURIComponent(new URL(connectionString).pathname.replace(/^\//, ''))
+  if (!database) {
+    throw new Error(
+      'Cannot ensure the database exists: the connection string has no database name.'
+    )
+  }
+
+  // Fast path — if the target accepts a connection, it exists.
+  const probe = new Client({connectionString})
+  try {
+    await probe.connect()
+    return {created: false, database}
+  } catch (err) {
+    if (pgCode(err) !== PG_INVALID_CATALOG) throw err // not "database does not exist"
+  } finally {
+    await probe.end().catch(() => {})
+  }
+
+  // Create it via a maintenance database on the same server.
+  const quoted = `"${database.replace(/"/g, '""')}"`
+  let lastErr: unknown
+  for (const maintenance of ['postgres', 'template1']) {
+    const adminUrl = new URL(connectionString)
+    adminUrl.pathname = `/${maintenance}`
+    const client = new Client({connectionString: adminUrl.toString()})
+    try {
+      await client.connect()
+    } catch (err) {
+      lastErr = err
+      if (pgCode(err) === PG_INVALID_CATALOG) continue // this maintenance db is absent — try next
+      throw createDatabaseError(err, database)
+    }
+    try {
+      await client.query(`CREATE DATABASE ${quoted}`)
+      return {created: true, database}
+    } catch (err) {
+      if (pgCode(err) === PG_DUPLICATE_DATABASE) return {created: false, database} // lost a create race
+      throw createDatabaseError(err, database)
+    } finally {
+      await client.end().catch(() => {})
+    }
+  }
+  throw new Error(
+    `Cannot create database "${database}": no maintenance database was reachable ` +
+      `(tried postgres, template1). Create it manually: \`CREATE DATABASE "${database}"\`.` +
+      (lastErr instanceof Error ? `\n(${lastErr.message})` : '')
+  )
 }
 
 export function getDatabase(): Database {

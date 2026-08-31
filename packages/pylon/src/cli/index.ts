@@ -581,11 +581,12 @@ db.command('migrate')
   .option('-d, --dir <path>', 'Migrations directory', './migrations')
   .action(async options => {
     try {
-      const {applied, apps} = await runDbCommand({
+      const {applied, apps, database} = await runDbCommand({
         command: 'migrate',
         models: entryOf(options),
         dir: options.dir
       })
+      if (database?.created) consola.success(`Created database "${database.name}"`)
       if (apps) {
         for (const a of apps)
           consola.success(`app ${a.app}: applied ${a.applied.length} migration(s)`)
@@ -795,8 +796,68 @@ db.command('push')
   .option('-d, --dir <path>', 'Migrations directory (unused)', './migrations')
   .action(async options => {
     try {
-      await runDbCommand({command: 'push', models: entryOf(options)})
+      const {database} = await runDbCommand({command: 'push', models: entryOf(options)})
+      if (database?.created) consola.success(`Created database "${database.name}"`)
       consola.success('Schema pushed to the database')
+    } catch (error) {
+      fail(error)
+    }
+  })
+
+db.command('create')
+  .description('Create the target database if it does not exist (requires DATABASE_URL)')
+  .option('-e, --entry <path>', 'Entry that constructs your app / registers models (default ./src/index.ts)')
+  .option('-m, --models <path>', 'Deprecated alias for --entry')
+  .action(async options => {
+    try {
+      const {database} = await runDbCommand({command: 'create', models: entryOf(options)})
+      if (database?.created) consola.success(`Created database "${database.name}"`)
+      else consola.info(`Database "${database?.name}" already exists`)
+    } catch (error) {
+      fail(error)
+    }
+  })
+
+db.command('reset')
+  .description('DROP everything and re-apply all migrations from scratch (dev; requires DATABASE_URL)')
+  .option('-e, --entry <path>', 'Entry that constructs your app / registers models (default ./src/index.ts)')
+  .option('-m, --models <path>', 'Deprecated alias for --entry')
+  .option('-d, --dir <path>', 'Migrations directory', './migrations')
+  .option('--seed', 'Run the seed file (default ./src/seed.ts) after re-applying')
+  .option('-f, --force', 'Skip the confirmation prompt and the production guard')
+  .action(async options => {
+    try {
+      if (!options.force) {
+        if (!process.stdin.isTTY) {
+          consola.error(
+            'pylon db reset is destructive (drops every table). Re-run with --force in a non-interactive shell.'
+          )
+          process.exitCode = 1
+          return
+        }
+        const ok = await consola.prompt(
+          'This will DROP every table and re-apply all migrations. Continue?',
+          {type: 'confirm', initial: false}
+        )
+        if (!ok) {
+          consola.info('Aborted.')
+          return
+        }
+      }
+      const {applied, database, reset} = await runDbCommand({
+        command: 'reset',
+        models: entryOf(options),
+        dir: options.dir,
+        runSeed: Boolean(options.seed),
+        force: Boolean(options.force)
+      })
+      if (database?.created) consola.success(`Created database "${database.name}"`)
+      consola.success(
+        applied && applied.length > 0
+          ? `Reset complete — applied ${applied.length} migration(s)`
+          : 'Reset complete — no migrations to apply'
+      )
+      if (reset?.seeded) consola.success('Seed applied')
     } catch (error) {
       fail(error)
     }

@@ -8,6 +8,7 @@ import {promises as fs} from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
+import {Client} from 'pg'
 import {afterEach, beforeEach, describe, expect, it} from 'vitest'
 import {runDbCommand} from '@/cli/db'
 
@@ -116,4 +117,86 @@ describe.skipIf(!runDbGated)('pylon db baseline (live DB adoption)', () => {
     })
     expect(status.status!.unapplied).toHaveLength(0)
   })
+})
+
+// `create` + `reset` operate on the DATABASE itself, so they run against a
+// DEDICATED throwaway database each — never the shared `pylon_test` (other test
+// files use it in parallel, and `reset` drops the whole public schema).
+const adminUrl = (): string => {
+  const u = new URL(DB)
+  u.pathname = '/postgres'
+  return u.toString()
+}
+const dropDatabase = async (name: string): Promise<void> => {
+  const admin = new Client({connectionString: adminUrl()})
+  await admin.connect()
+  await admin.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`)
+  await admin.end()
+}
+const freshDbName = (tag: string): string =>
+  `pylon_cli_${tag}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`
+
+describe.skipIf(!runDbGated)('pylon db create + reset (live DB)', () => {
+  const prevUrl = process.env.DATABASE_URL
+  afterEach(() => {
+    if (prevUrl === undefined) delete process.env.DATABASE_URL
+    else process.env.DATABASE_URL = prevUrl
+  })
+
+  it('create makes a missing database, then no-ops when it exists', async () => {
+    const name = freshDbName('create')
+    const url = new URL(DB)
+    url.pathname = `/${name}`
+    process.env.DATABASE_URL = url.toString()
+    try {
+      const first = await runDbCommand({command: 'create', models: 'models.ts', cwd: fixtureCwd})
+      expect(first.database).toEqual({name, created: true})
+      const second = await runDbCommand({command: 'create', models: 'models.ts', cwd: fixtureCwd})
+      expect(second.database).toEqual({name, created: false})
+    } finally {
+      await dropDatabase(name)
+    }
+  }, 60000)
+
+  it('reset drops orphan tables and re-applies migrations from scratch', async () => {
+    const name = freshDbName('reset')
+    const url = new URL(DB)
+    url.pathname = `/${name}`
+    const cs = url.toString()
+    process.env.DATABASE_URL = cs
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pylon-reset-cli-'))
+    try {
+      // Create the DB and generate an init migration for the fixture models.
+      await runDbCommand({command: 'create', models: 'models.ts', cwd: fixtureCwd})
+      await runDbCommand({command: 'diff', name: 'init', models: 'models.ts', dir, cwd: fixtureCwd})
+
+      // Seed an ORPHAN table that no migration knows about (the stale-DB scenario).
+      const seed = new Client({connectionString: cs})
+      await seed.connect()
+      await seed.query('CREATE TABLE orphan_legacy (id int)')
+      await seed.end()
+
+      // reset --force: drops the whole schema (orphan + ledger), re-applies init.
+      const res = await runDbCommand({
+        command: 'reset',
+        models: 'models.ts',
+        dir,
+        runSeed: false,
+        force: true,
+        cwd: fixtureCwd
+      })
+      expect(res.applied!.length).toBeGreaterThanOrEqual(1)
+
+      const check = new Client({connectionString: cs})
+      await check.connect()
+      const orphan = await check.query(`select to_regclass('public.orphan_legacy') is not null as present`)
+      const account = await check.query(`select to_regclass('public.account') is not null as present`)
+      await check.end()
+      expect(orphan.rows[0].present).toBe(false) // orphan wiped
+      expect(account.rows[0].present).toBe(true) // re-created by the re-applied migration
+    } finally {
+      await fs.rm(dir, {recursive: true, force: true})
+      await dropDatabase(name)
+    }
+  }, 60000)
 })

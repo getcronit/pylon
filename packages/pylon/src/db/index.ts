@@ -85,6 +85,7 @@ export {
 export {
   Database,
   connect,
+  ensureDatabase,
   getDatabase,
   hasDatabase,
   setDefaultDatabase,
@@ -113,7 +114,7 @@ export {
   type NearestMetric,
   type NearestQuerySet
 } from './manager.js'
-export {syncSchema, dropTables} from './schema-sync.js'
+export {syncSchema, dropTables, resetSchema} from './schema-sync.js'
 // `useDatabase` is the CONFIG PLUGIN → exported from `@getcronit/pylon/db/plugin`
 // (see ./plugin.ts), not from the authoring-API root. This keeps the uniform
 // convention: `./db` = authoring API, `./db/plugin` = the plugin.
@@ -362,6 +363,7 @@ export const models = {
 export const db = {
   Database: database.Database,
   connect: database.connect,
+  ensureDatabase: database.ensureDatabase,
   getDatabase: database.getDatabase,
   hasDatabase: database.hasDatabase,
   setDefaultDatabase: database.setDefaultDatabase,
@@ -372,6 +374,7 @@ export const db = {
   manager,
   syncSchema: schemaSync.syncSchema,
   dropTables: schemaSync.dropTables,
+  resetSchema: schemaSync.resetSchema,
   /** Low-level per-model row policy seam. Prefer `abilities` (pylon-app); this is
    *  the escape hatch it compiles into, for raw-ORM use. */
   definePolicy: policyApi.definePolicy

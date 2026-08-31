@@ -76,6 +76,8 @@ export interface DbCommandOptions {
     | 'plan'
     | 'check'
     | 'push'
+    | 'create'
+    | 'reset'
     | 'deploy'
     | 'squash'
     | 'merge'
@@ -90,6 +92,10 @@ export interface DbCommandOptions {
   down?: boolean
   /** `seed`: path to the seed file (default `./src/seed.ts`). */
   seed?: string
+  /** `reset`: also run the seed file after re-applying migrations. */
+  runSeed?: boolean
+  /** `reset`: skip the production guard (confirmation is handled in the CLI layer). */
+  force?: boolean
   /** `baseline`: where to write generated model stubs (default `./src/models.generated.ts`). */
   out?: string
   /** `diff`: confirmed renames (drop+add → renameColumn, data-preserving). */
@@ -152,6 +158,11 @@ export interface DbCommandResult {
   drift?: SchemaDrift
   /** `push`: whether the schema was synced. */
   pushed?: boolean
+  /** `create` (and dev auto-create on `push`/`migrate`): the target database and
+   *  whether this run created it (false = it already existed). */
+  database?: {name: string; created: boolean}
+  /** `reset`: whether the schema was dropped/recreated + whether the seed ran. */
+  reset?: {seeded: boolean}
   /** `squash`: the new migration name + the ones it replaced. */
   squashed?: {name: string; replaced: string[]} | null
   /** `merge`: the merge migration + the heads it reconverged (or null). */
@@ -184,6 +195,21 @@ export async function runDbCommand(options: DbCommandOptions): Promise<DbCommand
  * the child (via `project-runner`), where the models are registered and the ORM is
  * the project's own instance.
  */
+/**
+ * Dev-only "ensure the database exists" step for `push`/`migrate` (Prisma parity).
+ * Returns `{name, created}` for the caller to surface, or `undefined` when the
+ * project ORM predates `ensureDatabase` (older canary) — in which case we simply
+ * fall through to the connect, preserving the prior "database does not exist" error.
+ */
+async function ensureDatabaseForDev(
+  orm: ProjectApp,
+  connectionString: string
+): Promise<{name: string; created: boolean} | undefined> {
+  if (typeof orm.ensureDatabase !== 'function') return undefined
+  const {database, created} = await orm.ensureDatabase(connectionString)
+  return {name: database, created}
+}
+
 export async function runDbCommandCore(
   orm: ProjectApp,
   options: DbCommandOptions
@@ -351,19 +377,72 @@ export async function runDbCommandCore(
         }
       }
     }
+    case 'create': {
+      const connectionString = process.env.DATABASE_URL
+      if (!connectionString) {
+        throw new Error('pylon db create requires DATABASE_URL to be set.')
+      }
+      if (typeof orm.ensureDatabase !== 'function') {
+        throw new Error(
+          'This project’s @getcronit/pylon is too old to support `pylon db create`. Upgrade it.'
+        )
+      }
+      const database = await orm.ensureDatabase(connectionString)
+      return {command: 'create', database: {name: database.database, created: database.created}}
+    }
+    case 'reset': {
+      const connectionString = process.env.DATABASE_URL
+      if (!connectionString) {
+        throw new Error('pylon db reset requires DATABASE_URL to be set.')
+      }
+      if (process.env.NODE_ENV === 'production' && !options.force) {
+        throw new Error(
+          'Refusing to reset the database in production. `pylon db reset` is destructive ' +
+            '(drops every table and re-applies migrations). Pass --force only if you truly mean it.'
+        )
+      }
+      if (typeof orm.resetSchema !== 'function') {
+        throw new Error(
+          'This project’s @getcronit/pylon is too old to support `pylon db reset`. Upgrade it.'
+        )
+      }
+      // Create the DB if it's missing, then drop it to a clean slate and re-apply.
+      const created = await ensureDatabaseForDev(orm, connectionString)
+      const conn = orm.connect({connectionString})
+      await orm.resetSchema()
+      const applied = groups
+        ? (await orm.migrateGroups(groups, loadMigrationFile, conn)).flatMap(r => r.applied)
+        : await runner.apply(loadMigrationFile, conn)
+      let seeded = false
+      if (options.runSeed) {
+        const seedPath = path.resolve(cwd, options.seed ?? './src/seed.ts')
+        const seedFn = (await loadMigrationFile(seedPath)) as unknown
+        if (typeof seedFn !== 'function') {
+          throw new Error(`Seed file ${options.seed ?? './src/seed.ts'} must \`export default\` a function.`)
+        }
+        await (seedFn as (db: unknown) => Promise<void>)(conn)
+        seeded = true
+      }
+      return {command: 'reset', applied, database: created, reset: {seeded}}
+    }
     case 'migrate': {
       const connectionString = process.env.DATABASE_URL
       if (!connectionString) {
         throw new Error('pylon db migrate requires DATABASE_URL to be set.')
       }
+      // Dev convenience (Prisma-parity): create the database if it's missing, so a
+      // fresh checkout migrates without a manual `CREATE DATABASE`. `deploy` never
+      // does this. No-op when it already exists; a missing CREATEDB privilege throws
+      // an actionable error from `ensureDatabase`.
+      const created = await ensureDatabaseForDev(orm, connectionString)
       const conn = orm.connect({connectionString})
       if (groups) {
         const res = await orm.migrateGroups(groups, loadMigrationFile, conn)
         const apps = res.map(r => ({app: r.group, applied: r.applied}))
-        return {command: 'migrate', apps, applied: apps.flatMap(a => a.applied)}
+        return {command: 'migrate', apps, applied: apps.flatMap(a => a.applied), database: created}
       }
       const applied = await runner.apply(loadMigrationFile, conn)
-      return {command: 'migrate', applied}
+      return {command: 'migrate', applied, database: created}
     }
     case 'rollback': {
       const connectionString = process.env.DATABASE_URL
@@ -405,9 +484,12 @@ export async function runDbCommandCore(
       if (!connectionString) {
         throw new Error('pylon db push requires DATABASE_URL to be set.')
       }
+      // Dev convenience (Prisma-parity, like `prisma db push`): create the database
+      // if missing before syncing the schema into it.
+      const created = await ensureDatabaseForDev(orm, connectionString)
       orm.connect({connectionString})
       await orm.syncSchema()
-      return {command: 'push', pushed: true}
+      return {command: 'push', pushed: true, database: created}
     }
     case 'squash': {
       // Connect only if a DB is available, so the ledger can be reconciled.

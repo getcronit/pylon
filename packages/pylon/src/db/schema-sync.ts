@@ -369,3 +369,18 @@ export async function dropTables(
     await db.kysely.schema.dropTable(def.tableName).ifExists().cascade().execute()
   }
 }
+
+/**
+ * Full clean slate: drop and recreate a schema (default `public`). Removes ALL
+ * tables, the migration ledger (`_pylon_migrations`), sequences, and enum types —
+ * including tables orphaned by a previous migration history that a model-scoped
+ * `dropTables` would miss. Backs `pylon db reset` (Prisma's `migrate reset` drop
+ * step). DESTRUCTIVE and dev-oriented: the CLI gates it behind a production guard +
+ * confirmation. Note it also drops any NON-pylon objects living in the schema.
+ */
+export async function resetSchema(schema = 'public'): Promise<void> {
+  const db = getDatabase()
+  const ident = sql.id(schema)
+  await sql`drop schema if exists ${ident} cascade`.execute(db.kysely)
+  await sql`create schema ${ident}`.execute(db.kysely)
+}

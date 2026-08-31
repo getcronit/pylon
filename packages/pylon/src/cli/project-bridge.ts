@@ -84,6 +84,9 @@ export interface ProjectApp {
     ): Promise<{name: string; changes: unknown[]} | null>
   }
   connect(opts: {connectionString: string}): unknown
+  /** Create the target database if it doesn't exist (dev convenience). Optional so
+   *  the CLI degrades gracefully against an older project ORM without it. */
+  ensureDatabase?(connectionString: string): Promise<{created: boolean; database: string}>
   /** Deep-introspect a live DB into a full PhysicalSchema (for `baseline`). */
   introspectPhysical(db?: unknown): Promise<PhysicalSchema>
   /** Generate editable model class stubs from an introspected schema. */
@@ -97,6 +100,9 @@ export interface ProjectApp {
   hasDrift(d: {missingTables: string[]; extraTables: string[]; columns: unknown[]}): boolean
   /** Create tables for all models directly (no migration) — `db push`. */
   syncSchema(): Promise<void>
+  /** Drop + recreate the schema (full clean slate) — `db reset`. Optional so the
+   *  CLI degrades gracefully against an older project ORM without it. */
+  resetSchema?(schema?: string): Promise<void>
 
   /** Every registered model (for `pylon inspect`'s authz/persistence harvest). */
   allModels?(): Array<{
