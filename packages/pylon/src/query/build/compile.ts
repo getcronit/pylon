@@ -585,6 +585,109 @@ function compileArgs(
 }
 
 /**
+ * Restrict a merged sub-selection to the fields a concrete object type declares,
+ * recursing into object sub-fields. Used to partition a polymorphic field whose
+ * sub-type differs per member (`items` = `TimelineEntry` on one, `NumberedEntry`
+ * on another): each member fragment keeps only its own entry's fields. Keys not on
+ * this type belong to a sibling member (already proven claimed elsewhere) and are
+ * dropped; `__args`/`__isList` markers are preserved.
+ */
+function projectSelectionOntoType(
+  node: SelectorNode,
+  gqlType: GraphQLOutputType
+): SelectorNode {
+  const named = getNamedType(gqlType)
+  if (!isObjectType(named)) return node // scalar/enum leaf or abstract — leave as-is
+  const fields = named.getFields()
+  const out: SelectorNode = {}
+  if (node.__args !== undefined) out.__args = node.__args
+  if (node.__isList !== undefined) out.__isList = node.__isList
+  for (const key of Object.keys(node)) {
+    if (key === '__args' || key === '__isList') continue
+    if (key === '__typename') {
+      out[key] = node[key]
+      continue
+    }
+    const f = fields[key]
+    if (!f) continue // sibling member's field
+    const child = node[key]
+    out[key] =
+      child && typeof child === 'object' && !Array.isArray(child)
+        ? projectSelectionOntoType(child as SelectorNode, f.type)
+        : child
+  }
+  return out
+}
+
+/**
+ * Fail loud when a merged sub-selection contains a field present on NONE of a
+ * polymorphic field's member sub-types — the recursive analogue of the top-level
+ * "field exists on no possible type" guard. Without it, per-member projection
+ * would silently drop a genuinely-unknown field instead of surfacing the typo.
+ */
+function assertSelectionClaimed(
+  node: SelectorNode,
+  types: GraphQLObjectType[],
+  path: string[]
+): void {
+  for (const key of Object.keys(node)) {
+    if (key === '__args' || key === '__isList' || key === '__typename') continue
+    const owners = types
+      .map(t => t.getFields()[key])
+      .filter((f): f is GraphQLField<any, any> => !!f)
+    if (owners.length === 0) {
+      throw new Error(
+        `Field "${key}" does not exist on ${types.map(t => `"${t.name}"`).join(' | ')} ` +
+          `(at "${path.join('.')}"). The useData selection references a field the ` +
+          `schema doesn't have.`
+      )
+    }
+    const child = node[key]
+    if (child && typeof child === 'object' && !Array.isArray(child)) {
+      const childTypes = owners
+        .map(f => getNamedType(f.type))
+        .filter(isObjectType)
+      if (childTypes.length) {
+        assertSelectionClaimed(child as SelectorNode, childTypes, [...path, key])
+      }
+    }
+  }
+}
+
+/** Dedup a union of TS type strings at top-level `|` atoms (bracket-aware, so a
+ *  `|` inside `Array<… | null>` or an object literal isn't split). Order-stable. */
+function dedupUnion(types: string[]): string {
+  const atoms: string[] = []
+  const seen = new Set<string>()
+  for (const t of types) {
+    for (const atom of splitTopLevelUnion(t)) {
+      if (!seen.has(atom)) {
+        seen.add(atom)
+        atoms.push(atom)
+      }
+    }
+  }
+  return atoms.join(' | ')
+}
+
+function splitTopLevelUnion(ts: string): string[] {
+  const out: string[] = []
+  let depth = 0
+  let start = 0
+  for (let i = 0; i < ts.length; i++) {
+    const c = ts[i]
+    if (c === '<' || c === '{' || c === '(' || c === '[') depth++
+    else if (c === '>' || c === '}' || c === ')' || c === ']') depth--
+    else if (depth === 0 && c === '|' && ts[i - 1] === ' ' && ts[i + 1] === ' ') {
+      out.push(ts.slice(start, i - 1))
+      start = i + 2
+    }
+  }
+  out.push(ts.slice(start))
+  return out.map(s => s.trim()).filter(Boolean)
+}
+
+/**
  * Compile a field returning an interface or union into inline fragments.
  *
  * The analyzer records a flat selection (`{ id, title, body }`); we partition it
@@ -640,11 +743,17 @@ function compileInterfaceUnionField(
     optional: false
   })
 
-  // A concrete field selected on ≥2 members with DIFFERENT named types (e.g.
-  // `status`: TicketStatus vs TaskStatus) can't share one response key — GraphQL
-  // rejects the merge. Alias those per member (`status__pqAbs__Ticket: status`); the
-  // runtime un-aliases on normalize, so reads stay `node.status`. Same-typed fields
-  // (e.g. `name: String` on both) merge fine and are left un-aliased.
+  // A concrete field selected on ≥2 members with DIFFERENT types can't share one
+  // response key — GraphQL rejects the merge. Alias those per member
+  // (`status__pqAbs__Ticket: status`); the runtime un-aliases on normalize, so reads
+  // stay `node.status`. Same-typed fields (e.g. `name: String` on both) merge fine
+  // and are left un-aliased.
+  //
+  // The conflict key is the FULL type (`String(f.type)`), not just the named type:
+  // GraphQL's SameResponseShape rule rejects a merge on differing nullability/list
+  // wrappers too (`title: String!` vs `title: String`), even across
+  // mutually-exclusive fragments. Keying on the named name alone missed those —
+  // they compiled fine and 500'd at execution.
   const typesByField = new Map<string, Set<string>>()
   for (const type of possible) {
     const tFields = type.getFields()
@@ -654,12 +763,35 @@ function compileInterfaceUnionField(
       if (!f) continue
       let s = typesByField.get(key)
       if (!s) typesByField.set(key, (s = new Set()))
-      s.add(getNamedType(f.type).name)
+      s.add(String(f.type))
     }
   }
   const conflicting = new Set(
     [...typesByField].filter(([, s]) => s.size > 1).map(([k]) => k)
   )
+
+  // A shared field name whose OBJECT sub-type differs per member (e.g. `items`:
+  // `[TimelineEntry!]!` vs `[NumberedEntry!]!`) is recorded by the analyzer as ONE
+  // merged sub-selection — the union of every member's entry fields. Compiling that
+  // union against each member throws on the sibling's fields (`marker` isn't on
+  // `TimelineEntry`). So validate + partition the merged sub-selection per member
+  // below; first fail loud on any sub-field present on NO member's sub-type, since
+  // partitioning would otherwise drop it silently.
+  for (const key of conflicting) {
+    const memberSubTypes = possible
+      .map(t => t.getFields()[key])
+      .filter((f): f is GraphQLField<any, any> => !!f)
+      .map(f => getNamedType(f.type))
+    if (memberSubTypes.some(t => !isObjectType(t))) continue // only object sub-types
+    const merged = mergeBranches(node[key])
+    if (typeof merged === 'object') {
+      assertSelectionClaimed(
+        merged,
+        memberSubTypes as GraphQLObjectType[],
+        [...currentPath, key]
+      )
+    }
+  }
 
   // 3. Per possible type: remaining accessed fields it declares.
   for (const type of possible) {
@@ -669,7 +801,15 @@ function compileInterfaceUnionField(
       if (handled.has(key)) continue
       const f = tFields[key]
       if (!f) continue
-      const {sdl, ts} = compileField(ctx, f, mergeBranches(node[key]), [...currentPath, key])
+      // For a conflicting field with an object sub-type, project the merged
+      // sub-selection down to what THIS member's sub-type declares — dropping
+      // sibling members' fields (already proven claimed by someone above).
+      let sub = mergeBranches(node[key])
+      const named = getNamedType(f.type)
+      if (conflicting.has(key) && isObjectType(named) && typeof sub === 'object') {
+        sub = projectSelectionOntoType(sub, f.type)
+      }
+      const {sdl, ts} = compileField(ctx, f, sub, [...currentPath, key])
       const alias = conflicting.has(key) ? `${key}__pqAbs__${type.name}: ` : ''
       fragSelections.push(`${alias}${key}${sdl}`)
       addMember(key, ts, true) // concrete field → optional
@@ -691,8 +831,12 @@ function compileInterfaceUnionField(
     }
   }
 
+  // Dedup the union of per-member TS types at the top-level-atom level, so an
+  // aliased field contributing `string` from one member and `string | null` from
+  // another renders `string | null`, not `string | string | null`.
   const tsMembers = [...members.entries()].map(
-    ([name, m]) => `${name}${m.optional ? '?' : ''}: ${[...m.types].join(' | ')}`
+    ([name, m]) =>
+      `${name}${m.optional ? '?' : ''}: ${dedupUnion([...m.types])}`
   )
   return {
     sdl: `{ ${selections.join(' ')} }`,
