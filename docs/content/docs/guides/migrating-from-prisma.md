@@ -32,7 +32,7 @@ sync. One class drives the table, the migrations, the query API, and the schema.
 | `delete({where})` | `instance.$delete()` |
 | `where`, `OR`, `AND`, `contains`, `in` | the same — see [Queries](/docs/data/queries) |
 | `prisma migrate dev` | `pylon db diff` + `pylon db migrate` |
-| `prisma migrate deploy` | `pylon db deploy` |
+| `prisma migrate deploy` | `pylon db migrate --check` |
 | `prisma db push` | `pylon db push` |
 | (no equivalent — a separate resolver layer) | the model **is** the GraphQL type |
 
@@ -184,7 +184,7 @@ property name when you need persistence without exposure. See
    directly through `new Pylon({graphql})`. Run `pylon dev` and check the schema
    in GraphiQL at `/graphql`.
 
-In CI, replace `prisma migrate deploy` with `pylon db deploy`, and add
+In CI, replace `prisma migrate deploy` with `pylon db migrate --check`, and add
 `pylon db check` as a gate — it fails the build on uncaptured model changes,
 schema drift, or tampered migration history. See
 [Migrations](/docs/data/migrations) and the [CLI reference](/docs/reference/cli).

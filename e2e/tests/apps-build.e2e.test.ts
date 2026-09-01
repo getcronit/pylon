@@ -3,7 +3,7 @@
  * `blog` (Author, Article) and `shop` (Product, Purchase, with a CROSS-APP FK
  * Purchase.buyer → blog.Author). Proves the whole apps story at runtime:
  *   - one composed GraphQL schema from two apps' resolver fragments,
- *   - per-app migrations applied by `pylon db deploy` in dependency order
+ *   - per-app migrations applied by `pylon db migrate --check` in dependency order
  *     (blog before shop) with a namespaced ledger,
  *   - a query that traverses the cross-app relation over HTTP.
  *
@@ -111,11 +111,11 @@ describe.skipIf(!dockerAvailable)('multi-app e2e — two apps compose one schema
 
     // Per-app migrations applied in dependency order (blog → shop).
     await resetSchema()
-    const deployed = pylonDb('deploy')
-    if (deployed.status !== 0) throw new Error(`db deploy failed: ${deployed.out}`)
+    const deployed = pylonDb('migrate', '--check')
+    if (deployed.status !== 0) throw new Error(`db migrate failed: ${deployed.out}`)
     // deploy logs each app it deployed
-    expect(deployed.out).toMatch(/app blog: deployed/i)
-    expect(deployed.out).toMatch(/app shop: deployed/i)
+    expect(deployed.out).toMatch(/app blog: applied/i)
+    expect(deployed.out).toMatch(/app shop: applied/i)
 
     server = spawn('node', ['.pylon/server.mjs'], {
       cwd: appDir,

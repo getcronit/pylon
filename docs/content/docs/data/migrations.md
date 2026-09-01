@@ -41,12 +41,19 @@ pylon db diff add_user_table
 pylon db migrate
 ```
 
-In production, run `pylon db deploy` instead of `migrate` — it applies pending
-migrations from the ledger without consulting the live models, so deploys are
-deterministic:
+The same command runs in production. `migrate` applies pending migrations from
+the ledger and never creates the database unless you pass `--create-db`, so it is
+safe there; add `--check` to refuse outright when your models have changes no
+migration captures:
 
 ```bash
-pylon db deploy
+pylon db migrate --check
+```
+
+On a fresh development database, create it in the same step:
+
+```bash
+pylon db migrate --create-db
 ```
 
 ## The workflow commands
@@ -54,8 +61,9 @@ pylon db deploy
 | Command | What it does |
 | --- | --- |
 | `pylon db diff [name]` | generate a migration from the model ↔ history diff |
-| `pylon db migrate` | apply pending migrations (dev) |
-| `pylon db deploy` | apply pending migrations from the ledger (production) |
+| `pylon db migrate` | apply pending migrations (dev and production) |
+| `pylon db migrate --create-db` | …creating the database first if it does not exist (dev) |
+| `pylon db migrate --check` | …refusing when models have uncaptured changes (CI/production) |
 | `pylon db status` | show applied vs pending migrations |
 | `pylon db check` | fail if models have uncaptured changes — a CI gate |
 | `pylon db rollback` | reverse the last migration (`--steps <n>` for more) |

@@ -47,11 +47,38 @@ function reportFailure(error: unknown): void {
     process.env.PYLON_DEBUG === '1' ||
     process.argv.includes('--verbose') ||
     process.argv.includes('-v')
-  if (verbose || !(error instanceof Error)) consola.error(error)
-  else {
-    consola.error(error.message)
-    if (error.stack) consola.log(`\nRun with --verbose for the stack trace.`)
+  if (verbose || !(error instanceof Error)) {
+    consola.error(error)
+    return
   }
+  const message = describeError(error)
+  if (message) {
+    consola.error(message)
+    if (error.stack) consola.log(`\nRun with --verbose for the stack trace.`)
+  } else {
+    // Nothing printable — fall back to the whole object rather than an empty line.
+    consola.error(error)
+  }
+}
+
+/**
+ * A printable one-liner for an Error.
+ *
+ * Not every Error has a usable `message`: pg raises an `AggregateError` with an
+ * EMPTY message and the real cause on `.code` / `.errors` (a refused connection
+ * is the common one), so printing `error.message` alone printed nothing at all.
+ * Fall back to the name, the driver code, and the first nested cause.
+ */
+function describeError(error: Error): string {
+  const own = error.message?.trim()
+  if (own) return own
+  const code = (error as {code?: string}).code
+  const nested = (error as {errors?: unknown[]}).errors
+    ?.map(e => (e instanceof Error ? e.message : String(e)))
+    .filter(Boolean)
+    .join('; ')
+  const parts = [error.name, code && `(${code})`, nested].filter(Boolean)
+  return parts.join(' ')
 }
 
 import {findConfigFile} from './builder/bundler/build-config'
@@ -579,12 +606,22 @@ db.command('migrate')
   .option('-e, --entry <path>', 'Entry that constructs your app / registers models (default ./src/index.ts)')
   .option('-m, --models <path>', 'Deprecated alias for --entry')
   .option('-d, --dir <path>', 'Migrations directory', './migrations')
+  .option(
+    '--create-db',
+    'Create the database first if it does not exist (dev convenience; never do this in production)'
+  )
+  .option(
+    '--check',
+    'Refuse to apply while model changes are uncaptured (the old `db deploy` behaviour)'
+  )
   .action(async options => {
     try {
-      const {applied, apps, database} = await runDbCommand({
+      const {applied, apps, database, uncaptured, uncapturedDetail} = await runDbCommand({
         command: 'migrate',
         models: entryOf(options),
-        dir: options.dir
+        dir: options.dir,
+        createDb: options.createDb,
+        check: options.check
       })
       if (database?.created) consola.success(`Created database "${database.name}"`)
       if (apps) {
@@ -594,6 +631,18 @@ db.command('migrate')
       } else if (applied && applied.length > 0)
         consola.success(`Applied ${applied.length} migration(s): ${applied.join(', ')}`)
       else consola.info('Database is up to date')
+      // Your models lead your migrations. Not an error — the database matches the
+      // recorded history — but silently doing nothing is how you end up believing
+      // a model change shipped. `deploy` refuses on this; `migrate` just says so.
+      if (uncaptured && uncaptured > 0) {
+        consola.warn(
+          `${uncaptured} model change(s) are not captured in any migration — ` +
+            `run \`pylon db diff\` (\`pylon db check\` fails CI until you do):`
+        )
+        for (const d of (uncapturedDetail ?? []).slice(0, 25)) consola.log(`    - ${d}`)
+        if ((uncapturedDetail?.length ?? 0) > 25)
+          consola.log(`    … and ${uncapturedDetail!.length - 25} more`)
+      }
     } catch (error) {
       fail(error)
     }
@@ -758,32 +807,6 @@ db.command('squash')
         consola.success(
           `Squashed ${squashed.replaced.length} migration(s) into ${squashed.name}`
         )
-    } catch (error) {
-      fail(error)
-    }
-  })
-
-db.command('deploy')
-  .description('Apply pending migrations for production (refuses on uncaptured changes / tampering)')
-  .option('-e, --entry <path>', 'Entry that constructs your app / registers models (default ./src/index.ts)')
-  .option('-m, --models <path>', 'Deprecated alias for --entry')
-  .option('-d, --dir <path>', 'Migrations directory', './migrations')
-  .action(async options => {
-    try {
-      const {applied, apps} = await runDbCommand({
-        command: 'deploy',
-        models: entryOf(options),
-        dir: options.dir
-      })
-      if (apps) {
-        const total = apps.reduce((n, a) => n + a.applied.length, 0)
-        if (total > 0)
-          for (const a of apps.filter(a => a.applied.length))
-            consola.success(`app ${a.app}: deployed ${a.applied.length} migration(s)`)
-        else consola.info('All apps up to date')
-      } else if (applied && applied.length > 0)
-        consola.success(`Deployed ${applied.length} migration(s): ${applied.join(', ')}`)
-      else consola.info('Database is up to date')
     } catch (error) {
       fail(error)
     }

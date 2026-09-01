@@ -78,7 +78,6 @@ export interface DbCommandOptions {
     | 'push'
     | 'create'
     | 'reset'
-    | 'deploy'
     | 'squash'
     | 'merge'
     | 'seed'
@@ -112,6 +111,10 @@ export interface DbCommandOptions {
   dir?: string
   /** Project root (default `process.cwd()`). */
   cwd?: string
+  /** `migrate`: create the database when it doesn't exist (dev convenience, opt-in). */
+  createDb?: boolean
+  /** `migrate`: refuse to apply while model changes are uncaptured (was `db deploy`). */
+  check?: boolean
   /** `rollback`: how many migrations to reverse (default 1). */
   steps?: number
   /** `resolve`: mark the migration applied or rolled-back in the ledger. */
@@ -169,6 +172,9 @@ export interface DbCommandResult {
   merged?: {name: string; heads: string[]} | null
   /** `seed`: whether the seed file ran. */
   seeded?: boolean
+  /** `migrate`: model changes still not captured in a migration (a warning, not a gate). */
+  uncaptured?: number
+  uncapturedDetail?: string[]
   /** apps mode: per-app applied migrations (`migrate`/`deploy`). */
   apps?: Array<{app: string; applied: string[]}>
   /** apps mode: per-app status (`status`). */
@@ -430,19 +436,83 @@ export async function runDbCommandCore(
       if (!connectionString) {
         throw new Error('pylon db migrate requires DATABASE_URL to be set.')
       }
-      // Dev convenience (Prisma-parity): create the database if it's missing, so a
-      // fresh checkout migrates without a manual `CREATE DATABASE`. `deploy` never
-      // does this. No-op when it already exists; a missing CREATEDB privilege throws
-      // an actionable error from `ensureDatabase`.
-      const created = await ensureDatabaseForDev(orm, connectionString)
+      // Creating the database is OPT-IN (`--create-db`). It used to happen
+      // implicitly, which is fine on a fresh checkout and awful in production: a
+      // typo'd DATABASE_URL would silently create an empty database, migrate it
+      // "successfully", and leave the app pointed at nothing.
+      const created = options.createDb
+        ? await ensureDatabaseForDev(orm, connectionString)
+        : undefined
       const conn = orm.connect({connectionString})
-      if (groups) {
-        const res = await orm.migrateGroups(groups, loadMigrationFile, conn)
-        const apps = res.map(r => ({app: r.group, applied: r.applied}))
-        return {command: 'migrate', apps, applied: apps.flatMap(a => a.applied), database: created}
+      // Postgres 3D000 = invalid_catalog_name. Without --create-db that's now the
+      // expected outcome on a fresh checkout, so say what to do about it rather
+      // than surfacing the driver's bare "database ... does not exist".
+      const withCreateDbHint = async <T>(fn: () => Promise<T>): Promise<T> => {
+        try {
+          return await fn()
+        } catch (e) {
+          if ((e as {code?: string}).code === '3D000' && !options.createDb) {
+            throw new Error(
+              `${(e as Error).message}\n` +
+                `Run \`pylon db migrate --create-db\` to create it (development only — in ` +
+                `production the database should already exist, and a missing one usually ` +
+                `means DATABASE_URL is wrong).`
+            )
+          }
+          throw e
+        }
       }
-      const applied = await runner.apply(loadMigrationFile, conn)
-      return {command: 'migrate', applied, database: created}
+
+      // `--check` turns uncaptured model changes into a refusal, BEFORE applying
+      // anything — for deploy pipelines that want the gate at the point of apply
+      // rather than relying on `pylon db check` having run in CI.
+      if (options.check) {
+        const pending = groups
+          ? (await orm.statusGroups(groups, loadMigrationFile, conn)).flatMap(r =>
+              (r.pending ?? []).map(p => `${r.group}: ${p}`)
+            )
+          : (
+              (await runner.status(loadMigrationFile, conn)).pendingChanges as SchemaChange[]
+            ).map(describeChange)
+        if (pending.length > 0) {
+          throw new Error(
+            `Refusing to migrate: ${pending.length} model change(s) are not captured in ` +
+              `any migration — run \`pylon db diff\` and commit the result:\n` +
+              pending.map(p => `  - ${p}`).join('\n')
+          )
+        }
+      }
+      // Otherwise report — after applying — whether the MODELS are still ahead of
+      // the migration files. A warning, not a refusal: uncaptured changes leave the
+      // database consistent with the recorded history (incomplete, not wrong), and
+      // blocking would break the ordinary case of applying a teammate's migrations
+      // while your own edits are in progress. The hard gate is `pylon db check` in
+      // CI, or `--check` above. (A TAMPERED history is refused either way — that
+      // check lives inside `apply` itself.)
+      if (groups) {
+        const res = await withCreateDbHint(() =>
+          orm.migrateGroups(groups, loadMigrationFile, conn)
+        )
+        const apps = res.map(r => ({app: r.group, applied: r.applied}))
+        const after = await orm.statusGroups(groups, loadMigrationFile, conn)
+        return {
+          command: 'migrate',
+          apps,
+          applied: apps.flatMap(a => a.applied),
+          uncaptured: after.reduce((n, r) => n + r.pendingChanges, 0),
+          uncapturedDetail: after.flatMap(r => (r.pending ?? []).map(p => `${r.group}: ${p}`)),
+          database: created
+        }
+      }
+      const applied = await withCreateDbHint(() => runner.apply(loadMigrationFile, conn))
+      const after = await runner.status(loadMigrationFile, conn)
+      return {
+        command: 'migrate',
+        applied,
+        uncaptured: after.pendingChanges.length,
+        uncapturedDetail: (after.pendingChanges as SchemaChange[]).map(describeChange),
+        database: created
+      }
     }
     case 'rollback': {
       const connectionString = process.env.DATABASE_URL
@@ -518,33 +588,6 @@ export async function runDbCommandCore(
       }
       await (seedFn as (db: unknown) => Promise<void>)(conn)
       return {command: 'seed', seeded: true}
-    }
-    case 'deploy': {
-      const connectionString = process.env.DATABASE_URL
-      if (!connectionString) {
-        throw new Error('pylon db deploy requires DATABASE_URL to be set.')
-      }
-      const conn = orm.connect({connectionString})
-      if (groups) {
-        // Per-group guard pass + dependency-ordered apply (handled by deployGroups).
-        const res = await orm.deployGroups(groups, loadMigrationFile, conn)
-        const apps = res.map(r => ({app: r.group, applied: r.applied}))
-        return {command: 'deploy', apps, applied: apps.flatMap(a => a.applied)}
-      }
-      // Prod guards: don't deploy with un-generated model changes or a tampered
-      // history. (Drift is reported by `status`/`check`; deploy only applies.)
-      const status = await runner.status(loadMigrationFile, conn)
-      if (status.pendingChanges.length > 0) {
-        throw new Error(
-          'Refusing to deploy: uncaptured model changes — run `pylon db diff` and commit the migration.'
-        )
-      }
-      const tampered = await runner.integrityErrors(loadMigrationFile, conn)
-      if (tampered.length > 0) {
-        throw new Error(`Refusing to deploy: tampered migration(s): ${tampered.join(', ')}`)
-      }
-      const applied = await runner.apply(loadMigrationFile, conn)
-      return {command: 'deploy', applied}
     }
     case 'baseline': {
       // Adopt an existing, un-migrated database: deep-introspect it, emit model

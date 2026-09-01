@@ -14,7 +14,7 @@
  * `check`/`plan` work offline (they only skip the ledger/drift half).
  */
 import {spawnSync} from 'node:child_process'
-import {existsSync} from 'node:fs'
+import {existsSync, readFileSync, writeFileSync} from 'node:fs'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {beforeAll, describe, expect, it} from 'vitest'
@@ -110,5 +110,108 @@ describe('pylon db diff across all apps', () => {
     expect(r.status).toBe(1)
     expect(r.out).toMatch(/Unknown app "nope"/)
     expect(r.out).toMatch(/blog/)
+  })
+})
+
+/**
+ * `migrate` warns about uncaptured model changes rather than refusing them.
+ *
+ * Refusing is `deploy`'s job. Uncaptured changes mean the MODELS lead the
+ * migration files, which leaves the database consistent with the recorded
+ * history — incomplete, not wrong — and blocking would break the ordinary case of
+ * applying a teammate's migrations while your own edits are in progress. But
+ * saying nothing is how a model change is believed to have shipped when it
+ * didn't, so `migrate` now names what is still uncaptured.
+ *
+ * (A TAMPERED history is refused by both: that check lives inside `apply`.)
+ */
+describe('pylon db migrate — uncaptured changes warn, not block', () => {
+  it('applies, then names the uncaptured changes', () => {
+    const models = path.resolve(appDir, 'src/apps/blog/models.ts')
+    const original = readFileSync(models, 'utf8')
+    try {
+      writeFileSync(
+        models,
+        original.replace(
+          '  title = models.Text()',
+          '  title = models.Text()\n  slug = models.Varchar(120, {unique: true})'
+        )
+      )
+      const r = spawnSync(
+        'node',
+        [cliBin, 'db', 'migrate', '--create-db'],
+        {
+          cwd: appDir,
+          encoding: 'utf8',
+          timeout: 120_000,
+          env: {
+            ...process.env,
+            DATABASE_URL: 'postgres://pylon:pylon@localhost:5434/pylon_migwarn_e2e',
+            PYLON_TELEMETRY_DISABLED: '1',
+            DO_NOT_TRACK: '1',
+            CONSOLA_LEVEL: '5'
+          }
+        }
+      )
+      const out = `${r.stdout ?? ''}${r.stderr ?? ''}`
+      // It MIGRATED (did not refuse) …
+      expect(r.status, out).toBe(0)
+      expect(out).toMatch(/applied 1 migration\(s\)/)
+      // … and named what is still uncaptured.
+      expect(out).toMatch(/not captured in any migration/)
+      expect(out).toMatch(/blog: add column "blog_article"\."slug"/)
+    } finally {
+      writeFileSync(models, original)
+    }
+  })
+})
+
+/**
+ * `migrate` no longer creates the database implicitly.
+ *
+ * It used to, as a Prisma-parity convenience, and that was the entire reason a
+ * separate `db deploy` existed: in production an implicit CREATE turns a typo'd
+ * DATABASE_URL into an empty database that migrates "successfully" and leaves the
+ * app pointed at nothing. Creating is now opt-in, which makes one `migrate` safe
+ * in both places — so `deploy` is gone.
+ */
+describe('pylon db migrate — creating the database is opt-in', () => {
+  const missing = 'postgres://pylon:pylon@localhost:5434/pylon_absent_e2e_db'
+  const run = (...args: string[]) =>
+    spawnSync('node', [cliBin, 'db', ...args], {
+      cwd: appDir,
+      encoding: 'utf8',
+      timeout: 120_000,
+      env: {
+        ...process.env,
+        DATABASE_URL: missing,
+        PYLON_TELEMETRY_DISABLED: '1',
+        DO_NOT_TRACK: '1',
+        CONSOLA_LEVEL: '5'
+      }
+    })
+
+  it('refuses a missing database and names the flag', () => {
+    const r = run('migrate')
+    const out = `${r.stdout ?? ''}${r.stderr ?? ''}`
+    expect(r.status, out).toBe(1)
+    expect(out).toMatch(/does not exist/i)
+    expect(out).toMatch(/--create-db/)
+    // and it must not have silently created one
+    expect(out).not.toMatch(/Created database/)
+  })
+
+  it('creates it when asked', () => {
+    const r = run('migrate', '--create-db')
+    const out = `${r.stdout ?? ''}${r.stderr ?? ''}`
+    expect(r.status, out).toBe(0)
+    expect(out).toMatch(/Created database "pylon_absent_e2e_db"/)
+  })
+
+  it('`deploy` is gone', () => {
+    const r = run('deploy')
+    const out = `${r.stdout ?? ''}${r.stderr ?? ''}`
+    expect(r.status).not.toBe(0)
+    expect(out).toMatch(/unknown command/i)
   })
 })

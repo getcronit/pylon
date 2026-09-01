@@ -236,36 +236,6 @@ export async function migrateGroups(
   return applyOrdered(groups, load, db)
 }
 
-/**
- * Production apply across groups: a GUARD pass first (every group must have no
- * uncaptured model changes and no tampered history), then apply in dependency
- * order — so a multi-group deploy is all-or-nothing at the gate.
- */
-export async function deployGroups(
-  groups: MigrationGroup[],
-  load: MigrationLoader,
-  db: Database = getDatabase()
-): Promise<GroupApplyResult[]> {
-  const ordered = orderGroups(groups)
-  for (const group of ordered) {
-    const runner = groupRunner(group)
-    const status = await runner.status(load, db)
-    if (status.pendingChanges.length > 0) {
-      throw new Error(
-        `Refusing to deploy group "${group.name}": uncaptured model changes — ` +
-          `generate and commit its migration first.`
-      )
-    }
-    const tampered = await runner.integrityErrors(load, db)
-    if (tampered.length > 0) {
-      throw new Error(`Refusing to deploy group "${group.name}": tampered migration(s): ${tampered.join(', ')}`)
-    }
-  }
-  // All groups passed the gate → apply interleaved by global timestamp (same order a
-  // fresh build needs), all-or-nothing under one lock.
-  return applyOrdered(groups, load, db)
-}
-
 /** Tampered migrations across every group, labelled `"<app>:<migration>"`. */
 export async function integrityErrorsGroups(
   groups: MigrationGroup[],

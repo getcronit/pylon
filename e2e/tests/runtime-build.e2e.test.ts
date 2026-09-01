@@ -107,12 +107,12 @@ describe.skipIf(!dockerAvailable)('runtime e2e — built server answers GraphQL 
     if (build.status !== 0) throw new Error(`build failed: ${String(build.stderr ?? build.stdout ?? "")}`)
 
     // Provision the schema via the REAL migration path (committed migration +
-    // `pylon db deploy`), not syncSchema. deploy enforces prod guards — it
+    // `pylon db migrate --check`), not syncSchema. --check enforces the guard — it
     // refuses on uncaptured model changes or a tampered history — so a green
     // run also proves the committed migration matches the models.
     await resetSchema()
-    const deployed = pylonDb('deploy')
-    if (deployed.status !== 0) throw new Error(`db deploy failed: ${deployed.out}`)
+    const deployed = pylonDb('migrate', '--check')
+    if (deployed.status !== 0) throw new Error(`db migrate failed: ${deployed.out}`)
 
     server = spawn('node', ['.pylon/server.mjs'], {
       cwd: appDir,

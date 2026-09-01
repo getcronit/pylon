@@ -40,7 +40,7 @@ RUN cd docs && node node_modules/@getcronit/pylon/dist/cli/index.js build --stan
 # ---- migrate: one-shot migrator (reuses the build stage — it has the CLI + models +
 # migrations/, which the serve image deliberately drops). Run this ONCE per release, before
 # rolling out the runner: `docker build --target migrate` then run with DATABASE_URL set.
-# `db deploy` loads the models to verify the migrations match, then applies the pending ones.
+# `db migrate --check` loads the models to verify the migrations match, then applies the pending ones.
 FROM build AS migrate
 WORKDIR /app/docs
 CMD ["node", "node_modules/@getcronit/pylon/dist/cli/index.js", "db", "deploy"]

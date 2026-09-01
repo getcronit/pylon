@@ -18,7 +18,6 @@ import {
   connect,
   Database,
   db,
-  deployGroups,
   generateGroup,
   getModelDefinitionOrThrow,
   migrateGroups,
@@ -227,12 +226,14 @@ describe('apps via models.app() + derived migration groups (Postgres)', () => {
       ])
     })
 
-    it('status reports nothing pending; deploy is a no-op once applied', async () => {
+    it('status reports nothing pending; re-applying is a no-op', async () => {
       expect(await statusGroups(groups, load, database)).toEqual([
         {group: 'accounts', pendingChanges: 0, pending: [], unapplied: []},
         {group: 'billing', pendingChanges: 0, pending: [], unapplied: []}
       ])
-      expect(await deployGroups(groups, load, database)).toEqual([
+      // Re-applying is a no-op (idempotent); the uncaptured-changes guard that
+      // `deployGroups` used to bundle now lives in `pylon db migrate --check`.
+      expect(await migrateGroups(groups, load, database)).toEqual([
         {group: 'accounts', applied: []},
         {group: 'billing', applied: []}
       ])

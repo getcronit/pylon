@@ -121,7 +121,7 @@ Generate migrations in development, then **apply** them in production as a deplo
 step — never auto-migrate on boot:
 
 ```bash
-pylon db deploy    # apply all pending migrations (idempotent)
+pylon db migrate --check    # apply all pending migrations (idempotent)
 pylon db migrate   # generate + apply (development)
 pylon db check     # verify schema is in sync — exits non-zero on drift
 ```
@@ -175,7 +175,7 @@ Prefer to ship the app and worker from **one** image instead? Skip `--standalone
 
 ### Migrating a standalone deploy
 
-The standalone artifact is serve-only: no `pylon` CLI, and `db deploy` needs one — it loads
+The standalone artifact is serve-only: no `pylon` CLI, and `db migrate --check` needs one — it loads
 your models (to verify the migrations still match) and applies the `migrations/` dir. So run
 migrations from a **separate one-shot step** that *does* have the CLI, gated **before** the new
 serve containers roll out. You don't need a second build — the `build` stage above already has
@@ -205,12 +205,12 @@ services:
 
 On Kubernetes, run migrations as a **Job** (runs once to completion), ordered before the
 Deployment update — not an `initContainer`, which would run once *per replica*. No CLI in
-your pipeline image? Run `pylon db deploy` straight from CI (your checkout has the CLI +
+your pipeline image? Run `pylon db migrate --check` straight from CI (your checkout has the CLI +
 migrations) before deploying — simplest when CI can reach the database.
 
 :::warning
 One runner, once per release — a Job or a CI step, **never per-replica and never at app boot**,
-where concurrent instances race the migration ledger. `db deploy` is idempotent (ledger-tracked),
+where concurrent instances race the migration ledger. `db migrate --check` is idempotent (ledger-tracked),
 so a retried job is safe. For a **breaking** schema change, expand/contract: ship the additive
 migration plus code that tolerates both shapes, then a later contract migration — so old and new
 instances coexist during the rollout.

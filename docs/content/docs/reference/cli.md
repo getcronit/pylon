@@ -184,8 +184,7 @@ for the full workflow.
 | `pylon db diff [name] [--app a] [--rename] [--rename-table]` | Generate a migration from model changes; `--rename table.old=table.new` / `--rename-table Old=New` make a rename data-preserving instead of drop+create |
 | `pylon db plan [--down]` | Print the SQL a migration would run (`--down` for the reverse) |
 | `pylon db check` | CI gate: fail on uncaptured changes, drift, or tampered history |
-| `pylon db migrate` | Apply unapplied migrations |
-| `pylon db deploy` | Production apply — refuses to run on uncaptured model changes |
+| `pylon db migrate [--create-db] [--check]` | Apply unapplied migrations. `--create-db` creates the database first if missing (development only — never in production, where a missing database usually means `DATABASE_URL` is wrong). `--check` refuses to apply while models have changes no migration captures |
 | `pylon db rollback [--steps n]` | Reverse the last `n` migrations (default 1) |
 | `pylon db resolve <name> [--rolled-back]` | Mark a migration applied / rolled-back without running SQL |
 | `pylon db rename-app <old=new>` | Re-point the migration ledger after renaming an [app](/docs/apps/overview) in code (run once per database, before `migrate`) |
@@ -213,7 +212,7 @@ pylon db migrate
 
 # CI
 pylon db check
-pylon db deploy
+pylon db migrate --check
 
 # prototyping / test setup
 pylon db push

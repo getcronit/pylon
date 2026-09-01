@@ -121,8 +121,8 @@ describe.skipIf(!dockerAvailable)('pylon db (shipped CLI) against a live databas
     expect(r.out).toMatch(/pushed/i)
   })
 
-  it('db deploy is a no-op when up to date (models captured, nothing pending)', () => {
-    const r = pylonDb('deploy')
+  it('db migrate --check is a no-op when up to date (models captured, nothing pending)', () => {
+    const r = pylonDb('migrate', '--check')
     expect(r.status, r.out).toBe(0)
     expect(r.out).toMatch(/up to date/i)
   })

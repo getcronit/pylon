@@ -34,5 +34,5 @@ const app = new Pylon({
 
 registerBlogRoutes(app)
 
-// Schema is provisioned out-of-band by `pylon db deploy` (per-app migrations).
+// Schema is provisioned out-of-band by `pylon db migrate` (per-app migrations).
 export default app
