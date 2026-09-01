@@ -17,7 +17,7 @@ import {spawnSync} from 'node:child_process'
 import {existsSync, readFileSync, writeFileSync} from 'node:fs'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
-import {beforeAll, describe, expect, it} from 'vitest'
+import {afterAll, beforeAll, describe, expect, it} from 'vitest'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const cliBin = path.resolve(dir, '../../packages/pylon/dist/cli/index.js')
@@ -213,5 +213,65 @@ describe('pylon db migrate — creating the database is opt-in', () => {
     const out = `${r.stdout ?? ''}${r.stderr ?? ''}`
     expect(r.status).not.toBe(0)
     expect(out).toMatch(/unknown command/i)
+  })
+})
+
+/**
+ * Regression: `db check` used to compare the live database at PRESENCE level only
+ * — table and column NAMES. A column hand-altered from `text` to `varchar(50)`,
+ * a dropped NOT NULL, a foreign key removed by a hotfix: all present under the
+ * right name, so all reported as "in sync". That is the drift you most want a
+ * gate to catch, and it was the one thing it could not see.
+ */
+describe('pylon db check — drift in the shape, not just the names', () => {
+  const dbName = 'pylon_drift_e2e'
+  const url = `postgres://pylon:pylon@localhost:5434/${dbName}`
+  const run = (...args: string[]) =>
+    spawnSync('node', [cliBin, 'db', ...args], {
+      cwd: appDir,
+      encoding: 'utf8',
+      timeout: 120_000,
+      env: {
+        ...process.env,
+        DATABASE_URL: url,
+        PYLON_TELEMETRY_DISABLED: '1',
+        DO_NOT_TRACK: '1',
+        CONSOLA_LEVEL: '5'
+      }
+    })
+  const psql = (sqlText: string) =>
+    spawnSync('docker', ['exec', 'e2e-postgres-1', 'psql', '-U', 'pylon', '-d', dbName, '-q', '-c', sqlText], {
+      encoding: 'utf8',
+      timeout: 60_000
+    })
+  const dropDb = () =>
+    spawnSync('docker', ['exec', 'e2e-postgres-1', 'psql', '-U', 'pylon', '-d', 'pylon_e2e', '-c', `DROP DATABASE IF EXISTS ${dbName}`], {encoding: 'utf8'})
+
+  beforeAll(() => {
+    dropDb()
+    const r = run('migrate', '--create-db')
+    if (r.status !== 0) throw new Error(`setup migrate failed: ${r.stdout}${r.stderr}`)
+  }, 120_000)
+
+  afterAll(() => {
+    dropDb()
+  })
+
+  it('passes on a freshly migrated database (no false positives)', () => {
+    const r = run('check')
+    expect(r.status, `${r.stdout ?? ''}${r.stderr ?? ''}`).toBe(0)
+  })
+
+  it('fails on an out-of-band type change, dropped NOT NULL, and dropped FK', () => {
+    psql('ALTER TABLE blog_article ALTER COLUMN title TYPE varchar(50)')
+    psql('ALTER TABLE blog_author ALTER COLUMN name DROP NOT NULL')
+    psql('ALTER TABLE shop_purchase DROP CONSTRAINT shop_purchase_product_id_fkey')
+
+    const r = run('check')
+    const out = `${r.stdout ?? ''}${r.stderr ?? ''}`
+    expect(r.status, out).toBe(1)
+    expect(out).toMatch(/blog_article\.title: sqlType is "varchar" in the database, models expect "text"/)
+    expect(out).toMatch(/blog_author\.name: nullable is true in the database, models expect false/)
+    expect(out).toMatch(/foreign key "shop_purchase_product_id_fkey".*is missing from the database/)
   })
 })

@@ -96,6 +96,7 @@ export interface ProjectApp {
     missingTables: string[]
     extraTables: string[]
     columns: Array<{table: string; missing: string[]; extra: string[]}>
+    mismatches?: string[]
   }>
   hasDrift(d: {missingTables: string[]; extraTables: string[]; columns: unknown[]}): boolean
   /** Create tables for all models directly (no migration) — `db push`. */

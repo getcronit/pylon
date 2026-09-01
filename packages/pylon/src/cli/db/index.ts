@@ -64,6 +64,8 @@ type SchemaDrift = {
   missingTables: string[]
   extraTables: string[]
   columns: Array<{table: string; missing: string[]; extra: string[]}>
+  /** Columns/FKs/indexes present under the right name but the wrong shape. */
+  mismatches?: string[]
 }
 
 export interface DbCommandOptions {

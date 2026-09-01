@@ -394,10 +394,14 @@ db.command('status')
       }
       if (drift) {
         const driftN =
-          drift.missingTables.length + drift.extraTables.length + drift.columns.length
+          drift.missingTables.length +
+          drift.extraTables.length +
+          drift.columns.length +
+          (drift.mismatches?.length ?? 0)
         if (driftN === 0) consola.info('Database in sync with migrations (no drift)')
         else {
           consola.warn('Database drift detected:')
+          for (const m of drift.mismatches ?? []) consola.warn(`  ${m}`)
           for (const t of drift.missingTables) consola.warn(`  missing table: ${t}`)
           for (const t of drift.extraTables) consola.warn(`  extra table (not in models): ${t}`)
           for (const c of drift.columns)
@@ -586,11 +590,19 @@ db.command('check')
         ? d.missingTables.length + d.columns.reduce((n, c) => n + c.missing.length, 0)
         : 0
       if (missing > 0) problems.push(`database missing ${missing} expected table(s)/column(s)`)
+      // A column present under the right name but the wrong TYPE (or a dropped
+      // foreign key, or a missing index) is drift the presence check can't see —
+      // and it fails CI, because the app will run against it and break.
+      const mismatches = d?.mismatches ?? []
+      if (mismatches.length > 0)
+        problems.push(`${mismatches.length} column/constraint(s) do not match the models`)
       if (problems.length > 0) {
         for (const p of problems) consola.error(p)
         for (const d of shown) consola.log(`    - ${d}`)
         if (detail.length > shown.length)
           consola.log(`    … and ${detail.length - shown.length} more`)
+        for (const m of mismatches.slice(0, 25)) consola.log(`    - ${m}`)
+        if (mismatches.length > 25) consola.log(`    … and ${mismatches.length - 25} more`)
         process.exit(1)
       }
       consola.success(

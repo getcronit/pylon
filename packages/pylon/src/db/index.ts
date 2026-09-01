@@ -187,6 +187,7 @@ export {
   introspectPhysical,
   expectedColumns,
   computeDrift,
+  computeDeepDrift,
   hasDrift,
   schemaDrift,
   type SchemaDrift

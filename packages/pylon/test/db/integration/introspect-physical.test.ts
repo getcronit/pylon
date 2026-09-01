@@ -7,7 +7,15 @@
 import {promises as fs} from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import {applyChanges, diffSchema} from '@getcronit/pylon/ir'
+import {
+  applyChanges,
+  diffSchema,
+  type OnDelete,
+  type PhysicalSchema,
+  type PhysicalTable,
+  type SqlType,
+  type TableColumn
+} from '@getcronit/pylon/ir'
 import {afterAll, beforeAll, describe, expect, it} from 'vitest'
 import {Pylon} from '@getcronit/pylon'
 import {
@@ -17,6 +25,7 @@ import {
   connect,
   Database,
   foreignKey,
+  computeDeepDrift,
   generateModelSource,
   id,
   introspectPhysical,
@@ -145,5 +154,96 @@ describe.skipIf(!runDb)('introspectPhysical (Postgres)', () => {
     expect(src).toMatch(/id = id\(\)/)
     expect(src).toMatch(/authorId = foreignKey\(\(\) => IpAuthor/)
     expect(src).toMatch(/tags = array\(text\(\)\)/)
+  })
+})
+
+/**
+ * Deep drift: a column present under the right NAME but the wrong shape.
+ *
+ * Presence-level drift called this "in sync" — the column exists on both sides —
+ * which made the `pylon db check` gate blind to exactly the change you most want
+ * to hear about: a type hand-altered out of band, a dropped NOT NULL, a foreign
+ * key removed by a hotfix.
+ */
+describe.skipIf(!runDb)('computeDeepDrift', () => {
+  const col = (name: string, sqlType: SqlType, extra: Partial<TableColumn> = {}): TableColumn =>
+    ({
+      property: name,
+      name,
+      sqlType,
+      primaryKey: false,
+      autoIncrement: false,
+      unique: false,
+      nullable: false,
+      ...extra
+    }) as TableColumn
+
+  const schema = (cols: TableColumn[], extra: Partial<PhysicalTable> = {}): PhysicalSchema => ({
+    T: {name: 'T', table: 't', columns: cols, foreignKeys: [], indexes: [], ...extra}
+  })
+
+  it('is silent when the database matches', () => {
+    const s = schema([col('id', 'bigint', {primaryKey: true, autoIncrement: true}), col('a', 'text')])
+    expect(computeDeepDrift(s, s)).toEqual([])
+  })
+
+  it('catches a changed type, nullability, uniqueness and primary key', () => {
+    const want = schema([col('a', 'text'), col('b', 'text'), col('c', 'text'), col('d', 'text')])
+    const live = schema([
+      col('a', 'integer'),
+      col('b', 'text', {nullable: true}),
+      col('c', 'text', {unique: true}),
+      col('d', 'text', {primaryKey: true})
+    ])
+    const drift = computeDeepDrift(live, want)
+    expect(drift.join('\n')).toMatch(/t\.a: sqlType is "integer" in the database, models expect "text"/)
+    expect(drift.join('\n')).toMatch(/t\.b: nullable is true in the database, models expect false/)
+    expect(drift.join('\n')).toMatch(/t\.c: unique is true in the database, models expect false/)
+    expect(drift.join('\n')).toMatch(/t\.d: primaryKey is true in the database, models expect false/)
+  })
+
+  it('treats an absent ON DELETE and NO ACTION as the same rule', () => {
+    const fk = (onDelete?: OnDelete) => ({
+      table: 't',
+      name: 't_x_fkey',
+      column: 'x',
+      refTable: 'u',
+      refColumn: 'id',
+      ...(onDelete ? {onDelete} : {})
+    })
+    const want = schema([col('x', 'bigint')], {foreignKeys: [fk()]})
+    const live = schema([col('x', 'bigint')], {foreignKeys: [fk('no action' as OnDelete)]})
+    // Postgres reports the default rule as NO ACTION; a model that says nothing
+    // means the same. Without this every plain FK reads as drift.
+    expect(computeDeepDrift(live, want)).toEqual([])
+    // A rule that genuinely differs is still reported.
+    const cascade = schema([col('x', 'bigint')], {foreignKeys: [fk('cascade' as OnDelete)]})
+    expect(computeDeepDrift(live, cascade).join('\n')).toMatch(/ON DELETE is "no action" .* expect "cascade"/)
+  })
+
+  it('catches a missing foreign key and a missing index', () => {
+    const want = schema([col('x', 'bigint')], {
+      foreignKeys: [{table: 't', name: 't_x_fkey', column: 'x', refTable: 'u', refColumn: 'id'}],
+      indexes: [{name: 't_x_idx', table: 't', columns: ['x'], unique: false}]
+    })
+    const live = schema([col('x', 'bigint')])
+    const drift = computeDeepDrift(live, want).join('\n')
+    expect(drift).toMatch(/foreign key "t_x_fkey" \(x → u\.id\) is missing/)
+    expect(drift).toMatch(/index "t_x_idx" \(x\) is missing/)
+  })
+
+  it('skips generated columns — their type is derived and their expression rewritten', () => {
+    const want = schema([col('doc', 'tsvector', {generatedAs: "to_tsvector('simple', a)"})])
+    const live = schema([col('doc', 'text')]) // what Postgres reports before the type fix
+    expect(computeDeepDrift(live, want)).toEqual([])
+  })
+
+  it('ignores extra tables — a shared database holds other apps', () => {
+    const want = schema([col('a', 'text')])
+    const live: PhysicalSchema = {
+      ...schema([col('a', 'text')]),
+      Other: {name: 'Other', table: 'other', columns: [col('z', 'text')], foreignKeys: [], indexes: []}
+    }
+    expect(computeDeepDrift(live, want)).toEqual([])
   })
 })
