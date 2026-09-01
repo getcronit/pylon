@@ -129,6 +129,13 @@ instance for interfaces, the matching shape for unions — so you return ordinar
 objects and the right `__typename` follows.
 
 :::note
+That `... on TextBlock { … }` syntax is the raw GraphQL. In a usePages frontend you
+don't write it: you read member fields flatly and narrow on `__typename`, and the
+build step compiles the inline fragments. See
+[Interfaces & unions in `useData`](/docs/frontend/use-data#interfaces--unions-inline-fragments).
+:::
+
+:::note
 Polymorphic types compose across services too. When stitching a remote API, an
 interface is resolved through a patch plus `__typename` — see
 [Gateway](/docs/core-concepts/gateway).

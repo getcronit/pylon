@@ -74,6 +74,87 @@ never touched before the component's `const`s have run. The query is resolved
 during SSR and serialized into the page, so the client hydrates without an extra
 round-trip.
 
+## Interfaces & unions (inline fragments)
+
+When a field returns an interface or union — a `blocks: [Block!]!` where `Block`
+is `TextBlock | FaqBlock | …` — you never write `... on FaqBlock`. You read the
+concrete fields **flatly** and narrow on `__typename`. The analyzer sees which
+member declares each field you read and compiles the inline fragments for you:
+
+:::generates
+```tsx title="You write"
+const data = useData()
+const page = data.page({slug: 'home'})
+
+return (
+  <div>
+    {page.blocks.map(block => {
+      if (block.__typename === 'FaqBlock') {
+        return block.entries.map(e => <FaqRow key={e.q} q={e.q} a={e.a} />)
+      }
+      if (block.__typename === 'TextBlock') {
+        return <Prose key={block.id}>{block.text}</Prose>
+      }
+      return null
+    })}
+  </div>
+)
+```
+
+```graphql title="Pylon generates"
+query ($slug: String!) {
+  page(slug: $slug) {
+    blocks {
+      __typename
+      ... on TextBlock { text }
+      ... on FaqBlock { entries { q a } }
+    }
+  }
+}
+```
+:::
+
+The `if (block.__typename === 'FaqBlock')` check does double duty: TypeScript
+**narrows** `block` to `FaqBlock` so `block.entries` type-checks, and that read is
+what tells the analyzer to place `entries { q a }` inside `... on FaqBlock`.
+Fragment placement is schema-driven — a field lands in the fragment for whichever
+member declares it — so you get the same document whether you narrow first or read
+`block.entries` behind a `block.__typename === 'FaqBlock' && …` guard.
+
+A few things follow from this:
+
+- **`__typename` is the discriminator.** It's always available on a polymorphic
+  value and typed as a literal union (`"TextBlock" | "FaqBlock"`), so a `switch`
+  or `if` chain over it is exhaustively checkable.
+- **A concrete field read off the wrong member is `undefined`.** The wrapper
+  dispatches each field by the value's runtime `__typename`, so `block.text` on a
+  `FaqBlock` is `undefined` — which is exactly why the narrowing (or a `?.`) isn't
+  optional. TypeScript's control-flow narrowing enforces this at author time.
+- **Interface fields need no narrowing.** A field declared on the interface itself
+  (here `id` on `Block`) is read directly and is *required* in the result type;
+  only the members' own fields are optional. The generated result type is
+  merged-optional:
+
+  ```ts
+  page.blocks: Array<{
+    __typename: 'TextBlock' | 'FaqBlock'
+    text?: string | null        // TextBlock
+    entries?: Array<{q: string; a: string}>  // FaqBlock
+  }>
+  ```
+
+This works nested and through lists to any depth — `... on FaqBlock { entries { q a } }`
+is itself a concrete object selected inside a fragment. When two members declare a
+field of the *same* name but *different* types (`status: TicketStatus` vs
+`status: TaskStatus`), the compiler aliases them apart on the wire and re-joins them
+on read, so you still read `node.status` — no manual aliasing.
+
+:::tip
+This is the read side. For how interfaces and unions arise from your TypeScript on
+the **schema** side (class inheritance, object unions, `__typename` resolution),
+see [Interfaces & Unions](/docs/core-concepts/interfaces-unions).
+:::
+
 ## Options
 
 `useData` accepts a `UseDataOptions` object:
