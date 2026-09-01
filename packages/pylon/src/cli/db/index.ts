@@ -133,6 +133,8 @@ export interface DbCommandResult {
   renameCandidates?: Array<{table: string; from: string; to: string}>
   /** `diff`: possible TABLE renames not confirmed via --rename-table (data-loss warning). */
   tableRenameCandidates?: Array<{from: string; to: string}>
+  /** `diff`: valid SQL that will still fail on a table that already has rows. */
+  warnings?: string[]
   /** apps mode `diff`: one entry per app that actually had changes. */
   diffs?: Array<{
     app: string
@@ -140,6 +142,7 @@ export interface DbCommandResult {
     destructive: boolean
     renameCandidates: Array<{table: string; from: string; to: string}>
     tableRenameCandidates: Array<{from: string; to: string}>
+    warnings: string[]
   }>
   applied?: string[]
   /** `rollback`: reversed migration names. */
@@ -301,7 +304,8 @@ export async function runDbCommandCore(
             created: made.name,
             destructive: (made.changes as SchemaChange[] | undefined)?.some(isDestructive) ?? false,
             renameCandidates: made.renameCandidates ?? [],
-            tableRenameCandidates: made.tableRenameCandidates ?? []
+            tableRenameCandidates: made.tableRenameCandidates ?? [],
+            warnings: made.warnings ?? []
           })
         }
         return {
@@ -324,7 +328,8 @@ export async function runDbCommandCore(
         created: created?.name ?? null,
         destructive: destructive ?? false,
         renameCandidates: created?.renameCandidates ?? [],
-        tableRenameCandidates: created?.tableRenameCandidates ?? []
+        tableRenameCandidates: created?.tableRenameCandidates ?? [],
+        warnings: created?.warnings ?? []
       }
     }
     case 'plan': {

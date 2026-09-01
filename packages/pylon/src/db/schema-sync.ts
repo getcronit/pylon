@@ -1,4 +1,4 @@
-import {joinColumn, joinTableName, pgIdent, postgres} from '../ir'
+import {joinColumn, joinTableName, pgIdent, postgres, sqlDefaultLiteral} from '../ir'
 import {sql, type Expression} from 'kysely'
 import {Database, getDatabase} from './database.js'
 import {entityFromDefinition} from './ir.js'
@@ -13,16 +13,6 @@ import {
 
 type ColumnType = string | Expression<any>
 
-/** A JS array default (`[]`, `['a','b']`) → a Postgres array literal (`'{}'`,
- *  `'{"a","b"}'`). Kysely can't render a JS array as an immediate default value,
- *  so array columns need the SQL literal. Each element is double-quoted + escaped,
- *  which Postgres accepts for text[] and numeric[] alike; empty is the common case. */
-function pgArrayLiteral(arr: readonly unknown[]): string {
-  const body = arr
-    .map(v => `"${String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`)
-    .join(',')
-  return `'{${body}}'`
-}
 
 // Postgres-specific (dialect override point). This is the `db push` (kysely)
 // type renderer — the runtime parallel to the migration DDL renderer in
@@ -90,13 +80,12 @@ async function createTable(db: Database, def: ModelDefinition): Promise<void> {
           if (!col.nullable && !col.primaryKey) c = c.notNull()
           if (col.defaultSql) c = c.defaultTo(sql.raw(col.defaultSql))
           else if (col.default !== undefined) {
-            // A JS array default (`default: []`) can't be rendered as a Kysely
-            // immediate value → compile it to a Postgres array literal (`'{}'`,
-            // `'{"a","b"}'`). Everything else passes straight through.
-            c =
-              col.array && Array.isArray(col.default)
-                ? c.defaultTo(sql.raw(pgArrayLiteral(col.default)))
-                : c.defaultTo(col.default as any)
+            // Render through the SAME literal renderer the migration DDL uses, so
+            // `db push` and a generated migration can't disagree about a model.
+            // Kysely can render neither a JS array nor a plain object as an
+            // immediate value — an object silently became an unusable default.
+            const literal = sqlDefaultLiteral(col.default, resolved)
+            c = literal != null ? c.defaultTo(sql.raw(literal)) : c.defaultTo(col.default as any)
           }
         }
 

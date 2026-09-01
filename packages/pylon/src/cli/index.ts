@@ -477,7 +477,8 @@ db.command('diff')
       for (const spec of (options.using as string[]) ?? []) addCast(spec, 'using')
       for (const spec of (options.usingDown as string[]) ?? []) addCast(spec, 'usingDown')
 
-      const {created, destructive, renameCandidates, tableRenameCandidates, diffs} = await runDbCommand({
+      const {created, destructive, renameCandidates, tableRenameCandidates, diffs, warnings} =
+        await runDbCommand({
         command: 'diff',
         name,
         app: options.app,
@@ -508,6 +509,7 @@ db.command('diff')
               )
             if (d.destructive)
               consola.warn(`app ${d.app}: this migration drops a table or column — it will destroy data.`)
+            for (const w of d.warnings ?? []) consola.warn(`app ${d.app}: ${w}`)
           }
         }
         return
@@ -528,6 +530,7 @@ db.command('diff')
           )
         if (destructive)
           consola.warn('This migration drops a table or column — it will destroy data.')
+        for (const w of warnings ?? []) consola.warn(w)
       } else consola.info('No schema changes — nothing to generate')
     } catch (error) {
       fail(error)

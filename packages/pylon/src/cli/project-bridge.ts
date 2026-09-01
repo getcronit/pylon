@@ -47,6 +47,7 @@ export interface ProjectApp {
     ): Promise<{
       name: string
       changes: unknown[]
+      warnings?: string[]
       renameCandidates: Array<{table: string; from: string; to: string}>
       tableRenameCandidates: Array<{from: string; to: string}>
     } | null>
@@ -143,6 +144,7 @@ export interface ProjectApp {
   ): Promise<{
     name: string
     changes: unknown[]
+      warnings?: string[]
     renameCandidates: Array<{table: string; from: string; to: string}>
     tableRenameCandidates: Array<{from: string; to: string}>
   } | null>

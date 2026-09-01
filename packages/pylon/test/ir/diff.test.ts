@@ -4,6 +4,7 @@ import {
   diffSchema,
   makeMigration,
   physicalSchemaOf,
+  backfillWarnings,
   renameCandidates,
   tableRenameCandidates,
   renderChanges,
@@ -794,5 +795,59 @@ describe('type changes requiring USING', () => {
     })
     expect(both.unsupportedDown).toEqual([])
     expect(both.down).toEqual(['ALTER TABLE "t" ALTER COLUMN "c" TYPE integer USING c::integer'])
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A NOT NULL column added to a POPULATED table needs a database-level DEFAULT to
+// backfill the existing rows. Non-scalar defaults used to render to nothing, so
+// `default: {}` on a jsonb column — the ordinary way to give one an empty default
+// — produced `ADD COLUMN … NOT NULL` with no DEFAULT and Postgres rejected the
+// migration with "column contains null values".
+// ─────────────────────────────────────────────────────────────────────────────
+describe('non-scalar column defaults', () => {
+  const col = (name: string, sqlType: any, extra: Record<string, unknown> = {}) => ({
+    property: name, name, sqlType, primaryKey: false, autoIncrement: false,
+    unique: false, nullable: false, ...extra
+  })
+  const tbl = (cols: any[]): PhysicalSchema => ({
+    T: {name: 'T', table: 't', columns: cols, foreignKeys: [], indexes: []}
+  })
+  const addSql = (c: any) =>
+    renderChanges(diffSchema(tbl([col('keep', 'text')]), tbl([col('keep', 'text'), c]))).up[0]
+
+  it('renders a jsonb object default as a jsonb literal', () => {
+    expect(addSql(col('a', 'jsonb', {default: {}}))).toContain(`DEFAULT '{}'::jsonb`)
+    expect(addSql(col('a', 'jsonb', {default: {x: 1}}))).toContain(`DEFAULT '{"x":1}'::jsonb`)
+  })
+
+  it('distinguishes a jsonb array default from an array COLUMN default', () => {
+    // jsonb column, JSON array value
+    expect(addSql(col('a', 'jsonb', {default: []}))).toContain(`DEFAULT '[]'::jsonb`)
+    // text[] column, Postgres array literal
+    expect(addSql(col('a', 'text', {array: true, default: []}))).toContain(`DEFAULT '{}'`)
+    expect(addSql(col('a', 'text', {array: true, default: ['a', 'b']}))).toContain(`DEFAULT '{"a","b"}'`)
+  })
+
+  it('escapes quotes in string and array defaults', () => {
+    expect(addSql(col('a', 'text', {default: "it's"}))).toContain(`DEFAULT 'it''s'`)
+    expect(addSql(col('a', 'jsonb', {default: {s: "it's"}}))).toContain(`'{"s":"it''s"}'::jsonb`)
+  })
+
+  it('still leaves a genuinely app-side default to the ORM', () => {
+    // A function default can't be a database constant — no DEFAULT clause.
+    expect(addSql(col('a', 'text', {default: () => 'x'}))).not.toContain('DEFAULT')
+  })
+
+  it('warns when a NOT NULL column has no default the database can hold', () => {
+    const changes = diffSchema(tbl([col('keep', 'text')]), tbl([col('keep', 'text'), col('a', 'text', {default: () => 'x'})]))
+    expect(backfillWarnings(changes).join('\n')).toMatch(/t\.a is NOT NULL with no database-level default/)
+  })
+
+  it('does not warn when the default backfills, or the column is nullable', () => {
+    const base = tbl([col('keep', 'text')])
+    expect(backfillWarnings(diffSchema(base, tbl([col('keep', 'text'), col('a', 'jsonb', {default: {}})])))).toEqual([])
+    expect(backfillWarnings(diffSchema(base, tbl([col('keep', 'text'), col('a', 'text', {nullable: true})])))).toEqual([])
+    expect(backfillWarnings(diffSchema(base, tbl([col('keep', 'text'), col('a', 'jsonb', {defaultSql: "'{}'::jsonb"})])))).toEqual([])
   })
 })

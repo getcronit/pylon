@@ -30,19 +30,58 @@ export function columnDDL(c: ColumnSpec): string {
     // NOT NULL` with no default → a NOT NULL violation). Non-scalar defaults
     // (functions like `createId`/`now()`, objects, arrays, dates) stay app-side —
     // the ORM applies them on insert — so they're skipped here.
-    const literalDefault = c.defaultSql ?? sqlDefaultLiteral(c.default)
+    const literalDefault = c.defaultSql ?? sqlDefaultLiteral(c.default, c)
     if (literalDefault != null) parts.push(`DEFAULT ${literalDefault}`)
     if (c.check) parts.push(`CHECK (${c.check})`)
   }
   return parts.join(' ')
 }
 
+/** A SQL string literal (single quotes doubled). */
+function quote(s: string): string {
+  return `'${s.replace(/'/g, "''")}'`
+}
+
 /**
- * A scalar `default` value rendered as a SQL literal, or `null` when the value
- * must stay app-side (functions, objects, arrays, dates — applied by the ORM on
- * insert, not by the database). Only primitive scalars become DB defaults.
+ * A JS array default (`[]`, `['a','b']`) → a Postgres array literal (`'{}'`,
+ * `'{"a","b"}'`). Each element is double-quoted + escaped, which Postgres accepts
+ * for text[] and numeric[] alike; empty is the common case.
  */
-function sqlDefaultLiteral(v: unknown): string | null {
+function pgArrayLiteral(arr: readonly unknown[]): string {
+  const body = arr
+    .map(v => `"${String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`)
+    .join(',')
+  return quote(`{${body}}`)
+}
+
+/**
+ * A `default` value rendered as a SQL literal, or `null` when it can only be
+ * applied app-side (a function like `createId`, a Date, anything else the
+ * database can't hold as a constant).
+ *
+ * This is what BACKFILLS existing rows when a NOT NULL column is added to a
+ * populated table. Returning null there means `ADD COLUMN … NOT NULL` runs with
+ * no DEFAULT and Postgres rejects it with "column contains null values", so the
+ * set of values handled here is load-bearing, not cosmetic:
+ *
+ *   - object/array on a `jsonb` column → `'{"a":1}'::jsonb`. Previously null, so
+ *     `default: {}` — the ordinary way to give a jsonb column an empty default —
+ *     silently produced a NOT NULL column with nothing to backfill with.
+ *   - array on an array column → a Postgres array literal. `db push` already did
+ *     this while migrations did not, so the two disagreed about the same model.
+ */
+export function sqlDefaultLiteral(v: unknown, col?: Pick<ColumnSpec, 'sqlType' | 'array'>): string | null {
+  if (v === undefined || v === null) return null
+  // Array COLUMN (`text[]`): a JS array is the element list.
+  if (col?.array && Array.isArray(v)) {
+    return col.sqlType === 'jsonb'
+      ? pgArrayLiteral(v.map(el => JSON.stringify(el)))
+      : pgArrayLiteral(v)
+  }
+  // jsonb COLUMN: an object or array is the document itself.
+  if (col?.sqlType === 'jsonb' && typeof v === 'object') {
+    return `${quote(JSON.stringify(v))}::jsonb`
+  }
   switch (typeof v) {
     case 'boolean':
       return v ? 'TRUE' : 'FALSE'
@@ -51,7 +90,7 @@ function sqlDefaultLiteral(v: unknown): string | null {
     case 'bigint':
       return String(v)
     case 'string':
-      return `'${v.replace(/'/g, "''")}'`
+      return quote(v)
     default:
       return null
   }

@@ -23,7 +23,7 @@ export type {
 } from './ir.js'
 export {emptyIR, tableSpecOf, joinTableName, joinColumn, pgIdent} from './ir.js'
 export {toSDL, renderType} from './sdl.js'
-export {toDDL, columnDDL, sqlTypeDDL} from './ddl.js'
+export {toDDL, columnDDL, sqlTypeDDL, sqlDefaultLiteral} from './ddl.js'
 export {postgres, type Dialect} from './dialect.js'
 export {
   mergeIR,
@@ -40,6 +40,7 @@ export {
   renderChanges,
   applyChanges,
   isDestructive,
+  backfillWarnings,
   describeChange,
   renameCandidates,
   tableRenameCandidates

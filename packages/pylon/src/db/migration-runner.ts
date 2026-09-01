@@ -22,6 +22,7 @@ import path from 'node:path'
 import {sql, type Kysely} from 'kysely'
 import {
   applyChanges,
+  backfillWarnings,
   diffSchema,
   physicalSchemaOf,
   renameCandidates,
@@ -52,6 +53,8 @@ export interface GeneratedMigration {
   name: string
   changes: SchemaChange[]
   unsupported: string[]
+  /** Valid SQL that will nonetheless fail on a table that already has rows. */
+  warnings: string[]
   /** Drop+add pairs that look like renames — surfaced so the CLI can warn. */
   renameCandidates: Rename[]
   /** Drop+create table pairs (matching columns) that look like table renames. */
@@ -259,6 +262,7 @@ export class MigrationRunner {
       name: migrationName,
       changes,
       unsupported,
+      warnings: backfillWarnings(changes),
       renameCandidates: renameCandidates(changes),
       tableRenameCandidates: tableRenameCandidates(changes)
     }
@@ -293,7 +297,7 @@ export class MigrationRunner {
       this.filePath(migrationName),
       fileTemplate(changes, unsupported, [])
     )
-    return {name: migrationName, changes, unsupported, renameCandidates: [], tableRenameCandidates: []}
+    return {name: migrationName, changes, unsupported, warnings: [], renameCandidates: [], tableRenameCandidates: []}
   }
 
   /** Uncaptured changes (baseline vs current) + which migrations are unapplied. */

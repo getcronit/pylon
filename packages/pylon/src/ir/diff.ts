@@ -18,7 +18,7 @@
  * IR). Dropping a relation *and* its FK column relies on Postgres' `DROP COLUMN`
  * cascade, so the constraint is not separately re-created on rollback.
  */
-import {columnDDL, sqlTypeDDL, toDDL} from './ddl.js'
+import {columnDDL, sqlDefaultLiteral, sqlTypeDDL, toDDL} from './ddl.js'
 import {postgres} from './dialect.js'
 import {joinColumn, joinTableName, pgIdent, tableSpecOf} from './ir.js'
 import type {
@@ -610,6 +610,34 @@ export function describeChange(change: SchemaChange): string {
     case 'renameTable':
       return `rename table "${change.fromTable}" → "${change.toTable}"`
   }
+}
+
+/**
+ * Warnings for changes that are valid SQL but will FAIL on a populated table.
+ *
+ * `ADD COLUMN … NOT NULL` needs something to put in the existing rows. A literal
+ * DEFAULT supplies it; a default the database can't hold as a constant — a
+ * function like `createId`, a Date — does not, and Postgres rejects the migration
+ * with "column contains null values". That reads as a mystery at deploy time on a
+ * table that happens to have data, having passed cleanly on an empty dev one.
+ */
+export function backfillWarnings(changes: SchemaChange[]): string[] {
+  const out: string[] = []
+  for (const c of changes) {
+    if (c.kind !== 'addColumn') continue
+    const col = c.column
+    if (col.nullable || col.primaryKey || col.autoIncrement || col.generatedAs) continue
+    if (col.defaultSql != null) continue
+    if (sqlDefaultLiteral(col.default, col) != null) continue
+    out.push(
+      `${c.table}.${col.name} is NOT NULL with no database-level default, so this ` +
+        `migration fails on a table that already has rows ("column contains null ` +
+        `values"). Give it a literal default, a \`defaultSql\` (e.g. ` +
+        `\`defaultSql: "'{}'::jsonb"\`), or add it nullable and backfill before ` +
+        `setting NOT NULL.`
+    )
+  }
+  return out
 }
 
 /** Whether a change destroys data (drops a table or column). */
