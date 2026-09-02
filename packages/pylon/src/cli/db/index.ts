@@ -85,6 +85,7 @@ export interface DbCommandOptions {
     | 'seed'
     | 'baseline'
     | 'rename-app'
+    | 'fix-deps'
   /** Migration name (for `diff`; the target for `resolve`). */
   name?: string
   /** `diff`: which app to generate a migration for (required in apps mode). */
@@ -121,7 +122,18 @@ export interface DbCommandOptions {
   steps?: number
   /** `resolve`: mark the migration applied or rolled-back in the ledger. */
   resolve?: 'applied' | 'rolled-back'
+  /** `fix-deps`: write the backfilled tuples to disk (default: report only). */
+  write?: boolean
 }
+
+/** Migrations that reference a cross-app table but don't declare the `[app, migration]`
+ *  edge for it — the hazard that breaks a from-scratch apply (`db reset`). */
+export type MissingDepsReport = Array<{
+  app: string
+  migration: string
+  file: string
+  needs: Array<{table: string; app: string; migration: string}>
+}>
 
 export interface DbCommandResult {
   command: DbCommandOptions['command']
@@ -160,7 +172,11 @@ export interface DbCommandResult {
     tampered: string[]
     unapplied: string[]
     drift?: SchemaDrift
+    /** Migrations missing a cross-app dependency edge (breaks a from-scratch apply). */
+    missingDeps?: MissingDepsReport
   }
+  /** `fix-deps`: the cross-app edges detected (dry-run) or backfilled (`--write`). */
+  missingDeps?: MissingDepsReport
   status?: {pendingChanges: unknown[]; migrations: string[]; unapplied: string[]}
   /** `status`/`check`: live-DB drift (when a database is available). */
   drift?: SchemaDrift
@@ -395,6 +411,9 @@ export async function runDbCommandCore(
       // prints its details unprefixed, matching the pre-apps output.
       const res = await orm.statusGroups(groups, loadMigrationFile, db)
       const tampered = db ? await orm.integrityErrorsGroups(groups, loadMigrationFile, db) : []
+      // Static, DB-free: a migration that references another app's table but doesn't
+      // declare the edge applies fine incrementally yet breaks a from-scratch build.
+      const missingDeps = await orm.detectMissingCrossAppDeps(groups, loadMigrationFile)
       return {
         command: 'check',
         check: {
@@ -404,9 +423,15 @@ export async function runDbCommandCore(
           ),
           tampered,
           unapplied: res.flatMap(r => r.unapplied.map(u => (rootOnly ? u : `${r.group}:${u}`))),
-          drift
+          drift,
+          missingDeps: missingDeps.length ? missingDeps : undefined
         }
       }
+    }
+    case 'fix-deps': {
+      const fn = options.write ? orm.fixMissingCrossAppDeps : orm.detectMissingCrossAppDeps
+      const missingDeps = await fn(groups, loadMigrationFile)
+      return {command: 'fix-deps', missingDeps}
     }
     case 'create': {
       const connectionString = process.env.DATABASE_URL

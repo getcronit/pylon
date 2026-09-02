@@ -775,7 +775,7 @@ export class MigrationRunner {
     // that doesn't exist fails loudly — there is no derivation to silently cover it.
     const nodeByKey = new Map<string, Node>()
     for (let gi = 0; gi < runners.length; gi++) {
-      for (const n of perGroup[gi]) nodeByKey.set(`${runners[gi].group} ${n.name}`, n)
+      for (const n of perGroup[gi]) nodeByKey.set(`${runners[gi].group} ${n.name}`, n)
     }
     for (let gi = 0; gi < runners.length; gi++) {
       const selfGroup = runners[gi].group
@@ -783,7 +783,7 @@ export class MigrationRunner {
         for (const dep of n.mod.dependencies ?? []) {
           if (typeof dep === 'string' || dep[0] === selfGroup) continue // same-app → sequence
           const [app, name] = dep
-          const target = nodeByKey.get(`${app} ${name}`)
+          const target = nodeByKey.get(`${app} ${name}`)
           if (!target) {
             throw new Error(
               `Migration "${selfGroup}:${n.name}" depends on "${app}:${name}", which does ` +

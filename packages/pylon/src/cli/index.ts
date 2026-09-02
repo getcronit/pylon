@@ -599,6 +599,14 @@ db.command('check')
       const mismatches = d?.mismatches ?? []
       if (mismatches.length > 0)
         problems.push(`${mismatches.length} column/constraint(s) do not match the models`)
+      // Cross-app edges a migration references but doesn't declare: applies fine
+      // incrementally, breaks a from-scratch build (`db reset`, a fresh deploy).
+      const missingDeps = check!.missingDeps ?? []
+      const missingDepCount = missingDeps.reduce((n, m) => n + m.needs.length, 0)
+      if (missingDepCount > 0)
+        problems.push(
+          `${missingDepCount} undeclared cross-app dependency edge(s) — run \`pylon db fix-deps --write\``
+        )
       if (problems.length > 0) {
         for (const p of problems) consola.error(p)
         for (const d of shown) consola.log(`    - ${d}`)
@@ -606,11 +614,59 @@ db.command('check')
           consola.log(`    … and ${detail.length - shown.length} more`)
         for (const m of mismatches.slice(0, 25)) consola.log(`    - ${m}`)
         if (mismatches.length > 25) consola.log(`    … and ${mismatches.length - 25} more`)
+        for (const m of missingDeps)
+          for (const n of m.needs)
+            consola.log(
+              `    - ${m.app}:${m.migration} must depend on ["${n.app}", "${n.migration}"] (references ${n.table})`
+            )
         process.exit(1)
       }
       consola.success(
         `Up to date${check!.unapplied.length ? ` (${check!.unapplied.length} unapplied)` : ''}.`
       )
+    } catch (error) {
+      fail(error)
+    }
+  })
+
+db.command('fix-deps')
+  .description(
+    'Find (and with --write, backfill) cross-app dependency edges a migration references but does not declare'
+  )
+  .option('-e, --entry <path>', 'Entry that constructs your app / registers models (default ./src/index.ts)')
+  .option('-m, --models <path>', 'Deprecated alias for --entry')
+  .option('-d, --dir <path>', 'Migrations directory', './migrations')
+  .option('--write', 'Write the backfilled tuples to the migration files (default: report only)')
+  .action(async options => {
+    try {
+      const {missingDeps} = await runDbCommand({
+        command: 'fix-deps',
+        models: entryOf(options),
+        dir: options.dir,
+        write: options.write
+      })
+      const found = missingDeps ?? []
+      const count = found.reduce((n, m) => n + m.needs.length, 0)
+      if (count === 0) {
+        consola.success('Every cross-app reference already declares its dependency edge.')
+        return
+      }
+      for (const m of found) {
+        consola.log(`  ${m.app}:${m.migration}  (${m.file})`)
+        for (const n of m.needs)
+          consola.log(`    + ["${n.app}", "${n.migration}"]   — references ${n.table}`)
+      }
+      if (options.write) {
+        consola.success(
+          `Backfilled ${count} cross-app edge(s) across ${found.length} migration(s).`
+        )
+      } else {
+        consola.warn(
+          `${count} undeclared cross-app edge(s) across ${found.length} migration(s). ` +
+            'Re-run with --write to backfill them.'
+        )
+        process.exit(1)
+      }
     } catch (error) {
       fail(error)
     }

@@ -18,6 +18,8 @@ import {
   connect,
   Database,
   db,
+  detectMissingCrossAppDeps,
+  fixMissingCrossAppDeps,
   generateGroup,
   getModelDefinitionOrThrow,
   migrateGroups,
@@ -383,6 +385,118 @@ describe.skipIf(!runDb)('mutual cross-app FK enforced at the database (Postgres)
     // its referential action, not just its presence.
     await Ticket.objects.filter({id: ticket.id}).delete()
     expect((await Task.objects.get({id: task.id})).relatedTicketId).toBeNull()
+  })
+})
+
+/**
+ * Detect + backfill UNDECLARED cross-app dependency edges — the hazard behind a
+ * "relation … does not exist" on a from-scratch apply (`db reset`) when a migration
+ * references another app's table but never declared the `[app, migration]` edge (e.g.
+ * a history generated before those edges were persisted). No database needed — the
+ * detector is purely static over the on-disk histories.
+ */
+describe('detect + backfill missing cross-app dependency edges', () => {
+  const col = (property: string, primaryKey = false) => ({
+    property,
+    name: property,
+    sqlType: 'text',
+    primaryKey,
+    autoIncrement: false,
+    nullable: false,
+    unique: false
+  })
+  const createThing = (table: string) =>
+    `migrations.createTable({name: ${JSON.stringify(table)}, table: ${JSON.stringify(table)}, columns: [${JSON.stringify(col('id', true))}]})`
+  const fkTo = (table: string, refTable: string, column: string) =>
+    `migrations.addForeignKey({table: ${JSON.stringify(table)}, name: ${JSON.stringify(`${table}_${column}_fkey`)}, column: ${JSON.stringify(column)}, refTable: ${JSON.stringify(refTable)}, refColumn: 'id', onDelete: 'cascade'})`
+  const mig = (body: string) =>
+    `import {migrations} from '@getcronit/pylon/db'\nexport default migrations.defineMigration(${body})\n`
+
+  let a: string
+  let b: string
+  let groups: MigrationGroup[]
+  beforeAll(async () => {
+    a = await fs.mkdtemp(path.join(os.tmpdir(), 'pylon-dep-a-'))
+    b = await fs.mkdtemp(path.join(os.tmpdir(), 'pylon-dep-b-'))
+    groups = [
+      {name: 'a', dir: a, models: []},
+      {name: 'b', dir: b, models: [], dependencies: ['a']}
+    ]
+  })
+  afterAll(async () => {
+    await fs.rm(a, {recursive: true, force: true})
+    await fs.rm(b, {recursive: true, force: true})
+  })
+
+  it('flags a migration that references another app’s table without the edge, and --write backfills it', async () => {
+    // a: creates a_thing. b: creates b_row and FKs it → a_thing, but declares NO deps.
+    await fs.writeFile(
+      path.join(a, '20260101T000000_init.ts'),
+      mig(`{operations: [${createThing('a_thing')}]}`)
+    )
+    const bFile = path.join(b, '20260101T000001_init.ts')
+    await fs.writeFile(
+      bFile,
+      mig(`{operations: [${createThing('b_row')}, ${fkTo('b_row', 'a_thing', 'thing_id')}]}`)
+    )
+
+    const found = await detectMissingCrossAppDeps(groups, load)
+    expect(found).toHaveLength(1)
+    expect(found[0]).toMatchObject({app: 'b', migration: '20260101T000001_init', file: bFile})
+    expect(found[0].needs).toEqual([
+      {table: 'a_thing', app: 'a', migration: '20260101T000000_init'}
+    ])
+
+    // The file had no `dependencies:` key at all — the fixer inserts one.
+    expect(await fs.readFile(bFile, 'utf8')).not.toContain('dependencies')
+    const fixed = await fixMissingCrossAppDeps(groups, load)
+    expect(fixed).toHaveLength(1)
+    const after = await fs.readFile(bFile, 'utf8')
+    expect(after).toContain('dependencies: [["a","20260101T000000_init"]]')
+    // The edit stays a valid module — the deps parse back to the tuple, and the
+    // operations survive untouched. (Re-loaded from disk in a fresh child; here we
+    // assert the file, the source of truth, since one vitest process caches the
+    // pre-edit module by path.)
+    expect(after).toContain('migrations.addForeignKey')
+
+    // Idempotent: re-running the fixer leaves exactly ONE copy of the edge —
+    // rewriteDepsInFile reads the file fresh, so it replaces rather than appends.
+    await fixMissingCrossAppDeps(groups, load)
+    const after2 = await fs.readFile(bFile, 'utf8')
+    expect(after2.match(/\["a","20260101T000000_init"\]/g)).toHaveLength(1)
+  })
+
+  it('does not flag a same-app reference, nor one already covered by a later edge', async () => {
+    const x = await fs.mkdtemp(path.join(os.tmpdir(), 'pylon-dep-x-'))
+    const y = await fs.mkdtemp(path.join(os.tmpdir(), 'pylon-dep-y-'))
+    try {
+      // x has TWO migrations: init creates x_thing, more creates x_extra.
+      await fs.writeFile(
+        path.join(x, '20260101T000000_init.ts'),
+        mig(`{operations: [${createThing('x_thing')}]}`)
+      )
+      await fs.writeFile(
+        path.join(x, '20260101T000001_more.ts'),
+        mig(`{dependencies: ['20260101T000000_init'], operations: [${createThing('x_extra')}]}`)
+      )
+      // y creates y_row (same-app FK to it is not cross-app) and FKs → x_thing, but
+      // already depends on x's LATER migration — which transitively orders after init.
+      await fs.writeFile(
+        path.join(y, '20260101T000002_init.ts'),
+        mig(
+          `{dependencies: [['x', '20260101T000001_more']], operations: [${createThing('y_row')}, ${fkTo('y_row', 'y_row', 'parent_id')}, ${fkTo('y_row', 'x_thing', 'thing_id')}]}`
+        )
+      )
+      const g: MigrationGroup[] = [
+        {name: 'x', dir: x, models: []},
+        {name: 'y', dir: y, models: [], dependencies: ['x']}
+      ]
+      // y_row → y_row is same-app (skipped); x_thing is covered by the ['x', more] edge.
+      expect(await detectMissingCrossAppDeps(g, load)).toHaveLength(0)
+    } finally {
+      await fs.rm(x, {recursive: true, force: true})
+      await fs.rm(y, {recursive: true, force: true})
+    }
   })
 })
 

@@ -183,9 +183,10 @@ for the full workflow.
 | `pylon db status` | Show pending model changes and unapplied migrations |
 | `pylon db diff [name] [--app a] [--rename] [--rename-table]` | Generate a migration from model changes; `--rename table.old=table.new` / `--rename-table Old=New` make a rename data-preserving instead of drop+create |
 | `pylon db plan [--down]` | Print the SQL a migration would run (`--down` for the reverse) |
-| `pylon db check` | CI gate: fail on uncaptured changes, drift, or tampered history |
+| `pylon db check` | CI gate: fail on uncaptured changes, drift, tampered history, or an undeclared cross-app dependency edge |
+| `pylon db fix-deps [--write]` | Find (with `--write`, backfill) cross-app dependency edges a migration references but doesn't declare — the edges that order a from-scratch apply (`db reset`) |
 | `pylon db migrate [--create-db] [--check]` | Apply unapplied migrations. `--create-db` creates the database first if missing (development only — never in production, where a missing database usually means `DATABASE_URL` is wrong). `--check` refuses to apply while models have changes no migration captures |
-| `pylon db rollback [--steps n]` | Reverse the last `n` migrations (default 1) |
+| `pylon db rollback [--steps n] [--app a]` | Reverse the last migration — or the whole cross-app cluster it belongs to. `--steps n` reverses the last `n` regardless of clustering; `--app` scopes to one app's sequence |
 | `pylon db resolve <name> [--rolled-back]` | Mark a migration applied / rolled-back without running SQL |
 | `pylon db rename-app <old=new>` | Re-point the migration ledger after renaming an [app](/docs/apps/overview) in code (run once per database, before `migrate`) |
 | `pylon db seed [--seed path]` | Run the seed script (default `./src/seed.ts`) |

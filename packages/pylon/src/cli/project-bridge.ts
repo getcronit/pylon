@@ -206,6 +206,31 @@ export interface ProjectApp {
     load: (filePath: string) => Promise<unknown>,
     db?: unknown
   ): Promise<string[]>
+  /** Migrations that reference a cross-app table but don't declare the edge — the
+   *  hazard that breaks a from-scratch apply (`db reset`). Static; no DB. */
+  detectMissingCrossAppDeps(
+    groups: GroupLike[],
+    load: (filePath: string) => Promise<unknown>
+  ): Promise<
+    Array<{
+      app: string
+      migration: string
+      file: string
+      needs: Array<{table: string; app: string; migration: string}>
+    }>
+  >
+  /** Backfill the edges `detectMissingCrossAppDeps` finds into the migration files. */
+  fixMissingCrossAppDeps(
+    groups: GroupLike[],
+    load: (filePath: string) => Promise<unknown>
+  ): Promise<
+    Array<{
+      app: string
+      migration: string
+      file: string
+      needs: Array<{table: string; app: string; migration: string}>
+    }>
+  >
 }
 
 /** A declared app == a pylon-db `MigrationGroup` (`export const apps` in the

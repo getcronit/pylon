@@ -65,7 +65,8 @@ pylon db migrate --create-db
 | `pylon db migrate --create-db` | …creating the database first if it does not exist (dev) |
 | `pylon db migrate --check` | …refusing when models have uncaptured changes (CI/production) |
 | `pylon db status` | show applied vs pending migrations |
-| `pylon db check` | fail if models have uncaptured changes — a CI gate |
+| `pylon db check` | fail if models have uncaptured changes or an undeclared cross-app edge — a CI gate |
+| `pylon db fix-deps` | find (with `--write`, backfill) cross-app dependency edges a migration references but doesn't declare |
 | `pylon db rollback` | reverse the last migration — or the whole cross-app cluster it belongs to (`--steps <n>`, `--app <name>`) |
 | `pylon db resolve <name>` | mark a migration applied / `--rolled-back` in the ledger without running it (recovery) |
 | `pylon db baseline` | adopt an existing database as the starting point |
@@ -225,6 +226,39 @@ pylon db migrate                          # applies every app's pending migratio
 
 `pylon db status` reports each group's applied and pending migrations
 separately, so you can see exactly where each app stands.
+
+### Cross-app dependency edges
+
+Apps are applied in one interleaved order across every group, so a migration that
+references another app's table — a foreign key into `core_tenant`, say — must run
+*after* the migration that creates it. That ordering comes from a persisted
+`[app, migration]` edge in the referencing migration's `dependencies`. `pylon db
+diff` records these automatically whenever it generates a migration that reaches
+into another app.
+
+The edge only matters when the database is built **from scratch** — `db reset`, or
+a fresh deploy — because that is the one time the referenced table might not exist
+yet. An incremental `db migrate` never notices a missing edge: the table is already
+there from a previous run. So a history generated before these edges existed (or
+hand-edited) can migrate cleanly for months and then fail a `reset` with:
+
+```text
+relation "products_product" does not exist
+```
+
+`pylon db check` catches this **without a database** — it fails when any migration
+references a cross-app table it doesn't declare an edge for, naming the file and the
+exact tuple to add. `pylon db fix-deps` reports the same, and with `--write`
+backfills every missing edge into the migration files:
+
+```bash
+pylon db fix-deps           # list the undeclared edges (exits non-zero if any)
+pylon db fix-deps --write   # backfill them into the migration files
+```
+
+Run `fix-deps --write` once on an older project, commit the touched migrations, and
+`db reset` builds the database in the right order from then on. `db check` in CI
+keeps it that way.
 
 ### Rolling back a cross-app migration
 

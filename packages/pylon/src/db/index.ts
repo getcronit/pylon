@@ -276,9 +276,13 @@ export {
   squashGroups,
   statusGroups,
   integrityErrorsGroups,
+  detectMissingCrossAppDeps,
+  fixMissingCrossAppDeps,
   type MigrationGroup,
   type GroupApplyResult,
-  type GroupStatus
+  type GroupStatus,
+  type MissingDepsFinding,
+  type MissingCrossAppDep
 } from './migration-groups.js'
 
 import {createManager} from './manager.js'

@@ -31,6 +31,7 @@ import {getDatabase} from './database.js'
 import {toIR} from './ir.js'
 import {
   MigrationRunner,
+  tablesOfChanges,
   type GeneratedMigration,
   type MigrationLoader
 } from './migration-runner.js'
@@ -284,6 +285,23 @@ export async function generateCoordinatedRetype(
   const tableApp = new Map<string, string | undefined>()
   for (const def of allModels()) tableApp.set(def.tableName, def.app)
 
+  // table → the `[app, migration]` that creates it, across every app's on-disk
+  // history — so a pre migration that drops an FK on another app's table declares
+  // the edge to that table's creator (else it only orders right by timestamp luck,
+  // and `db check` flags it as an undeclared cross-app dependency).
+  const creatorOf = new Map<string, [string, string]>()
+  for (const g of groups) {
+    if (!g.dir) continue
+    for (const {name: mn, mod} of await runners.get(g.name)!.loadAll(load)) {
+      for (const op of mod.operations) {
+        for (const ch of (op.changes ?? []) as Array<Record<string, any>>) {
+          if (ch.kind === 'createTable') creatorOf.set(ch.spec.table, [g.name, mn])
+          else if (ch.kind === 'renameTable') creatorOf.set(ch.toTable, [g.name, mn])
+        }
+      }
+    }
+  }
+
   const plan = planCrossAppRetypes(prev, next, t => tableApp.get(t))
   if (plan.refuse.length > 0) {
     throw new Error(
@@ -312,12 +330,23 @@ export async function generateCoordinatedRetype(
     const preNames = new Map<CrossAppRetype, string>()
     for (const c of entries) {
       const src = runners.get(c.srcApp)!
-      const pre = await src.emit(
-        `${name}_retype_pre`,
-        [dropFk(c.fk), alter(c.referencing.table, c.referencing.before, c.referencing.after)],
-        [...(await src.heads(load))],
-        clusterId
-      )
+      const preChanges = [
+        dropFk(c.fk),
+        alter(c.referencing.table, c.referencing.before, c.referencing.after)
+      ]
+      // Same-app heads + a cross-app edge to the creator of every OTHER app's table
+      // this pre touches (dropping the FK references the referenced app's table).
+      const preDeps: MigrationDependency[] = [...(await src.heads(load))]
+      const seen = new Set<string>()
+      for (const table of tablesOfChanges(preChanges).needs) {
+        const creator = creatorOf.get(table)
+        if (!creator || creator[0] === c.srcApp) continue
+        const key = `${creator[0]} ${creator[1]}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        preDeps.push([creator[0], creator[1]])
+      }
+      const pre = await src.emit(`${name}_retype_pre`, preChanges, preDeps, clusterId)
       preNames.set(c, pre!)
       emitted.push(`${c.srcApp}:${pre}`)
     }
@@ -366,7 +395,22 @@ export interface GroupApplyResult {
 async function rewriteDepsInFile(file: string, newDeps: MigrationDependency[]): Promise<void> {
   const text = await fs.readFile(file, 'utf8')
   const key = text.indexOf('dependencies:')
-  if (key < 0) return
+  if (key < 0) {
+    // No `dependencies:` field yet (a migration generated before cross-app edges
+    // were persisted). Insert one right after `defineMigration({`, matching the
+    // generator's placement, so the backfill lands on the same line the template
+    // would have written.
+    const call = text.indexOf('defineMigration(')
+    const brace = call < 0 ? -1 : text.indexOf('{', call)
+    if (brace < 0) return
+    const after = brace + 1
+    const nl = text[after] === '\n' ? '' : '\n'
+    await fs.writeFile(
+      file,
+      text.slice(0, after) + nl + `  dependencies: ${JSON.stringify(newDeps)},` + text.slice(after)
+    )
+    return
+  }
   const open = text.indexOf('[', key)
   if (open < 0) return
   let depth = 0
@@ -482,6 +526,125 @@ export async function squashGroups(
     }
   }
   return result
+}
+
+/** One cross-app edge a migration references but doesn't declare. */
+export interface MissingCrossAppDep {
+  /** The referenced table (why the edge is needed). */
+  table: string
+  /** The `[app, migration]` tuple to add to close the edge. */
+  app: string
+  migration: string
+}
+
+/** A migration whose `dependencies` are missing one or more cross-app edges. */
+export interface MissingDepsFinding {
+  /** The app (group) that owns the under-declared migration. */
+  app: string
+  /** The migration name. */
+  migration: string
+  /** Absolute path of the migration file to edit. */
+  file: string
+  /** The tuples to add. */
+  needs: MissingCrossAppDep[]
+}
+
+/**
+ * Find every migration that REFERENCES a table another app creates but does not
+ * DECLARE the cross-app `[app, migration]` edge for it. Those edges are what order
+ * a from-scratch apply (`db reset`, a fresh deploy); without them the interleave
+ * falls back to timestamp order and can run a cross-app FK before the table it
+ * points at ("relation … does not exist"). An incremental `db migrate` never trips
+ * this because the referenced table already exists.
+ *
+ * Purely static — reads only the on-disk histories, no database. An edge is
+ * considered satisfied if the migration already depends on ANY of the creator app's
+ * migrations at or after the one that creates the table (its own sequence carries
+ * the rest), so a migration that names a later edge isn't flagged redundantly.
+ */
+export async function detectMissingCrossAppDeps(
+  groups: MigrationGroup[],
+  load: MigrationLoader
+): Promise<MissingDepsFinding[]> {
+  const histories = new Map<string, Array<{name: string; mod: MigrationModule}>>()
+  for (const g of groups) {
+    histories.set(g.name, g.dir ? await groupRunner(g).loadAll(load) : [])
+  }
+
+  // table → the LAST migration (group order, then sequence) that creates it —
+  // matching `crossAppCreatorFor`, the generator's own choice. Plus each
+  // migration's index within its app, to test whether an existing edge covers it.
+  const creatorOf = new Map<string, {app: string; migration: string; idx: number}>()
+  const indexOf = new Map<string, number>()
+  for (const g of groups) {
+    histories.get(g.name)!.forEach(({name, mod}, idx) => {
+      indexOf.set(`${g.name} ${name}`, idx)
+      for (const op of mod.operations) {
+        for (const ch of (op.changes ?? []) as Array<Record<string, any>>) {
+          if (ch.kind === 'createTable') creatorOf.set(ch.spec.table, {app: g.name, migration: name, idx})
+          else if (ch.kind === 'renameTable') creatorOf.set(ch.toTable, {app: g.name, migration: name, idx})
+        }
+      }
+    })
+  }
+
+  const findings: MissingDepsFinding[] = []
+  for (const g of groups) {
+    for (const {name, mod} of histories.get(g.name)!) {
+      const changes = mod.operations.flatMap(op => op.changes ?? [])
+      const {needs} = tablesOfChanges(changes)
+      const tuples = (mod.dependencies ?? []).filter(d => Array.isArray(d)) as ReadonlyArray<
+        readonly [string, string]
+      >
+      const missing: MissingCrossAppDep[] = []
+      const seen = new Set<string>()
+      for (const table of needs) {
+        const c = creatorOf.get(table)
+        if (!c || c.app === g.name) continue // same-app is the intra-app sequence
+        const covered = tuples.some(
+          ([app, mig]) => app === c.app && (indexOf.get(`${app} ${mig}`) ?? -1) >= c.idx
+        )
+        if (covered) continue
+        const key = `${c.app} ${c.migration}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        missing.push({table, app: c.app, migration: c.migration})
+      }
+      if (missing.length > 0) {
+        findings.push({app: g.name, migration: name, file: path.join(g.dir!, `${name}.ts`), needs: missing})
+      }
+    }
+  }
+  return findings
+}
+
+/**
+ * Backfill the edges `detectMissingCrossAppDeps` finds: append each missing
+ * `[app, migration]` tuple to the migration file's `dependencies` (inserting the
+ * field if absent), deduped and leaving every existing dep untouched. Returns the
+ * findings it wrote, so the caller can report what changed.
+ */
+export async function fixMissingCrossAppDeps(
+  groups: MigrationGroup[],
+  load: MigrationLoader
+): Promise<MissingDepsFinding[]> {
+  const findings = await detectMissingCrossAppDeps(groups, load)
+  for (const f of findings) {
+    const mod = (await load(f.file)) as MigrationModule
+    const existing = mod.dependencies ?? []
+    const seen = new Set(
+      existing.map(d => (Array.isArray(d) ? `${d[0]} ${d[1]}` : `#${d}`))
+    )
+    const merged: MigrationDependency[] = [...existing]
+    for (const n of f.needs) {
+      const key = `${n.app} ${n.migration}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      merged.push([n.app, n.migration])
+    }
+    await rewriteDepsInFile(f.file, merged)
+  }
+  return findings
 }
 
 /** Apply every group's pending migrations, in dependency order. Idempotent. */
