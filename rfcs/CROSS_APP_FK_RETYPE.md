@@ -87,7 +87,14 @@ This conversion is a **cutover**: the tuple-only loader and the converted files 
 together (there's no bare-string fallback to bridge them). Small, because the history is
 small.
 
-## The FK-retype, expressed in the persisted graph
+## The FK-retype, expressed in the persisted graph — SHIPPED
+
+`db diff` coordinates a satisfiable cross-app retype (`generateCoordinatedRetype`):
+`planCrossAppRetypes` finds the cluster, and the emitter writes the three-phase plan
+across apps, wired by tuples, then the normal per-app pass captures anything unrelated.
+Validated end to end (e2e `xapp-retype`): uuid→text on a PK referenced same-app AND
+cross-app coordinates + migrates with no 42P07. Unsatisfiable (one-sided) retypes stay a
+hard refusal. Design below, as built.
 
 The generator, on detecting a cross-app FK retype (reuse the shipped
 `crossAppRetypeRefusals` walk as the trigger), emits the three-phase plan as app-local
