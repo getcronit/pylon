@@ -25,6 +25,7 @@ import {
   models,
   orderGroups,
   renameGroupApp,
+  squashGroups,
   setDefaultDatabase,
   statusGroups,
   toIR,
@@ -448,6 +449,39 @@ describe.skipIf(!runDb)('persisted cross-app dependency graph (Postgres)', () =>
       expect(after).toContain('[["newa","20260101T000000_init"]]')
       expect(after).not.toMatch(/\[\s*['"]a['"]/) // the old [a, …] tuple is gone
       expect(typeof rows).toBe('number') // ledger re-point ran (0 here — nothing applied)
+    } finally {
+      await fs.rm(a, {recursive: true, force: true})
+      await fs.rm(b, {recursive: true, force: true})
+    }
+  })
+
+  it('squash cascades: a sibling’s cross-app tuple re-points to the squashed migration', async () => {
+    const a = await fs.mkdtemp(path.join(os.tmpdir(), 'pylon-sq-a-'))
+    const b = await fs.mkdtemp(path.join(os.tmpdir(), 'pylon-sq-b-'))
+    try {
+      // app 'a' has a two-migration history…
+      await fs.writeFile(path.join(a, '20260101T000000_init.ts'), mig(`{operations: []}`))
+      await fs.writeFile(
+        path.join(a, '20260101T000001_more.ts'),
+        mig(`{dependencies: ['20260101T000000_init'], operations: []}`)
+      )
+      // …and app 'b' pins a cross-app edge to a's SECOND migration.
+      const bFile = path.join(b, '20260101T000002_uses.ts')
+      await fs.writeFile(
+        bFile,
+        mig(`{dependencies: [['a', '20260101T000001_more']], operations: []}`)
+      )
+      const groups: MigrationGroup[] = [
+        {name: 'a', dir: a, models: []},
+        {name: 'b', dir: b, models: [], dependencies: ['a']}
+      ]
+      const result = await squashGroups(groups, 'a', load, 'squashed')
+      expect(result).not.toBeNull()
+      // a's two migrations collapsed into one…
+      expect((await fs.readdir(a)).filter(f => f.endsWith('.ts'))).toHaveLength(1)
+      // …and b's edge re-points to the squashed migration (no dangling tuple).
+      const after = await fs.readFile(bFile, 'utf8')
+      expect(after).toContain(`[["a","${result!.name}"]]`)
     } finally {
       await fs.rm(a, {recursive: true, force: true})
       await fs.rm(b, {recursive: true, force: true})

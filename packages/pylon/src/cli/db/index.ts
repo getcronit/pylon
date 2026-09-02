@@ -228,7 +228,6 @@ export async function runDbCommandCore(
   const cwd = options.cwd ?? process.cwd()
   const dir = path.resolve(cwd, options.dir ?? './migrations')
 
-  const runner = new orm.MigrationRunner({dir})
   const loadMigrationFile = createMigrationLoader(cwd)
 
   // Apps mode: models tagged via `models.app(name)` are DERIVED into migration
@@ -258,6 +257,23 @@ export async function runDbCommandCore(
       : [{name: 'default', root: true, dir, models: [], dependencies: []}]
   const rootOnly = groups.length === 1 && groups[0].root === true
 
+  // A correctly-configured runner for one group (bare ledger for the default app).
+  const groupRunnerOf = (group: (typeof groups)[number]) => orm.groupRunner(group)
+  // The tail commands (rollback/squash/baseline/resolve/merge) act on ONE app's
+  // history: the default app when a project has none composed, else the `--app`
+  // selection (required, since the operation is per-app).
+  const targetGroup = (): (typeof groups)[number] => {
+    if (rootOnly) return groups[0]
+    const g = options.app ? groups.find(x => x.name === options.app) : undefined
+    if (!g) {
+      throw new Error(
+        `This is a multi-app project — pass --app <name> to choose which app to act on ` +
+          `(apps: ${groups.map(x => x.name).join(', ')}).`
+      )
+    }
+    return g
+  }
+
   switch (options.command) {
     case 'status': {
       // Connect when a DB is available so status can read the applied-migrations
@@ -269,7 +285,7 @@ export async function runDbCommandCore(
       const drift = db ? await orm.schemaDrift(db) : undefined
       // A single default app reports flat, matching the pre-apps output.
       if (rootOnly) {
-        const status = await runner.status(loadMigrationFile, db)
+        const status = await groupRunnerOf(groups[0]).status(loadMigrationFile, db)
         return {command: 'status', status, drift}
       }
       const res = await orm.statusGroups(groups, loadMigrationFile, db)
@@ -461,13 +477,9 @@ export async function runDbCommandCore(
       // anything — for deploy pipelines that want the gate at the point of apply
       // rather than relying on `pylon db check` having run in CI.
       if (options.check) {
-        const pending = groups
-          ? (await orm.statusGroups(groups, loadMigrationFile, conn)).flatMap(r =>
-              (r.pending ?? []).map(p => `${r.group}: ${p}`)
-            )
-          : (
-              (await runner.status(loadMigrationFile, conn)).pendingChanges as SchemaChange[]
-            ).map(describeChange)
+        const pending = (await orm.statusGroups(groups, loadMigrationFile, conn)).flatMap(r =>
+          (r.pending ?? []).map(p => (rootOnly ? p : `${r.group}: ${p}`))
+        )
         if (pending.length > 0) {
           throw new Error(
             `Refusing to migrate: ${pending.length} model change(s) are not captured in ` +
@@ -504,7 +516,9 @@ export async function runDbCommandCore(
         throw new Error('pylon db rollback requires DATABASE_URL to be set.')
       }
       const conn = orm.connect({connectionString})
-      const rolledBack = await runner.rollback(loadMigrationFile, conn, {steps: options.steps ?? 1})
+      const rolledBack = await groupRunnerOf(targetGroup()).rollback(loadMigrationFile, conn, {
+        steps: options.steps ?? 1
+      })
       return {command: 'rollback', rolledBack}
     }
     case 'resolve': {
@@ -515,8 +529,9 @@ export async function runDbCommandCore(
       if (!options.name) throw new Error('pylon db resolve requires a migration name.')
       const as = options.resolve ?? 'applied'
       const conn = orm.connect({connectionString})
-      if (as === 'applied') await runner.markApplied(options.name, loadMigrationFile, conn)
-      else await runner.markRolledBack(options.name, conn)
+      const r = groupRunnerOf(targetGroup())
+      if (as === 'applied') await r.markApplied(options.name, loadMigrationFile, conn)
+      else await r.markRolledBack(options.name, conn)
       return {command: 'resolve', resolved: {name: options.name, as}}
     }
     case 'rename-app': {
@@ -553,11 +568,22 @@ export async function runDbCommandCore(
       const conn = process.env.DATABASE_URL
         ? orm.connect({connectionString: process.env.DATABASE_URL})
         : undefined
-      const squashed = await runner.squash(loadMigrationFile, options.name ?? 'squashed', conn)
+      // Squash the chosen app's history and cascade-rewrite any sibling's cross-app
+      // dependency tuples that named a now-collapsed migration to the squashed one.
+      const squashed = await orm.squashGroups(
+        groups,
+        targetGroup().name,
+        loadMigrationFile,
+        options.name ?? 'squashed',
+        conn
+      )
       return {command: 'squash', squashed}
     }
     case 'merge': {
-      const merged = await runner.merge(loadMigrationFile, options.name ?? 'merge')
+      const merged = await groupRunnerOf(targetGroup()).merge(
+        loadMigrationFile,
+        options.name ?? 'merge'
+      )
       return {command: 'merge', merged}
     }
     case 'seed': {
@@ -603,9 +629,10 @@ export async function runDbCommandCore(
       await fs.writeFile(outAbs, orm.generateModelSource(schema))
 
       // 2. Initial migration + mark it applied so `migrate`/`deploy` skip it.
-      const created = await runner.baseline(schema, options.name ?? 'baseline')
+      const baseRunner = groupRunnerOf(targetGroup())
+      const created = await baseRunner.baseline(schema, options.name ?? 'baseline')
       if (created) {
-        await runner.markApplied(created.name, loadMigrationFile, conn)
+        await baseRunner.markApplied(created.name, loadMigrationFile, conn)
       }
       return {
         command: 'baseline',

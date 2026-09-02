@@ -271,6 +271,7 @@ export {
   generateGroup,
   migrateGroups,
   renameGroupApp,
+  squashGroups,
   statusGroups,
   integrityErrorsGroups,
   type MigrationGroup,

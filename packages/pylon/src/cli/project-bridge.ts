@@ -154,6 +154,20 @@ export interface ProjectApp {
     load: (filePath: string) => Promise<unknown>,
     db?: unknown
   ): Promise<Array<{group: string; applied: string[]}>>
+  /** A correctly-configured migration runner for one group (bare ledger + all models
+   *  for the root/default app; `<name>:`-prefixed ledger + scoped models otherwise). */
+  groupRunner(
+    group: GroupLike,
+    opts?: {now?: () => string}
+  ): InstanceType<ProjectApp['MigrationRunner']>
+  /** Squash one group's history + cascade-rewrite sibling cross-app dependency tuples. */
+  squashGroups(
+    groups: GroupLike[],
+    groupName: string,
+    load: (filePath: string) => Promise<unknown>,
+    name?: string,
+    db?: unknown
+  ): Promise<{name: string; replaced: string[]} | null>
   /** Re-point the ledger + cross-app dependency tuples after an app rename. */
   renameGroupApp(
     groups: GroupLike[],
@@ -186,6 +200,8 @@ export interface GroupLike {
   models?: Function[]
   dependencies?: string[]
   dir?: string
+  /** The implicit default app: bare ledger, every model, root `./migrations`. */
+  root?: boolean
 }
 
 const requireHere = createRequire(import.meta.url)

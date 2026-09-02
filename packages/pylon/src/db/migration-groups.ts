@@ -313,6 +313,60 @@ export async function renameGroupApp(
   return groupRunner(group).renameAppLedger(fromApp, db)
 }
 
+/**
+ * Squash ONE group's history into a single migration, then cascade-rewrite any
+ * cross-app dependency tuple in a SIBLING app that named a now-collapsed migration
+ * to the squashed one — otherwise the persisted graph dangles (and fails loudly at
+ * apply). Same reconciliation `rename-app` does, for the squash case.
+ */
+export async function squashGroups(
+  groups: MigrationGroup[],
+  groupName: string,
+  load: MigrationLoader,
+  name = 'squashed',
+  db?: Database
+): Promise<{name: string; replaced: string[]} | null> {
+  const group = groups.find(g => g.name === groupName)
+  if (!group) {
+    throw new Error(
+      `Unknown app "${groupName}" (apps: ${groups.map(g => g.name).join(', ')}).`
+    )
+  }
+  const result = await groupRunner(group).squash(load, name, db)
+  if (!result) return null
+
+  const replaced = new Set(result.replaced)
+  const hits = (d: MigrationDependency): boolean =>
+    Array.isArray(d) && d[0] === group.name && replaced.has(d[1])
+  for (const g of groups) {
+    if (g.name === group.name || !g.dir) continue
+    let files: string[]
+    try {
+      files = (await fs.readdir(g.dir)).filter(f => f.endsWith('.ts'))
+    } catch {
+      continue
+    }
+    for (const f of files) {
+      const file = path.join(g.dir, f)
+      const mod = (await load(file)) as MigrationModule
+      const deps = mod.dependencies
+      if (!deps?.some(hits)) continue
+      // Several collapsed edges fold to the one squashed migration — dedup.
+      const seen = new Set<string>()
+      const rewritten: MigrationDependency[] = []
+      for (const d of deps) {
+        const next = hits(d) ? ([group.name, result.name] as const) : d
+        const key = Array.isArray(next) ? `${next[0]} ${next[1]}` : `#${next}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        rewritten.push(next as MigrationDependency)
+      }
+      await rewriteDepsInFile(file, rewritten)
+    }
+  }
+  return result
+}
+
 /** Apply every group's pending migrations, in dependency order. Idempotent. */
 /** Apply every group's pending migrations INTERLEAVED by global timestamp (see
  *  `MigrationRunner.applyGroupsInterleaved` — group-by-group can't build a fresh DB when

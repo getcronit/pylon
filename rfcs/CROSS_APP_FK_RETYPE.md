@@ -120,14 +120,14 @@ silently reordering.
   app's migration files (balanced-bracket splice of the `dependencies:` array, byte-stable
   elsewhere). Bare same-app deps are relative and untouched. It has `groups`, so it sees
   every app's files.
-- **`squash` / `baseline`** — deferred, and here's the finding: in **apps mode** these run
-  on the *root* runner (`new MigrationRunner({dir})`, an empty root migrations dir), not
-  per app — so per-app squash/baseline isn't reachable through the CLI today, and neither is
-  the cross-app cascade. Wiring group-aware squash/baseline is part of the **apps-only
-  refactor** (below); under it, `squash` cascade-rewrites tuples pointing into the squashed
-  range to the squashed migration (Pylon deletes files rather than keeping Django `replaces`
-  tombstones, so cascade-rewrite is the fit), and `baseline` terminates cross-app tuples
-  pointing before it. Until then, the loud dangling error covers the interim.
+- **`squash`** — DONE (via the apps-only refactor). It was previously unreachable per-app:
+  in apps mode `squash` ran on the *root* runner (an empty root dir). The apps-only CLI makes
+  every command group-aware, so `squashGroups(groups, app, …)` squashes one app's history and
+  **cascade-rewrites** every sibling's cross-app tuple that named a now-collapsed migration to
+  the squashed one (Pylon deletes files rather than keeping Django `replaces` tombstones, so
+  cascade-rewrite is the fit). The loud dangling error remains the backstop if one is missed.
+- **`baseline`** — group-aware now (operates on the target app), but needs no cascade: it's a
+  once-only bootstrap of an un-migrated app, so nothing points *before* it yet.
 
 Individual migrations are never renamed (timestamp names; no rename-migration command), so
 the only name churn is app-level — the prefix rewrite `rename-app` now does.
