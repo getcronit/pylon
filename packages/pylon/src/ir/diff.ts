@@ -737,9 +737,12 @@ export function crossAppRetypeRefusals(
         `"${fk.name}" ("${fk.table}"."${fk.column}" → "${fk.refTable}"."${fk.refColumn}") — ` +
         `its other end lives in a different app, so the two sides change in separate ` +
         `migrations/transactions and the engine can't drop and re-add the constraint ` +
-        `around the type change. Put both model changes in ONE migration, or author it ` +
-        `by hand (\`migrations.runSql('<ddl>', {down: '<ddl>'})\` + ` +
-        `\`migrations.stateOnly([...])\`).`
+        `around the type change. The two apps' migrations live in separate directories, so ` +
+        `they CAN'T share one migration; author it by hand instead as a single ` +
+        `\`migrations.runSql(...)\` (in one app's migration) that, in ONE transaction, drops ` +
+        `this FK, retypes BOTH "${fk.refTable}"."${fk.refColumn}" and ` +
+        `"${fk.table}"."${fk.column}" to the same type, and re-adds the FK — plus ` +
+        `\`migrations.stateOnly([...])\` in each app so the baselines record their own side.`
     )
   }
   return out
