@@ -7,6 +7,7 @@ import {
 import mitt from 'mitt'
 import {useEffect, useRef} from 'react'
 import type {Data} from './index'
+import {useRouteId} from './internals'
 
 // Connection arg → node type inference for the selector form.
 type NodeOf<C> = C extends {edges: (infer E)[]}
@@ -70,7 +71,14 @@ export function useData(
   variables?: () => Record<string, unknown>,
   options?: UseDataOptions
 ): any {
-  const data = useQueryDoc(doc as TypedDoc<any, any> | undefined, variables, options)
+  // The current route id owns this read: if it fails during SSR, the pages handler
+  // renders THIS route's error boundary (not the leaf's). Undefined outside a route
+  // provider — the handler then falls back to leaf attribution.
+  const owner = useRouteId()
+  const data = useQueryDoc(doc as TypedDoc<any, any> | undefined, variables, {
+    ...options,
+    owner
+  })
   useTagRefetch(options?.tags, () => (data as any)?.$refetch?.())
   return data
 }
@@ -126,8 +134,10 @@ export function usePaginatedData(
   }
   const mergedThunk = () => ({...(baseVarsThunk ? baseVarsThunk() : {}), ...baseArgs})
 
+  const owner = useRouteId()
   const result = usePaginatedDoc(doc, mergedThunk, {
-    first: typeof ua.first === 'number' ? ua.first : undefined
+    first: typeof ua.first === 'number' ? ua.first : undefined,
+    owner
   })
 
   // `dataRefetch(tags)` with a matching tag force-refetches the loaded windows

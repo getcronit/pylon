@@ -14,3 +14,8 @@ export function usePylonQueryClient(): PylonQueryClient {
   }
   return client
 }
+
+/** Non-throwing variant: `null` when no provider is mounted. */
+export function usePylonQueryClientOptional(): PylonQueryClient | null {
+  return useContext(PylonQueryContext)
+}

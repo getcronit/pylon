@@ -30,7 +30,11 @@ export {
 } from './runtime/normalize'
 
 // ── React ────────────────────────────────────────────────────────────────
-export {PylonQueryProvider, usePylonQueryClient} from './react/context'
+export {
+  PylonQueryProvider,
+  usePylonQueryClient,
+  usePylonQueryClientOptional
+} from './react/context'
 export {
   useQueryDoc,
   type UseQueryDocOptions,

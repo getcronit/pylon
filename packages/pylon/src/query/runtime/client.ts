@@ -78,6 +78,16 @@ export class PylonQueryClient {
    */
   private readonly identityCaches = new Map<string, WeakMap<object, unknown>>()
 
+  /**
+   * opKey → an opaque OWNER tag supplied by the caller (the pages layer passes the
+   * current route id). Records which caller initiated each operation so that, after
+   * a failed SSR render, the pages handler can attribute the terminal error to the
+   * route that actually read it — and render THAT route's error boundary — instead
+   * of blaming the leaf. Owner-agnostic here: the query layer never interprets the
+   * tag, it only round-trips it.
+   */
+  private readonly owners = new Map<string, string>()
+
   private identityBucket(key: string): WeakMap<object, unknown> {
     let bucket = this.identityCaches.get(key)
     if (bucket) {
@@ -106,6 +116,40 @@ export class PylonQueryClient {
     // Default: a few seconds of freshness — long enough to break notify-driven
     // refetch loops, short enough that navigating back later revalidates.
     this.freshMs = opts.freshMs ?? 5_000
+  }
+
+  /**
+   * Tag an operation with the caller that read it (see `owners`). Called at read
+   * time, before the fetch is kicked off, so the mapping exists even when the read
+   * suspends and its component never commits.
+   */
+  setOwner(key: string, owner: string): void {
+    this.owners.set(key, owner)
+  }
+
+  /**
+   * Owner tags of every operation currently in a terminal-error state. The pages
+   * SSR handler intersects this with the matched route chain to localize a render
+   * failure to the smallest segment that owns it.
+   */
+  failedOwners(): Set<string> {
+    const out = new Set<string>()
+    for (const key of this.store.erroredKeys()) {
+      const owner = this.owners.get(key)
+      if (owner !== undefined) out.add(owner)
+    }
+    return out
+  }
+
+  /**
+   * Clear every terminal error so the next read re-fetches instead of re-throwing.
+   * Backs `<ErrorBoundary>`'s `reset`: without it, remounting the subtree would read
+   * the still-errored entries and throw straight back into the boundary.
+   */
+  clearErrors(): void {
+    for (const key of this.store.erroredKeys()) {
+      this.store.patch(key, {error: undefined, promise: undefined, stale: true})
+    }
   }
 
   /** Fire the operation, deduping concurrent identical requests via the store. */

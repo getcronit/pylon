@@ -141,6 +141,15 @@ export class Store {
     return this.map.get(key)
   }
 
+  /** Operation keys whose fetch ended in a terminal error (never partial). */
+  erroredKeys(): string[] {
+    const out: string[] = []
+    for (const [key, entry] of this.map) {
+      if (entry.error !== undefined) out.push(key)
+    }
+    return out
+  }
+
   has(key: string): boolean {
     return this.map.has(key)
   }

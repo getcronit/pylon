@@ -23,6 +23,11 @@ export type {
   ResponseCookieOptions
 } from './response-cookies'
 export {Link} from './link'
+export {
+  ErrorBoundary,
+  type ErrorBoundaryProps,
+  type ErrorFallbackRender
+} from './error-boundary'
 
 export * from '@/pages/components/dev-overlay'
 export {default as GlobalErrorPage} from '@/pages/components/global-error-page'

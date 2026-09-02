@@ -788,11 +788,26 @@ export const setup = async (
           context.statusCode = status
         }
       } else {
-        // Application crash (e.g. TypeError) → 500 boundary.
-        const leafMatch = context.matches[context.matches.length - 1]
-        if (leafMatch) {
+        // Application crash (a component threw during render — most commonly a
+        // `useData` read whose operation failed). React Router renders a route's
+        // `errorElement` in place of that route (and its subtree) when the error is
+        // in `context.errors[routeId]` — and does so SERVER-SIDE, unlike a React
+        // error boundary, which React 19 defers to the client. So localizing the
+        // failure to the RIGHT route is what contains it: the failing segment shows
+        // its boundary while ancestor chrome (and sibling branches) still render.
+        //
+        // `useData` tags each read with its owning route id; pick the SHALLOWEST
+        // matched route whose read failed, so its boundary subsumes any deeper
+        // failure. Fall back to the leaf when the error can't be localized (e.g. a
+        // non-`useData` crash, so nothing was tagged) — the pre-existing behavior.
+        const matches = context.matches
+        const failed = pagesClient.failedOwners()
+        const target =
+          matches.find(m => failed.has(m.route.id)) ??
+          matches[matches.length - 1]
+        if (target) {
           context.errors = context.errors || {}
-          context.errors[leafMatch.route.id] = errorOrResponse
+          context.errors[target.route.id] = errorOrResponse
           context.statusCode = 500
         } else {
           throw errorOrResponse

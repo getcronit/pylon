@@ -52,6 +52,12 @@ export interface PaginatedResult<TNode = any, TEdge = any> {
 export interface UsePaginatedDocOptions {
   /** Initial page size. */
   first?: number
+  /**
+   * Opaque owner tag (the pages layer passes the current route id) so a failed SSR
+   * read of the head window is attributed to the route that owns it. See
+   * `PylonQueryClient.setOwner`.
+   */
+  owner?: string
 }
 
 /** A loaded window: the variable overrides used to fetch it. */
@@ -316,6 +322,11 @@ export function usePaginatedDoc<TResult, TVars extends Record<string, unknown>>(
     !resetting && windows.length ? windows : [{vars: firstWindowVars(base)}]
 
   // ── read + merge (Suspense on the head window) ─────────────────────────────
+  // Tag the head read with its owner before it may suspend (per-route SSR error
+  // attribution — see useQueryDoc).
+  if (options?.owner) {
+    client.setOwner(opKey(doc, effWindows[0].vars), options.owner)
+  }
   const headRead = client.ensure(doc, effWindows[0].vars as TVars)
   if (headRead.error !== undefined) throw headRead.error
   if (headRead.promise) throw headRead.promise

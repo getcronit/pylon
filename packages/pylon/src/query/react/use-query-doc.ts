@@ -8,6 +8,12 @@ export interface UseQueryDocOptions {
    * no document and returns `undefined` — escape hatch / debugging only.
    */
   disableBuildTimeGeneration?: boolean
+  /**
+   * Opaque owner tag for this read (the pages layer passes the current route id).
+   * Recorded on the client so a failed SSR render can be attributed to the route
+   * that owns the read. Never interpreted here.
+   */
+  owner?: string
 }
 
 export type WithRefetch<T> = T & {$refetch: () => void}
@@ -23,7 +29,7 @@ export type WithRefetch<T> = T & {$refetch: () => void}
 export function useQueryDoc<TResult, TVars extends Record<string, unknown>>(
   doc: TypedDoc<TResult, TVars> | undefined,
   variablesThunk?: () => TVars,
-  _options?: UseQueryDocOptions
+  options?: UseQueryDocOptions
 ): WithRefetch<TResult> {
   const client = usePylonQueryClient()
 
@@ -81,6 +87,10 @@ export function useQueryDoc<TResult, TVars extends Record<string, unknown>>(
   const getRoot = (): unknown => {
     if (resolved) return rootData
     const vars = variablesThunk ? variablesThunk() : undefined
+    // Tag the read with its owner BEFORE `ensure` may throw the in-flight promise:
+    // a suspending read never commits, so this is the only point the mapping is
+    // guaranteed to be recorded. Enables per-route SSR error attribution.
+    if (options?.owner) client.setOwner(opKey(doc, vars), options.owner)
     const read = client.ensure(doc, vars as TVars)
     if (read.error !== undefined) throw read.error
     if (read.promise) throw read.promise

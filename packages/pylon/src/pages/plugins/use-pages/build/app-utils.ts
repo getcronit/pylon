@@ -77,6 +77,27 @@ export function getPageComponentName(filePath: string): string {
 }
 
 /**
+ * Converts a file path to a corresponding error-boundary component name.
+ *
+ * `error.tsx` alongside a `layout.tsx`/`page.tsx` lets an app override the default
+ * error UI for that route segment. The suffix is `ErrorBoundary` (not `Error`) on
+ * purpose: a bare `Error` binding would shadow the global `Error` constructor in the
+ * generated module.
+ * @param filePath - The file path to convert.
+ * @returns The generated error-boundary component name.
+ */
+export function getErrorComponentName(filePath: string): string {
+  const segments = filePath
+    .replace(PAGES_DIR, '')
+    .replace(/\\/g, '/')
+    .replace(/error\.tsx$/, '')
+    .split('/')
+    .filter(Boolean)
+
+  return (segments.map(formatSegment).join('') || 'Root') + 'ErrorBoundary'
+}
+
+/**
  * Converts dynamic route segments from [param] format to :param format.
  * @param segment - A segment of the route.
  * @returns The converted route segment.
@@ -95,7 +116,8 @@ function processLayoutItem(
   relativePath: string,
   importPath: string,
   route: Route,
-  context: ScanContext
+  context: ScanContext,
+  errorComponentName?: string
 ): void {
   const layoutComponentName = getLayoutComponentName(relativePath)
   context.imports.push(`import ${layoutComponentName} from ${importPath};`)
@@ -127,9 +149,18 @@ function processLayoutItem(
     return hasParamChanged || (relevantKeys.length === 0 && defaultShouldRevalidate);
   }`
 
-  if (route.path === '/') {
-    route.errorElement = '<ErrorElement standalone={true} />'
-  }
+  // Every layout owns an error boundary, not just the root. Without one, a failure
+  // in a nested layout (e.g. a `useData` whose upstream is down) has no nearby
+  // boundary and bubbles to the ROOT layout's `standalone` element — turning one
+  // dead query into a whole-document outage across every route under that layout.
+  // A per-layout boundary contains the failure to its own subtree: the parent chrome
+  // stays rendered, the error shows in the parent's `<Outlet />`. The root stays
+  // `standalone` (it IS the document, so there is no parent chrome to preserve).
+  // A sibling `error.tsx` overrides the default UI for this segment.
+  const isRoot = route.path === '/'
+  route.errorElement = errorComponentName
+    ? `<ErrorElement standalone={${isRoot}} component={${errorComponentName}} />`
+    : `<ErrorElement standalone={${isRoot}} />`
 
   route.HydrateFallback = 'HydrateFallback'
 }
@@ -140,7 +171,8 @@ function processLayoutItem(
 function processPageItem(
   relativePath: string,
   importPath: string,
-  route: Route
+  route: Route,
+  errorComponentName?: string
 ): void {
   const catchAllParam = relativePath.match(/\[\.\.\.(.+)\]/)?.[1]
   const pageComponentName = getPageComponentName(relativePath)
@@ -149,7 +181,9 @@ function processPageItem(
     id: pageComponentName,
     path: undefined,
     index: true,
-    errorElement: '<ErrorElement standalone={false} />',
+    errorElement: errorComponentName
+      ? `<ErrorElement standalone={false} component={${errorComponentName}} />`
+      : '<ErrorElement standalone={false} />',
     lazy: `async () => {const i = await import(${importPath}).catch((e) => {console.error("[pylon] failed to load route module", ${importPath}, e); if (typeof window !== 'undefined') { window.location.reload(); return new Promise(() => {}); } throw e;}); return {Component: withRouteData(i.default, "${pageComponentName}", ${catchAllParam ? `"${catchAllParam}"` : 'undefined'})}}`,
     HydrateFallback: 'HydrateFallback'
   })
@@ -211,6 +245,32 @@ export function scanDirectory(
   let hasLayout = false
   let pageFound = false
 
+  // A sibling `error.tsx` overrides the default error UI for THIS segment. Detect it
+  // up front (readdir order is not guaranteed) and only wire it in when the segment
+  // actually has a layout or page to attach the boundary to — an `error.tsx` with
+  // nothing to guard is a dead import. It is applied to BOTH this segment's layout
+  // route and its page route, so any crash in the segment renders the same custom UI
+  // at whichever boundary catches it.
+  const fileNames = new Set(
+    items.filter(i => i.isFile()).map(i => i.name)
+  )
+  let errorComponentName: string | undefined
+  if (
+    fileNames.has('error.tsx') &&
+    (fileNames.has('layout.tsx') || fileNames.has('page.tsx'))
+  ) {
+    const errorRelativePath = path
+      .join(basePath, 'error.tsx')
+      .replace(/\\/g, '/')
+    const errorImportPath = `"./${path
+      .join('..', PAGES_DIR, errorRelativePath)
+      .replace(/\.tsx$/, '')}"`
+    errorComponentName = getErrorComponentName(errorRelativePath)
+    context.imports.push(
+      `import ${errorComponentName} from ${errorImportPath};`
+    )
+  }
+
   for (const item of items) {
     const itemPath = path.join(directory, item.name)
     const relativePath = path.join(basePath, item.name).replace(/\\/g, '/')
@@ -224,10 +284,10 @@ export function scanDirectory(
         route.children!.push(childRoute)
       }
     } else if (item.name === 'layout.tsx') {
-      processLayoutItem(relativePath, importPath, route, context)
+      processLayoutItem(relativePath, importPath, route, context, errorComponentName)
       hasLayout = true
     } else if (item.name === 'page.tsx') {
-      processPageItem(relativePath, importPath, route)
+      processPageItem(relativePath, importPath, route, errorComponentName)
       pageFound = true
     }
   }
@@ -316,13 +376,13 @@ import {useMemo, Suspense} from 'react'
 import {__PYLON_ROUTER_INTERNALS_DO_NOT_USE, __PYLON_INTERNALS_DO_NOT_USE, GlobalErrorPage, StatusPage} from '@getcronit/pylon/pages'
 const Outlet = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.Outlet
 
-const ErrorElement: React.FC<{standalone: boolean}> = ({standalone}) => {
+const ErrorElement: React.FC<{standalone: boolean, component?: React.ComponentType<{error: Error, reset: () => void}>}> = ({standalone, component: UserErrorBoundary}) => {
   // Destructure for cleaner code
   const { useRouteError, isRouteErrorResponse, Navigate } = __PYLON_ROUTER_INTERNALS_DO_NOT_USE;
-  
+
   const error = useRouteError();
   console.error(error);
-  
+
   let message = 'An unexpected error occurred.';
 
   // 1. Handle raw Response redirects (e.g., thrown directly during client render)
@@ -368,14 +428,24 @@ const ErrorElement: React.FC<{standalone: boolean}> = ({standalone}) => {
   }
 
   // 3. Fallback for standard code crashes (e.g., TypeError) and explicit 500s
-  const displayError = error instanceof Error 
-    ? error 
+  const displayError = error instanceof Error
+    ? error
     : new Error(
-        message || 
-        (error && typeof error === 'object' && ((error as any).message || (error as any).statusText)) || 
+        message ||
+        (error && typeof error === 'object' && ((error as any).message || (error as any).statusText)) ||
         'A critical error occurred'
       );
-      
+
+  // A segment's \`error.tsx\` (passed as \`component\`) owns the crash UI, but only for
+  // genuine crashes — redirects and handled HTTP statuses (404/403) are framework
+  // concerns handled above, so the user boundary never sees them. \`reset\` re-runs the
+  // failed render from a clean slate; a full reload is the one recovery guaranteed to
+  // drop the cached read error and refetch (client-only — a no-op during SSR).
+  if (UserErrorBoundary) {
+    const reset = () => { if (typeof window !== 'undefined') window.location.reload(); };
+    return <UserErrorBoundary error={displayError as any} reset={reset} />;
+  }
+
   return <GlobalErrorPage error={displayError as any} standalone={standalone} />;
 }
 
