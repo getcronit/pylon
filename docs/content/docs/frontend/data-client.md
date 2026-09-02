@@ -51,8 +51,15 @@ export default function NewUser() {
 
 Sometimes you need to run a query or mutation from an event handler or an
 effect, not from render. That's `op` — a plain object (not a hook) with
-`query` and `mutation`. Both are **browser-only**: they run in handlers and
-effects, never during SSR.
+`query` and `mutation`. In the browser they run in handlers and effects. They do
+**not** run during a page's render — inside a component, `useData` is the tool;
+`op` needs a bound client, and there isn't one mid-render.
+
+`op` also runs on the **server** in non-React modules — a
+[`pages/sitemap.ts`](/docs/frontend/routing#sitemap), an RSS route, a queue job —
+where the pages runtime binds a per-request client. There it queries your own
+GraphQL in-process, forwarding the request's headers. (In a resolver, call your
+data layer directly instead.)
 
 ```tsx
 import {op} from '@getcronit/pylon/pages'

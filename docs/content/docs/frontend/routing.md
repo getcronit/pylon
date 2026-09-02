@@ -108,6 +108,84 @@ export default function DocPage({params}: PageProps) {
 }
 ```
 
+## Sitemap
+
+`pages/sitemap.ts` default-exports a function returning URL entries; Pylon serves
+it at `/sitemap.xml`. The simplest form is static:
+
+```ts title="pages/sitemap.ts"
+import type {MetadataRoute} from '@getcronit/pylon/pages'
+
+export default function sitemap(): MetadataRoute.Sitemap {
+  return [
+    {url: '/', changefreq: 'daily', priority: 1},
+    {url: '/pricing', lastmod: '2026-01-01'}
+  ]
+}
+```
+
+Each entry's `url` is made absolute against the `origin` you configured on
+`usePages` — never the request `Host`, so a proxy can't make your sitemap
+advertise the wrong domain. With [i18n](/docs/frontend/i18n) configured, each URL
+declared once expands into one entry per locale.
+
+### Fetching URLs from your own API
+
+A real sitemap is usually **dynamic** — one URL per product, post, or page. The
+function is `async` and runs in-process on the server, so it can pull those slugs
+straight from your own GraphQL with [`op`](/docs/frontend/data-client), the same
+imperative client pages use in the browser. Here it runs server-side, against the
+in-process schema, with no network hop:
+
+```ts title="pages/sitemap.ts"
+import {op, type MetadataRoute} from '@getcronit/pylon/pages'
+
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const products = await op.query(({products}) =>
+    products({first: 1000}).nodes.map(p => ({
+      handle: p.handle,
+      updatedAt: p.updatedAt
+    }))
+  )
+
+  return [
+    {url: '/', priority: 1},
+    ...products.map(p => ({url: `/products/${p.handle}`, lastmod: p.updatedAt}))
+  ]
+}
+```
+
+The query is compiled at build time, like every `op` call — the selector's field
+access defines the document. The root may be destructured (`({products}) => …`)
+or taken whole (`q => q.products(…)`).
+
+:::note
+Fetching your own data through `op` reuses the compiled, typed operation surface
+and forwards the request's headers (so an authenticated crawler sees what it
+should). Inside a **resolver** you would instead call your data layer directly —
+self-calling the API earns its keep only in non-React server code like this, an
+RSS route, or a queue job.
+:::
+
+### Caching and sharding
+
+Export `revalidate` (seconds) to cache the rendered XML; export
+`generateSitemaps()` to split a large sitemap into shards behind a sitemap index
+(`/sitemap/:id.xml`), each shard receiving its `{id}`:
+
+```ts title="pages/sitemap.ts"
+export const revalidate = 3600 // re-render at most hourly
+
+export async function generateSitemaps() {
+  return [{id: 'products'}, {id: 'articles'}]
+}
+
+export default async function sitemap({id}: {id: string}) {
+  // build the shard for `id`, e.g. via op.query paginated by shard
+  return []
+}
+```
+
 ## Layouts
 
 `layout.tsx` wraps its subtree and renders `children`. The **root layout**
