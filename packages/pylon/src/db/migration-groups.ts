@@ -12,11 +12,18 @@
  *     against the GLOBAL registry, so an FK into another group still emits.
  *   - `ledgerPrefix: group.name` — isolate each group's rows in the shared ledger.
  */
+import {promises as fs} from 'node:fs'
+import path from 'node:path'
 import {describeChange, joinTableName, type CastHint} from '../ir'
 import type {Database} from './database.js'
 import {getDatabase} from './database.js'
 import {toIR} from './ir.js'
-import {MigrationRunner, type GeneratedMigration, type MigrationLoader} from './migration-runner.js'
+import {
+  MigrationRunner,
+  type GeneratedMigration,
+  type MigrationLoader
+} from './migration-runner.js'
+import type {MigrationDependency, MigrationModule} from './migration-ops.js'
 import {
   allModels,
   getAppMeta,
@@ -225,21 +232,75 @@ export interface GroupApplyResult {
 }
 
 /**
- * Re-point the migration ledger after an app was RENAMED (`fromApp` → `toApp`).
- * Ledger rows are keyed `"<app>:<name>"`, so a rename orphans the old app's
- * already-applied rows and `migrate` would re-run its init. Run once per database
- * (before `migrate`). Returns the number of ledger rows re-pointed. Idempotent.
+ * Replace the `dependencies:` array value in a migration file's source with
+ * `newDeps` (serialized as JSON). A balanced-bracket scan from the first `[` after
+ * the key makes it robust to formatting and quote style. Only the deps array is
+ * touched; the rest of the file (operations, comments) is left byte-for-byte.
+ */
+async function rewriteDepsInFile(file: string, newDeps: MigrationDependency[]): Promise<void> {
+  const text = await fs.readFile(file, 'utf8')
+  const key = text.indexOf('dependencies:')
+  if (key < 0) return
+  const open = text.indexOf('[', key)
+  if (open < 0) return
+  let depth = 0
+  let end = -1
+  for (let i = open; i < text.length; i++) {
+    if (text[i] === '[') depth++
+    else if (text[i] === ']' && --depth === 0) {
+      end = i
+      break
+    }
+  }
+  if (end < 0) return
+  await fs.writeFile(file, text.slice(0, open) + JSON.stringify(newDeps) + text.slice(end + 1))
+}
+
+/**
+ * Re-point everything that names an app after it was RENAMED (`fromApp` → `toApp`):
+ *
+ *  1. The migration LEDGER — rows are keyed `"<app>:<name>"`, so a rename orphans the
+ *     old app's applied rows and `migrate` would re-run its init.
+ *  2. Cross-app dependency TUPLES — a `[fromApp, name]` edge in any app's migration
+ *     files (the persisted cross-app graph) would otherwise dangle and fail loudly.
+ *     Bare (same-app) deps are relative and need no rewrite. Rewrites the files across
+ *     every app in `groups`.
+ *
+ * Run once per database (before `migrate`). Returns the number of ledger rows
+ * re-pointed. Idempotent — a second run finds no `fromApp` tuples and no old rows.
  */
 export async function renameGroupApp(
   groups: MigrationGroup[],
   fromApp: string,
   toApp: string,
+  load: MigrationLoader,
   db: Database = getDatabase()
 ): Promise<number> {
   const group = groups.find(g => g.name === toApp)
   if (!group) {
     throw new Error(`No app named "${toApp}" — rename the app in code first, then run rename-app.`)
   }
+
+  for (const g of groups) {
+    if (!g.dir) continue
+    let files: string[]
+    try {
+      files = (await fs.readdir(g.dir)).filter(f => f.endsWith('.ts'))
+    } catch {
+      continue // no migrations dir yet
+    }
+    for (const f of files) {
+      const file = path.join(g.dir, f)
+      const mod = (await load(file)) as MigrationModule
+      const deps = mod.dependencies
+      if (!deps?.some(d => Array.isArray(d) && d[0] === fromApp)) continue
+      const rewritten = deps.map(d =>
+        Array.isArray(d) && d[0] === fromApp ? ([toApp, d[1]] as const) : d
+      )
+      await rewriteDepsInFile(file, rewritten as MigrationDependency[])
+    }
+  }
+
   return groupRunner(group).renameAppLedger(fromApp, db)
 }
 

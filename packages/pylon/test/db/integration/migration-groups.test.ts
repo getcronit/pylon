@@ -24,6 +24,7 @@ import {
   MigrationRunner,
   models,
   orderGroups,
+  renameGroupApp,
   setDefaultDatabase,
   statusGroups,
   toIR,
@@ -422,5 +423,34 @@ describe.skipIf(!runDb)('persisted cross-app dependency graph (Postgres)', () =>
     await expect(migrateGroups(groups, load, database)).rejects.toThrow(
       /b:20260101T000001_uses.*a:20260101T999999_missing.*does not exist/s
     )
+  })
+
+  it('rename-app rewrites cross-app dependency tuples in dependents', async () => {
+    const a = await fs.mkdtemp(path.join(os.tmpdir(), 'pylon-ren-a-'))
+    const b = await fs.mkdtemp(path.join(os.tmpdir(), 'pylon-ren-b-'))
+    try {
+      await fs.writeFile(path.join(a, '20260101T000000_init.ts'), mig(`{operations: []}`))
+      const bFile = path.join(b, '20260101T000001_uses.ts')
+      // b depends on 'a' via an explicit cross-app tuple (single-quoted, hand-authored).
+      await fs.writeFile(
+        bFile,
+        mig(`{dependencies: [['a', '20260101T000000_init']], operations: []}`)
+      )
+      // 'a' was renamed to 'newa' in code → groups carry the NEW name on the same dir.
+      const groups: MigrationGroup[] = [
+        {name: 'newa', dir: a, models: []},
+        {name: 'b', dir: b, models: [], dependencies: ['newa']}
+      ]
+      const rows = await renameGroupApp(groups, 'a', 'newa', load, database)
+      // The dependent's tuple is re-pointed to the new app name in the FILE itself,
+      // so it no longer dangles (would otherwise fail loudly at the next migrate).
+      const after = await fs.readFile(bFile, 'utf8')
+      expect(after).toContain('[["newa","20260101T000000_init"]]')
+      expect(after).not.toMatch(/\[\s*['"]a['"]/) // the old [a, …] tuple is gone
+      expect(typeof rows).toBe('number') // ledger re-point ran (0 here — nothing applied)
+    } finally {
+      await fs.rm(a, {recursive: true, force: true})
+      await fs.rm(b, {recursive: true, force: true})
+    }
   })
 })

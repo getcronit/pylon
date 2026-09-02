@@ -154,8 +154,14 @@ export interface ProjectApp {
     load: (filePath: string) => Promise<unknown>,
     db?: unknown
   ): Promise<Array<{group: string; applied: string[]}>>
-  /** Re-point the ledger after an app rename (`fromApp` → `toApp`). */
-  renameGroupApp(groups: GroupLike[], fromApp: string, toApp: string, db?: unknown): Promise<number>
+  /** Re-point the ledger + cross-app dependency tuples after an app rename. */
+  renameGroupApp(
+    groups: GroupLike[],
+    fromApp: string,
+    toApp: string,
+    load: (filePath: string) => Promise<unknown>,
+    db?: unknown
+  ): Promise<number>
   statusGroups(
     groups: GroupLike[],
     load: (filePath: string) => Promise<unknown>,

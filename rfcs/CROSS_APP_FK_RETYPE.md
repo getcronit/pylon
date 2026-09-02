@@ -110,28 +110,43 @@ is unsatisfiable — keep the shipped refusal for that case.
 ## History-rewrite commands (the accepted cost)
 
 With derivation gone, persisted tuples must survive the commands that rewrite history —
-and there is **no derivation fallback if one is missed**, so this is load-bearing. These
-commands already do coordinated history surgery, so the additions fit:
+and there is **no derivation fallback if one is missed**, so this is load-bearing. The
+loud dangling-tuple error is the safety net: a rewrite that orphans a cross-app edge
+fails visibly at the next migrate, naming the broken `app:migration`, rather than
+silently reordering.
 
-- **`squash`** already deletes the collapsed files and reconciles the ledger
-  ([migration-runner.ts:846-906](packages/pylon/src/db/migration-runner.ts)), refusing on
-  partial application. Add: **cascade-rewrite** every cross-app tuple pointing into the
-  squashed range to the squashed migration. (Pylon deletes files rather than keeping
-  Django-style `replaces` tombstones, so cascade-rewrite is the natural fit.)
-- **`rename-app`** already rewrites ledger prefixes (`renameAppLedger`). Add: a bulk
-  `[oldApp, *] → [newApp, *]` rewrite of tuples across all apps' files.
-- **`baseline`**: a baseline that adopts a DB must terminate cross-app tuples pointing
-  before it. **`merge`** already writes a node depending on all heads — extend to cross-app
-  heads where relevant.
+- **`rename-app`** — DONE. `renameGroupApp` already re-pointed the ledger prefixes
+  (`renameAppLedger`); it now ALSO rewrites `[fromApp, *] → [toApp, *]` tuples across every
+  app's migration files (balanced-bracket splice of the `dependencies:` array, byte-stable
+  elsewhere). Bare same-app deps are relative and untouched. It has `groups`, so it sees
+  every app's files.
+- **`squash` / `baseline`** — deferred, and here's the finding: in **apps mode** these run
+  on the *root* runner (`new MigrationRunner({dir})`, an empty root migrations dir), not
+  per app — so per-app squash/baseline isn't reachable through the CLI today, and neither is
+  the cross-app cascade. Wiring group-aware squash/baseline is part of the **apps-only
+  refactor** (below); under it, `squash` cascade-rewrites tuples pointing into the squashed
+  range to the squashed migration (Pylon deletes files rather than keeping Django `replaces`
+  tombstones, so cascade-rewrite is the fit), and `baseline` terminates cross-app tuples
+  pointing before it. Until then, the loud dangling error covers the interim.
 
 Individual migrations are never renamed (timestamp names; no rename-migration command), so
-the only name churn is app-level — a prefix rewrite.
+the only name churn is app-level — the prefix rewrite `rename-app` now does.
 
 **The cost, named:** these rewrites are a permanent bug surface derivation didn't have — a
-`squash` that forgets a dependent leaves a dangling tuple and a broken apply. It's
-manageable (the commands already rewrite history; the app/migration count is small; Django
-lives on exactly this), but it's the real, ongoing price of the persisted model, and it
-must be covered by the command tests below.
+rewrite that forgets a dependent leaves a dangling tuple. It's manageable (the commands
+already rewrite history; the app/migration count is small; Django lives on exactly this),
+made safe by the loud dangling error, and it's the real, ongoing price of the persisted
+model.
+
+## Follow-up: `pylon db` apps-only
+
+`pylon db` currently supports both a single root history (non-apps) and per-app groups. The
+root path is what forces the `'default'` app label on tuples and leaves `squash`/`baseline`
+on a root runner that apps mode can't reach. Making `pylon db` **apps-only** — every project
+is one or more apps, no root runner — would: drop the `'default'` label (every migration has
+a real app), collapse the dual-mode CLI, and make `squash`/`baseline` group-aware (so their
+cross-app cascade above becomes implementable). Recommended as the next refactor; it is
+orthogonal to the FK-retype coordination (phase 2) and can land independently.
 
 ## Open questions
 

@@ -554,7 +554,7 @@ export async function runDbCommandCore(
         throw new Error('pylon db rename-app only applies to an apps-based project.')
       }
       const conn = orm.connect({connectionString})
-      const rows = await orm.renameGroupApp(groups, from, to, conn)
+      const rows = await orm.renameGroupApp(groups, from, to, loadMigrationFile, conn)
       return {command: 'rename-app', renamedApp: {from, to, rows}}
     }
     case 'push': {
