@@ -136,6 +136,23 @@ export function convertToDynamicRoute(segment: string): string {
 }
 
 /**
+ * Build the `<ErrorElement/>` JSX for a route. `error` is the segment's `error.tsx`
+ * (custom crash UI); `notFound` is its `not-found.tsx` (custom 404, used when a route
+ * THROWS `notFound()` — that becomes a 404 the errorElement handles, distinct from the
+ * unmatched-path catch-all). Both optional; absent falls back to the built-ins.
+ */
+function buildErrorElement(
+  standalone: boolean,
+  error?: string,
+  notFound?: string
+): string {
+  const props = [`standalone={${standalone}}`]
+  if (error) props.push(`component={${error}}`)
+  if (notFound) props.push(`notFound={${notFound}}`)
+  return `<ErrorElement ${props.join(' ')} />`
+}
+
+/**
  * Processes a layout file and updates the route configuration.
  */
 function processLayoutItem(
@@ -143,7 +160,8 @@ function processLayoutItem(
   importPath: string,
   route: Route,
   context: ScanContext,
-  errorComponentName?: string
+  errorComponentName?: string,
+  notFoundComponentName?: string
 ): void {
   const layoutComponentName = getLayoutComponentName(relativePath)
   context.imports.push(`import ${layoutComponentName} from ${importPath};`)
@@ -182,11 +200,13 @@ function processLayoutItem(
   // A per-layout boundary contains the failure to its own subtree: the parent chrome
   // stays rendered, the error shows in the parent's `<Outlet />`. The root stays
   // `standalone` (it IS the document, so there is no parent chrome to preserve).
-  // A sibling `error.tsx` overrides the default UI for this segment.
+  // A sibling `error.tsx` / `not-found.tsx` overrides the default UI for this segment.
   const isRoot = route.path === '/'
-  route.errorElement = errorComponentName
-    ? `<ErrorElement standalone={${isRoot}} component={${errorComponentName}} />`
-    : `<ErrorElement standalone={${isRoot}} />`
+  route.errorElement = buildErrorElement(
+    isRoot,
+    errorComponentName,
+    notFoundComponentName
+  )
 
   route.HydrateFallback = 'HydrateFallback'
 }
@@ -198,7 +218,8 @@ function processPageItem(
   relativePath: string,
   importPath: string,
   route: Route,
-  errorComponentName?: string
+  errorComponentName?: string,
+  notFoundComponentName?: string
 ): void {
   const catchAllParam = relativePath.match(/\[\.\.\.(.+)\]/)?.[1]
   const pageComponentName = getPageComponentName(relativePath)
@@ -207,9 +228,7 @@ function processPageItem(
     id: pageComponentName,
     path: undefined,
     index: true,
-    errorElement: errorComponentName
-      ? `<ErrorElement standalone={false} component={${errorComponentName}} />`
-      : '<ErrorElement standalone={false} />',
+    errorElement: buildErrorElement(false, errorComponentName, notFoundComponentName),
     lazy: `async () => {const i = await import(${importPath}).catch((e) => {console.error("[pylon] failed to load route module", ${importPath}, e); if (typeof window !== 'undefined') { window.location.reload(); return new Promise(() => {}); } throw e;}); return {Component: withRouteData(i.default, "${pageComponentName}", ${catchAllParam ? `"${catchAllParam}"` : 'undefined'})}}`,
     HydrateFallback: 'HydrateFallback'
   })
@@ -327,10 +346,23 @@ export function scanDirectory(
         route.children!.push(childRoute)
       }
     } else if (item.name === 'layout.tsx') {
-      processLayoutItem(relativePath, importPath, route, context, errorComponentName)
+      processLayoutItem(
+        relativePath,
+        importPath,
+        route,
+        context,
+        errorComponentName,
+        notFoundComponentName
+      )
       hasLayout = true
     } else if (item.name === 'page.tsx') {
-      processPageItem(relativePath, importPath, route, errorComponentName)
+      processPageItem(
+        relativePath,
+        importPath,
+        route,
+        errorComponentName,
+        notFoundComponentName
+      )
       pageFound = true
     }
   }
@@ -421,7 +453,7 @@ import {useMemo, Suspense} from 'react'
 import {__PYLON_ROUTER_INTERNALS_DO_NOT_USE, __PYLON_INTERNALS_DO_NOT_USE, GlobalErrorPage, StatusPage} from '@getcronit/pylon/pages'
 const Outlet = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.Outlet
 
-const ErrorElement: React.FC<{standalone: boolean, component?: React.ComponentType<{error: Error, reset: () => void}>}> = ({standalone, component: UserErrorBoundary}) => {
+const ErrorElement: React.FC<{standalone: boolean, component?: React.ComponentType<{error: Error, reset: () => void}>, notFound?: React.ComponentType}> = ({standalone, component: UserErrorBoundary, notFound: UserNotFound}) => {
   // Destructure for cleaner code
   const { useRouteError, isRouteErrorResponse, Navigate } = __PYLON_ROUTER_INTERNALS_DO_NOT_USE;
 
@@ -458,6 +490,14 @@ const ErrorElement: React.FC<{standalone: boolean, component?: React.ComponentTy
         }
       }
     } catch (e) {}
+
+    // A thrown \`notFound()\` surfaces here as a 404 (distinct from an unmatched
+    // path, which the catch-all route's \`element\` renders). When an app catch-all
+    // matches every path, this is the ONLY way a 404 happens — so the segment's
+    // \`not-found.tsx\` must be honored here, not just on the unmatched-path route.
+    if ((error as any).status === 404 && UserNotFound) {
+      return <UserNotFound />;
+    }
 
     // Only render the StatusPage for non-500 HTTP errors
     if ((error as any).status !== 500) {

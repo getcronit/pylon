@@ -9,7 +9,7 @@ import {useMemo, Suspense} from 'react'
 import {__PYLON_ROUTER_INTERNALS_DO_NOT_USE, __PYLON_INTERNALS_DO_NOT_USE, GlobalErrorPage, StatusPage} from '@getcronit/pylon/pages'
 const Outlet = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.Outlet
 
-const ErrorElement: React.FC<{standalone: boolean, component?: React.ComponentType<{error: Error, reset: () => void}>}> = ({standalone, component: UserErrorBoundary}) => {
+const ErrorElement: React.FC<{standalone: boolean, component?: React.ComponentType<{error: Error, reset: () => void}>, notFound?: React.ComponentType}> = ({standalone, component: UserErrorBoundary, notFound: UserNotFound}) => {
   // Destructure for cleaner code
   const { useRouteError, isRouteErrorResponse, Navigate } = __PYLON_ROUTER_INTERNALS_DO_NOT_USE;
 
@@ -46,6 +46,14 @@ const ErrorElement: React.FC<{standalone: boolean, component?: React.ComponentTy
         }
       }
     } catch (e) {}
+
+    // A thrown \`notFound()\` surfaces here as a 404 (distinct from an unmatched
+    // path, which the catch-all route's \`element\` renders). When an app catch-all
+    // matches every path, this is the ONLY way a 404 happens — so the segment's
+    // \`not-found.tsx\` must be honored here, not just on the unmatched-path route.
+    if ((error as any).status === 404 && UserNotFound) {
+      return <UserNotFound />;
+    }
 
     // Only render the StatusPage for non-500 HTTP errors
     if ((error as any).status !== 500) {

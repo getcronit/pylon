@@ -132,6 +132,15 @@ describe('per-segment error containment', () => {
       expect(html).toContain('id="section-chrome"')
       expect(html).toContain('id="root-not-found"')
     })
+
+    it('a thrown notFound() also renders not-found.tsx (not the built-in StatusPage)', async () => {
+      // The case a catch-all-everything app actually hits: the 404 comes through the
+      // errorElement, not the unmatched-path route.
+      const {status, html} = await body('/gone')
+      expect(status).toBe(404)
+      expect(html).toContain('id="root-not-found"')
+      expect(html).toContain('id="root-chrome"')
+    })
   })
 
   describe('error.tsx cascades to nested segments (Next.js semantics)', () => {
