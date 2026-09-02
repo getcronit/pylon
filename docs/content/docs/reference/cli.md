@@ -193,6 +193,7 @@ for the full workflow.
 | `pylon db merge` | Reconverge divergent migration heads |
 | `pylon db squash` | Collapse migration history into a single migration |
 | `pylon db push` | Sync models straight to the database (prototyping and tests only) |
+| `pylon db reset [--seed] [--force]` | **Destructive (dev):** drop every table and re-apply all migrations from scratch. Prompts to confirm and refuses in production unless `--force`; `--seed` runs the seed file afterward |
 
 **Shared flags**
 

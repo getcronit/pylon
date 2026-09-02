@@ -80,6 +80,8 @@ export const PACKAGES = {
       'db.onCommit', // low-level tx hook; docs teach signals
       'db.syncSchema', // programmatic guts of `pylon db push` (the documented UX)
       'db.dropTables', // ditto — test/prototyping teardown
+      'db.resetSchema', // programmatic guts of `pylon db reset` (the documented UX)
+      'db.ensureDatabase', // create-if-missing driven by `pylon db migrate --create-db` etc.
       // Relation return-type classes: users interact with instances (.filter/.add/…),
       // documented behaviorally in data/relations; the class names aren't authored.
       'models.RelatedManager',
