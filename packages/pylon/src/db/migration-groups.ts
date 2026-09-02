@@ -41,6 +41,13 @@ export interface MigrationGroup {
   dependencies?: string[]
   /** This group's migrations directory (absolute, or resolved by the caller). */
   dir?: string
+  /**
+   * The implicit DEFAULT app of a project with no `models.app()` tags: every model,
+   * the root `./migrations` dir, and — crucially — a BARE ledger (no `<name>:` prefix),
+   * so an existing non-apps project's already-applied rows keep matching. It lets the
+   * whole CLI run one uniform apps path instead of a second root-runner code path.
+   */
+  root?: boolean
 }
 
 /**
@@ -160,15 +167,17 @@ export function groupRunner(group: MigrationGroup, opts: {now?: () => string} = 
   if (!group.dir) {
     throw new Error(`Migration group "${group.name}" has no directory configured.`)
   }
-  const defs = groupModelDefinitions(group)
+  // The default (root) group is every model with a BARE ledger — identical to the
+  // pre-apps root runner, so existing non-apps histories keep applying unchanged.
+  const defs = group.root ? undefined : groupModelDefinitions(group)
   return new MigrationRunner({
     dir: group.dir,
     current: () => {
-      const ir = toIR(defs)
+      const ir = defs ? toIR(defs) : toIR()
       return {version: ir.version, entities: ir.entities}
     },
     resolveAgainst: () => toIR().entities,
-    ledgerPrefix: group.name,
+    ledgerPrefix: group.root ? undefined : group.name,
     now: opts.now
   })
 }

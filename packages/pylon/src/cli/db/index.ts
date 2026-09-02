@@ -235,7 +235,12 @@ export async function runDbCommandCore(
   // groups from the registry (group + inferred deps). Each group's dir is
   // `<dir>/<name>`. The CLI then operates per-group, in dependency order.
   const derived = typeof orm.appGroups === 'function' ? orm.appGroups() : []
-  const groups =
+  // Apps-only: there is ALWAYS at least one group. A project with `models.app()` tags
+  // yields those groups; an untagged project is one implicit DEFAULT app — every model,
+  // the root `./migrations` dir, a BARE ledger — so the whole CLI runs one uniform path.
+  // A root-only result is flattened back to the pre-apps shape (`flattenRootResult`) so
+  // its output and JSON are byte-identical to before.
+  const groups: Array<Record<string, unknown> & {name: string; dir: string; root?: boolean}> =
     derived.length > 0
       ? derived.map(g => {
           // Each app owns its migrations, colocated with its source (default
@@ -250,7 +255,8 @@ export async function runDbCommandCore(
           }
           return {...g, dir: path.isAbsolute(g.dir) ? g.dir : path.resolve(cwd, g.dir)}
         })
-      : null
+      : [{name: 'default', root: true, dir, models: [], dependencies: []}]
+  const rootOnly = groups.length === 1 && groups[0].root === true
 
   switch (options.command) {
     case 'status': {
@@ -260,96 +266,90 @@ export async function runDbCommandCore(
       const db = process.env.DATABASE_URL
         ? orm.connect({connectionString: process.env.DATABASE_URL})
         : undefined
-      if (groups) {
-        const res = await orm.statusGroups(groups, loadMigrationFile, db)
-        const appsStatus = res.map(r => ({
-          app: r.group,
-          pendingChanges: r.pendingChanges,
-          pending: r.pending ?? [],
-          unapplied: r.unapplied
-        }))
-        const drift = db ? await orm.schemaDrift(db) : undefined
-        return {command: 'status', appsStatus, drift}
-      }
-      const status = await runner.status(loadMigrationFile, db)
       const drift = db ? await orm.schemaDrift(db) : undefined
-      return {command: 'status', status, drift}
+      // A single default app reports flat, matching the pre-apps output.
+      if (rootOnly) {
+        const status = await runner.status(loadMigrationFile, db)
+        return {command: 'status', status, drift}
+      }
+      const res = await orm.statusGroups(groups, loadMigrationFile, db)
+      const appsStatus = res.map(r => ({
+        app: r.group,
+        pendingChanges: r.pendingChanges,
+        pending: r.pending ?? [],
+        unapplied: r.unapplied
+      }))
+      return {command: 'status', appsStatus, drift}
     }
     case 'diff': {
-      if (groups) {
-        // Default to EVERY app. Requiring `--app` made the common case ("I changed
-        // some models, capture it") fail with a list to copy from, and left you
-        // running the command once per app to find which ones actually drifted.
-        // `--app` still narrows to one. Apps with no changes generate nothing.
-        const targets = options.app
-          ? [groups.find(g => g.name === options.app)]
-          : typeof orm.orderGroups === 'function'
-            ? orm.orderGroups(groups)
-            : groups
-        if (options.app && !targets[0]) {
-          throw new Error(
-            `Unknown app "${options.app}" (apps: ${groups.map(g => g.name).join(', ')}).`
-          )
-        }
-        const diffs: NonNullable<DbCommandResult['diffs']> = []
-        for (const group of targets as typeof groups) {
-          const made = await orm.generateGroup(group, options.name ?? 'migration', loadMigrationFile, {
-            renames: options.renames,
-            tableRenames: options.tableRenames,
-            castHints: options.castHints,
-            siblings: groups
-          })
-          if (!made) continue
-          diffs.push({
-            app: group.name,
-            created: made.name,
-            destructive: (made.changes as SchemaChange[] | undefined)?.some(isDestructive) ?? false,
-            renameCandidates: made.renameCandidates ?? [],
-            tableRenameCandidates: made.tableRenameCandidates ?? [],
-            warnings: made.warnings ?? []
-          })
-        }
+      // Default to EVERY app. Requiring `--app` made the common case ("I changed
+      // some models, capture it") fail with a list to copy from, and left you
+      // running the command once per app to find which ones actually drifted.
+      // `--app` still narrows to one. Apps with no changes generate nothing.
+      const targets = options.app
+        ? [groups.find(g => g.name === options.app)]
+        : typeof orm.orderGroups === 'function'
+          ? orm.orderGroups(groups)
+          : groups
+      if (options.app && !targets[0]) {
+        throw new Error(
+          `Unknown app "${options.app}" (apps: ${groups.map(g => g.name).join(', ')}).`
+        )
+      }
+      const diffs: NonNullable<DbCommandResult['diffs']> = []
+      for (const group of targets as typeof groups) {
+        const made = await orm.generateGroup(group, options.name ?? 'migration', loadMigrationFile, {
+          renames: options.renames,
+          tableRenames: options.tableRenames,
+          castHints: options.castHints,
+          siblings: groups
+        })
+        if (!made) continue
+        diffs.push({
+          app: group.name,
+          created: made.name,
+          destructive: (made.changes as SchemaChange[] | undefined)?.some(isDestructive) ?? false,
+          renameCandidates: made.renameCandidates ?? [],
+          tableRenameCandidates: made.tableRenameCandidates ?? [],
+          warnings: made.warnings ?? []
+        })
+      }
+      // A single default app reports flat (no per-app `diffs`), so the CLI prints the
+      // unprefixed "Created migration …" and its plain rename/destructive warnings.
+      if (rootOnly) {
+        const d = diffs[0]
         return {
           command: 'diff',
-          created: diffs.length === 1 ? diffs[0].created : null,
-          destructive: diffs.some(d => d.destructive),
-          diffs,
-          renameCandidates: diffs.flatMap(d => d.renameCandidates),
-          tableRenameCandidates: diffs.flatMap(d => d.tableRenameCandidates)
+          created: d?.created ?? null,
+          destructive: d?.destructive ?? false,
+          renameCandidates: d?.renameCandidates ?? [],
+          tableRenameCandidates: d?.tableRenameCandidates ?? [],
+          warnings: d?.warnings ?? []
         }
       }
-      const created = await runner.generate(options.name ?? 'migration', loadMigrationFile, {
-        renames: options.renames,
-        tableRenames: options.tableRenames,
-        castHints: options.castHints
-      })
-      const destructive = (created?.changes as SchemaChange[] | undefined)?.some(isDestructive)
       return {
         command: 'diff',
-        created: created?.name ?? null,
-        destructive: destructive ?? false,
-        renameCandidates: created?.renameCandidates ?? [],
-        tableRenameCandidates: created?.tableRenameCandidates ?? [],
-        warnings: created?.warnings ?? []
+        created: diffs.length === 1 ? diffs[0].created : null,
+        destructive: diffs.some(d => d.destructive),
+        diffs,
+        renameCandidates: diffs.flatMap(d => d.renameCandidates),
+        tableRenameCandidates: diffs.flatMap(d => d.tableRenameCandidates)
       }
     }
     case 'plan': {
       const direction = options.down ? 'down' : 'up'
-      // Apps mode: same scoping gap as `check` — the root dir holds no migrations,
-      // so planning it prints nothing for a project that has plenty. Plan each app.
-      if (groups) {
-        const ordered = typeof orm.orderGroups === 'function' ? orm.orderGroups(groups) : groups
-        const plan: Array<{name: string; statements: string[]}> = []
-        for (const group of ordered) {
-          const steps = await new orm.MigrationRunner({dir: group.dir!}).plan(
-            loadMigrationFile,
-            direction
-          )
-          plan.push(...steps.map(s => ({...s, name: `${group.name}:${s.name}`})))
-        }
-        return {command: 'plan', plan}
+      // Plan each app in dependency order; a single (default) app prints unprefixed.
+      const ordered = typeof orm.orderGroups === 'function' ? orm.orderGroups(groups) : groups
+      const plan: Array<{name: string; statements: string[]}> = []
+      for (const group of ordered) {
+        const steps = await new orm.MigrationRunner({dir: group.dir!}).plan(
+          loadMigrationFile,
+          direction
+        )
+        plan.push(
+          ...steps.map(s => ({...s, name: rootOnly ? s.name : `${group.name}:${s.name}`}))
+        )
       }
-      const plan = await runner.plan(loadMigrationFile, direction)
       return {command: 'plan', plan}
     }
     case 'check': {
@@ -357,36 +357,22 @@ export async function runDbCommandCore(
         ? orm.connect({connectionString: process.env.DATABASE_URL})
         : undefined
       const drift = db ? await orm.schemaDrift(db) : undefined
-      // Apps mode: the migrations live in each app's own directory, so checking
-      // the ROOT runner diffs an empty history against every model in the project
-      // and reports the whole schema as uncaptured. Scope it per group, exactly
-      // as `status`/`diff`/`migrate`/`deploy` do.
-      if (groups) {
-        const res = await orm.statusGroups(groups, loadMigrationFile, db)
-        const tampered =
-          db && typeof orm.integrityErrorsGroups === 'function'
-            ? await orm.integrityErrorsGroups(groups, loadMigrationFile, db)
-            : []
-        return {
-          command: 'check',
-          check: {
-            uncaptured: res.reduce((n, r) => n + r.pendingChanges, 0),
-            uncapturedDetail: res.flatMap(r => (r.pending ?? []).map(p => `${r.group}: ${p}`)),
-            tampered,
-            unapplied: res.flatMap(r => r.unapplied.map(u => `${r.group}:${u}`)),
-            drift
-          }
-        }
-      }
-      const status = await runner.status(loadMigrationFile, db)
-      const tampered = db ? await runner.integrityErrors(loadMigrationFile, db) : []
+      // Each app owns its migrations dir; scope per group. A single (default) app
+      // prints its details unprefixed, matching the pre-apps output.
+      const res = await orm.statusGroups(groups, loadMigrationFile, db)
+      const tampered =
+        db && typeof orm.integrityErrorsGroups === 'function'
+          ? await orm.integrityErrorsGroups(groups, loadMigrationFile, db)
+          : []
       return {
         command: 'check',
         check: {
-          uncaptured: status.pendingChanges.length,
-          uncapturedDetail: (status.pendingChanges as SchemaChange[]).map(describeChange),
+          uncaptured: res.reduce((n, r) => n + r.pendingChanges, 0),
+          uncapturedDetail: res.flatMap(r =>
+            (r.pending ?? []).map(p => (rootOnly ? p : `${r.group}: ${p}`))
+          ),
           tampered,
-          unapplied: status.unapplied,
+          unapplied: res.flatMap(r => r.unapplied.map(u => (rootOnly ? u : `${r.group}:${u}`))),
           drift
         }
       }
@@ -424,9 +410,9 @@ export async function runDbCommandCore(
       const created = await ensureDatabaseForDev(orm, connectionString)
       const conn = orm.connect({connectionString})
       await orm.resetSchema()
-      const applied = groups
-        ? (await orm.migrateGroups(groups, loadMigrationFile, conn)).flatMap(r => r.applied)
-        : await runner.apply(loadMigrationFile, conn)
+      const applied = (await orm.migrateGroups(groups, loadMigrationFile, conn)).flatMap(
+        r => r.applied
+      )
       let seeded = false
       if (options.runSeed) {
         const seedPath = path.resolve(cwd, options.seed ?? './src/seed.ts')
@@ -497,28 +483,18 @@ export async function runDbCommandCore(
       // while your own edits are in progress. The hard gate is `pylon db check` in
       // CI, or `--check` above. (A TAMPERED history is refused either way — that
       // check lives inside `apply` itself.)
-      if (groups) {
-        const res = await withCreateDbHint(() =>
-          orm.migrateGroups(groups, loadMigrationFile, conn)
-        )
-        const apps = res.map(r => ({app: r.group, applied: r.applied}))
-        const after = await orm.statusGroups(groups, loadMigrationFile, conn)
-        return {
-          command: 'migrate',
-          apps,
-          applied: apps.flatMap(a => a.applied),
-          uncaptured: after.reduce((n, r) => n + r.pendingChanges, 0),
-          uncapturedDetail: after.flatMap(r => (r.pending ?? []).map(p => `${r.group}: ${p}`)),
-          database: created
-        }
-      }
-      const applied = await withCreateDbHint(() => runner.apply(loadMigrationFile, conn))
-      const after = await runner.status(loadMigrationFile, conn)
+      const res = await withCreateDbHint(() => orm.migrateGroups(groups, loadMigrationFile, conn))
+      const after = await orm.statusGroups(groups, loadMigrationFile, conn)
       return {
         command: 'migrate',
-        applied,
-        uncaptured: after.pendingChanges.length,
-        uncapturedDetail: (after.pendingChanges as SchemaChange[]).map(describeChange),
+        // A single default app reports flat (no per-app breakdown), matching the
+        // pre-apps output; a multi-app project reports each app.
+        ...(rootOnly ? {} : {apps: res.map(r => ({app: r.group, applied: r.applied}))}),
+        applied: res.flatMap(r => r.applied),
+        uncaptured: after.reduce((n, r) => n + r.pendingChanges, 0),
+        uncapturedDetail: after.flatMap(r =>
+          (r.pending ?? []).map(p => (rootOnly ? p : `${r.group}: ${p}`))
+        ),
         database: created
       }
     }
@@ -550,8 +526,11 @@ export async function runDbCommandCore(
       }
       if (!options.renameApp) throw new Error('pylon db rename-app requires <old>=<new>.')
       const {from, to} = options.renameApp
-      if (!groups) {
-        throw new Error('pylon db rename-app only applies to an apps-based project.')
+      if (rootOnly) {
+        throw new Error(
+          'pylon db rename-app applies to a project with multiple composed apps; a ' +
+            'single-app project has no app to rename.'
+        )
       }
       const conn = orm.connect({connectionString})
       const rows = await orm.renameGroupApp(groups, from, to, loadMigrationFile, conn)
