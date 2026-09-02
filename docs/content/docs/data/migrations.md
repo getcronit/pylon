@@ -66,7 +66,7 @@ pylon db migrate --create-db
 | `pylon db migrate --check` | …refusing when models have uncaptured changes (CI/production) |
 | `pylon db status` | show applied vs pending migrations |
 | `pylon db check` | fail if models have uncaptured changes — a CI gate |
-| `pylon db rollback` | reverse the last migration (`--steps <n>` for more) |
+| `pylon db rollback` | reverse the last migration — or the whole cross-app cluster it belongs to (`--steps <n>`, `--app <name>`) |
 | `pylon db resolve <name>` | mark a migration applied / `--rolled-back` in the ledger without running it (recovery) |
 | `pylon db baseline` | adopt an existing database as the starting point |
 | `pylon db seed` | run your seed file |
@@ -225,3 +225,53 @@ pylon db migrate                          # applies every app's pending migratio
 
 `pylon db status` reports each group's applied and pending migrations
 separately, so you can see exactly where each app stands.
+
+### Rolling back a cross-app migration
+
+`pylon db diff` sometimes has to satisfy one model change with **several**
+migrations across apps. The clearest case is retyping a column that another app
+references by foreign key — say `core.Location.id` changes from `uuid` to `text`
+while `products.InventoryLevel.locationId` points at it. Postgres re-validates
+the foreign key on either side's type change, so applying the two apps' diffs
+independently aborts. `pylon db diff` instead emits a **coordinated cluster** —
+`products` drops the FK and alters its column (`_retype_pre`), `core` retypes the
+key (`_retype`), then `products` re-adds the FK (`_retype_post`) — wired together
+by cross-app dependencies and stamped with a shared `cluster` id.
+
+Because that cluster is one logical change, `pylon db rollback` reverses it as a
+unit. Run it with no arguments: it finds the newest applied migration and, if it
+belongs to a cluster, rolls back **the whole cluster** in reverse dependency
+order — never a half-reverted state where the FK is dropped but the type is back.
+
+```bash
+# reverses the entire pre → retype → post cluster in one go
+pylon db rollback
+```
+
+A cluster is **all-or-nothing**, so reversibility is checked up front, before any
+`down` runs. If a member can't be reversed — a retype whose down-cast isn't
+implicit, like `text → uuid` — the rollback refuses outright and **nothing** is
+rolled back:
+
+```text
+Cannot roll back: "core:…_retype" is irreversible (its `down` can't be expressed
+— e.g. a non-implicit cast like text → uuid). Nothing was rolled back.
+```
+
+Recover it the way the message says: reverse the change by hand (write the SQL,
+or flip the models back and generate a new coordinated migration forward), then
+mark the stuck migration rolled back in its app's ledger without running its
+`down`:
+
+```bash
+pylon db resolve <migration-name> --rolled-back --app core
+```
+
+Two flags override the cluster-by-default behavior:
+
+- `--steps <n>` reverses the last **n** applied migrations across all apps,
+  regardless of clustering — use it to walk history back by count.
+- `--app <name>` scopes the rollback to a single app's sequence instead of the
+  cross-app order. Reach for it only when you know that app's migration stands
+  alone; rolling back one leg of a cluster in isolation re-creates the mismatch
+  the coordination existed to avoid.
