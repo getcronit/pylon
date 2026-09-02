@@ -50,5 +50,6 @@ export {
 export {
   op,
   registerOperationClient,
+  setOperationClientResolver,
   type Operation
 } from './runtime/operation'

@@ -2,8 +2,15 @@ import fs from 'fs'
 import path from 'path'
 import reactServer from 'react-dom/server'
 
+import {AsyncLocalStorage} from 'node:async_hooks'
+
 import {app, type Plugin} from '@getcronit/pylon'
-import {createPylonQueryClient, createServerFetcher} from '@getcronit/pylon/query'
+import {
+  createPylonQueryClient,
+  createServerFetcher,
+  setOperationClientResolver,
+  type PylonQueryClient
+} from '@getcronit/pylon/query'
 import {trimTrailingSlash} from 'hono/trailing-slash'
 import {
   createStaticHandler,
@@ -72,6 +79,26 @@ export type {Data, LayoutProps, MetadataRoute, PageProps}
  */
 const pylonRoot = (): string =>
   (globalThis as any).__PYLON_ROOT__ ?? process.cwd()
+
+/**
+ * Request-scoped client seam for the imperative `op` on the SERVER.
+ *
+ * `op` is a module-level singleton, but a server client must be per-request: it
+ * forwards THIS request's headers and owns a store that must not leak across
+ * requests. So instead of a global `registerOperationClient`, we bind the client
+ * in AsyncLocalStorage around the module invocation and teach `op` to read it.
+ * Concurrent requests each run inside their own `.run()`, so they never share a
+ * client. Installed once at module load; a no-op in the browser (this module is
+ * server-only). Generalizes to any non-React server caller (queue jobs, RSS).
+ */
+const opClientStore = new AsyncLocalStorage<PylonQueryClient>()
+setOperationClientResolver(() => opClientStore.getStore())
+
+/** Run `fn` with `client` bound as the request-scoped client `op` resolves. */
+const runWithOperationClient = <T,>(
+  client: PylonQueryClient,
+  fn: () => T | Promise<T>
+): Promise<T> => Promise.resolve(opClientStore.run(client, fn))
 
 export const setup = async (
   app: Parameters<NonNullable<Plugin['setup']>>[0],
@@ -269,6 +296,17 @@ export const setup = async (
         `${root}/${pagesManifest['sitemap.js']}`
       )
 
+      // A sitemap module may call `op` to fetch its URLs from the app's OWN
+      // GraphQL. Give it a per-request client with the in-process fetcher (same
+      // recipe as the SSR path below), bound via `runWithOperationClient` so `op`
+      // resolves it. `_client` is imported before any request handler runs, so
+      // reading it here at request time is safe.
+      const buildOpClient = (c: {req: {raw: {headers: Headers}}}) =>
+        createPylonQueryClient({
+          descriptor: _client.descriptor,
+          fetcher: createServerFetcher(app as any, c.req.raw as any) as any
+        })
+
       app.get('/sitemap.xml', async c => {
         const cacheKey = 'sitemap.xml'
         const cached = sitemapCache.get(cacheKey)
@@ -294,8 +332,11 @@ export const setup = async (
         }
 
         let xml: string = ''
+        const opClient = buildOpClient(c)
         if (sitemapModule.generateSitemaps) {
-          const sitemaps = await sitemapModule.generateSitemaps()
+          const sitemaps = await runWithOperationClient(opClient, () =>
+            sitemapModule.generateSitemaps()
+          )
           const indexItems = sitemaps.map((s: any) => ({
             url: `${baseUrl.origin}/sitemap/${s.id}.xml`
           }))
@@ -303,7 +344,7 @@ export const setup = async (
         } else {
           const sitemapFn = sitemapModule.sitemap || sitemapModule.default
           if (sitemapFn) {
-            const items = await sitemapFn()
+            const items = await runWithOperationClient(opClient, () => sitemapFn())
             xml = renderSitemapXml(items, options.origin ?? baseUrl.origin, options.i18n)
           } else {
             return c.text('Sitemap not found', 404)
@@ -355,7 +396,9 @@ export const setup = async (
         const sitemapFn = sitemapModule.sitemap || sitemapModule.default
 
         if (sitemapFn) {
-          const items = await sitemapFn({id})
+          const items = await runWithOperationClient(buildOpClient(c), () =>
+            sitemapFn({id})
+          )
           xml = renderSitemapXml(items, options.origin ?? baseUrl.origin, options.i18n)
         } else {
           return c.text('Sitemap not found', 404)

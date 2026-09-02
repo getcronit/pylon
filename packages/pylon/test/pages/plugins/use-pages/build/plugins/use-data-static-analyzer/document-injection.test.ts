@@ -181,6 +181,34 @@ describe('analyzer document injection (schema present)', () => {
     expect(out).toMatch(/op\.query\(__pylonDoc_\w+_0,/)
   })
 
+  it('analyzes a destructured-root op.query callback (({user}) => …)', async () => {
+    const out = await transform(`
+      import { op } from "@getcronit/pylon/pages";
+      export async function loadUser(id: string) {
+        const user = await op.query(({ user }) => user({ id }).name);
+        return user;
+      }
+    `)
+    expect(out).toContain('user(id: $v0)')
+    expect(out).toContain('name')
+    expect(out).toContain('v0: id')
+    // Rewritten like the single-param form; the original destructured selector is kept.
+    expect(out).toMatch(/op\.query\(__pylonDoc_\w+_0,/)
+    expect(out).toMatch(/\(\{\s*user\s*\}\)\s*=>\s*user/)
+  })
+
+  it('analyzes a destructured-root op.query with an alias (({user: u}) => …)', async () => {
+    const out = await transform(`
+      import { op } from "@getcronit/pylon/pages";
+      export async function loadEmail(id: string) {
+        return await op.query(({ user: u }) => u({ id }).email);
+      }
+    `)
+    expect(out).toContain('user(id: $v0)')
+    expect(out).toContain('email')
+    expect(out).toMatch(/op\.query\(__pylonDoc_\w+_0,/)
+  })
+
   it('injects a mutation document for op.mutation(m => …)', async () => {
     const out = await transform(`
       import { op } from "@getcronit/pylon/pages";

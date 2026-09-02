@@ -351,10 +351,34 @@ function analyzeOperationCallback(
   const param = callback.getParameters()[0]
   if (!param) return null
   const nameNode = param.getNameNode()
-  if (!Node.isIdentifier(nameNode)) return null // destructured param: unsupported v1
-  // Analyze accesses on the callback's root param within its body — the same
-  // selector extraction useData runs on `data`.
-  return extractAdvancedSelectors(callback.getBody().getText(), nameNode.getText())
+  const body = callback.getBody()
+
+  // `q => q.products(…)` — the common form. Trace accesses on the root param
+  // within the body, the same selector extraction useData runs on `data`.
+  if (Node.isIdentifier(nameNode)) {
+    return extractAdvancedSelectors(body.getText(), nameNode.getText())
+  }
+
+  // `({products}) => products(…)` — destructured root. Rebind the pattern against
+  // a synthetic root (`const {products} = __root; …body…`) and trace THAT: the
+  // analyzer already follows root destructuring (it's how `const {user} = useData()`
+  // works), so no bespoke per-field handling is needed. Preserving the pattern text
+  // verbatim carries aliases and nested patterns (`{products: p}`, `{a: {b}}`) for free.
+  if (Node.isObjectBindingPattern(nameNode)) {
+    const root = '__pylonOpRoot'
+    const pattern = nameNode.getText()
+    // Arrow bodies come in two shapes: a block `{ … }` (inline its statements) or a
+    // bare expression (wrap as an expression statement so it's traced as a read).
+    const bodyText = Node.isBlock(body)
+      ? body.getText().replace(/^\s*\{/, '').replace(/\}\s*$/, '')
+      : `;(${body.getText()});`
+    return extractAdvancedSelectors(
+      `const ${pattern} = ${root};\n${bodyText}`,
+      root
+    )
+  }
+
+  return null // array-binding / other unanalyzable param shapes
 }
 
 /** Rewrite `op.query(cb)` → `op.query(doc, thunk, cb)` — keep cb for projection. */
@@ -880,8 +904,9 @@ export function createUseDataAnalyzerCore(
                     const selectors = analyzeOperationCallback(it.callback)
                     if (!selectors) {
                       throw new Error(
-                        `op.${it.opType} expects an inline \`q => …\` selector ` +
-                          'with a single root param.'
+                        `op.${it.opType} expects an inline selector whose root is a ` +
+                          'query object — `q => q.field(…)` or a destructured ' +
+                          '`({field}) => field(…)`.'
                       )
                     }
                     const lowered = lowerQuery(
