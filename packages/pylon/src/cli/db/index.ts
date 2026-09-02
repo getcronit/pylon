@@ -309,7 +309,28 @@ export async function runDbCommandCore(
           `Unknown app "${options.app}" (apps: ${groups.map(g => g.name).join(', ')}).`
         )
       }
+      // Cross-app FK retypes first: emit the coordinated pre/retype/post migrations
+      // across apps (throws on an unsatisfiable one-sided retype). The per-app pass
+      // below then diffs against this updated baseline, so unrelated changes still land.
+      const coordinated = await orm.generateCoordinatedRetype(
+        groups,
+        loadMigrationFile,
+        options.name ?? 'migration'
+      )
       const diffs: NonNullable<DbCommandResult['diffs']> = []
+      if (coordinated?.length) {
+        for (const m of coordinated) {
+          const [app, created] = m.split(/:(.*)/)
+          diffs.push({
+            app,
+            created,
+            destructive: false,
+            renameCandidates: [],
+            tableRenameCandidates: [],
+            warnings: []
+          })
+        }
+      }
       for (const group of targets as typeof groups) {
         const made = await orm.generateGroup(group, options.name ?? 'migration', loadMigrationFile, {
           renames: options.renames,

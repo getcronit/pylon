@@ -14,7 +14,18 @@
  */
 import {promises as fs} from 'node:fs'
 import path from 'node:path'
-import {describeChange, joinTableName, type CastHint} from '../ir'
+import {
+  describeChange,
+  diffSchema,
+  joinTableName,
+  physicalSchemaOf,
+  planCrossAppRetypes,
+  type CastHint,
+  type CrossAppRetype,
+  type ForeignKeyChange,
+  type PhysicalSchema,
+  type SchemaChange
+} from '../ir'
 import type {Database} from './database.js'
 import {getDatabase} from './database.js'
 import {toIR} from './ir.js'
@@ -233,6 +244,101 @@ export async function generateGroup(
     castHints: opts.castHints,
     crossAppCreator
   })
+}
+
+/**
+ * Coordinate cross-app FK retypes across apps (RFC phase 2). Over the whole universe it
+ * finds every cross-app FK whose two ends retype to the SAME type and emits the three-phase
+ * plan per FK, wired by cross-app dependency tuples so the interleave applies them in the
+ * one safe order:
+ *
+ *   <srcApp>/…_pre    DROP FK + ALTER the referencing column
+ *   <refApp>/…        the referenced app's own diff (retypes the PK + brackets its same-app
+ *                     FKs), depending on every pre
+ *   <srcApp>/…_post   ADD the FK back, depending on the referenced migration + its own pre
+ *
+ * Returns the emitted `"app:migration"` names, or null when nothing is cross-app-joined.
+ * Throws on an UNSATISFIABLE retype (one side only / mismatched types) — a hard refusal.
+ * Run BEFORE the normal per-app generation: it captures the retype clusters, and the normal
+ * pass then diffs against this updated baseline, so any UNRELATED changes still get emitted.
+ */
+export async function generateCoordinatedRetype(
+  groups: MigrationGroup[],
+  load: MigrationLoader,
+  name: string,
+  opts: {now?: () => string} = {}
+): Promise<string[] | null> {
+  // Monotonic stamp so pre < retype < post sort in emit order (the default
+  // second-resolution stamp collides across rapid emits).
+  const stamp = opts.now ?? (() => new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, ''))
+  const base = stamp()
+  let seq = 0
+  const now = () => `${base}${String(seq++).padStart(3, '0')}`
+  const runners = new Map(groups.map(g => [g.name, groupRunner(g, {now})]))
+
+  // Universe before (fold every app's history) + after (all models), both keyed by entity
+  // name; a physical-table → app map (from the registry) drives the plan.
+  let prev: PhysicalSchema = {}
+  for (const g of groups) prev = {...prev, ...(await runners.get(g.name)!.foldedSchema(load))}
+  const next = physicalSchemaOf(toIR().entities)
+  const tableApp = new Map<string, string | undefined>()
+  for (const def of allModels()) tableApp.set(def.tableName, def.app)
+
+  const plan = planCrossAppRetypes(prev, next, t => tableApp.get(t))
+  if (plan.refuse.length > 0) {
+    throw new Error(
+      `Cannot generate a migration — cross-app foreign key retype(s) can't be coordinated:\n` +
+        plan.refuse.map(r => `  - ${r}`).join('\n')
+    )
+  }
+  if (plan.coordinate.length === 0) return null
+
+  const alter = (t: string, before: unknown, after: unknown): SchemaChange =>
+    ({kind: 'alterColumn', table: t, before, after}) as SchemaChange
+  const dropFk = (fk: ForeignKeyChange): SchemaChange => ({kind: 'dropForeignKey', fk})
+  const addFk = (fk: ForeignKeyChange): SchemaChange => ({kind: 'addForeignKey', fk})
+
+  const emitted: string[] = []
+  // Every inbound cross-app FK of one referenced app shares ONE retype migration.
+  const byRef = new Map<string, CrossAppRetype[]>()
+  for (const c of plan.coordinate) byRef.set(c.refApp, [...(byRef.get(c.refApp) ?? []), c])
+
+  for (const [refApp, entries] of byRef) {
+    const refRunner = runners.get(refApp)!
+    // 1. pre — drop the FK + retype the referencing column, in the FK's own app.
+    const preNames = new Map<CrossAppRetype, string>()
+    for (const c of entries) {
+      const src = runners.get(c.srcApp)!
+      const pre = await src.emit(
+        `${name}_pre`,
+        [dropFk(c.fk), alter(c.referencing.table, c.referencing.before, c.referencing.after)],
+        [...(await src.heads(load))]
+      )
+      preNames.set(c, pre!)
+      emitted.push(`${c.srcApp}:${pre}`)
+    }
+    // 2. retype — the referenced app's full diff, after every pre.
+    const refDefs = groupModelDefinitions(groups.find(g => g.name === refApp)!)
+    const refChanges = diffSchema(
+      await refRunner.foldedSchema(load),
+      physicalSchemaOf(toIR(refDefs).entities, toIR().entities)
+    )
+    const retype = await refRunner.emit(name, refChanges, [
+      ...(await refRunner.heads(load)),
+      ...entries.map(c => [c.srcApp, preNames.get(c)!] as [string, string])
+    ])
+    emitted.push(`${refApp}:${retype}`)
+    // 3. post — re-add the FK, after the retype (both sides now match).
+    for (const c of entries) {
+      const src = runners.get(c.srcApp)!
+      const post = await src.emit(`${name}_post`, [addFk(c.fk)], [
+        [refApp, retype!] as [string, string],
+        [c.srcApp, preNames.get(c)!] as [string, string]
+      ])
+      emitted.push(`${c.srcApp}:${post}`)
+    }
+  }
+  return emitted
 }
 
 export interface GroupApplyResult {

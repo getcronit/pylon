@@ -159,6 +159,15 @@ export interface ProjectApp {
     group: GroupLike,
     opts?: {now?: () => string}
   ): InstanceType<ProjectApp['MigrationRunner']>
+  /** Coordinate cross-app FK retypes: emit the pre/retype/post migrations across apps,
+   *  wired by dependency tuples. Returns emitted `"app:migration"` names, or null when
+   *  nothing is cross-app-joined. Throws on an unsatisfiable (one-sided) retype. */
+  generateCoordinatedRetype(
+    groups: GroupLike[],
+    load: (filePath: string) => Promise<unknown>,
+    name: string,
+    opts?: {now?: () => string}
+  ): Promise<string[] | null>
   /** Squash one group's history + cascade-rewrite sibling cross-app dependency tuples. */
   squashGroups(
     groups: GroupLike[],

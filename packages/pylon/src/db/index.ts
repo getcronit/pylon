@@ -269,6 +269,7 @@ export {
   groupRunner,
   groupModelDefinitions,
   generateGroup,
+  generateCoordinatedRetype,
   migrateGroups,
   renameGroupApp,
   squashGroups,

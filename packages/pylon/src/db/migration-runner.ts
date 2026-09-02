@@ -381,6 +381,41 @@ export class MigrationRunner {
   }
 
   /**
+   * Write a migration from EXPLICIT changes + dependency tuples — the primitive the
+   * cross-app retype coordinator composes into pre/retype/post. Unlike `generate`, it
+   * neither diffs nor computes deps; the caller supplies both. Refuses if the changes
+   * can't render to SQL (same gate as `generate`). Returns the stamped name, or null
+   * for an empty change set.
+   */
+  async emit(
+    name: string,
+    changes: SchemaChange[],
+    dependencies: MigrationDependency[] = []
+  ): Promise<string | null> {
+    if (changes.length === 0) return null
+    const {unsupported} = renderChanges(changes)
+    if (unsupported.length > 0) {
+      throw new Error(
+        `Cannot emit migration "${name}" — change(s) the engine cannot express as SQL:\n` +
+          unsupported.map(u => `  - ${u}`).join('\n')
+      )
+    }
+    const migrationName = `${this.now()}_${name}`
+    await fs.mkdir(this.dir, {recursive: true})
+    await fs.writeFile(
+      this.filePath(migrationName),
+      fileTemplate(changes, unsupported, dependencies)
+    )
+    return migrationName
+  }
+
+  /** This app's reconstructed schema (folded migration history) — the coordinator merges
+   *  every app's to form the universe "before" for cross-app retype planning. */
+  async foldedSchema(load: MigrationLoader): Promise<PhysicalSchema> {
+    return this.foldHistory(load)
+  }
+
+  /**
    * Write an initial migration capturing an existing database's schema (as
    * produced by `introspectPhysical`). Unlike `generate`, this consults neither
    * models nor history — it emits `createTable`/FK/index ops for the *entire*
