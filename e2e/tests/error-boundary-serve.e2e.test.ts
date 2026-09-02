@@ -111,6 +111,25 @@ describe('per-segment error containment', () => {
     expect(serverLog).not.toContain('CRITICAL RENDER ERROR')
   })
 
+  describe('error.tsx cascades to nested segments (Next.js semantics)', () => {
+    it('renders a healthy parent segment normally', async () => {
+      const {status, html} = await body('/section')
+      expect(status).toBe(200)
+      expect(html).toContain('id="section-chrome"')
+      expect(html).toContain('id="section-page"')
+    })
+
+    it('a nested route with no error.tsx inherits the ancestor error.tsx', async () => {
+      const {status, html} = await body('/section/deep')
+      expect(status).toBe(500)
+      // Ancestor chrome (root + section layout) survives.
+      expect(html).toContain('id="root-chrome"')
+      expect(html).toContain('id="section-chrome"')
+      // The INHERITED /section/error.tsx renders here — not the default error page.
+      expect(html).toContain('id="section-error"')
+    })
+  })
+
   describe('<ErrorBoundary>', () => {
     it('renders a healthy wrapped read INLINE server-side (no Suspense, no fallback)', async () => {
       const {status, html} = await body('/widget-ok')

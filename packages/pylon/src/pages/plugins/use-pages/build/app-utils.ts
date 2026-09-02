@@ -238,26 +238,28 @@ function optimizeRouteStructure(route: Route, hasLayout: boolean): void {
 export function scanDirectory(
   directory: string,
   context: ScanContext,
-  basePath: string = ''
+  basePath: string = '',
+  inheritedError?: string
 ): Route | null {
   const items = fs.readdirSync(directory, {withFileTypes: true})
   const route: Route = {path: basePath || '/', children: []}
   let hasLayout = false
   let pageFound = false
 
-  // A sibling `error.tsx` overrides the default error UI for THIS segment. Detect it
-  // up front (readdir order is not guaranteed) and only wire it in when the segment
-  // actually has a layout or page to attach the boundary to — an `error.tsx` with
-  // nothing to guard is a dead import. It is applied to BOTH this segment's layout
-  // route and its page route, so any crash in the segment renders the same custom UI
-  // at whichever boundary catches it.
-  const fileNames = new Set(
-    items.filter(i => i.isFile()).map(i => i.name)
-  )
-  let errorComponentName: string | undefined
+  // A sibling `error.tsx` sets the error UI for THIS segment AND cascades to every
+  // nested segment that doesn't define its own — Next.js semantics. Put one at the
+  // root and the whole app inherits it; override deeper by adding another. WITHOUT the
+  // cascade, each layout would keep the default error page and adding a route would
+  // silently drop back to it in production (not a build error). So a segment's boundary
+  // is: its own `error.tsx`, else the nearest ancestor's (`inheritedError`), else the
+  // built-in default. `error.tsx` is imported whenever it can guard something — a route
+  // here or descendants to cascade to.
+  const fileNames = new Set(items.filter(i => i.isFile()).map(i => i.name))
+  const hasChildDir = items.some(i => i.isDirectory())
+  let ownError: string | undefined
   if (
     fileNames.has('error.tsx') &&
-    (fileNames.has('layout.tsx') || fileNames.has('page.tsx'))
+    (fileNames.has('layout.tsx') || fileNames.has('page.tsx') || hasChildDir)
   ) {
     const errorRelativePath = path
       .join(basePath, 'error.tsx')
@@ -265,11 +267,11 @@ export function scanDirectory(
     const errorImportPath = `"./${path
       .join('..', PAGES_DIR, errorRelativePath)
       .replace(/\.tsx$/, '')}"`
-    errorComponentName = getErrorComponentName(errorRelativePath)
-    context.imports.push(
-      `import ${errorComponentName} from ${errorImportPath};`
-    )
+    ownError = getErrorComponentName(errorRelativePath)
+    context.imports.push(`import ${ownError} from ${errorImportPath};`)
   }
+  // This segment's boundary component, and what its descendants inherit.
+  const errorComponentName = ownError ?? inheritedError
 
   for (const item of items) {
     const itemPath = path.join(directory, item.name)
@@ -279,7 +281,12 @@ export function scanDirectory(
       .replace(/\.tsx$/, '')}"`
 
     if (item.isDirectory()) {
-      const childRoute = scanDirectory(itemPath, context, relativePath)
+      const childRoute = scanDirectory(
+        itemPath,
+        context,
+        relativePath,
+        errorComponentName
+      )
       if (childRoute) {
         route.children!.push(childRoute)
       }
