@@ -184,7 +184,9 @@ describe('apps via models.app() + derived migration groups (Postgres)', () => {
         .map(g => ({...g, dir: dirs[g.name]}))
       await cleanDb()
       const now = () => '20260101T000000' // identical file name in both → ledger collision test
-      for (const g of groups) await generateGroup(g, 'init', load, {now})
+      // Generate in dependency order + pass siblings so a cross-app reference becomes a
+      // persisted [app, migration] tuple (the depended app is already on disk).
+      for (const g of orderGroups(groups)) await generateGroup(g, 'init', load, {now, siblings: groups})
     })
 
     afterAll(async () => {
@@ -378,5 +380,47 @@ describe.skipIf(!runDb)('mutual cross-app FK enforced at the database (Postgres)
     // its referential action, not just its presence.
     await Ticket.objects.filter({id: ticket.id}).delete()
     expect((await Task.objects.get({id: task.id})).relatedTicketId).toBeNull()
+  })
+})
+
+/**
+ * The persisted cross-app dependency graph (RFC phase 1): cross-app ordering is a
+ * `[app, migration]` tuple in the file, not derived at apply. A tuple naming no such
+ * migration must fail LOUDLY — there is no derivation to silently cover the gap.
+ */
+describe.skipIf(!runDb)('persisted cross-app dependency graph (Postgres)', () => {
+  let database: Database
+  let dirA: string
+  let dirB: string
+  const mig = (body: string) =>
+    `import {migrations} from '@getcronit/pylon/db'\n` +
+    `export default migrations.defineMigration(${body})\n`
+
+  beforeAll(async () => {
+    database = connect({connectionString})
+    dirA = await fs.mkdtemp(path.join(os.tmpdir(), 'pylon-xapp-a-'))
+    dirB = await fs.mkdtemp(path.join(os.tmpdir(), 'pylon-xapp-b-'))
+  })
+  afterAll(async () => {
+    if (database) await database.destroy()
+    setDefaultDatabase(undefined)
+    await fs.rm(dirA, {recursive: true, force: true})
+    await fs.rm(dirB, {recursive: true, force: true})
+  })
+
+  it('fails loudly on a cross-app dependency naming a migration that does not exist', async () => {
+    await fs.writeFile(path.join(dirA, '20260101T000000_init.ts'), mig(`{operations: []}`))
+    await fs.writeFile(
+      path.join(dirB, '20260101T000001_uses.ts'),
+      mig(`{dependencies: [['a', '20260101T999999_missing']], operations: []}`)
+    )
+    const groups: MigrationGroup[] = [
+      {name: 'a', dir: dirA, models: []},
+      {name: 'b', dir: dirB, models: [], dependencies: ['a']}
+    ]
+    // The dangling edge is caught during graph construction, before anything applies.
+    await expect(migrateGroups(groups, load, database)).rejects.toThrow(
+      /b:20260101T000001_uses.*a:20260101T999999_missing.*does not exist/s
+    )
   })
 })

@@ -47,6 +47,52 @@ import {
 } from './migration-ops.js'
 import {snapshot, type Snapshot} from './migrations.js'
 
+/**
+ * The tables a set of schema changes CREATE vs. must find already present — derived
+ * from the changes themselves (not the current models), so a since-removed FK still
+ * orders correctly. Shared by the apply-time interleave and, at GENERATE time, by
+ * the cross-app dependency emission: a `need` whose table another app owns becomes a
+ * persisted `[app, migration]` edge.
+ */
+export function tablesOfChanges(
+  changes: readonly SchemaChange[]
+): {creates: Set<string>; needs: Set<string>} {
+  const creates = new Set<string>()
+  const needs = new Set<string>()
+  for (const ch of changes as any[]) {
+    switch (ch.kind) {
+      case 'createTable':
+        creates.add(ch.spec.table)
+        break
+      case 'renameTable':
+        creates.add(ch.toTable)
+        needs.add(ch.fromTable)
+        break
+      case 'dropTable':
+        needs.add(ch.spec.table)
+        break
+      case 'addForeignKey':
+      case 'dropForeignKey':
+        needs.add(ch.fk.table)
+        if (ch.fk.refTable) needs.add(ch.fk.refTable)
+        break
+      case 'addColumn':
+      case 'dropColumn':
+      case 'alterColumn':
+      case 'renameColumn':
+      case 'renameConstraint':
+        if (ch.table) needs.add(ch.table)
+        break
+      case 'addIndex':
+      case 'dropIndex':
+        if (ch.index?.table) needs.add(ch.index.table)
+        break
+    }
+  }
+  for (const t of creates) needs.delete(t) // don't wait on what we make ourselves
+  return {creates, needs}
+}
+
 const APPLIED_TABLE = '_pylon_migrations'
 /** Fixed key for the migration advisory lock (pylon-specific constant). */
 const ADVISORY_LOCK_KEY = 4_115_411_011
@@ -251,7 +297,19 @@ export class MigrationRunner {
   async generate(
     name: string,
     load: MigrationLoader,
-    opts: {renames?: Rename[]; tableRenames?: TableRename[]; castHints?: CastHint[]} = {}
+    opts: {
+      renames?: Rename[]
+      tableRenames?: TableRename[]
+      castHints?: CastHint[]
+      /**
+       * Resolve a physical table this migration references to the `[app, migration]`
+       * in ANOTHER app that creates it — the source of the persisted cross-app edges.
+       * Provided by the multi-group orchestration (which sees every app's history);
+       * absent for a single-app runner, which has no cross-app edges. Same-app needs
+       * are ordered by the intra-app sequence, so this only ever names other apps.
+       */
+      crossAppCreator?: (table: string) => readonly [string, string] | undefined
+    } = {}
   ): Promise<GeneratedMigration | null> {
     const prev = await this.foldHistory(load)
     const next = this.currentPhysical()
@@ -290,7 +348,23 @@ export class MigrationRunner {
       )
     }
     const migrationName = `${this.now()}_${name}`
-    const dependencies = await this.heads(load) // the migration(s) this one builds on
+    // Same-app parents (bare names) + persisted cross-app edges: for each table this
+    // migration references that ANOTHER app creates, a `[app, migration]` tuple. This
+    // is the edge the interleave used to derive at apply time; emitting it here is what
+    // lets that derivation be retired.
+    const dependencies: MigrationDependency[] = [...(await this.heads(load))]
+    if (opts.crossAppCreator) {
+      const {needs} = tablesOfChanges(changes)
+      const seen = new Set<string>()
+      for (const table of needs) {
+        const creator = opts.crossAppCreator(table)
+        if (!creator) continue
+        const key = `${creator[0]} ${creator[1]}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        dependencies.push([creator[0], creator[1]])
+      }
+    }
     await fs.mkdir(this.dir, {recursive: true})
     await fs.writeFile(
       this.filePath(migrationName),
@@ -452,8 +526,11 @@ export class MigrationRunner {
    * (the previous migration by name), so dep-less histories keep their name
    * order. Branches (two migrations sharing a parent) order deterministically by
    * name; `down`/reverse callers reverse this list.
+   *
+   * Public so the group orchestration can read another app's history when emitting
+   * cross-app dependency tuples (see `crossAppCreatorFor`).
    */
-  private async loadAll(
+  async loadAll(
     load: MigrationLoader
   ): Promise<Array<{name: string; mod: MigrationModule}>> {
     const names = await this.list()
@@ -587,11 +664,12 @@ export class MigrationRunner {
    * So we TOPOLOGICALLY sort the individual migrations under two kinds of edge, using the
    * timestamp only to break ties among migrations that are all ready:
    *  - intra-group: migration i waits for migration i-1 (their own sequence);
-   *  - table dependency: a migration that REFERENCES a table (an FK target, an altered
-   *    or dropped table, a rename's source) waits for the migration that CREATES it.
-   *    These edges come from the migrations' own `changes`, NOT the current models — so
-   *    an FK that has since been removed from a model is still honoured (the exact case
-   *    that breaks a fresh build: `files:init` FK'd `contacts_contact`, later dropped).
+   *  - cross-app: a persisted `[app, migration]` tuple in a migration's `dependencies`
+   *    waits for that migration in the named app. `generate` emits these for every table
+   *    a migration references that another app creates — the edge that used to be derived
+   *    from `changes` at apply time, now recorded once at generate time (so it survives an
+   *    FK later removed from the models, and is inspectable in the file). A tuple naming a
+   *    migration that doesn't exist fails loudly — there is no derivation to cover it.
    *
    * State is threaded across ALL migrations (applied ones included, so an unapplied data
    * migration's `ctx.models` sees the true historical schema), applying only the pending
@@ -610,52 +688,9 @@ export class MigrationRunner {
       pending: boolean
       indeg: number
       out: number[] // successor node ids
-      creates: string[] // physical table names this migration makes available
-      needs: string[] // physical table names that must already exist
     }
     const byGroup = new Map<string, string[]>()
     runners.forEach(({group}) => byGroup.set(group, []))
-
-    // What tables a migration CREATES vs must find already there — from its own changes,
-    // so the ordering is independent of whatever the models look like today.
-    const tablesOf = (mod: MigrationModule): {creates: Set<string>; needs: Set<string>} => {
-      const creates = new Set<string>()
-      const needs = new Set<string>()
-      for (const op of mod.operations ?? []) {
-        for (const ch of (op.changes ?? []) as any[]) {
-          switch (ch.kind) {
-            case 'createTable':
-              creates.add(ch.spec.table)
-              break
-            case 'renameTable':
-              creates.add(ch.toTable)
-              needs.add(ch.fromTable)
-              break
-            case 'dropTable':
-              needs.add(ch.spec.table)
-              break
-            case 'addForeignKey':
-            case 'dropForeignKey':
-              needs.add(ch.fk.table)
-              if (ch.fk.refTable) needs.add(ch.fk.refTable)
-              break
-            case 'addColumn':
-            case 'dropColumn':
-            case 'alterColumn':
-            case 'renameColumn':
-            case 'renameConstraint':
-              if (ch.table) needs.add(ch.table)
-              break
-            case 'addIndex':
-            case 'dropIndex':
-              if (ch.index?.table) needs.add(ch.index.table)
-              break
-          }
-        }
-      }
-      for (const t of creates) needs.delete(t) // don't wait on what we make ourselves
-      return {creates, needs}
-    }
 
     // Load every group's full history as node lists. Which of them are PENDING —
     // and the tamper check that depends on the same read — is deliberately NOT
@@ -668,7 +703,6 @@ export class MigrationRunner {
       const history = await runner.loadAll(load)
       const list: Node[] = []
       history.forEach(({name, mod}, idx) => {
-        const {creates, needs} = tablesOf(mod)
         const node: Node = {
           gi,
           idx,
@@ -676,9 +710,7 @@ export class MigrationRunner {
           mod,
           pending: true, // decided under the lock
           indeg: 0,
-          out: [],
-          creates: [...creates],
-          needs: [...needs]
+          out: []
         }
         list.push(node)
         nodes.push(node)
@@ -697,18 +729,31 @@ export class MigrationRunner {
     for (const list of perGroup) {
       for (let i = 1; i < list.length; i++) addEdge(list[i - 1], list[i])
     }
-    // Table dependency: needer waits for every creator of a table it references.
-    const creators = new Map<string, Node[]>()
-    for (const n of nodes) {
-      for (const t of n.creates) {
-        const arr = creators.get(t) ?? []
-        arr.push(n)
-        creators.set(t, arr)
-      }
+    // Persisted cross-app edges: a `[app, migration]` tuple in a node's dependencies
+    // adds an edge from that migration in the named app. (Bare/same-app deps are the
+    // intra-group sequence above.) This is the persisted counterpart of the derived
+    // table edge; during the transition both run and agree. A tuple naming a migration
+    // that doesn't exist fails loudly — there is no derivation to silently cover it.
+    const nodeByKey = new Map<string, Node>()
+    for (let gi = 0; gi < runners.length; gi++) {
+      for (const n of perGroup[gi]) nodeByKey.set(`${runners[gi].group} ${n.name}`, n)
     }
-    for (const n of nodes) {
-      for (const t of n.needs) {
-        for (const c of creators.get(t) ?? []) addEdge(c, n)
+    for (let gi = 0; gi < runners.length; gi++) {
+      const selfGroup = runners[gi].group
+      for (const n of perGroup[gi]) {
+        for (const dep of n.mod.dependencies ?? []) {
+          if (typeof dep === 'string' || dep[0] === selfGroup) continue // same-app → sequence
+          const [app, name] = dep
+          const target = nodeByKey.get(`${app} ${name}`)
+          if (!target) {
+            throw new Error(
+              `Migration "${selfGroup}:${n.name}" depends on "${app}:${name}", which does ` +
+                `not exist. A cross-app migration dependency must name a migration in ` +
+                `another app's history — check the app name and the migration id.`
+            )
+          }
+          addEdge(target, n)
+        }
       }
     }
 

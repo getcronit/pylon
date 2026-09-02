@@ -140,6 +140,7 @@ export interface ProjectApp {
       renames?: Array<{table: string; from: string; to: string}>
       tableRenames?: Array<{from: string; to: string}>
       castHints?: Array<{table: string; column: string; using?: string; usingDown?: string}>
+      siblings?: GroupLike[]
     }
   ): Promise<{
     name: string

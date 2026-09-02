@@ -296,7 +296,8 @@ export async function runDbCommandCore(
           const made = await orm.generateGroup(group, options.name ?? 'migration', loadMigrationFile, {
             renames: options.renames,
             tableRenames: options.tableRenames,
-            castHints: options.castHints
+            castHints: options.castHints,
+            siblings: groups
           })
           if (!made) continue
           diffs.push({

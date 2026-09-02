@@ -166,8 +166,37 @@ export function groupRunner(group: MigrationGroup, opts: {now?: () => string} = 
   })
 }
 
-/** Generate a migration for ONE group (scoped to its own tables). */
-export function generateGroup(
+/**
+ * Resolve a physical table to the `[app, migration]` in one of `siblings` that
+ * creates it — the source of persisted cross-app dependency edges. Scans only OTHER
+ * apps' on-disk histories (same-app ordering is the intra-app sequence). Later
+ * creators win, matching apply-time state (a dropped + recreated table resolves to
+ * the latest). Generation must run in dependency order so a depended-upon app's
+ * migration is already on disk when its dependent is generated.
+ */
+async function crossAppCreatorFor(
+  self: MigrationGroup,
+  siblings: MigrationGroup[],
+  load: MigrationLoader
+): Promise<(table: string) => readonly [string, string] | undefined> {
+  const map = new Map<string, [string, string]>()
+  for (const g of siblings) {
+    if (g.name === self.name || !g.dir) continue
+    for (const {name, mod} of await groupRunner(g).loadAll(load)) {
+      for (const op of mod.operations) {
+        for (const ch of (op.changes ?? []) as Array<Record<string, any>>) {
+          if (ch.kind === 'createTable') map.set(ch.spec.table, [g.name, name])
+          else if (ch.kind === 'renameTable') map.set(ch.toTable, [g.name, name])
+        }
+      }
+    }
+  }
+  return table => map.get(table)
+}
+
+/** Generate a migration for ONE group (scoped to its own tables). Pass `siblings`
+ *  (all groups) so cross-app references become persisted `[app, migration]` edges. */
+export async function generateGroup(
   group: MigrationGroup,
   name: string,
   load: MigrationLoader,
@@ -176,12 +205,17 @@ export function generateGroup(
     tableRenames?: GeneratedMigration['tableRenameCandidates']
     castHints?: CastHint[]
     now?: () => string
+    siblings?: MigrationGroup[]
   } = {}
 ): Promise<GeneratedMigration | null> {
+  const crossAppCreator = opts.siblings
+    ? await crossAppCreatorFor(group, opts.siblings, load)
+    : undefined
   return groupRunner(group, {now: opts.now}).generate(name, load, {
     renames: opts.renames,
     tableRenames: opts.tableRenames,
-    castHints: opts.castHints
+    castHints: opts.castHints,
+    crossAppCreator
   })
 }
 

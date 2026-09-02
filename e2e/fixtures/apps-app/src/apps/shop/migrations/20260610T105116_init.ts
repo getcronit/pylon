@@ -1,6 +1,8 @@
 import {migrations} from '@getcronit/pylon/db'
 
 export default migrations.defineMigration({
+  // Cross-app edge: shop_purchase FKs blog_author, so this waits for blog's init.
+  dependencies: [["blog", "20260610T172730_init"]],
   // Generated schema delta. Add migrations.runSql(...) / migrations.run(...)
   // operations for data migrations (each with a `down` to stay reversible).
   operations: [
