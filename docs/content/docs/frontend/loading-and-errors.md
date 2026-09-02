@@ -1,7 +1,7 @@
 ---
 title: Loading & Error States
 nav: Loading & Errors
-description: Suspense-driven loading, throwing control-flow helpers like notFound and redirect, and the error pages that render them.
+description: Suspense-driven loading, throwing control-flow helpers like notFound and redirect, custom error.tsx / not-found.tsx pages that cascade, and an ErrorBoundary for in-page failures.
 section: Frontend — usePages
 order: 6
 ---
@@ -74,21 +74,6 @@ import {redirect} from '@getcronit/pylon/pages'
 if (!data.session) redirect('/login', {status: 303})
 ```
 
-## Error pages
-
-When a route throws, usePages renders an error element:
-
-- **`StatusPage`** handles HTTP errors — the 404/403/401 from the helpers above,
-  with the message you passed and a return link.
-- **`GlobalErrorPage`** is the catch-all for unexpected (500-class) errors.
-
-Both are wired in automatically per route, and both are exported from
-`@getcronit/pylon/pages` if you want to render or theme them yourself:
-
-```tsx
-import {StatusPage, GlobalErrorPage} from '@getcronit/pylon/pages'
-```
-
 :::tip
 Prefer the helpers to ad-hoc conditionals. `if (!post) notFound()` reads clearly,
 returns the correct status to crawlers and clients, and renders a consistent
@@ -100,3 +85,124 @@ Because the helpers throw, code after them never runs. TypeScript narrows on the
 `never` return, so after `if (!post) notFound()` the compiler knows `post` is
 non-null below.
 :::
+
+## Error pages
+
+When a route throws, usePages renders an error element. Two are wired in
+automatically for every route:
+
+- **`StatusPage`** handles HTTP errors — the 404/403/401 from the helpers above,
+  with the message you passed and a return link.
+- **`GlobalErrorPage`** is the catch-all for unexpected (500-class) errors.
+
+Both are exported from `@getcronit/pylon/pages` if you want to render or theme
+them yourself:
+
+```tsx
+import {StatusPage, GlobalErrorPage} from '@getcronit/pylon/pages'
+```
+
+### Custom error UI — `error.tsx`
+
+Drop an `error.tsx` beside a `layout.tsx`/`page.tsx` to replace the error page
+for that segment. It is the **default export** and receives the caught `error`
+plus a `reset` to retry:
+
+```tsx title="pages/dashboard/error.tsx"
+export default function DashboardError({
+  error,
+  reset
+}: {
+  error: Error
+  reset: () => void
+}) {
+  return (
+    <div>
+      <p>Something went wrong: {error.message}</p>
+      <button onClick={reset}>Try again</button>
+    </div>
+  )
+}
+```
+
+`error.tsx` **cascades**: it covers its own segment and every nested route that
+doesn't define its own. Put one at the root and the whole app inherits it;
+override deeper by adding another `error.tsx`. When a route fails, only that
+segment is swapped for its error UI — the surrounding layouts keep rendering,
+server-side, with the right status.
+
+```
+pages/
+  error.tsx           → app-wide error UI (covers every route)
+  layout.tsx
+  page.tsx
+  dashboard/
+    error.tsx         → overrides for /dashboard and below
+    page.tsx
+```
+
+:::warning
+Without a root `pages/error.tsx`, uncaught render errors fall back to the
+built-in `GlobalErrorPage` — and since a missing boundary isn't a build error,
+that fallback reappears silently. Pylon **warns at build** when the root
+`error.tsx` is absent. Add one to make it a decision, not an accident.
+:::
+
+### Custom 404 — `not-found.tsx`
+
+`not-found.tsx` does the same for 404s. It replaces `StatusPage` for unmatched
+paths and for `notFound()` throws in that segment, and it cascades identically —
+a root `pages/not-found.tsx` is your app-wide 404. It takes no props:
+
+```tsx title="pages/not-found.tsx"
+import {Link} from '@getcronit/pylon/pages'
+
+export default function NotFound() {
+  return (
+    <div>
+      <h1>Page not found</h1>
+      <Link href="/">Go home</Link>
+    </div>
+  )
+}
+```
+
+The response still carries the `404` status — only the UI changes.
+
+### Containing failures inside a page — `<ErrorBoundary>`
+
+`error.tsx` works at the **route segment** level. To isolate a single **widget**
+so one failing panel doesn't take the whole route down, wrap it in
+`<ErrorBoundary>`:
+
+```tsx title="pages/dashboard/page.tsx"
+import {ErrorBoundary} from '@getcronit/pylon/pages'
+
+export default function Dashboard() {
+  return (
+    <main>
+      <Header />
+      <ErrorBoundary
+        fallback={({error, reset}) => (
+          <RevenueError message={error.message} onRetry={reset} />
+        )}>
+        <RevenueWidget />
+      </ErrorBoundary>
+    </main>
+  )
+}
+```
+
+A healthy widget still renders **inline on the server**. If its read fails on
+the server, the failure escalates to the route's `error.tsx` (server-rendered);
+on the client, the boundary catches it and renders `fallback`. Want a per-widget
+loading state instead of blocking on the read? Add your own `<Suspense>` inside
+— it composes:
+
+```tsx
+<ErrorBoundary fallback={({error}) => <Failed message={error.message} />}>
+  <Suspense fallback={<Spinner />}>
+    <SlowWidget />
+  </Suspense>
+</ErrorBoundary>
+```
