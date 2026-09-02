@@ -168,6 +168,15 @@ export interface ProjectApp {
     name: string,
     opts?: {now?: () => string}
   ): Promise<string[] | null>
+  /** Roll back the most recently applied migrations across all apps, reverse-interleaved.
+   *  Default reverses the newest migration's whole cross-app cluster; `steps` reverses the
+   *  last N. Returns the rolled-back names per app. */
+  rollbackGroups(
+    groups: GroupLike[],
+    load: (filePath: string) => Promise<unknown>,
+    db?: unknown,
+    opts?: {steps?: number}
+  ): Promise<Array<{group: string; applied: string[]}>>
   /** Squash one group's history + cascade-rewrite sibling cross-app dependency tuples. */
   squashGroups(
     groups: GroupLike[],

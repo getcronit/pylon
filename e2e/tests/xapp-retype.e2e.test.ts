@@ -80,5 +80,15 @@ describe('cross-app FK retype coordination (Postgres)', () => {
     // 4. The text schema now matches the text models — check passes (type drift would fail it).
     const check = pylonDb(['check'], true)
     expect(check.status, check.out).toBe(0)
+
+    // 5. Coordinated rollback: the newest applied migration belongs to the retype cluster,
+    // so `db rollback` reverses the WHOLE cluster as a unit. But `text → uuid` (the retype's
+    // down) is not an implicit cast, so the cluster is IRREVERSIBLE — rollback must refuse UP
+    // FRONT (nothing rolled back), naming the migration, rather than half-reverting.
+    const rollback = pylonDb(['rollback'], true)
+    expect(rollback.status, rollback.out).not.toBe(0)
+    expect(rollback.out).toMatch(/irreversible/i)
+    // Nothing changed — the columns are still text, so check still passes.
+    expect(pylonDb(['check'], true).status).toBe(0)
   }, 120_000)
 })

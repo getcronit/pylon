@@ -25,6 +25,7 @@ import {
   models,
   orderGroups,
   renameGroupApp,
+  rollbackGroups,
   squashGroups,
   setDefaultDatabase,
   statusGroups,
@@ -483,6 +484,69 @@ describe.skipIf(!runDb)('persisted cross-app dependency graph (Postgres)', () =>
       const after = await fs.readFile(bFile, 'utf8')
       expect(after).toContain(`[["a","${result!.name}"]]`)
     } finally {
+      await fs.rm(a, {recursive: true, force: true})
+      await fs.rm(b, {recursive: true, force: true})
+    }
+  })
+
+  it('rollback reverses a cross-app CLUSTER as a unit, leaving the baseline applied', async () => {
+    const a = await fs.mkdtemp(path.join(os.tmpdir(), 'pylon-rb-a-'))
+    const b = await fs.mkdtemp(path.join(os.tmpdir(), 'pylon-rb-b-'))
+    for (const p of ['a:%', 'b:%']) {
+      await database.kysely
+        .deleteFrom('_pylon_migrations' as never)
+        .where('name' as never, 'like', p as never)
+        .execute()
+        .catch(() => {})
+    }
+    try {
+      // Baseline (NOT clustered): a/init, then b/uses depending on it.
+      await fs.writeFile(path.join(a, '20260101T100000_init.ts'), mig(`{operations: []}`))
+      await fs.writeFile(
+        path.join(b, '20260101T100001_uses.ts'),
+        mig(`{dependencies: [['a', '20260101T100000_init']], operations: []}`)
+      )
+      // A coordinated cluster 'c1': b/pre → a/retype → b/post.
+      await fs.writeFile(path.join(b, '20260101T100002_pre.ts'), mig(`{cluster: 'c1', operations: []}`))
+      await fs.writeFile(
+        path.join(a, '20260101T100003_retype.ts'),
+        mig(`{cluster: 'c1', dependencies: [['b', '20260101T100002_pre']], operations: []}`)
+      )
+      await fs.writeFile(
+        path.join(b, '20260101T100004_post.ts'),
+        mig(
+          `{cluster: 'c1', dependencies: [['a', '20260101T100003_retype'], ['b', '20260101T100002_pre']], operations: []}`
+        )
+      )
+      const groups: MigrationGroup[] = [
+        {name: 'a', dir: a, models: []},
+        {name: 'b', dir: b, models: [], dependencies: ['a']}
+      ]
+      await migrateGroups(groups, load, database)
+
+      // Default rollback: the newest applied (b/post) belongs to cluster c1, so the WHOLE
+      // cluster reverses — not just one third of the retype, and not the baseline.
+      const res = await rollbackGroups(groups, load, database)
+      expect(res.flatMap(r => r.applied).sort()).toEqual([
+        '20260101T100002_pre',
+        '20260101T100003_retype',
+        '20260101T100004_post'
+      ])
+      const unapplied = (await statusGroups(groups, load, database)).flatMap(s => s.unapplied)
+      expect(unapplied.sort()).toEqual([
+        '20260101T100002_pre',
+        '20260101T100003_retype',
+        '20260101T100004_post'
+      ])
+      expect(unapplied).not.toContain('20260101T100000_init') // baseline stays applied
+    } finally {
+      for (const p of ['a:%', 'b:%']) {
+        await database.kysely
+          .deleteFrom('_pylon_migrations' as never)
+          .where('name' as never, 'like', p as never)
+          .execute()
+          .catch(() => {})
+      }
       await fs.rm(a, {recursive: true, force: true})
       await fs.rm(b, {recursive: true, force: true})
     }

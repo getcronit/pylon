@@ -89,6 +89,12 @@ export interface MigrationModule {
    * {@link MigrationDependency} for the bare-vs-tuple form.
    */
   dependencies?: MigrationDependency[]
+  /**
+   * Marks this migration as one member of a coordinated CLUSTER — the pre/retype/post
+   * of a cross-app FK retype share one `cluster` id. `db rollback` uses it to reverse the
+   * whole cluster as a unit (you can't cleanly undo just one third of the retype).
+   */
+  cluster?: string
 }
 
 /** Define a migration. The default export of a migration file. */

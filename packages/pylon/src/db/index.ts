@@ -271,6 +271,7 @@ export {
   generateGroup,
   generateCoordinatedRetype,
   migrateGroups,
+  rollbackGroups,
   renameGroupApp,
   squashGroups,
   statusGroups,

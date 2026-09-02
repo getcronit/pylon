@@ -305,14 +305,18 @@ export async function generateCoordinatedRetype(
 
   for (const [refApp, entries] of byRef) {
     const refRunner = runners.get(refApp)!
+    // One cluster id ties this referenced app's pre/retype/post together, so `db rollback`
+    // reverses the whole coordinated set as a unit.
+    const clusterId = `${base}_${refApp}`
     // 1. pre — drop the FK + retype the referencing column, in the FK's own app.
     const preNames = new Map<CrossAppRetype, string>()
     for (const c of entries) {
       const src = runners.get(c.srcApp)!
       const pre = await src.emit(
-        `${name}_pre`,
+        `${name}_retype_pre`,
         [dropFk(c.fk), alter(c.referencing.table, c.referencing.before, c.referencing.after)],
-        [...(await src.heads(load))]
+        [...(await src.heads(load))],
+        clusterId
       )
       preNames.set(c, pre!)
       emitted.push(`${c.srcApp}:${pre}`)
@@ -323,18 +327,25 @@ export async function generateCoordinatedRetype(
       await refRunner.foldedSchema(load),
       physicalSchemaOf(toIR(refDefs).entities, toIR().entities)
     )
-    const retype = await refRunner.emit(name, refChanges, [
-      ...(await refRunner.heads(load)),
-      ...entries.map(c => [c.srcApp, preNames.get(c)!] as [string, string])
-    ])
+    const retype = await refRunner.emit(
+      `${name}_retype`,
+      refChanges,
+      [
+        ...(await refRunner.heads(load)),
+        ...entries.map(c => [c.srcApp, preNames.get(c)!] as [string, string])
+      ],
+      clusterId
+    )
     emitted.push(`${refApp}:${retype}`)
     // 3. post — re-add the FK, after the retype (both sides now match).
     for (const c of entries) {
       const src = runners.get(c.srcApp)!
-      const post = await src.emit(`${name}_post`, [addFk(c.fk)], [
-        [refApp, retype!] as [string, string],
-        [c.srcApp, preNames.get(c)!] as [string, string]
-      ])
+      const post = await src.emit(
+        `${name}_retype_post`,
+        [addFk(c.fk)],
+        [[refApp, retype!] as [string, string], [c.srcApp, preNames.get(c)!] as [string, string]],
+        clusterId
+      )
       emitted.push(`${c.srcApp}:${post}`)
     }
   }
@@ -498,6 +509,24 @@ export async function migrateGroups(
   db: Database = getDatabase()
 ): Promise<GroupApplyResult[]> {
   return applyOrdered(groups, load, db)
+}
+
+/**
+ * Roll back the most recently applied migrations ACROSS all apps, in reverse interleaved
+ * order — the mirror of `migrateGroups`. Default reverses the newest migration, expanded
+ * to its whole cross-app CLUSTER (a coordinated retype's pre/retype/post) if it has one;
+ * `steps` reverses the last N regardless. Returns the rolled-back names per app.
+ */
+export async function rollbackGroups(
+  groups: MigrationGroup[],
+  load: MigrationLoader,
+  db: Database = getDatabase(),
+  opts: {steps?: number} = {}
+): Promise<GroupApplyResult[]> {
+  const ordered = orderGroups(groups)
+  const runners = ordered.map(g => ({runner: groupRunner(g), group: g.name}))
+  const byGroup = await MigrationRunner.rollbackGroupsInterleaved(runners, load, db, opts)
+  return ordered.map(g => ({group: g.name, applied: byGroup.get(g.name) ?? []}))
 }
 
 /** Tampered migrations across every group, labelled `"<app>:<migration>"`. */

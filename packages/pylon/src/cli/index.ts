@@ -668,14 +668,18 @@ db.command('rollback')
   .option('-e, --entry <path>', 'Entry that constructs your app / registers models (default ./src/index.ts)')
   .option('-m, --models <path>', 'Deprecated alias for --entry')
   .option('-d, --dir <path>', 'Migrations directory', './migrations')
-  .option('-s, --steps <n>', 'How many migrations to reverse', '1')
+  .option('-a, --app <name>', 'Reverse only this app (default: reverse across all apps)')
+  // No default: absence means "reverse the newest migration, expanded to its whole
+  // cross-app cluster if it belongs to one" (a coordinated retype's pre/retype/post).
+  .option('-s, --steps <n>', 'Reverse the last N migrations regardless of clustering')
   .action(async options => {
     try {
       const {rolledBack} = await runDbCommand({
         command: 'rollback',
         models: entryOf(options),
         dir: options.dir,
-        steps: Number.parseInt(options.steps, 10)
+        app: options.app,
+        steps: options.steps != null ? Number.parseInt(options.steps, 10) : undefined
       })
       if (rolledBack && rolledBack.length > 0)
         consola.success(`Rolled back ${rolledBack.length} migration(s): ${rolledBack.join(', ')}`)

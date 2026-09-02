@@ -186,19 +186,22 @@ function opCall(change: SchemaChange): string {
 function fileTemplate(
   changes: SchemaChange[],
   unsupported: string[],
-  dependencies: MigrationDependency[] = []
+  dependencies: MigrationDependency[] = [],
+  cluster?: string
 ): string {
   const notes = unsupported.length
     ? unsupported.map(u => ` *   - ${u}`).join('\n')
     : ''
   const ops = changes.map(c => `    ${opCall(c)}`).join(',\n')
   const deps = dependencies.length ? `  dependencies: ${JSON.stringify(dependencies)},\n` : ''
+  const cl = cluster ? `  cluster: ${JSON.stringify(cluster)},\n` : ''
   return (
     `import {migrations} from '@getcronit/pylon/db'\n\n` +
     (notes
       ? `/**\n * Manual attention needed (the diff couldn't express these):\n${notes}\n */\n`
       : '') +
     `export default migrations.defineMigration({\n` +
+    cl +
     deps +
     `  // Generated schema delta. Add migrations.runSql(...) / migrations.run(...)\n` +
     `  // operations for data migrations (each with a \`down\` to stay reversible).\n` +
@@ -390,7 +393,8 @@ export class MigrationRunner {
   async emit(
     name: string,
     changes: SchemaChange[],
-    dependencies: MigrationDependency[] = []
+    dependencies: MigrationDependency[] = [],
+    cluster?: string
   ): Promise<string | null> {
     if (changes.length === 0) return null
     const {unsupported} = renderChanges(changes)
@@ -404,7 +408,7 @@ export class MigrationRunner {
     await fs.mkdir(this.dir, {recursive: true})
     await fs.writeFile(
       this.filePath(migrationName),
-      fileTemplate(changes, unsupported, dependencies)
+      fileTemplate(changes, unsupported, dependencies, cluster)
     )
     return migrationName
   }
@@ -848,6 +852,161 @@ export class MigrationRunner {
         // Accumulate state for EVERY migration (applied or not), so a later pending
         // migration's ctx.models reflects the full historical schema.
         for (const op of n.mod.operations) state = applyChanges(state, op.changes ?? [])
+      }
+    })
+    return byGroup
+  }
+
+  /**
+   * The one globally-correct order for a set of app runners' migrations — the shared
+   * topo-sort behind interleaved apply and `rollbackGroupsInterleaved`. Two edge kinds:
+   * intra-group sequence (migration i waits for i-1) and persisted cross-app
+   * `[app, migration]` tuples; timestamp (name) breaks ties among ready nodes. A tuple
+   * naming no such migration fails loudly; a cross-group cycle throws.
+   */
+  static async interleavedOrder(
+    runners: Array<{runner: MigrationRunner; group: string}>,
+    load: MigrationLoader
+  ): Promise<Array<{group: string; name: string; mod: MigrationModule}>> {
+    type Node = {gi: number; name: string; mod: MigrationModule; indeg: number; out: number[]}
+    const perGroup: Node[][] = []
+    const nodes: Node[] = []
+    for (let gi = 0; gi < runners.length; gi++) {
+      const history = await runners[gi].runner.loadAll(load)
+      const list: Node[] = []
+      for (const {name, mod} of history) {
+        const node: Node = {gi, name, mod, indeg: 0, out: []}
+        list.push(node)
+        nodes.push(node)
+      }
+      perGroup.push(list)
+    }
+    if (nodes.length === 0) return []
+
+    const idOf = new Map(nodes.map((n, i) => [n, i]))
+    const addEdge = (from: Node, to: Node) => {
+      if (from === to) return
+      from.out.push(idOf.get(to)!)
+      to.indeg++
+    }
+    for (const list of perGroup) {
+      for (let i = 1; i < list.length; i++) addEdge(list[i - 1], list[i])
+    }
+    const nodeByKey = new Map<string, Node>()
+    for (let gi = 0; gi < runners.length; gi++) {
+      for (const n of perGroup[gi]) nodeByKey.set(`${runners[gi].group} ${n.name}`, n)
+    }
+    for (let gi = 0; gi < runners.length; gi++) {
+      const selfGroup = runners[gi].group
+      for (const n of perGroup[gi]) {
+        for (const dep of n.mod.dependencies ?? []) {
+          if (typeof dep === 'string' || dep[0] === selfGroup) continue
+          const [app, name] = dep
+          const target = nodeByKey.get(`${app} ${name}`)
+          if (!target) {
+            throw new Error(
+              `Migration "${selfGroup}:${n.name}" depends on "${app}:${name}", which does ` +
+                `not exist. A cross-app migration dependency must name a migration in ` +
+                `another app's history — check the app name and the migration id.`
+            )
+          }
+          addEdge(target, n)
+        }
+      }
+    }
+
+    const ready = nodes.filter(n => n.indeg === 0)
+    const order: Node[] = []
+    while (ready.length) {
+      ready.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.gi - b.gi))
+      const n = ready.shift()!
+      order.push(n)
+      for (const s of n.out) {
+        const m = nodes[s]
+        if (--m.indeg === 0) ready.push(m)
+      }
+    }
+    if (order.length !== nodes.length) {
+      throw new Error('Migration dependency cycle across groups.')
+    }
+    return order.map(n => ({group: runners[n.gi].group, name: n.name, mod: n.mod}))
+  }
+
+  /**
+   * Reverse the most recently applied migrations ACROSS all apps, in reverse interleaved
+   * order — the mirror of interleaved apply. Runs each migration's `down` newest first,
+   * each in its own transaction, deleting its ledger row; refuses an irreversible one.
+   *   - default: if the newest applied migration belongs to a cross-app CLUSTER (a
+   *     coordinated retype's pre/retype/post share a `cluster` id), roll back the WHOLE
+   *     cluster as a unit; otherwise just the newest.
+   *   - `steps`: roll back the last N applied migrations regardless of clustering.
+   */
+  static async rollbackGroupsInterleaved(
+    runners: Array<{runner: MigrationRunner; group: string}>,
+    load: MigrationLoader,
+    db: Database = getDatabase(),
+    opts: {steps?: number} = {}
+  ): Promise<Map<string, string[]>> {
+    const byGroup = new Map<string, string[]>()
+    runners.forEach(({group}) => byGroup.set(group, []))
+    const order = await this.interleavedOrder(runners, load)
+    if (order.length === 0) return byGroup
+    const runnerOf = new Map(runners.map(r => [r.group, r.runner]))
+
+    const done = new Map<string, Map<string, string | null>>()
+    for (const {runner, group} of runners) done.set(group, await runner.appliedMigrations(db))
+    const applied = order.filter(n => done.get(n.group)!.has(n.name))
+    if (applied.length === 0) return byGroup
+
+    let targets: typeof applied
+    if (opts.steps != null) {
+      targets = applied.slice(-opts.steps)
+    } else {
+      const newest = applied[applied.length - 1]
+      const cid = newest.mod.cluster
+      targets = cid ? applied.filter(n => n.mod.cluster === cid) : [newest]
+    }
+
+    // Validate the WHOLE set before touching the database — a coordinated cluster is
+    // all-or-nothing, so an irreversible member (e.g. a retype whose `down` cast isn't
+    // implicit) must refuse up front, not after earlier members have already committed.
+    for (const n of [...targets].reverse()) {
+      const stored = done.get(n.group)!.get(n.name)
+      if (stored && stored !== migrationChecksum(n.mod)) {
+        throw new Error(
+          `Migration "${n.group}:${n.name}" was modified after it was applied (checksum ` +
+            `mismatch). Revert the edit, or use \`pylon db resolve\`.`
+        )
+      }
+      if (!isReversible(n.mod)) {
+        throw new Error(
+          `Cannot roll back: "${n.group}:${n.name}" is irreversible (its \`down\` can't be ` +
+            `expressed — e.g. a non-implicit cast like text → uuid). Nothing was rolled back. ` +
+            `Reverse it by hand, then \`pylon db resolve ${n.name} --rolled-back --app ${n.group}\`.`
+        )
+      }
+    }
+
+    // State AFTER each migration, threaded across the whole order, so a `down` handler's
+    // `ctx.models` sees the schema that migration left behind. (applyChanges is pure.)
+    const stateAfter = new Map<string, PhysicalSchema>()
+    let state: PhysicalSchema = {}
+    for (const n of order) {
+      for (const op of n.mod.operations) state = applyChanges(state, op.changes ?? [])
+      stateAfter.set(`${n.group} ${n.name}`, state)
+    }
+
+    await runners[0].runner.withLock(db, async () => {
+      for (const n of [...targets].reverse()) {
+        const runner = runnerOf.get(n.group)!
+        await db.kysely.transaction().execute(async trx => {
+          const ctx = runner.trxCtx(trx, stateAfter.get(`${n.group} ${n.name}`) ?? {})
+          for (const op of [...n.mod.operations].reverse()) await ctx.db.run(() => op.down(ctx))
+          await sql`DELETE FROM ${sql.ref(APPLIED_TABLE)} WHERE name = ${runner.ledgerName(
+            n.name
+          )}`.execute(trx)
+        })
+        byGroup.get(n.group)!.push(n.name)
       }
     })
     return byGroup

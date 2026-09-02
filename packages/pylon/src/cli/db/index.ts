@@ -521,10 +521,17 @@ export async function runDbCommandCore(
         throw new Error('pylon db rollback requires DATABASE_URL to be set.')
       }
       const conn = orm.connect({connectionString})
-      const rolledBack = await groupRunnerOf(targetGroup()).rollback(loadMigrationFile, conn, {
-        steps: options.steps ?? 1
-      })
-      return {command: 'rollback', rolledBack}
+      // Scoped to one app when `--app` is given; otherwise reverse-interleaved across
+      // ALL apps (the mirror of migrate), so a coordinated cross-app retype rolls back
+      // as one cluster.
+      if (options.app || rootOnly) {
+        const rolledBack = await groupRunnerOf(targetGroup()).rollback(loadMigrationFile, conn, {
+          steps: options.steps ?? 1
+        })
+        return {command: 'rollback', rolledBack}
+      }
+      const res = await orm.rollbackGroups(groups, loadMigrationFile, conn, {steps: options.steps})
+      return {command: 'rollback', rolledBack: res.flatMap(r => r.applied)}
     }
     case 'resolve': {
       const connectionString = process.env.DATABASE_URL
