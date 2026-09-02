@@ -85,9 +85,8 @@ export interface ProjectApp {
     ): Promise<{name: string; changes: unknown[]} | null>
   }
   connect(opts: {connectionString: string}): unknown
-  /** Create the target database if it doesn't exist (dev convenience). Optional so
-   *  the CLI degrades gracefully against an older project ORM without it. */
-  ensureDatabase?(connectionString: string): Promise<{created: boolean; database: string}>
+  /** Create the target database if it doesn't exist (dev convenience). */
+  ensureDatabase(connectionString: string): Promise<{created: boolean; database: string}>
   /** Deep-introspect a live DB into a full PhysicalSchema (for `baseline`). */
   introspectPhysical(db?: unknown): Promise<PhysicalSchema>
   /** Generate editable model class stubs from an introspected schema. */
@@ -102,9 +101,8 @@ export interface ProjectApp {
   hasDrift(d: {missingTables: string[]; extraTables: string[]; columns: unknown[]}): boolean
   /** Create tables for all models directly (no migration) — `db push`. */
   syncSchema(): Promise<void>
-  /** Drop + recreate the schema (full clean slate) — `db reset`. Optional so the
-   *  CLI degrades gracefully against an older project ORM without it. */
-  resetSchema?(schema?: string): Promise<void>
+  /** Drop + recreate the schema (full clean slate) — `db reset`. */
+  resetSchema(schema?: string): Promise<void>
 
   /** Every registered model (for `pylon inspect`'s authz/persistence harvest). */
   allModels?(): Array<{
@@ -127,9 +125,10 @@ export interface ProjectApp {
     describe?(): {name: string; attempts?: number; concurrency?: number; hasSchema: boolean}
   }>
 
-  // ── Apps / migration groups (optional) ──────────────────────────────────────
-  /** Migration groups DERIVED from the registry's `models.app(name)` tags. */
-  appGroups?(): GroupLike[]
+  // ── Apps / migration groups ─────────────────────────────────────────────────
+  /** Migration groups DERIVED from the registry (empty when a project has no
+   *  composed apps — the CLI then runs it as one implicit default app). */
+  appGroups(): GroupLike[]
   // pylon-db migration-group orchestration (the CLI projects apps → groups).
   generateGroup(
     group: GroupLike,
@@ -182,9 +181,9 @@ export interface ProjectApp {
     db?: unknown
   ): Promise<Array<{group: string; pendingChanges: number; pending?: string[]; unapplied: string[]}>>
   /** Groups in dependency order (siblings by name). */
-  orderGroups?(groups: GroupLike[]): GroupLike[]
+  orderGroups(groups: GroupLike[]): GroupLike[]
   /** Tampered migrations across every group, labelled `"<app>:<migration>"`. */
-  integrityErrorsGroups?(
+  integrityErrorsGroups(
     groups: GroupLike[],
     load: (filePath: string) => Promise<unknown>,
     db?: unknown

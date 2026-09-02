@@ -46,7 +46,7 @@ async function main(): Promise<void> {
   const entryUrl = pathToFileURL(entryAbs).href
   const ormUrl = import.meta.resolve('@getcronit/pylon/db', entryUrl)
   const orm = (await import(ormUrl)) as {
-    toIR?: () => unknown
+    toIR: () => unknown
     allModels?: () => Array<{
       abstract?: boolean
       ctor: {name: string}
@@ -67,7 +67,7 @@ async function main(): Promise<void> {
       // Everything the AppModel needs, serialized: the entity IR, per-model authz/
       // tenant shape (from the ORM registry), and declared queues (from the project's
       // pylon-queues, if any). The parent runs type-introspection + assembles.
-      const ir = typeof orm.toIR === 'function' ? orm.toIR() : null
+      const ir = orm.toIR()
       const authz = (orm.allModels?.() ?? [])
         .filter(m => !m.abstract)
         .map(m => ({

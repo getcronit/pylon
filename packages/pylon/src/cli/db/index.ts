@@ -216,7 +216,6 @@ async function ensureDatabaseForDev(
   orm: ProjectApp,
   connectionString: string
 ): Promise<{name: string; created: boolean} | undefined> {
-  if (typeof orm.ensureDatabase !== 'function') return undefined
   const {database, created} = await orm.ensureDatabase(connectionString)
   return {name: database, created}
 }
@@ -233,7 +232,7 @@ export async function runDbCommandCore(
   // Apps mode: models tagged via `models.app(name)` are DERIVED into migration
   // groups from the registry (group + inferred deps). Each group's dir is
   // `<dir>/<name>`. The CLI then operates per-group, in dependency order.
-  const derived = typeof orm.appGroups === 'function' ? orm.appGroups() : []
+  const derived = orm.appGroups()
   // Apps-only: there is ALWAYS at least one group. A project with `models.app()` tags
   // yields those groups; an untagged project is one implicit DEFAULT app — every model,
   // the root `./migrations` dir, a BARE ledger — so the whole CLI runs one uniform path.
@@ -304,9 +303,7 @@ export async function runDbCommandCore(
       // `--app` still narrows to one. Apps with no changes generate nothing.
       const targets = options.app
         ? [groups.find(g => g.name === options.app)]
-        : typeof orm.orderGroups === 'function'
-          ? orm.orderGroups(groups)
-          : groups
+        : orm.orderGroups(groups)
       if (options.app && !targets[0]) {
         throw new Error(
           `Unknown app "${options.app}" (apps: ${groups.map(g => g.name).join(', ')}).`
@@ -355,7 +352,7 @@ export async function runDbCommandCore(
     case 'plan': {
       const direction = options.down ? 'down' : 'up'
       // Plan each app in dependency order; a single (default) app prints unprefixed.
-      const ordered = typeof orm.orderGroups === 'function' ? orm.orderGroups(groups) : groups
+      const ordered = orm.orderGroups(groups)
       const plan: Array<{name: string; statements: string[]}> = []
       for (const group of ordered) {
         const steps = await new orm.MigrationRunner({dir: group.dir!}).plan(
@@ -376,10 +373,7 @@ export async function runDbCommandCore(
       // Each app owns its migrations dir; scope per group. A single (default) app
       // prints its details unprefixed, matching the pre-apps output.
       const res = await orm.statusGroups(groups, loadMigrationFile, db)
-      const tampered =
-        db && typeof orm.integrityErrorsGroups === 'function'
-          ? await orm.integrityErrorsGroups(groups, loadMigrationFile, db)
-          : []
+      const tampered = db ? await orm.integrityErrorsGroups(groups, loadMigrationFile, db) : []
       return {
         command: 'check',
         check: {
@@ -398,11 +392,6 @@ export async function runDbCommandCore(
       if (!connectionString) {
         throw new Error('pylon db create requires DATABASE_URL to be set.')
       }
-      if (typeof orm.ensureDatabase !== 'function') {
-        throw new Error(
-          'This project’s @getcronit/pylon is too old to support `pylon db create`. Upgrade it.'
-        )
-      }
       const database = await orm.ensureDatabase(connectionString)
       return {command: 'create', database: {name: database.database, created: database.created}}
     }
@@ -415,11 +404,6 @@ export async function runDbCommandCore(
         throw new Error(
           'Refusing to reset the database in production. `pylon db reset` is destructive ' +
             '(drops every table and re-applies migrations). Pass --force only if you truly mean it.'
-        )
-      }
-      if (typeof orm.resetSchema !== 'function') {
-        throw new Error(
-          'This project’s @getcronit/pylon is too old to support `pylon db reset`. Upgrade it.'
         )
       }
       // Create the DB if it's missing, then drop it to a clean slate and re-apply.
@@ -609,11 +593,6 @@ export async function runDbCommandCore(
       const connectionString = process.env.DATABASE_URL
       if (!connectionString) {
         throw new Error('pylon db baseline requires DATABASE_URL to be set.')
-      }
-      if (typeof orm.introspectPhysical !== 'function') {
-        throw new Error(
-          'This project\'s @getcronit/pylon/db is too old for `baseline` (no introspectPhysical).'
-        )
       }
       const conn = orm.connect({connectionString})
       const schema = await orm.introspectPhysical(conn)
