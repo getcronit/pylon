@@ -337,8 +337,12 @@ export const setup = async (
           const sitemaps = await runWithOperationClient(opClient, () =>
             sitemapModule.generateSitemaps()
           )
+          // Prefer the configured origin over the request host, exactly as the
+          // shard/main renderers do — otherwise the index advertises shard URLs on
+          // whatever `Host` the request carried (localhost, or a spoofed proxy host).
+          const origin = options.origin ?? baseUrl.origin
           const indexItems = sitemaps.map((s: any) => ({
-            url: `${baseUrl.origin}/sitemap/${s.id}.xml`
+            url: `${origin}/sitemap/${s.id}.xml`
           }))
           xml = renderSitemapIndexXml(indexItems)
         } else {
