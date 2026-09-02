@@ -54,6 +54,22 @@ describe.skipIf(!runDb)('introspect + drift (Postgres)', () => {
     expect(d.columns.find(c => c.table === 'drift_widget')).toBeUndefined()
   })
 
+  it('never reports a framework bookkeeping table as extra drift', async () => {
+    // The snowflake node-id lease (created by ID({snowflake}) usage), the migration
+    // ledger, and the queues outbox are framework-owned — not models — so they must
+    // not surface as "extra table" drift.
+    await db.kysely.schema
+      .createTable('_pylon_nodes')
+      .ifNotExists()
+      .addColumn('node_id', 'integer')
+      .execute()
+    const cols = await introspect(db)
+    expect(cols.has('_pylon_nodes')).toBe(false)
+    const d = await schemaDrift(db)
+    expect(d.extraTables).not.toContain('_pylon_nodes')
+    expect(d.extraTables).not.toContain('_pylon_migrations')
+  })
+
   it('detects a column the DB is missing vs the model', async () => {
     await sql`ALTER TABLE "drift_widget" DROP COLUMN "name"`.execute(db.kysely)
     const d = await schemaDrift(db)

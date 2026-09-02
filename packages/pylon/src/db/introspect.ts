@@ -45,9 +45,16 @@ const LEDGER_TABLE = '_pylon_migrations'
  */
 export const GENERATED_UNKNOWN = '<generated>'
 
-/** Migration-ledger / framework bookkeeping tables to never surface as models
- *  (incl. the queues transactional-outbox table). */
-const IGNORED_TABLES = new Set([LEDGER_TABLE, '_pylon_outbox', '_prisma_migrations'])
+/** Migration-ledger / framework bookkeeping tables to never surface as models —
+ *  the migration ledger, the queues transactional-outbox, the snowflake node-id
+ *  lease (`_pylon_nodes`), and a legacy Prisma ledger. Owned by the framework, not
+ *  the models, so they must not read as drift. */
+const IGNORED_TABLES = new Set([
+  LEDGER_TABLE,
+  '_pylon_outbox',
+  '_pylon_nodes',
+  '_prisma_migrations'
+])
 
 /** Columns present in the live DB (public schema), keyed by table name. */
 export async function introspect(db: Database = getDatabase()): Promise<Map<string, Set<string>>> {
