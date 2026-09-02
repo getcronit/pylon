@@ -3,6 +3,9 @@ import path from 'path'
 
 const PAGES_DIR = './pages'
 
+/** One-shot guard so the "no root error.tsx" warning fires once per process, not per dev rebuild. */
+let hasWarnedNoRootError = false
+
 /**
  * Interface representing a route configuration.
  */
@@ -26,6 +29,10 @@ export interface Route {
 interface ScanContext {
   imports: string[]
   routeSlugs: string[]
+  /** Root `pages/error.tsx` component, if any (drives the "no root error boundary" warning). */
+  rootError?: string
+  /** Root `pages/not-found.tsx` component, if any (used for the top-level catch-all). */
+  rootNotFound?: string
 }
 
 /**
@@ -95,6 +102,25 @@ export function getErrorComponentName(filePath: string): string {
     .filter(Boolean)
 
   return (segments.map(formatSegment).join('') || 'Root') + 'ErrorBoundary'
+}
+
+/**
+ * Converts a file path to a corresponding not-found component name.
+ *
+ * `not-found.tsx` alongside a `layout.tsx`/`page.tsx` overrides the default 404 UI for
+ * that segment (and cascades to nested segments, like `error.tsx`).
+ * @param filePath - The file path to convert.
+ * @returns The generated not-found component name.
+ */
+export function getNotFoundComponentName(filePath: string): string {
+  const segments = filePath
+    .replace(PAGES_DIR, '')
+    .replace(/\\/g, '/')
+    .replace(/not-found\.tsx$/, '')
+    .split('/')
+    .filter(Boolean)
+
+  return (segments.map(formatSegment).join('') || 'Root') + 'NotFound'
 }
 
 /**
@@ -239,39 +265,48 @@ export function scanDirectory(
   directory: string,
   context: ScanContext,
   basePath: string = '',
-  inheritedError?: string
+  inheritedError?: string,
+  inheritedNotFound?: string
 ): Route | null {
   const items = fs.readdirSync(directory, {withFileTypes: true})
   const route: Route = {path: basePath || '/', children: []}
   let hasLayout = false
   let pageFound = false
 
-  // A sibling `error.tsx` sets the error UI for THIS segment AND cascades to every
-  // nested segment that doesn't define its own — Next.js semantics. Put one at the
-  // root and the whole app inherits it; override deeper by adding another. WITHOUT the
-  // cascade, each layout would keep the default error page and adding a route would
-  // silently drop back to it in production (not a build error). So a segment's boundary
-  // is: its own `error.tsx`, else the nearest ancestor's (`inheritedError`), else the
-  // built-in default. `error.tsx` is imported whenever it can guard something — a route
-  // here or descendants to cascade to.
+  // Sibling `error.tsx` / `not-found.tsx` set the error / 404 UI for THIS segment AND
+  // cascade to every nested segment that doesn't define its own — Next.js semantics.
+  // Put one at the root and the whole app inherits it; override deeper by adding another.
+  // WITHOUT the cascade, each layout would keep the default and adding a route would
+  // silently drop back to it in production (not a build error). So a segment's component
+  // is: its own file, else the nearest ancestor's (the `inherited*` args), else the
+  // built-in default. A file is imported whenever it can guard something — a route here
+  // or descendants to cascade to.
   const fileNames = new Set(items.filter(i => i.isFile()).map(i => i.name))
   const hasChildDir = items.some(i => i.isDirectory())
-  let ownError: string | undefined
-  if (
-    fileNames.has('error.tsx') &&
-    (fileNames.has('layout.tsx') || fileNames.has('page.tsx') || hasChildDir)
-  ) {
-    const errorRelativePath = path
-      .join(basePath, 'error.tsx')
-      .replace(/\\/g, '/')
-    const errorImportPath = `"./${path
-      .join('..', PAGES_DIR, errorRelativePath)
-      .replace(/\.tsx$/, '')}"`
-    ownError = getErrorComponentName(errorRelativePath)
-    context.imports.push(`import ${ownError} from ${errorImportPath};`)
+  const canGuard =
+    fileNames.has('layout.tsx') || fileNames.has('page.tsx') || hasChildDir
+  const detect = (
+    fileName: string,
+    getName: (rel: string) => string
+  ): string | undefined => {
+    if (!fileNames.has(fileName) || !canGuard) return undefined
+    const rel = path.join(basePath, fileName).replace(/\\/g, '/')
+    const imp = `"./${path.join('..', PAGES_DIR, rel).replace(/\.tsx$/, '')}"`
+    const name = getName(rel)
+    context.imports.push(`import ${name} from ${imp};`)
+    return name
   }
-  // This segment's boundary component, and what its descendants inherit.
+  const ownError = detect('error.tsx', getErrorComponentName)
+  const ownNotFound = detect('not-found.tsx', getNotFoundComponentName)
+  // This segment's components, and what its descendants inherit.
   const errorComponentName = ownError ?? inheritedError
+  const notFoundComponentName = ownNotFound ?? inheritedNotFound
+  // Record the ROOT files: `rootError` drives the "no root error boundary" warning,
+  // `rootNotFound` feeds the top-level catch-all in makeAppFiles.
+  if (basePath === '') {
+    context.rootError = ownError
+    context.rootNotFound = ownNotFound
+  }
 
   for (const item of items) {
     const itemPath = path.join(directory, item.name)
@@ -285,7 +320,8 @@ export function scanDirectory(
         itemPath,
         context,
         relativePath,
-        errorComponentName
+        errorComponentName,
+        notFoundComponentName
       )
       if (childRoute) {
         route.children!.push(childRoute)
@@ -316,7 +352,9 @@ export function scanDirectory(
     const childNotFoundRoute: Route = {
       id: `${route.id}/NotFound`,
       path: '*',
-      element: '<NotFoundPage standalone={false} />',
+      element: notFoundComponentName
+        ? `<${notFoundComponentName} />`
+        : '<NotFoundPage standalone={false} />',
       loader: '() => { return new Response("Not Found", { status: 404 }) }'
     }
     if (!route.children) {
@@ -536,10 +574,29 @@ export function makeAppFiles() {
   const context: ScanContext = {imports: [], routeSlugs: []}
 
   const rootRoute = scanDirectory(PAGES_DIR, context)
+
+  // A root `pages/error.tsx` is the one boundary that catches render errors app-wide
+  // (it cascades to every segment). Without it, an uncaught error falls back to the
+  // built-in error page — and since a missing boundary is not a build error, that
+  // fallback reappears silently. Warn once per process (dev re-runs this per rebuild),
+  // so it's a decision, not an accident, without spamming the dev loop.
+  if (rootRoute && !context.rootError && !hasWarnedNoRootError) {
+    hasWarnedNoRootError = true
+    console.warn(
+      '[pylon] No root `pages/error.tsx` found — uncaught render errors will use the ' +
+        'built-in error page. Add `pages/error.tsx` to define your own app-wide error UI ' +
+        '(it cascades to every route; override per-segment with a nested `error.tsx`).'
+    )
+  }
+
   const notFoundRoute: Route = {
     id: 'NotFound',
     path: '*',
-    element: '<NotFoundPage standalone={true} />',
+    // The top-level catch-all (no route matched at all): a root `not-found.tsx` if the
+    // app defines one, else the built-in 404 page.
+    element: context.rootNotFound
+      ? `<${context.rootNotFound} />`
+      : '<NotFoundPage standalone={true} />',
     loader: '() => { return new Response("Not Found", { status: 404 }) }'
   }
 

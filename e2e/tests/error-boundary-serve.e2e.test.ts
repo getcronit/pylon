@@ -27,6 +27,7 @@ const PORT = 4801
 const base = `http://localhost:${PORT}`
 let server: ChildProcess | undefined
 let serverLog = ''
+let buildOutput = ''
 
 const get = (p: string) => fetch(`${base}${p}`, {redirect: 'manual'})
 const body = async (p: string) => {
@@ -46,8 +47,9 @@ beforeAll(async () => {
     timeout: 180_000,
     env: {...process.env, PYLON_TELEMETRY_DISABLED: '1', DO_NOT_TRACK: '1'}
   })
+  buildOutput = `${build.stdout ?? ''}\n${build.stderr ?? ''}`
   if (build.status !== 0) {
-    throw new Error(`build failed:\n${build.stderr ?? ''}\n${build.stdout ?? ''}`)
+    throw new Error(`build failed:\n${buildOutput}`)
   }
 
   server = spawn('node', ['.pylon/server.mjs'], {
@@ -109,6 +111,27 @@ describe('per-segment error containment', () => {
 
   it('never falls through to the critical whole-app error page', () => {
     expect(serverLog).not.toContain('CRITICAL RENDER ERROR')
+  })
+
+  it('warns at build when no root pages/error.tsx exists', () => {
+    // This fixture deliberately has no root error.tsx (so /plain and /leaf exercise the
+    // default error page) — the build must say so rather than fail silently.
+    expect(buildOutput).toMatch(/No root .*pages\/error\.tsx/)
+  })
+
+  describe('custom not-found.tsx', () => {
+    it('renders the root not-found.tsx for an unmatched path, with 404', async () => {
+      const {status, html} = await body('/does-not-exist')
+      expect(status).toBe(404)
+      expect(html).toContain('id="root-not-found"')
+    })
+
+    it('cascades: a nested segment 404 uses the inherited not-found inside its chrome', async () => {
+      const {status, html} = await body('/section/does-not-exist')
+      expect(status).toBe(404)
+      expect(html).toContain('id="section-chrome"')
+      expect(html).toContain('id="root-not-found"')
+    })
   })
 
   describe('error.tsx cascades to nested segments (Next.js semantics)', () => {
