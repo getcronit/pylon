@@ -9,6 +9,7 @@ import {
   tableRenameCandidates,
   renderChanges,
   crossAppRetypeRefusals,
+  planCrossAppRetypes,
   tableSpecOf,
   type Entity,
   type PhysicalSchema
@@ -980,5 +981,74 @@ describe('FK-dependent type changes (drop → alter → re-add)', () => {
       physicalSchemaOf({User: userE('bigint', [field('bio', col({name: 'bio', sqlType: 'text'}))])})
     )
     expect(crossAppRetypeRefusals(changes, new Set(['user']), [CROSS_FK])).toEqual([])
+  })
+})
+
+describe('planCrossAppRetypes — cross-app FK retype coordination (phase 2)', () => {
+  // lokalis-shaped: core_location.id is referenced same-app by core_opening_day and
+  // cross-app by products_inventory_level. `appOfTable` splits core vs products.
+  const appOf = (t: string) => (t.startsWith('products_') ? 'products' : 'core')
+
+  const location = (idType: string): Entity => ({
+    name: 'Location', table: 'core_location', abstract: false, primaryKey: 'id', implements: [],
+    fields: [field('id', col({name: 'id', sqlType: idType, primaryKey: true}))]
+  })
+  const refModel = (name: string, table: string, fkType: string): Entity => ({
+    name, table, abstract: false, primaryKey: 'id', implements: [],
+    fields: [
+      field('id', col({name: 'id', sqlType: 'bigint', primaryKey: true, autoIncrement: true})),
+      field('locationId', col({name: 'location_id', sqlType: fkType, nullable: true})),
+      {
+        name: 'location',
+        type: {kind: 'ref', name: 'Location', nullable: true},
+        exposed: true,
+        relation: {kind: 'belongsTo', target: 'Location', fkField: 'locationId', onDelete: 'set null'}
+      }
+    ]
+  })
+  const universe = (idType: string, openingType: string, invType: string) =>
+    physicalSchemaOf({
+      Location: location(idType),
+      OpeningDay: refModel('OpeningDay', 'core_opening_day', openingType),
+      InventoryLevel: refModel('InventoryLevel', 'products_inventory_level', invType)
+    })
+
+  it('coordinates a cross-app FK when both ends retype to the same type', () => {
+    const plan = planCrossAppRetypes(
+      universe('uuid', 'uuid', 'uuid'),
+      universe('text', 'text', 'text'),
+      appOf
+    )
+    // Only the CROSS-app FK is coordinated; the same-app core_opening_day FK is left
+    // for diffSchema to bracket in-migration.
+    expect(plan.refuse).toEqual([])
+    expect(plan.coordinate).toHaveLength(1)
+    const c = plan.coordinate[0]
+    expect(c.fk.name).toBe('products_inventory_level_location_id_fkey')
+    expect(c.srcApp).toBe('products')
+    expect(c.refApp).toBe('core')
+    expect(c.referenced.table).toBe('core_location')
+    expect(c.referencing.table).toBe('products_inventory_level')
+  })
+
+  it('refuses when only the referenced side retypes (mismatch would result)', () => {
+    const plan = planCrossAppRetypes(
+      universe('uuid', 'text', 'uuid'), // core.id → text, but products.location_id stays uuid
+      universe('text', 'text', 'uuid'),
+      appOf
+    )
+    expect(plan.coordinate).toEqual([])
+    expect(plan.refuse).toHaveLength(1)
+    expect(plan.refuse[0]).toMatch(/only the referenced/)
+    expect(plan.refuse[0]).toMatch(/products_inventory_level_location_id_fkey/)
+  })
+
+  it('is silent when nothing cross-app-joined retypes', () => {
+    const plan = planCrossAppRetypes(
+      universe('uuid', 'uuid', 'uuid'),
+      universe('uuid', 'uuid', 'uuid'),
+      appOf
+    )
+    expect(plan).toEqual({coordinate: [], refuse: []})
   })
 })

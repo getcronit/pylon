@@ -748,6 +748,93 @@ export function crossAppRetypeRefusals(
   return out
 }
 
+/** One cross-app FK whose joined columns retype together — the emitter's unit of work. */
+export interface CrossAppRetype {
+  fk: ForeignKeyChange
+  /** App owning the referencing table (the FK's home — drop/re-add happen here). */
+  srcApp: string
+  /** App owning the referenced table (its column retypes between the drop and re-add). */
+  refApp: string
+  referenced: {table: string; before: TableColumn; after: TableColumn}
+  referencing: {table: string; before: TableColumn; after: TableColumn}
+}
+
+export interface CrossAppRetypePlan {
+  /** Satisfiable — both ends retype to the SAME type; the emitter makes the three-phase. */
+  coordinate: CrossAppRetype[]
+  /** Unsatisfiable — one side only, or to a different type; refusal messages. */
+  refuse: string[]
+}
+
+/**
+ * Whole-universe analysis for cross-app FK retypes: which cross-app FKs are joined by a
+ * type change, and whether both ends move to the SAME type (coordinate) or not (refuse).
+ * Runs over the full universe (all apps' before/after) so both ends of every FK are in
+ * view; `appOfTable` maps a physical table to its owning app. The emitter turns each
+ * `coordinate` entry into the pre/retype/post migrations; `refuse` stays a hard error.
+ * Same-app FKs are skipped — `diffSchema` already brackets those in one migration.
+ */
+export function planCrossAppRetypes(
+  prev: PhysicalSchema,
+  next: PhysicalSchema,
+  appOfTable: (table: string) => string | undefined
+): CrossAppRetypePlan {
+  // Type-changed columns across the universe: physical table → column → {before, after}.
+  const changed = new Map<string, Map<string, {before: TableColumn; after: TableColumn}>>()
+  for (const name of Object.keys(next)) {
+    if (!(name in prev)) continue
+    const before = pColumns(prev[name])
+    for (const [col, a] of pColumns(next[name])) {
+      const b = before.get(col)
+      if (b && columnTypeChanged(b, a)) {
+        const t = next[name].table
+        const m = changed.get(t) ?? new Map<string, {before: TableColumn; after: TableColumn}>()
+        m.set(col, {before: b, after: a})
+        changed.set(t, m)
+      }
+    }
+  }
+
+  const coordinate: CrossAppRetype[] = []
+  const refuse: string[] = []
+  const seen = new Set<string>()
+  const changeOf = (table: string, col: string) => changed.get(table)?.get(col)
+
+  for (const name of Object.keys(next)) {
+    for (const fk of pFks(next[name]).values()) {
+      const srcApp = appOfTable(fk.table)
+      const refApp = appOfTable(fk.refTable)
+      if (!srcApp || !refApp || srcApp === refApp) continue // same-app → diffSchema handles it
+      const ref = changeOf(fk.refTable, fk.refColumn)
+      const src = changeOf(fk.table, fk.column)
+      if ((!ref && !src) || seen.has(fk.name)) continue
+      seen.add(fk.name)
+      if (ref && src && !columnTypeChanged(ref.after, src.after)) {
+        coordinate.push({
+          fk,
+          srcApp,
+          refApp,
+          referenced: {table: fk.refTable, before: ref.before, after: ref.after},
+          referencing: {table: fk.table, before: src.before, after: src.after}
+        })
+      } else {
+        const which =
+          ref && !src
+            ? `only the referenced "${fk.refTable}"."${fk.refColumn}" changes type`
+            : src && !ref
+              ? `only the referencing "${fk.table}"."${fk.column}" changes type`
+              : `the two ends change to DIFFERENT types`
+        refuse.push(
+          `cross-app foreign key "${fk.name}" ("${fk.table}"."${fk.column}" → ` +
+            `"${fk.refTable}"."${fk.refColumn}") can't be coordinated: ${which}. Both ends of ` +
+            `an FK must end up the SAME type — change them together.`
+        )
+      }
+    }
+  }
+  return {coordinate, refuse}
+}
+
 /**
  * Heuristic rename detection: a `dropColumn` + `addColumn` of the same SQL type
  * on the same table looks like it *might* be a rename (the diff can't tell, and

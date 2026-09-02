@@ -42,8 +42,17 @@ export {
   isDestructive,
   backfillWarnings,
   crossAppRetypeRefusals,
+  planCrossAppRetypes,
   describeChange,
   renameCandidates,
   tableRenameCandidates
 } from './diff.js'
-export type {SchemaChange, Migration, Rename, TableRename, CastHint} from './diff.js'
+export type {
+  SchemaChange,
+  Migration,
+  Rename,
+  TableRename,
+  CastHint,
+  CrossAppRetype,
+  CrossAppRetypePlan
+} from './diff.js'

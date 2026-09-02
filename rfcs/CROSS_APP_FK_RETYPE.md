@@ -103,9 +103,27 @@ real ergonomic change; `db diff`'s summary must explain the split. `down` revers
 whole plan by the same (reversed) tuples: drop the re-added FK → revert both types → re-add
 the original FK — the shape the same-app path already round-trips.
 
-**Guard:** a cross-app FK's two columns must end up the same type, and Pylon does not
-auto-derive the FK column type from the referenced PK. If only one side retypes, the schema
-is unsatisfiable — keep the shipped refusal for that case.
+**Generation order is BACKWARDS from `orderGroups`.** The normal order is
+referenced-app-first (products depends on core, so core generates first). The retype plan
+is the opposite — the referencing app's `pre` (drop FK) must exist *before* the referenced
+app's `retype`, which must exist before the `post`. So the coordinator generates the cluster
+in retype order — `products/pre` → `core/retype` → `products/post` — threading each written
+migration's name into the next one's `dependencies` tuple. This is why the coordination is a
+dedicated pass, not something the per-app `generateGroup` loop can produce.
+
+**Guard:** a cross-app FK's two columns must end up the same type. If only one side retypes
+(or they retype to different types), the schema is unsatisfiable — keep the shipped refusal
+for that case. The coordinator decides coordinate-vs-refuse per cross-app FK.
+
+**Phase 2 is orthogonal to DATA porting / the cast.** The coordinator only fixes the FK
+*structure* (drop → alter → re-add, ordered). It does NOT bypass the `castsImplicitly` gate:
+each `alterColumn` still refuses a non-implicit cast without `--using`, exactly as same-app.
+So an implicit retype (`uuid → text`) coordinates *and* migrates over existing data (values
+convert, FKs stay matched); a non-implicit one (`uuid → bigint`) still stops at diff-time for
+a `--using` that often can't exist (no `uuid → bigint` value), leaving the author to hand-add
+a data-porting `runSql` (regenerate ids, remap FK columns) — which the tool must never invent.
+Phase 2 makes the structure automatic; the data port stays a deliberate manual step when the
+cast isn't trivial.
 
 ## History-rewrite commands (the accepted cost)
 
