@@ -41,6 +41,7 @@ export {
   applyChanges,
   isDestructive,
   backfillWarnings,
+  crossAppRetypeRefusals,
   describeChange,
   renameCandidates,
   tableRenameCandidates

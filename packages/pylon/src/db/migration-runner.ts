@@ -23,6 +23,7 @@ import {sql, type Kysely} from 'kysely'
 import {
   applyChanges,
   backfillWarnings,
+  crossAppRetypeRefusals,
   diffSchema,
   physicalSchemaOf,
   renameCandidates,
@@ -41,6 +42,7 @@ import {
   isReversible,
   migrationChecksum,
   type MigrationContext,
+  type MigrationDependency,
   type MigrationModule
 } from './migration-ops.js'
 import {snapshot, type Snapshot} from './migrations.js'
@@ -138,7 +140,7 @@ function opCall(change: SchemaChange): string {
 function fileTemplate(
   changes: SchemaChange[],
   unsupported: string[],
-  dependencies: string[] = []
+  dependencies: MigrationDependency[] = []
 ): string {
   const notes = unsupported.length
     ? unsupported.map(u => ` *   - ${u}`).join('\n')
@@ -166,6 +168,13 @@ export class MigrationRunner {
   private readonly current: () => Snapshot
   private readonly resolveAgainst?: () => Record<string, Entity>
   private readonly ledgerPrefix?: string
+  /**
+   * This runner's app identity — the label a bare (same-app) `dependencies` entry
+   * normalizes under, and the app half of the tuples it authors. The group name for
+   * a per-app runner; `'default'` for a non-apps project (single history, no groups),
+   * which never carries a cross-app edge so the label is only ever internal.
+   */
+  private readonly app: string
   private readonly now: () => string
 
   constructor(options: MigrationRunnerOptions) {
@@ -173,7 +182,24 @@ export class MigrationRunner {
     this.current = options.current ?? snapshot
     this.resolveAgainst = options.resolveAgainst
     this.ledgerPrefix = options.ledgerPrefix
+    this.app = options.ledgerPrefix ?? 'default'
     this.now = options.now ?? defaultStamp
+  }
+
+  /**
+   * Same-app parent names of a migration, for the intra-app topo-sort. Normalizes
+   * each authored dep to an `[app, migration]` tuple (bare string = this app), then
+   * keeps only edges into THIS app — a cross-app tuple is not an intra-app parent
+   * (the interleave consumes those). Dangling same-app edges are dropped here so a
+   * partial history still loads; loud validation lives at the graph layer.
+   */
+  private sameAppParents(mod: MigrationModule, present: (name: string) => boolean): string[] {
+    const out: string[] = []
+    for (const dep of mod.dependencies ?? []) {
+      const [app, name] = typeof dep === 'string' ? [this.app, dep] : dep
+      if (app === this.app && present(name)) out.push(name)
+    }
+    return out
   }
 
   /** The ledger key for a bare migration name (app-namespaced when configured). */
@@ -237,14 +263,26 @@ export class MigrationRunner {
     if (changes.length === 0) return null
 
     const {unsupported} = renderChanges(changes)
+    // Cross-app FK-dependent type changes can't be coordinated in one migration (the
+    // other end retypes in another app's separate transaction), so they'd fail
+    // mid-deploy with a cryptic Postgres error. Detect them against the whole-project
+    // FK set and refuse at generate time with an actionable message. Same-app FK
+    // brackets are already emitted by `diffSchema`.
+    const appTables = new Set(Object.keys(next).map(n => next[n].table))
+    const universe = this.resolveAgainst ? physicalSchemaOf(this.resolveAgainst()) : next
+    const universeFks = Object.values(universe).flatMap(t => t.foreignKeys ?? [])
+    const refusals = [
+      ...unsupported,
+      ...crossAppRetypeRefusals(changes, appTables, universeFks)
+    ]
     // Refuse rather than emit a migration whose unsupported half renders to no SQL:
     // it would apply cleanly, fold into the baseline as captured, and leave the
     // database silently behind the models with every gate reporting "up to date".
-    if (unsupported.length > 0) {
+    if (refusals.length > 0) {
       throw new Error(
         `Cannot generate a migration — the diff contains change(s) the engine cannot ` +
           `express as SQL:\n` +
-          unsupported.map(u => `  - ${u}`).join('\n') +
+          refusals.map(u => `  - ${u}`).join('\n') +
           `\nFollow the hint above where one is given. Otherwise author this migration ` +
           `by hand: \`migrations.runSql('<ddl>', {down: '<ddl>'})\` for the DDL, plus ` +
           `\`migrations.stateOnly([...])\` so the baseline records it. (Reverting the ` +
@@ -423,8 +461,9 @@ export class MigrationRunner {
     for (const name of names) items.set(name, await load(this.filePath(name)))
 
     const depsOf = (name: string): string[] => {
-      const explicit = items.get(name)?.dependencies?.filter(d => items.has(d))
-      if (explicit && explicit.length) return explicit
+      const mod = items.get(name)
+      const explicit = mod ? this.sameAppParents(mod, n => items.has(n)) : []
+      if (explicit.length) return explicit
       const idx = names.indexOf(name)
       return idx > 0 ? [names[idx - 1]] : []
     }
@@ -452,8 +491,8 @@ export class MigrationRunner {
     const sorted = [...names].sort()
     const depended = new Set<string>()
     for (const {name, mod} of ordered) {
-      const explicit = mod.dependencies?.filter(d => names.includes(d))
-      if (explicit && explicit.length) explicit.forEach(d => depended.add(d))
+      const explicit = this.sameAppParents(mod, n => names.includes(n))
+      if (explicit.length) explicit.forEach(d => depended.add(d))
       else {
         const idx = sorted.indexOf(name)
         if (idx > 0) depended.add(sorted[idx - 1])

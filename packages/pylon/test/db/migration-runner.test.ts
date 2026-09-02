@@ -151,6 +151,27 @@ describe('MigrationRunner — generate / status (file workflow, no DB)', () => {
     expect(order).toContain('t2b')
   })
 
+  it('normalizes dependency forms: bare name = same app; cross-app tuple is not an intra-app parent', async () => {
+    const r = runnerFor(() => v1)
+    const mig = (deps?: unknown[]) =>
+      `import {migrations} from '@getcronit/pylon/db'\n` +
+      `export default migrations.defineMigration({${deps ? `dependencies: ${JSON.stringify(deps)}, ` : ''}operations: []})\n`
+    // Root, then a child whose parent is written as an explicit same-app tuple
+    // (['default', …] — this runner has no ledger prefix), plus a cross-app tuple
+    // that must NOT count as an intra-app parent (the interleave owns those).
+    await fs.writeFile(path.join(dir, 't1_init.ts'), mig())
+    await fs.writeFile(
+      path.join(dir, 't2_child.ts'),
+      mig([['default', 't1_init'], ['otherApp', 'whatever']])
+    )
+
+    // The same-app tuple resolves like a bare name → one head; the cross-app tuple
+    // is ignored here, so it neither dangles the load nor adds an intra-app edge.
+    expect(await r.heads(load)).toEqual(['t2_child'])
+    const order = (await r.plan(load)).map(p => p.name)
+    expect(order).toEqual(['t1_init', 't2_child'])
+  })
+
   it('squash collapses the schema history into one migration', async () => {
     let cur = v1
     const r = runnerFor(() => cur)

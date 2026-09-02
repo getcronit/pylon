@@ -71,15 +71,24 @@ export interface Operation {
   down(ctx: MigrationContext): Promise<void>
 }
 
+/**
+ * One DAG edge a migration builds on. A bare string names a migration in the SAME
+ * app (the common case, kept clean); a `[app, migration]` tuple is a CROSS-APP edge.
+ * The runner normalizes both to `[app, migration]` at load, so a bare `"x"` is sugar
+ * for `[thisApp, "x"]` — like a relative path defaulting to the current directory.
+ */
+export type MigrationDependency = string | readonly [app: string, migration: string]
+
 export interface MigrationModule {
   operations: Operation[]
   /**
-   * Names of the migration(s) this one builds on (the DAG edges). One parent for
-   * a linear chain, two+ for a merge node, none for the root. Omitted → the
-   * runner falls back to an implicit chain (the previous migration by name), so
-   * histories that never recorded dependencies behave exactly as before.
+   * The migration(s) this one builds on (the DAG edges). One parent for a linear
+   * chain, two+ for a merge node, none for the root. Omitted → the runner falls
+   * back to an implicit same-app chain (the previous migration by name), so
+   * histories that never recorded dependencies behave exactly as before. See
+   * {@link MigrationDependency} for the bare-vs-tuple form.
    */
-  dependencies?: string[]
+  dependencies?: MigrationDependency[]
 }
 
 /** Define a migration. The default export of a migration file. */

@@ -88,6 +88,39 @@ describe.skipIf(!runDb)('migration round-trip — curated scenarios (Postgres)',
     })
   })
 
+  // Regression: retyping a column joined by a FK (the referenced PK AND the
+  // referencing column, together) must drop the constraint before the type changes
+  // and re-add it after. With the FK left in place, Postgres re-validates it against
+  // the momentarily-mismatched types and aborts ("constraint cannot be implemented").
+  // Loc has a varchar PK that Child.loc_id references; the step retypes both varchar
+  // → text. (varchar↔text casts implicitly both ways, so `down` reverses too.)
+  it('retype a FK-joined column (referenced PK + referencing column) — round-trips', async () => {
+    const locId = (t: string) => ({
+      name: 'id',
+      type: {kind: 'scalar', name: 'String', nullable: false} as never,
+      exposed: true,
+      column: {name: 'id', sqlType: t, primaryKey: true, autoIncrement: false, unique: false, nullable: false}
+    })
+    const Loc = (t: string) =>
+      ({
+        name: 'Loc', table: 'loc', abstract: false, primaryKey: 'id', implements: [],
+        fields: [locId(t), scalarField('name', 'name', 'text')]
+      }) as unknown as ReturnType<typeof entity>
+    const Child = (t: string) =>
+      entity('Child', 'child', [
+        scalarField('locId', 'loc_id', t, {nullable: true}),
+        belongsToField('loc', 'locId', 'Loc', 'set null')
+      ])
+    await runRoundTrip({
+      db,
+      dirPrefix: 'pylon-rt-fk-retype-',
+      steps: [
+        step('init', Loc('varchar'), Child('varchar')),
+        step('retype', Loc('text'), Child('text'))
+      ]
+    })
+  })
+
   // Regression: dropping a column that carries a FK must cascade in the fold
   // (Postgres DROP COLUMN cascades the constraint) — else `status` reports a
   // phantom pending `dropForeignKey` forever. Found by the fuzzer.

@@ -492,6 +492,48 @@ export function diffSchema(
     }
   }
 
+  // A type change on a column that participates in a foreign key must not run while
+  // the FK is still in place: Postgres re-validates dependent FKs when EITHER the
+  // referenced or the referencing column changes type, and aborts ("constraint …
+  // cannot be implemented") the moment the two sides disagree. So for an UNCHANGED,
+  // same-app FK whose referenced or referencing column is being retyped, drop it
+  // before the type changes and re-add it after — slotting into the existing
+  // fkDrops → cols → fkAdds order, which also reverses cleanly on `down` (down: drop
+  // the re-added FK → revert the types → re-add the original). Changed/added/dropped
+  // FKs already bracket the columns; cross-app FKs span a second migration/transaction
+  // and are refused upstream (see `crossAppRetypeRefusals`).
+  const typeChangedCols = new Map<string, Set<string>>() // physical table → column names
+  for (const c of cols) {
+    if (c.kind === 'alterColumn' && columnTypeChanged(c.before, c.after)) {
+      const set = typeChangedCols.get(c.table) ?? new Set<string>()
+      set.add(c.after.name)
+      typeChangedCols.set(c.table, set)
+    }
+  }
+  if (typeChangedCols.size) {
+    const appTables = new Set(Object.keys(next).map(n => next[n].table))
+    // FKs already drop/re-added by the change diff above — don't double-handle.
+    const handled = new Set<string>()
+    for (const c of [...fkDrops, ...fkAdds]) {
+      const {fk} = c as Extract<SchemaChange, {kind: 'addForeignKey'}>
+      handled.add(`${fk.table}::${fk.name}`)
+    }
+    const touchesRetype = (fk: ForeignKeyChange): boolean =>
+      (typeChangedCols.get(fk.table)?.has(fk.column) ?? false) ||
+      (typeChangedCols.get(fk.refTable)?.has(fk.refColumn) ?? false)
+    for (const name of Object.keys(next)) {
+      for (const fk of next[name].foreignKeys ?? []) {
+        const key = `${fk.table}::${fk.name}`
+        if (handled.has(key)) continue
+        if (!appTables.has(fk.refTable)) continue // cross-app → refused upstream
+        if (!touchesRetype(fk)) continue
+        handled.add(key)
+        fkDrops.push({kind: 'dropForeignKey', fk})
+        fkAdds.push({kind: 'addForeignKey', fk})
+      }
+    }
+  }
+
   // Index changes for every table present in `next` (new + existing).
   for (const name of Object.keys(next)) {
     const beforeIx = name in prev ? pIndexes(prev[name]) : new Map<string, IndexSpec>()
@@ -646,6 +688,64 @@ export function isDestructive(change: SchemaChange): boolean {
 }
 
 /**
+ * Refusal messages for a type change on a column joined by a CROSS-APP foreign key.
+ *
+ * Same-app FK-dependent type changes are handled inside `diffSchema` (drop → alter →
+ * re-add, one migration, one transaction). A cross-app FK is different: its two ends
+ * change in two apps' migrations — separate transactions — so nothing can drop the
+ * constraint, retype both columns, and re-add it atomically. Whichever side alters
+ * first, Postgres re-validates the still-present FK against a now-mismatched type and
+ * aborts mid-deploy with a cryptic "constraint cannot be implemented".
+ *
+ * `appTables` are THIS migration's physical tables; `universeFks` are every app's FKs
+ * (from the resolve-against universe), so the FK's other end — which lives in another
+ * app's table, invisible to the per-app diff — is in view. Detection is the same graph
+ * analysis a future cross-app coordinator needs; today it converts the mid-deploy
+ * failure into an actionable, build-time refusal.
+ */
+export function crossAppRetypeRefusals(
+  changes: SchemaChange[],
+  appTables: Set<string>,
+  universeFks: ForeignKeyChange[]
+): string[] {
+  const typeChanged = new Map<string, Set<string>>()
+  for (const c of changes) {
+    if (c.kind === 'alterColumn' && columnTypeChanged(c.before, c.after)) {
+      const set = typeChanged.get(c.table) ?? new Set<string>()
+      set.add(c.after.name)
+      typeChanged.set(c.table, set)
+    }
+  }
+  if (!typeChanged.size) return []
+
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const fk of universeFks) {
+    const refChanged = typeChanged.get(fk.refTable)?.has(fk.refColumn) ?? false
+    const srcChanged = typeChanged.get(fk.table)?.has(fk.column) ?? false
+    if (!refChanged && !srcChanged) continue
+    // Cross-app only: the OTHER end of the FK lives outside this migration's app.
+    // (When both ends are in-app, `diffSchema` already brackets the type change.)
+    const crossApp = refChanged ? !appTables.has(fk.table) : !appTables.has(fk.refTable)
+    if (!crossApp || seen.has(fk.name)) continue
+    seen.add(fk.name)
+    const changedEnd = refChanged
+      ? `the referenced "${fk.refTable}"."${fk.refColumn}"`
+      : `the referencing "${fk.table}"."${fk.column}"`
+    out.push(
+      `type change on ${changedEnd} is joined ACROSS APPS by foreign key ` +
+        `"${fk.name}" ("${fk.table}"."${fk.column}" → "${fk.refTable}"."${fk.refColumn}") — ` +
+        `its other end lives in a different app, so the two sides change in separate ` +
+        `migrations/transactions and the engine can't drop and re-add the constraint ` +
+        `around the type change. Put both model changes in ONE migration, or author it ` +
+        `by hand (\`migrations.runSql('<ddl>', {down: '<ddl>'})\` + ` +
+        `\`migrations.stateOnly([...])\`).`
+    )
+  }
+  return out
+}
+
+/**
  * Heuristic rename detection: a `dropColumn` + `addColumn` of the same SQL type
  * on the same table looks like it *might* be a rename (the diff can't tell, and
  * would otherwise destroy data). Returned so tooling can warn / prompt; pass the
@@ -750,6 +850,24 @@ function dropIndexSQL(ix: IndexSpec): string {
   return `DROP INDEX IF EXISTS "${ix.name}"`
 }
 
+/**
+ * Whether the SQL TYPE of a column changed — the attributes `sqlTypeDDL` renders
+ * from. Every one must trigger the `ALTER COLUMN … TYPE` (otherwise the delta folds
+ * into the baseline as captured while emitting no SQL, silently diverging the models
+ * from the database: `numeric(10,2)` → `numeric(4,1)`, `vector(3)` → `vector(5)`,
+ * `text` → `text[]`). Nullability/default/unique/check are NOT type changes.
+ */
+export function columnTypeChanged(before: ColumnSpec, after: ColumnSpec): boolean {
+  return (
+    before.sqlType !== after.sqlType ||
+    before.length !== after.length ||
+    before.precision !== after.precision ||
+    before.scale !== after.scale ||
+    before.dim !== after.dim ||
+    !!before.array !== !!after.array
+  )
+}
+
 /** Postgres `ALTER COLUMN` statements bringing `before` to `after`. */
 function alterColumnSQL(
   table: string,
@@ -761,18 +879,7 @@ function alterColumnSQL(
   const out: string[] = []
   const col = `"${after.name}"`
   const t = `ALTER TABLE "${table}" ALTER COLUMN ${col}`
-  // Every attribute `sqlTypeDDL` renders from must trigger the TYPE change —
-  // otherwise the delta folds into the baseline as captured while emitting no SQL,
-  // silently diverging the models from the database (`numeric(10,2)` →
-  // `numeric(4,1)`, `vector(3)` → `vector(5)`, `text` → `text[]`).
-  const typeChanged =
-    before.sqlType !== after.sqlType ||
-    before.length !== after.length ||
-    before.precision !== after.precision ||
-    before.scale !== after.scale ||
-    before.dim !== after.dim ||
-    !!before.array !== !!after.array
-  if (typeChanged) {
+  if (columnTypeChanged(before, after)) {
     // A type change Postgres can't perform on its own needs an explicit
     // conversion expression. Emitting the bare `TYPE` form would abort the
     // migration mid-deploy with "cannot be cast automatically", so report it as

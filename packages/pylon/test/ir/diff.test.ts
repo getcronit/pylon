@@ -8,6 +8,7 @@ import {
   renameCandidates,
   tableRenameCandidates,
   renderChanges,
+  crossAppRetypeRefusals,
   tableSpecOf,
   type Entity,
   type PhysicalSchema
@@ -849,5 +850,135 @@ describe('non-scalar column defaults', () => {
     expect(backfillWarnings(diffSchema(base, tbl([col('keep', 'text'), col('a', 'jsonb', {default: {}})])))).toEqual([])
     expect(backfillWarnings(diffSchema(base, tbl([col('keep', 'text'), col('a', 'text', {nullable: true})])))).toEqual([])
     expect(backfillWarnings(diffSchema(base, tbl([col('keep', 'text'), col('a', 'jsonb', {defaultSql: "'{}'::jsonb"})])))).toEqual([])
+  })
+})
+
+describe('FK-dependent type changes (drop → alter → re-add)', () => {
+  // User(id) referenced by Post(author_id) via belongsTo — a single-app relation.
+  const userE = (idType: string, extra: Entity['fields'] = []): Entity => ({
+    name: 'User', table: 'user', abstract: false, primaryKey: 'id', implements: [],
+    fields: [field('id', col({name: 'id', sqlType: idType, primaryKey: true})), ...extra]
+  })
+  const postE = (idType: string, fkType: string): Entity => ({
+    name: 'Post', table: 'post', abstract: false, primaryKey: 'id', implements: [],
+    fields: [
+      field('id', col({name: 'id', sqlType: idType, primaryKey: true})),
+      field('authorId', col({name: 'author_id', sqlType: fkType})),
+      {
+        name: 'author',
+        type: {kind: 'ref', name: 'User', nullable: false},
+        exposed: true,
+        relation: {kind: 'belongsTo', target: 'User', fkField: 'authorId'}
+      }
+    ]
+  })
+  // The retype: id (referenced PK) and author_id (referencing FK column) both change
+  // type together. varchar↔text casts implicitly both ways, so `down` is renderable.
+  const retype = () =>
+    diffSchema(
+      physicalSchemaOf({User: userE('varchar'), Post: postE('varchar', 'varchar')}),
+      physicalSchemaOf({User: userE('text'), Post: postE('text', 'text')})
+    )
+
+  const DROP = /DROP CONSTRAINT IF EXISTS "post_author_id_fkey"/
+  const ADD = /ADD CONSTRAINT "post_author_id_fkey"/
+
+  it('drops the dependent FK before the type change and re-adds it after', () => {
+    const {up} = renderChanges(retype())
+    const iDrop = up.findIndex(s => DROP.test(s))
+    const iRef = up.findIndex(s => /ALTER TABLE "user" ALTER COLUMN "id" TYPE text/.test(s))
+    const iSrc = up.findIndex(s => /ALTER TABLE "post" ALTER COLUMN "author_id" TYPE text/.test(s))
+    const iAdd = up.findIndex(s => ADD.test(s))
+    expect(iDrop).toBeGreaterThanOrEqual(0)
+    expect(iAdd).toBeGreaterThanOrEqual(0)
+    // The FK is gone across BOTH sides' type changes, and restored only after both.
+    expect(iDrop).toBeLessThan(iRef)
+    expect(iDrop).toBeLessThan(iSrc)
+    expect(iAdd).toBeGreaterThan(iRef)
+    expect(iAdd).toBeGreaterThan(iSrc)
+  })
+
+  it('reverses cleanly on down (drop re-added FK → revert types → re-add original)', () => {
+    const {down} = renderChanges(retype())
+    const dDrop = down.findIndex(s => DROP.test(s))
+    const dRevert = down.findIndex(s => /ALTER TABLE "user" ALTER COLUMN "id" TYPE varchar/.test(s))
+    const dAdd = down.findIndex(s => ADD.test(s))
+    expect(dDrop).toBeLessThan(dRevert)
+    expect(dAdd).toBeGreaterThan(dRevert)
+  })
+
+  it('injects the dependent FK exactly once even though both ends change type', () => {
+    const changes = retype()
+    expect(changes.filter(c => c.kind === 'dropForeignKey')).toHaveLength(1)
+    expect(changes.filter(c => c.kind === 'addForeignKey')).toHaveLength(1)
+  })
+
+  it('leaves the FK untouched when the retyped column participates in no FK', () => {
+    const changes = diffSchema(
+      physicalSchemaOf({
+        User: userE('bigint', [field('bio', col({name: 'bio', sqlType: 'varchar', length: 100}))]),
+        Post: postE('bigint', 'bigint')
+      }),
+      physicalSchemaOf({
+        User: userE('bigint', [field('bio', col({name: 'bio', sqlType: 'text'}))]),
+        Post: postE('bigint', 'bigint')
+      })
+    )
+    expect(changes.some(c => c.kind === 'alterColumn')).toBe(true)
+    expect(changes.some(c => c.kind === 'dropForeignKey')).toBe(false)
+    expect(changes.some(c => c.kind === 'addForeignKey')).toBe(false)
+  })
+
+  it('does NOT bracket a non-type alter (nullability) — no FK re-validation needed', () => {
+    const changes = diffSchema(
+      physicalSchemaOf({User: userE('bigint'), Post: postE('bigint', 'bigint')}),
+      physicalSchemaOf({
+        User: userE('bigint'),
+        Post: {
+          ...postE('bigint', 'bigint'),
+          fields: postE('bigint', 'bigint').fields.map(f =>
+            f.name === 'authorId'
+              ? {...f, column: {...(f as any).column, nullable: true}}
+              : f
+          )
+        }
+      })
+    )
+    expect(changes.some(c => c.kind === 'alterColumn')).toBe(true)
+    expect(changes.some(c => c.kind === 'dropForeignKey')).toBe(false)
+  })
+
+  // Cross-app: the referencing FK lives in another app, invisible to this diff.
+  const CROSS_FK = {
+    table: 'post', name: 'post_author_id_fkey', column: 'author_id',
+    refTable: 'user', refColumn: 'id', onDelete: undefined
+  }
+
+  it('crossAppRetypeRefusals flags a retype referenced by a FK in another app', () => {
+    const changes = diffSchema(
+      physicalSchemaOf({User: userE('bigint')}),
+      physicalSchemaOf({User: userE('text')})
+    )
+    const msgs = crossAppRetypeRefusals(changes, new Set(['user']), [CROSS_FK])
+    expect(msgs).toHaveLength(1)
+    expect(msgs[0]).toMatch(/across apps/i)
+    expect(msgs[0]).toMatch(/post_author_id_fkey/)
+  })
+
+  it('crossAppRetypeRefusals is silent when both FK ends are in the same app', () => {
+    const changes = diffSchema(
+      physicalSchemaOf({User: userE('bigint')}),
+      physicalSchemaOf({User: userE('text')})
+    )
+    // both tables present → the same-app path already brackets it → no refusal
+    expect(crossAppRetypeRefusals(changes, new Set(['user', 'post']), [CROSS_FK])).toEqual([])
+  })
+
+  it('crossAppRetypeRefusals is silent when the retype touches no FK column', () => {
+    const changes = diffSchema(
+      physicalSchemaOf({User: userE('bigint', [field('bio', col({name: 'bio', sqlType: 'varchar'}))])}),
+      physicalSchemaOf({User: userE('bigint', [field('bio', col({name: 'bio', sqlType: 'text'}))])})
+    )
+    expect(crossAppRetypeRefusals(changes, new Set(['user']), [CROSS_FK])).toEqual([])
   })
 })
