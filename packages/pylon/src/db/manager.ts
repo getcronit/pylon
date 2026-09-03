@@ -630,6 +630,25 @@ export function applyPolicyWhere<Q>(
 }
 
 /**
+ * AND a raw `WhereInput` onto a kysely query over `def`'s table, qualified by `ref` so it
+ * composes inside a JOIN (the same `{def, ref, qualify: true}` scope `applyPolicyWhere` uses).
+ * This is how a paginated relation applies its `query`-derived filter (`parseSearchQuery` →
+ * `WhereInput`) on the target side of the join. An empty where leaves the query unchanged.
+ */
+export function applyWhereInput<Q>(
+  qb: Q,
+  def: ModelDefinition,
+  where: Record<string, unknown>,
+  ref: string = def.tableName
+): Q {
+  if (!where || Object.keys(where).length === 0) return qb
+  const scope: Scope = {def, ref, qualify: true}
+  return (qb as any).where((eb: ExpressionBuilder<any, any>) =>
+    compileWhere(eb, scope, where, {n: 0})
+  )
+}
+
+/**
  * Whether the current principal's READ policy FULLY denies `def` (vs. allowing or
  * filtering by row). The relation loaders use this to turn a NON-NULL relation that
  * resolved to null into a precise `ForbiddenError` instead of GraphQL's opaque

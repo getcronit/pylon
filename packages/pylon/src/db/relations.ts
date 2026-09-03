@@ -8,6 +8,7 @@ import {
   createMany,
   applyPolicyWhere,
   applyTenantWhere,
+  applyWhereInput,
   decodeCursor,
   deleteManyInstances,
   type Edge,
@@ -663,7 +664,61 @@ export class ManyToManyManager<T extends object> {
     )
   }
 
-  private async paginatePage(args: PaginateArgs = {}): Promise<PageOf<T>> {
+  /**
+   * A FILTERED, paginate-only view of this relation: the target `where` is applied on the
+   * join's target side (keyset stays intact). `asPaginated` calls this with the `WhereInput`
+   * a paginated field's `query` arg parses to — mirroring `RelatedManager.filter` for the m2m
+   * case. Returns a `Paginatable` (not a manager): filtering is a read projection, and the
+   * link editors (`add`/`remove`/`set`) belong on the unfiltered relation.
+   */
+  filter(where: WhereInput<T>): {
+    paginate(args?: PaginateArgs): Promise<Connection<T>>
+    paginateLazy(args?: PaginateArgs): Connection<T>
+  }
+  // The Array-predicate overload keeps this compatible with the `extends Array<T>` list-shape
+  // merge (same as RelatedManager); it's a type artifact, never called at runtime.
+  filter(predicate: (value: T, index: number, array: T[]) => unknown, thisArg?: any): T[]
+  filter(where: any):
+    | {paginate(args?: PaginateArgs): Promise<Connection<T>>; paginateLazy(args?: PaginateArgs): Connection<T>}
+    | T[] {
+    return {
+      paginate: async (args: PaginateArgs = {}) => {
+        const [page, totalCount] = await Promise.all([
+          this.paginatePage(args, where),
+          this.countFiltered(where)
+        ])
+        return {...page, totalCount}
+      },
+      paginateLazy: (args: PaginateArgs = {}) =>
+        lazyConnection<T>(
+          () => this.countFiltered(where),
+          () => this.paginatePage(args, where)
+        )
+    }
+  }
+
+  /** Count of related rows matching `where` — the filtered twin of `count()`. It joins the
+   *  target so the `where` applies (re-scoped by the target READ policy), so unlike the bare
+   *  grouped `count()` it is NOT batched — a filtered relation never is. */
+  private async countFiltered(where: WhereInput<T>): Promise<number> {
+    const s = this.spec()
+    const targetDef = getModelDefinitionOrThrow(this.targetCtor)
+    let q: any = getDatabase()
+      .kysely.selectFrom(s.targetTable)
+      .innerJoin(
+        s.joinTable,
+        `${s.joinTable}.${s.targetColumn}` as any,
+        `${s.targetTable}.${s.targetPkColumn}` as any
+      )
+      .where(`${s.joinTable}.${s.localColumn}` as any, '=', this.ownerPk as any)
+      .select(eb => eb.fn.countAll().as('n'))
+    q = applyPolicyWhere(q, targetDef, 'read', s.targetTable)
+    q = applyWhereInput(q, targetDef, where as Record<string, unknown>, s.targetTable)
+    const row = await q.executeTakeFirst()
+    return Number((row as any)?.n ?? 0)
+  }
+
+  private async paginatePage(args: PaginateArgs = {}, where?: WhereInput<T>): Promise<PageOf<T>> {
     noteQuery(this.targetCtor, 'paginate') // paginated relation isn't batched → advisory
     const s = this.spec()
     const targetDef = getModelDefinitionOrThrow(this.targetCtor)
@@ -696,6 +751,9 @@ export class ManyToManyManager<T extends object> {
       .where(`${s.joinTable}.${s.localColumn}` as any, '=', this.ownerPk as any)
       .select(selectableColumns(targetDef, s.targetTable) as any)
     q = applyPolicyWhere(q, targetDef, 'read', s.targetTable)
+    // `query`-derived target filter (e.g. `status:ACTIVE`) — applied on the join's target
+    // side so keyset pagination stays intact (no id-materialization).
+    if (where) q = applyWhereInput(q, targetDef, where as Record<string, unknown>, s.targetTable)
     if (!backward && args.after !== undefined) {
       q = q.where(qualified as any, desc ? '<' : '>', decodeCursor(args.after) as any)
     }

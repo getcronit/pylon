@@ -474,13 +474,14 @@ export interface PaginatedHasMany<R extends object> {
   then: RelatedManager<R>['then']
 }
 export interface PaginatedManyToMany<R extends object> {
-  (first?: number, after?: string, last?: number, before?: string, skip?: number): Promise<Connection<R>>
+  (first?: number, after?: string, last?: number, before?: string, skip?: number, query?: string): Promise<Connection<R>>
   all: ManyToManyManager<R>['all']
   count: ManyToManyManager<R>['count']
   add: ManyToManyManager<R>['add']
   remove: ManyToManyManager<R>['remove']
   clear: ManyToManyManager<R>['clear']
   set: ManyToManyManager<R>['set']
+  filter: ManyToManyManager<R>['filter']
   paginate: ManyToManyManager<R>['paginate']
   then: ManyToManyManager<R>['then']
 }
@@ -1244,7 +1245,8 @@ function installRelationAccessors(proto: any, relations: RelationDefinition[]): 
         enumerable: false,
         get(this: any) {
           const mgr = makeManager(this)
-          return paginate ? asPaginated(mgr) : mgr
+          // Pass the target def so `asPaginated` can parse the `query` arg (→ target `where`).
+          return paginate ? asPaginated(mgr, getModelDefinitionOrThrow(target() as ModelCtor<any>)) : mgr
         },
         set() {
           /* no-op: relation is a computed accessor, not stored state */

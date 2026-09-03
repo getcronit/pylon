@@ -52,7 +52,7 @@ class Tag extends Model {
   static objects = manager(Tag)
   id = id()
   label = text()
-  articles = manyToMany(() => Article)
+  articles = manyToMany(() => Article, {paginate: true})
 }
 new Pylon({db: {models: [Tag]}})
 
@@ -165,5 +165,33 @@ describe.skipIf(!runDb)('relation filtering — EXISTS (Postgres)', () => {
       .paginate({first: 10, orderBy: 'name'})
     expect(page.totalCount).toBe(2)
     expect(page.nodes.map(a => a.name)).toEqual(['Ada', 'Grace'])
+  })
+
+  it('paginated m2m connection filters by a target `query` (ManyToManyManager.filter)', async () => {
+    // A tag linked to a MIX of published + draft articles.
+    const mix = await Tag.objects.create({label: 'mix'})
+    const a1 = (await Article.objects.filter({title: 'A1'}).first())! // published
+    const g2 = (await Article.objects.filter({title: 'G2'}).first())! // draft
+    await mix.articles.add(a1, g2)
+
+    // Baseline: the unfiltered paginated accessor returns BOTH links. (The relation
+    // accessor yields a LAZY connection — nodes/totalCount are awaited getters.)
+    const all = (mix.articles as any)()
+    expect(await all.totalCount).toBe(2)
+    expect((await all.nodes).map((a: any) => a.title).sort()).toEqual(['A1', 'G2'])
+
+    // `.filter(where)` — the core: page + count apply the target WHERE on the join.
+    const pub = await mix.articles.filter({published: true}).paginate({first: 10, orderBy: 'title'})
+    expect(pub.totalCount).toBe(1)
+    expect(pub.nodes.map(a => a.title)).toEqual(['A1'])
+    // lazy twin resolves the same filtered count.
+    const lazyPub = mix.articles.filter({published: true}).paginateLazy({first: 10})
+    expect(await lazyPub.totalCount).toBe(1)
+
+    // End-to-end: the connection's `query` arg (6th positional) → parseSearchQuery →
+    // the same target filter, exactly like a paginated hasMany.
+    const viaQuery = (mix.articles as any)(10, undefined, undefined, undefined, undefined, 'published:false')
+    expect(await viaQuery.totalCount).toBe(1)
+    expect((await viaQuery.nodes).map((a: any) => a.title)).toEqual(['G2'])
   })
 })
