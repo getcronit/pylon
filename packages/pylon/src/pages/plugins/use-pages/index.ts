@@ -33,6 +33,29 @@ export interface UsePagesOptions {
    * a spoofed host points search engines at someone else's domain.
    */
   origin?: string
+  /**
+   * Emit `<link rel="canonical">`. On by default; set `false` to own it yourself.
+   *
+   * The default is right for most sites: the canonical is the page's own URL, and
+   * a self-referencing one is always safe. It is a GUESS, though — derived from
+   * the request path — and there are two things the framework cannot know:
+   *
+   *   - which query parameters matter. `?page=2` is a different set of items and
+   *     belongs in the canonical; `?colour=red` is a filtered view of the same set
+   *     and does not. Both look identical from here.
+   *   - that two routes serve one thing, so one should point at the other.
+   *
+   * Rendering your own alongside this does NOT work: React appends `<link>` to
+   * `<head>` rather than replacing, and it does not deduplicate by `id` or `key`,
+   * so you get two — and search engines discard conflicting canonicals outright.
+   * Hence a flag rather than an override.
+   *
+   * Turning it off does not affect `hreflang`, which stays with `i18n` because
+   * locale basenames are something the framework does know. If you take the
+   * canonical over, keep it consistent with those alternates: a page that
+   * canonicalises elsewhere while advertising them contradicts itself.
+   */
+  canonical?: boolean
 }
 
 export function usePages(options: UsePagesOptions = {}): Plugin {

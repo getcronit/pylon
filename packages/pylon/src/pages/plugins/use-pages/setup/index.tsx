@@ -102,7 +102,7 @@ const runWithOperationClient = <T,>(
 
 export const setup = async (
   app: Parameters<NonNullable<Plugin['setup']>>[0],
-  options: {i18n?: I18nOptions; origin?: string} = {}
+  options: {i18n?: I18nOptions; origin?: string; canonical?: boolean} = {}
 ) => {
   // Silent absence is the failure mode this whole feature exists to prevent, so say it once
   // at boot rather than letting a site ship with no alternates and no clue why.
@@ -723,14 +723,33 @@ export const setup = async (
     // a 404 must not advertise itself as a canonical page with translations, which would
     // invite search engines to index a URL that does not exist. Also skipped without an
     // `origin`, since both tags require absolute URLs.
+    //
+    // Canonical and hreflang are SEPARATE concerns that used to share a
+    // condition. Alternates need `i18n` — locale basenames are the whole point.
+    // A canonical does not: it is this page's own URL, so requiring i18n left a
+    // single-locale site with `origin` emitting neither.
     const metadata =
-      options.origin && i18n && (context.statusCode ?? 200) < 400
+      options.origin && (context.statusCode ?? 200) < 400
         ? (() => {
             const full = new URL(c.req.url).pathname
+            const origin = options.origin!.replace(/\/$/, '')
+
+            if (!i18n) {
+              return {
+                canonical:
+                  options.canonical === false ? undefined : `${origin}${full}`,
+                alternates: []
+              }
+            }
+
             // Strip the active locale's basename to get the path every locale shares.
             const shared = i18n.basename ? full.slice(i18n.basename.length) || '/' : full
             const {byLocale, alternates} = localeUrls(options.i18n!, options.origin!, shared)
-            return {canonical: byLocale[i18n.locale], alternates}
+            return {
+              canonical:
+                options.canonical === false ? undefined : byLocale[i18n.locale],
+              alternates
+            }
           })()
         : undefined
 

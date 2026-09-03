@@ -59,7 +59,7 @@ const DataClientProvider: React.FC<{
     i18n?: any
     /** Server only: `{canonical, alternates}` for this page. */
     metadata?: {
-      canonical: string
+      canonical?: string
       alternates: Array<{hreflang: string; href: string}>
     }
     /** The active locale's messages, already merged over the default locale's. */
@@ -118,8 +118,10 @@ const DataClientProvider: React.FC<{
         {metadata && (
           <>
             {/* Each locale is its OWN canonical. Pointing a translated page at another
-                language's URL is the classic way to make search engines drop it. */}
-            <link rel="canonical" href={metadata.canonical} />
+                language's URL is the classic way to make search engines drop it.
+                Absent when the app took the canonical over — see `canonical` in
+                `usePages`; React would append rather than replace ours. */}
+            {metadata.canonical && <link rel="canonical" href={metadata.canonical} />}
             {/* The full cluster, identical on every locale — that is what makes it
                 bidirectional and self-referential. One bad entry voids all of it. */}
             {metadata.alternates.map(a => (
