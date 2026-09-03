@@ -72,6 +72,10 @@ export function lowerQuery(
   const argAliasesMeta = compiled.argAliases
     ? `,\n  argAliases: ${JSON.stringify(compiled.argAliases)}`
     : ''
+  // Args-inclusive entity storage keys → keeps `field(A)` / `field(B)` distinct on one entity.
+  const argSlotsMeta = compiled.argSlots
+    ? `,\n  argSlots: ${JSON.stringify(compiled.argSlots)}`
+    : ''
   // Tells the runtime client to supply `$__locale` before it hashes the variables.
   const inContextMeta = compiled.inContext ? `,\n  inContext: true` : ''
   // Completeness shape → the runtime read gate (never renders a partial op).
@@ -83,7 +87,7 @@ export function lowerQuery(
     `const ${constName} = ${docFn}<${compiled.resultType}>({\n` +
     `  id: ${JSON.stringify(id)},\n` +
     `  name: ${JSON.stringify(compiled.name)},\n` +
-    `  body: ${JSON.stringify(compiled.body)}${connectionMeta}${argAliasesMeta}${inContextMeta}${shapeMeta}\n` +
+    `  body: ${JSON.stringify(compiled.body)}${connectionMeta}${argAliasesMeta}${argSlotsMeta}${inContextMeta}${shapeMeta}\n` +
     `})`
 
   let variablesThunk: string | undefined

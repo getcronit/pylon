@@ -122,6 +122,21 @@ export interface ArgAliasBranch {
   args: Record<string, string>
 }
 
+/**
+ * A field selection that carries arguments, keyed `OwnerType.responseKey`. The runtime
+ * uses it to give ENTITY arg-fields an args-inclusive STORAGE KEY, so
+ * `ticket.message(id:A)` and `ticket.message(id:B)` don't collide on the same
+ * `Ticket:1` slot (a bare field name is only a valid entity slot for argument-free
+ * fields). `responseKey` is the field name for a lone selection, or its `__pqArg__N`
+ * alias for one branch of a same-query collision.
+ */
+export interface ArgSlot {
+  /** The underlying field name (the storage key's stable prefix). */
+  field: string
+  /** argName → variable name — resolved against the op's variables to key the slot. */
+  argVars: Record<string, string>
+}
+
 export interface CompiledOperation {
   name: string
   /** GraphQL operation source sent over the wire. */
@@ -140,6 +155,12 @@ export interface CompiledOperation {
    * to the branch whose args match. Absent when no field has multiple arg-branches.
    */
   argAliases?: Record<string, ArgAliasBranch[]>
+  /**
+   * Every arg-bearing field selection, keyed `OwnerType.responseKey`. Drives the
+   * runtime's args-inclusive entity storage keys (see `ArgSlot`). Absent when no
+   * selected field takes arguments.
+   */
+  argSlots?: Record<string, ArgSlot>
   /**
    * Compact selection shape (response keys + nesting) driving the runtime
    * completeness gate. Present for queries; absent for mutations.
@@ -253,7 +274,8 @@ export function compileOperation(
     connectionMeta: undefined,
     fillObjectLeaves: options.fillObjectLeaves ?? false,
     argAliases: {},
-    argAliasRegistry: new Map()
+    argAliasRegistry: new Map(),
+    argSlots: {}
   }
 
   // Root operation type is not an entity → no __typename/id injection.
@@ -288,6 +310,7 @@ export function compileOperation(
     variables: ctx.variables.map(v => ({name: v.name, expr: v.expr})),
     connection: ctx.connectionMeta,
     argAliases: Object.keys(ctx.argAliases).length ? ctx.argAliases : undefined,
+    argSlots: Object.keys(ctx.argSlots).length ? ctx.argSlots : undefined,
     // Completeness shape drives the runtime read gate — queries only. Mutations
     // don't flow through `ensure`/Suspense, so they carry no shape.
     shape: operation === 'mutation' ? undefined : buildShape(body)
@@ -313,6 +336,8 @@ interface Ctx {
   fillObjectLeaves: boolean
   /** Accumulated per-field arg-branch aliases (see CompiledOperation.argAliases). */
   argAliases: Record<string, ArgAliasBranch[]>
+  /** Accumulated arg-bearing field selections (see CompiledOperation.argSlots). */
+  argSlots: Record<string, ArgSlot>
   /** `Type.field` → (raw args source → response alias). One registry per operation, so a
    *  field read with the same args at two different positions resolves to the same slot
    *  and the branch that owns the BASE name is picked once, not per position. */
@@ -438,6 +463,9 @@ function compileObject(
           tsEmitted = true
         }
         if (!meta.some(m => m.alias === alias)) meta.push({alias, args: argVars ?? {}})
+        // Storage-key metadata keyed by the RESPONSE key (the alias), so normalize can
+        // rekey each branch's entity slot by its own args.
+        ctx.argSlots[`${type.name}.${alias}`] = {field: key, argVars: argVars ?? {}}
       }
       ctx.argAliases[aliasKey] = meta
       continue
@@ -460,9 +488,15 @@ function compileObject(
       continue
     }
 
-    const {sdl, ts} = compileField(ctx, field, merged, fieldPath)
+    const {sdl, ts, argVars} = compileField(ctx, field, merged, fieldPath)
     selections.push(`${key}${sdl}`)
     tsMembers.push(`${key}: ${ts}`)
+    // A lone arg-bearing selection is never aliased (no same-query collision), so it
+    // lands on the bare response key — record it so normalize gives it an
+    // args-inclusive entity storage key and it can't be clobbered cross-query.
+    if (argVars && Object.keys(argVars).length) {
+      ctx.argSlots[`${type.name}.${key}`] = {field: key, argVars}
+    }
   }
 
   // Normalization metadata — added to the wire document only (not the TS type;

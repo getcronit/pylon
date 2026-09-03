@@ -1,5 +1,5 @@
 import type {FieldDesc, SchemaDescriptor} from './descriptor'
-import {stableStringify} from './hash'
+import {fieldStorageKey, stableStringify} from './hash'
 
 /**
  * Per-operation routing for a field read with multiple different-args call sites:
@@ -147,6 +147,20 @@ function buildField(
     // document + variables at build time. The map thunk is resolved INSIDE the call (not
     // at property-access), so root-resolution timing is unchanged.
     const call = (...args: unknown[]) => {
+      // Args-inclusive ENTITY storage key (see normalize/fieldStorageKey): an entity's
+      // arg-field is written under `field + args`, so a read routes by the CALL's args —
+      // this is what keeps `ticket.message(A)` and `ticket.message(B)` distinct on one
+      // `Ticket:1`. `sk === fieldName` when there are no args; otherwise try that slot,
+      // and only take it if present (non-entity owners don't have it → fall through).
+      const sk = fieldStorageKey(fieldName, args[0] as Record<string, unknown> | undefined)
+      if (sk !== fieldName) {
+        const owner = getOwner()
+        if (owner != null && sk in (owner as object)) {
+          return buildValue(() => ctx.deref((owner as any)[sk]), fd, ctx)
+        }
+      }
+      // Same-query collisions on NON-entity owners (root / connection) route via the
+      // per-operation arg-alias map to their `__pqArg__N` response slot.
       const src = ctx.argAliasMap
       const map = typeof src === 'function' ? src() : src
       // `Type.field`; the bare name is the pre-typed-key fallback for a stale build.

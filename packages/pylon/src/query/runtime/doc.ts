@@ -72,6 +72,15 @@ export interface DocInit {
    * `data.field(args)` routes to the matching slot. Absent unless a field has arg-branches.
    */
   argAliases?: Record<string, Array<{alias: string; args: Record<string, string>}>>
+  /**
+   * Every arg-bearing field selection, keyed `OwnerType.responseKey`, as
+   * `{field, argVars}` (argName → variable). The client resolves it against the
+   * operation's variables to give ENTITY arg-fields an args-inclusive STORAGE KEY, so
+   * `ticket.message(id:A)` and `ticket.message(id:B)` occupy distinct slots on the same
+   * `Ticket:1` instead of clobbering the bare `message` slot. Absent unless a selected
+   * field takes arguments.
+   */
+  argSlots?: Record<string, {field: string; argVars: Record<string, string>}>
 }
 
 /**

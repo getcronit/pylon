@@ -99,6 +99,30 @@ describe('compileOperation', () => {
     })
   })
 
+  it('records argSlots for an arg-bearing entity field (drives args-inclusive storage keys)', () => {
+    // `me.tally(kind:)` is an arg-field on the User ENTITY. Even though it is selected
+    // ONCE (no same-query collision, so no alias), it must be recorded so normalize
+    // gives it a per-args entity slot instead of the bare `tally` name.
+    const op = compile({me: {name: true, tally: {__args: '{ kind: k }'}}})
+    expect(op.argSlots).toEqual({
+      'User.tally': {field: 'tally', argVars: {kind: 'v0'}}
+    })
+  })
+
+  it('records argSlots per branch for a same-query arg collision', () => {
+    const op = compile({
+      me: {tally: [{__args: '{ kind: a }'}, {__args: '{ kind: b }'}]}
+    })
+    expect(op.argSlots).toEqual({
+      'User.tally': {field: 'tally', argVars: {kind: 'v0'}},
+      'User.tally__pqArg__1': {field: 'tally', argVars: {kind: 'v1'}}
+    })
+  })
+
+  it('omits argSlots when no selected field takes arguments', () => {
+    expect(compile({me: {name: true}}).argSlots).toBeUndefined()
+  })
+
   it('aliases arg-branches on a NESTED field too, not just root ones', () => {
     // Regression: aliasing was scoped to root fields, so three reads of one nested field
     // with different args compiled to a single `tally(kind: $v0)` and reported the FIRST

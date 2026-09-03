@@ -8,6 +8,7 @@ import {
 } from './fetcher'
 import {isRef, normalize} from './normalize'
 import {isSatisfied} from './satisfied'
+import {buildSlotResolver} from './storage-key'
 import {Store} from './store'
 import {buildArgAliasMap, wrapResult, type ArgAliasMapSource} from './wrap'
 
@@ -223,7 +224,10 @@ export class PylonQueryClient {
         let data: unknown = res.data
         const nestedConnection = (d.connection?.path?.length ?? 0) > 1
         if (!nestedConnection) {
-          const {root, entities} = normalize(res.data)
+          const {root, entities} = normalize(
+            res.data,
+            buildSlotResolver(d.argSlots, variables)
+          )
           this.store.mergeEntities(entities)
           data = root
         }
@@ -282,7 +286,14 @@ export class PylonQueryClient {
       // THIS document fills every field it selected, so the read never sees a hole.
       // (`shape` absent → gate off → unchanged behavior; complete-but-stale still
       // serves immediately, so SWR never over-suspends on a mutation re-render.)
-      if (isSatisfied(d.shape, entry.data, this.deref)) {
+      if (
+        isSatisfied(
+          d.shape,
+          entry.data,
+          this.deref,
+          buildSlotResolver(d.argSlots, variables)
+        )
+      ) {
         this.completenessRefetch.delete(key)
         return {key, data: entry.data as TResult}
       }
@@ -435,7 +446,10 @@ export class PylonQueryClient {
     if (res.errors && res.errors.length) {
       throw new GraphQLResultError(res.errors)
     }
-    const {root, entities} = normalize(res.data)
+    const {root, entities} = normalize(
+      res.data,
+      buildSlotResolver(doc.argSlots, variables)
+    )
     this.store.mergeEntities(entities)
 
     const rootObj = (root ?? {}) as Record<string, unknown>
