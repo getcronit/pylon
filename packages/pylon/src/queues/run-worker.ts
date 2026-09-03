@@ -16,7 +16,7 @@
  * the real config is the point: the worker shares the app's exact DB/identity/outbox wiring
  * rather than reconstructing a partial copy.
  */
-import {executeConfig} from '../core/index.js'
+import {executeConfig} from '@getcronit/pylon'
 
 // Mark the role BEFORE any plugin setup runs — `useNodeServer`/`useQueues` read it at setup.
 process.env.PYLON_ROLE = 'worker'
