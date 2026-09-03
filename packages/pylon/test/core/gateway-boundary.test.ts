@@ -2,6 +2,7 @@ import {delegateToSchema} from '@graphql-tools/delegate'
 import {
   buildSchema,
   execute,
+  GraphQLError,
   GraphQLObjectType,
   OperationTypeNode,
   parse,
@@ -502,3 +503,114 @@ const typedGateway = createGateway<FakeRegistry>().configure({
     guard: r => r.isPublished === true
   })
 }
+
+describe('a delegation error is thrown, not returned', () => {
+  /**
+   * `delegateToSchema` hands back a `GraphQLError` when the remote rejected the
+   * request. Returning it makes it the field's VALUE, and the executor then
+   * completes it as the field's type — observed against a real remote, a
+   * "Session not found" surfaced as `Organisation.name === "GraphQLError"`
+   * (the error's own `name`) and a bogus non-null violation on a sibling field.
+   */
+  const remoteThatRejects = () => {
+    const schema = buildSchema(`
+      type Org { name: String!, email: String! }
+      type Query { org: Org }
+    `)
+    schema.getQueryType()!.getFields().org.resolve = () => {
+      throw new GraphQLError('Session not found', {
+        extensions: {code: 'AUTH_NOT_AUTHENTICATED', statusCode: 401}
+      })
+    }
+    return schema
+  }
+
+  it('surfaces the upstream message, not a non-null violation on a sibling', async () => {
+    const remote = remoteThatRejects()
+    const gateway = buildSchema(`
+      type Org { name: String!, email: String! }
+      type Query { org: Org }
+    `)
+    gateway.getQueryType()!.getFields().org.resolve = async (
+      _r: any,
+      _a: any,
+      context: any,
+      info: any
+    ) => {
+      const result: any = await delegateToSchema({
+        schema: remote,
+        operation: OperationTypeNode.QUERY,
+        fieldName: 'org',
+        context,
+        info
+      })
+      // What the gateway now does — see PylonGateway.delegate.
+      if (result instanceof Error) throw result
+      return result
+    }
+
+    const res: any = await execute({
+      schema: gateway,
+      document: parse('{ org { name } }')
+    })
+
+    expect(res.errors?.[0]?.message).toBe('Session not found')
+    expect(res.errors?.[0]?.extensions?.code).toBe('AUTH_NOT_AUTHENTICATED')
+    // The failure mode this replaces: the error completed AS the object.
+    expect(res.data?.org?.name).not.toBe('GraphQLError')
+  })
+
+  it('returning the error instead would complete it as the type', async () => {
+    // Pinned so the reason for throwing is not lost: `name` resolves to the
+    // Error's own `name` property, which is why the old behaviour looked like
+    // real data.
+    const err = new GraphQLError('Session not found')
+    expect((err as any).name).toBe('GraphQLError')
+  })
+})
+
+describe('errors survive the patch transform', () => {
+  const patches = {Product: (p: any) => ({__typename: 'Product', id: p.id})}
+
+  it('returns a delegated Error untouched, prototype intact', () => {
+    // The regression: `{...err}` keeps `message` but drops the prototype, so
+    // `instanceof Error` goes false and the executor completes the error AS the
+    // field's type — reporting a non-null violation on some unrelated field
+    // while the real cause disappears.
+    const t = new PylonPatchTransform(patches, {})
+    const err = new GraphQLError('Session not found', {
+      extensions: {code: 'AUTH_NOT_AUTHENTICATED'}
+    })
+
+    const out = t.transformResult(err)
+
+    expect(out).toBe(err)
+    expect(out instanceof Error).toBe(true)
+    expect(out.message).toBe('Session not found')
+    expect(out.extensions.code).toBe('AUTH_NOT_AUTHENTICATED')
+  })
+
+  it('keeps a plain Error too — not just GraphQLError', () => {
+    const t = new PylonPatchTransform(patches, {})
+    const err = new Error('connect ECONNREFUSED')
+
+    expect(t.transformResult(err)).toBe(err)
+  })
+
+  it('preserves an error nested inside a patched result', () => {
+    const t = new PylonPatchTransform(patches, {})
+    const err = new GraphQLError('upstream said no')
+    const out = t.transformResult({__typename: 'Product', id: '1', related: err})
+
+    expect(out.related).toBe(err)
+    expect(out.related instanceof Error).toBe(true)
+  })
+
+  it('does not mistake a plain object carrying a message for an error', () => {
+    const t = new PylonPatchTransform(patches, {})
+    const out = t.transformResult({__typename: 'Product', id: '1', message: 'hi'})
+
+    expect(out instanceof Error).toBe(false)
+    expect(out.id).toBe('1')
+  })
+})

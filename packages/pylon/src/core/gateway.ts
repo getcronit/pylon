@@ -630,6 +630,16 @@ export class PylonPatchTransform<TPatch> implements Transform {
 
   private applyTransforms(data: any): any {
     if (!data || typeof data !== 'object') return data
+
+    // An Error is a RESULT, not data. Delegation returns one when the remote
+    // rejected the request, and spreading it below would strip its prototype:
+    // `{...err} instanceof Error` is false, so the executor stops treating it
+    // as a failure and tries to COMPLETE it as the field's type. A remote
+    // "Session not found" then surfaces to the caller as
+    // "Cannot return null for non-nullable field X.y" — pointing at an
+    // unrelated field, with the real cause gone.
+    if (data instanceof Error) return data
+
     if (Array.isArray(data)) return data.map(item => this.applyTransforms(item))
 
     const processedData = {...data}
@@ -826,6 +836,18 @@ class PylonGateway<
         new PylonPatchTransform(this.config.patches, this.apiContext, this.config.strict)
       ]
     })
+
+    // THROW a delegation error rather than returning it.
+    //
+    // `delegateToSchema` hands back a `GraphQLError` when the remote rejected
+    // the request. Returning it makes it the field's VALUE, and the executor
+    // then completes it as the field's type: a remote "Session not found"
+    // surfaces as `Organisation.name === "GraphQLError"` (the error's own
+    // `name`) and `Cannot return null for non-nullable field
+    // Organisation.locations` for everything else — the real cause gone, the
+    // blame on an unrelated field. Throwing is what every executor reads as a
+    // field failure, so the upstream message and extensions reach the caller.
+    if (result instanceof Error) throw result
 
     // A rejected row is `null`, not an error: "not visible to you" and "does not
     // exist" are the same answer to a caller who may not know the difference.
