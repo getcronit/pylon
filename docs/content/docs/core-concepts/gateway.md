@@ -105,6 +105,120 @@ A patch that adds a field must declare the source data it depends on in `needs`
 (here `firstName`, `lastName`, and `orgId`), so the gateway requests it from the
 remote even when the client didn't ask for it directly.
 
+## Constrain what a delegated field returns
+
+Patches control **fields**. They run on the *result*, so on their own they do not
+control the **arguments** a client may send, nor the types a selection can reach
+through a patched field. That is fine when the gateway forwards the caller's
+identity and the remote enforces permissions. It matters when the gateway
+authenticates with a fixed service credential — then your configuration *is* the
+boundary, and two things are open by default.
+
+### Restrict and force arguments with `pass`
+
+A filter applied in one resolver does not apply to the same rows reached through
+another field. If `Query.products` constrains what is visible, a nested
+`ProductCollection.products` still reaches the remote with whatever the client
+sent:
+
+```graphql
+{ productCollections { products(query: "status:DRAFT") { nodes { title } } } }
+```
+
+`pass` attaches an argument policy to a patch:
+
+```ts title="src/index.ts"
+import {createGateway, pass} from '@getcronit/pylon'
+
+const catalogue = createGateway<CatalogueRegistry>().configure({
+  url: process.env.CATALOGUE_URL!,
+  patches: {
+    ProductCollection: pass(
+      c => ({handle: c.handle, name: c.name, products: c.products}),
+      {
+        products: {
+          args: ['first', 'last', 'after', 'before', 'skip'],
+          force: {query: 'status:ACTIVE published:true'}
+        }
+      }
+    )
+  }
+})
+```
+
+- **`force`** is applied to the outgoing request and **overrides** what the
+  client sent. It is a constraint, not a default.
+- **`args`** is an allowlist. An argument outside it is rejected — so an argument
+  the remote adds *later* is denied by default, the same rule fields already
+  follow. Omit `args` to allow everything and only force.
+- A forced argument is always permitted, whether or not it appears in `args`.
+
+The type name comes from the patch's own key, so it is never repeated. Values are
+constants, or `(ctx) => value` for per-request ones:
+
+```ts
+{orders: {force: {tenantId: ctx => ctx.get('tenantId')}}}
+```
+
+Because the arguments travel in the same request, the nested selection is still
+one round trip. A hand-written patch function that re-delegates from the root
+instead costs a call per row, and re-implements whatever the nested field meant.
+
+Root fields need nothing here: a delegated root field is called from your own
+resolver, which already decides its arguments.
+
+:::note
+`args` is enforced on the request, not carved out of the SDL — a denied argument
+is still advertised by the schema and fails when used. Removing it from the
+published schema needs the schema builder to filter arguments by name, which is
+tracked separately.
+:::
+
+### Decide with a field you do not expose — `guard`
+
+The usual reason to fetch a field you never publish is to make a decision with
+it. `guard` receives exactly what `needs` selected, and turns a rejection into
+`null`:
+
+```ts title="src/index.ts"
+product: (handle: string) =>
+  catalogue.delegate('Query.product', {
+    args: {handle},
+    needs: {status: true, isPublished: true},
+    guard: r => r.status === 'ACTIVE' && r.isPublished
+  })
+```
+
+`r` is typed from `needs`, so removing an entry from `needs` breaks the guard at
+compile time instead of silently disabling it. The **returned** type is
+unchanged — the guard's fields never join it, which is what keeps them out of
+your published schema.
+
+### Fail closed on unpatched types
+
+A type reachable through a patched field but not itself patched is exposed in
+full, and grows as the remote adds fields to it. `strict` turns that omission
+into an error:
+
+```ts title="src/index.ts"
+import {createGateway, passthrough} from '@getcronit/pylon'
+
+createGateway<Registry>().configure({
+  url,
+  strict: true,
+  patches: {
+    Product: p => ({id: p.id, title: p.title, price: p.price}),
+    // `Money` is deliberately transparent — say so, rather than leaving it out
+    Money: passthrough()
+  }
+})
+```
+
+Under `strict`, delegating a selection that reaches a type with no patch fails
+and names the type. It is off by default: switching it on removes types an
+existing gateway is already serving, which is the point, but it is a breaking
+change to adopt.
+
 ## Polymorphic types across services
 
 Interfaces and unions stitch cleanly too. A patch sets `__typename` on the remote

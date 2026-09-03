@@ -23,6 +23,7 @@ export interface User {
   lastName: String;
   orgId: String;
   seenAuth: String;
+  orders(status?: String, limit?: Number): Array<String>;
 }
 
 export interface RemoteRegistry {

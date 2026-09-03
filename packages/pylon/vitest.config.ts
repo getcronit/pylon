@@ -29,7 +29,11 @@ const alias = [
 ]
 
 export default defineConfig({
-  resolve: {alias},
+  // `dedupe` keeps ONE copy of graphql in the run. graphql-js compares schemas
+  // by instance, so a second copy pulled in through @graphql-tools makes
+  // delegation fail with "Cannot use GraphQLSchema from another module or
+  // realm" — which is a test-harness artifact, not a defect in the code.
+  resolve: {alias, dedupe: ['graphql']},
   esbuild: {
     target: 'es2022',
     // The ORM's decorator-based model authoring needs legacy decorators + fields
@@ -44,6 +48,10 @@ export default defineConfig({
     // db integration shares one Postgres (single `_pylon_migrations` ledger) and
     // queues integration shares one Redis — run files sequentially so they don't
     // race. Unit tests are fast, so serializing everything costs little.
-    fileParallelism: false
+    fileParallelism: false,
+    // Inlined so graphql-tools resolves through vite and picks up the deduped
+    // `graphql` above. Without both, delegation tests fail with "Cannot use
+    // GraphQLSchema from another module or realm" — a harness artifact.
+    server: {deps: {inline: [/@graphql-tools/]}}
   }
 })

@@ -87,6 +87,27 @@ users.delegate('Query.user', {
 })
 ```
 
+### Decide with a field you never expose
+
+The other reason to fetch a field is to make a decision with it — is this row
+visible, does it belong to this tenant — without publishing it. Those fields are
+deliberately absent from the type the patch returns, so they are not readable on
+the result either. `guard` is where they *are* readable:
+
+```ts title="src/index.ts"
+users.delegate('Query.user', {
+  args: {id},
+  needs: {id: true, firstName: true, lastName: true, status: true},
+  guard: u => u.status === 'ACTIVE'   // typed from `needs`
+})
+```
+
+The guard's argument is typed from `needs`, so deleting an entry breaks the
+guard at compile time rather than quietly disabling it. A rejected row resolves
+to `null` — "not visible to you" and "does not exist" are the same answer to a
+caller who cannot tell the difference — and the returned type is unchanged, which
+is what keeps `status` out of your schema.
+
 ### The return shape is authoritative
 
 Whatever the patch returns *is* the type Pylon exposes, so the object you build
@@ -112,6 +133,22 @@ patches: {
 Because the patch destructures `ssn` out, the generated `User` type simply doesn't
 have that field — even though the remote returns it. A bare `u => ({...u})` is the
 identity patch: every remote field forwarded unchanged.
+
+:::warning[Authoritative over fields, not over arguments or nested types]
+A patch runs on the *result*, so "authoritative" covers the fields of the type it
+patches — and stops there:
+
+- **Arguments** on a delegated field still reach the remote as the client sent
+  them. A filter you apply in one resolver does not apply to the same data
+  reached through another field.
+- **A nested type with no patch of its own** is forwarded whole, and gains any
+  field the remote adds to it later.
+
+Both are fine when the gateway forwards the caller's identity and the remote
+enforces permissions, as this guide does. If it authenticates with a fixed
+service credential instead, close them with `pass` and `strict` — see
+[Gateway](/docs/core-concepts/gateway#constrain-what-a-delegated-field-returns).
+:::
 
 ## 4. Reach across services in a patch
 

@@ -8,6 +8,8 @@
  *   - the computed `fullName` patch surfaces,
  *   - `needs` limits the upstream fetch (a non-needed field comes back null),
  *   - per-request auth header is forwarded (echoed by the remote's `seenAuth`),
+ *   - `pass` forces an argument on a delegated field, overriding the client's,
+ *   - `pass` rejects an argument outside its allowlist,
  *   - a missing remote row resolves to null.
  * No DB/docker.
  */
@@ -162,6 +164,27 @@ describe('gateway — three real Pylon services, pull + cross-service delegate o
     const r = await gql(frontUrl, '{ fullUser(id: "u1") { email org { name } } }')
     expect(r.errors).toBeUndefined()
     expect(r.data.fullUser).toEqual({email: 'ada@x.com', org: {name: 'Acme'}})
+  })
+
+  it('pass() forces an argument, overriding the client', async () => {
+    // The client asks for DRAFT; the gateway forces ACTIVE. A patch could not
+    // do this — by the time it runs, the remote has already answered.
+    const r = await gql(frontUrl, '{ fullUser(id: "u1") { orders(status: "DRAFT") } }')
+    expect(r.errors).toBeUndefined()
+    expect(r.data.fullUser.orders).toEqual(['o1:ACTIVE'])
+  })
+
+  it('pass() applies when the client passes no argument at all', async () => {
+    const r = await gql(frontUrl, '{ fullUser(id: "u1") { orders } }')
+    expect(r.errors).toBeUndefined()
+    expect(r.data.fullUser.orders).toEqual(['o1:ACTIVE'])
+  })
+
+  it('pass() rejects an argument outside the allowlist', async () => {
+    // `limit` is a real argument on the remote — the front's schema accepts it,
+    // so this is denied by the boundary rather than by GraphQL validation.
+    const r = await gql(frontUrl, '{ fullUser(id: "u1") { orders(limit: 1) } }')
+    expect(r.errors?.[0]?.message ?? '').toMatch(/not allowed/)
   })
 
   it('returns a missing remote row as null', async () => {

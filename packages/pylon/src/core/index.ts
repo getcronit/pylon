@@ -157,4 +157,5 @@ export type ID = string & {readonly brand?: unique symbol}
 export type Int = number & {readonly brand?: unique symbol}
 export type Float = number & {readonly brand?: unique symbol}
 
-export {createGateway} from './gateway.js'
+export {createGateway, pass, passthrough} from './gateway.js'
+export type {FieldPolicy, PatchPolicy} from './gateway.js'

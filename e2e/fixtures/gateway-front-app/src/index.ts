@@ -3,7 +3,7 @@
 // enriches a user with `org` by delegating to the OTHER service's gateway — proving
 // cross-service composition inside a patch. Registries come from `pylon pull` (both
 // export `RemoteRegistry`, so they're aliased on import).
-import {Pylon, createGateway} from '@getcronit/pylon'
+import {Pylon, createGateway, pass} from '@getcronit/pylon'
 import type {RemoteRegistry as UsersRegistry} from './generated/users'
 import type {RemoteRegistry as OrgsRegistry} from './generated/orgs'
 
@@ -19,12 +19,18 @@ const users = createGateway<UsersRegistry>().configure({
   url: process.env.REMOTE_URL ?? 'http://localhost:4901/graphql',
   headers: fwd,
   patches: {
-    User: u => ({
-      ...u,
-      fullName: `${u.firstName} ${u.lastName}`,
-      // delegate to the OTHER service (the orgs gateway), lazily, when `org` is selected
-      org: () => orgs.delegate('Query.org', {args: {id: u.orgId}, needs: {id: true, name: true}})
-    })
+    // `pass` attaches an argument policy to the patch. A patch alone runs on the
+    // RESULT, so it cannot constrain what was asked for — `User.orders` would
+    // reach the remote with whatever the client sent.
+    User: pass(
+      u => ({
+        ...u,
+        fullName: `${u.firstName} ${u.lastName}`,
+        // delegate to the OTHER service (the orgs gateway), lazily, when `org` is selected
+        org: () => orgs.delegate('Query.org', {args: {id: u.orgId}, needs: {id: true, name: true}})
+      }),
+      {orders: {args: [], force: {status: 'ACTIVE'}}}
+    )
   }
 })
 

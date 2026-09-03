@@ -5,6 +5,7 @@ import {
   ArgumentNode,
   FieldNode,
   getNamedType,
+  GraphQLError,
   isEnumType,
   Kind,
   OperationTypeNode,
@@ -43,6 +44,39 @@ export type NeedsMap<T> = T extends Primitive
       : {
           [K in keyof T]?: NeedsMap<T[K]> | boolean
         } & {__args?: Record<string, any>}
+
+/**
+ * The fields a `needs` selection actually fetched, as a type.
+ *
+ * `NeedsMap` describes what you MAY ask for; this is the mirror — what you asked
+ * for, so it can be read back. Without it `needs` is invisible to the checker:
+ * the fields are fetched at runtime, are usually (deliberately) absent from the
+ * patched type, and the only way to reach them is an unchecked cast that
+ * re-states the selection by hand.
+ *
+ * Deliberately shallow-ish and forgiving: anything it cannot resolve degrades to
+ * `unknown` rather than widening the whole result, so a `needs` shape it does not
+ * understand never makes the patched half of the return worse.
+ */
+type NeedsResult<N, T> = T extends (...args: any[]) => infer R
+  ? NeedsResult<N, Awaited<R>>
+  : T extends Array<infer U>
+    ? Array<NeedsResult<N, U>>
+    : N extends true
+      ? T
+      : N extends object
+        ? {
+            [K in Exclude<keyof N, '__args'> &
+              keyof NonNullable<T> as N[K] extends false | undefined
+              ? never
+              : K]: N[K] extends true
+              ? NeedsField<NonNullable<T>[K]>
+              : NeedsResult<N[K], NonNullable<T>[K]>
+          }
+        : unknown
+
+/** A leaf `needs: true` — unwrap a callable field to what it returns. */
+type NeedsField<T> = T extends (...args: any[]) => infer R ? Awaited<R> : T
 
 /**
  * Maps over the properties of the resolved type within the registry.
@@ -90,6 +124,46 @@ type PatchSchema<T, P, R> = T extends Primitive
 // Implements a Promise-based cache to synchronize remote schema introspection
 // and mitigate race conditions during concurrent initialization.
 const schemaCache = new Map<string, Promise<any>>()
+
+/**
+ * The remote schema, introspected once per URL.
+ *
+ * The cache holds the PROMISE, which is what makes eviction on failure
+ * essential: without it a single rejected introspection — the remote being down
+ * when the first request happens to arrive — is replayed to every later request
+ * for the life of the process, so the gateway never recovers from a remote
+ * restart and reports a connection error for a remote that is demonstrably up.
+ *
+ * The delete is guarded on identity so a late rejection from a superseded
+ * attempt cannot evict the entry a newer one already installed.
+ */
+export async function getRemoteSchema(
+  url: string,
+  makeExecutor: () => any
+): Promise<any> {
+  const cached = schemaCache.get(url)
+  if (cached) return cached
+
+  const executor = makeExecutor()
+  const entry: Promise<any> = Promise.resolve(schemaFromExecutor(executor))
+    .then(schema => wrapSchema({schema, executor}))
+    .catch(err => {
+      if (schemaCache.get(url) === entry) schemaCache.delete(url)
+      throw new Error(
+        `Gateway could not introspect the remote schema at ${url}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+        {cause: err}
+      )
+    })
+  schemaCache.set(url, entry)
+  return entry
+}
+
+/** Test seam: drop every cached schema. */
+export function __resetSchemaCache() {
+  schemaCache.clear()
+}
 
 export interface GatewayContext<TRegistry extends {delegate: any; types: any}> {
   delegate: <
@@ -341,10 +415,187 @@ class InlineArgsTransform implements Transform {
   }
 }
 
-class PylonPatchTransform<TPatch> implements Transform {
+/**
+ * The argument policy for one field of a patched type.
+ *
+ * `args` is an ALLOWLIST: name the arguments a caller may set. Anything else is
+ * rejected, so an argument the remote adds later is denied by default — the same
+ * rule fields already follow. Omit it to allow everything.
+ *
+ * `force` is applied to the outgoing request and OVERRIDES whatever the caller
+ * sent. It is a constraint, not a default. Values are constants, or
+ * `(ctx) => value` for per-request ones. A forced argument is always allowed,
+ * whether or not it appears in `args`.
+ */
+export interface FieldPolicy {
+  args?: readonly string[]
+  force?: Record<string, unknown | ((ctx: any) => unknown)>
+}
+
+/** Per-field policies for one patched type, keyed by field name. */
+export type PatchPolicy = Record<string, FieldPolicy>
+
+const POLICY = Symbol.for('pylon.gateway.policy')
+
+/**
+ * Attach an argument policy to a patch.
+ *
+ * A patch transforms the RESULT of a delegated field, so on its own it cannot
+ * constrain what was ASKED FOR: by the time it runs, the caller's arguments have
+ * already reached the remote. A filter applied in one resolver therefore does not
+ * apply to the same rows reached through a nested field.
+ *
+ *     patches: {
+ *       ProductCollection: pass(
+ *         c => ({handle: c.handle, name: c.name, products: c.products}),
+ *         {
+ *           products: {
+ *             args: ['first', 'last', 'after', 'before', 'skip'],
+ *             force: {query: 'status:ACTIVE published:true'}
+ *           }
+ *         }
+ *       )
+ *     }
+ *
+ * The type name comes from the patch's own key, so it is never repeated. Root
+ * fields need nothing here: a delegated root field is called from your own
+ * resolver, which already decides its arguments.
+ *
+ * The patch is returned unchanged — its signature, and so the schema it
+ * generates, is untouched.
+ */
+export function pass<D, A, R>(
+  patch: (data: D, api: A) => R,
+  policy: PatchPolicy
+): (data: D, api: A) => R {
+  // Generic in the PARAMETERS rather than in the whole function type: a
+  // `F extends (data: any, ...) => any` constraint types `data` as `any` before
+  // the surrounding `patches` map can contextually type it, so the patch loses
+  // the registry type of its own argument and every spread degrades to `any`.
+  Object.defineProperty(patch, POLICY, {value: policy, enumerable: false})
+  return patch
+}
+
+/** Collect `Type.field` → policy from a patch map. */
+function collectPolicies(patches: any): Map<string, FieldPolicy> {
+  const out = new Map<string, FieldPolicy>()
+  for (const [typeName, patch] of Object.entries(patches ?? {})) {
+    const policy = (patch as any)?.[POLICY] as PatchPolicy | undefined
+    if (!policy) continue
+    for (const [field, fieldPolicy] of Object.entries(policy)) {
+      out.set(`${typeName}.${field}`, fieldPolicy)
+    }
+  }
+  return out
+}
+
+/**
+ * Applies field policies to the outgoing request.
+ *
+ * Two jobs, both impossible from a result-side patch:
+ *
+ *   - REJECT an argument outside the allowlist, so a caller cannot reach a knob
+ *     the boundary never granted — including one the remote added after this
+ *     gateway was written;
+ *   - FORCE an argument, overriding whatever the caller sent.
+ *
+ * Both rewrite the document that goes upstream, so the nested selection still
+ * travels inside its parent's single request and nothing here costs a round trip.
+ *
+ * `InlineArgsTransform` cannot do this job: it matches only the root field
+ * (`delegationContext.fieldName`), which is why nested arguments are otherwise
+ * out of reach.
+ */
+export class ForceArgsTransform implements Transform {
+  constructor(
+    private policies: Map<string, FieldPolicy> | undefined,
+    private ctx: any
+  ) {}
+
+  transformRequest(originalRequest: any, delegationContext: any) {
+    if (!this.policies || this.policies.size === 0) return originalRequest
+
+    // Resolve `(ctx) => value` entries once per request, not once per node.
+    const forced = new Map<string, ArgumentNode[]>()
+    for (const [key, policy] of this.policies) {
+      const nodes: ArgumentNode[] = []
+      for (const [name, value] of Object.entries(policy.force ?? {})) {
+        const v = typeof value === 'function' ? (value as any)(this.ctx) : value
+        if (v === undefined) continue
+        nodes.push({
+          kind: Kind.ARGUMENT,
+          name: {kind: Kind.NAME, value: name},
+          value: astFromJSValue(v)
+        })
+      }
+      forced.set(key, nodes)
+    }
+
+    const policies = this.policies
+    // The parent type of each field is only knowable with a type-info walk —
+    // the document alone says `products`, not which `products`.
+    const typeInfo = new TypeInfo(delegationContext.targetSchema)
+    const document = visit(
+      originalRequest.document,
+      visitWithTypeInfo(typeInfo, {
+        Field(node) {
+          const parent = typeInfo.getParentType()
+          if (!parent) return
+          const key = `${parent.name}.${node.name.value}`
+          const policy = policies.get(key)
+          if (!policy) return
+
+          const forcedNodes = forced.get(key) ?? []
+
+          // Deny first: an argument outside the allowlist must fail, not be
+          // quietly dropped — silently discarding a filter changes what the
+          // caller asked for without telling them.
+          if (policy.args) {
+            const allowed = new Set<string>([
+              ...policy.args,
+              ...Object.keys(policy.force ?? {})
+            ])
+            for (const arg of node.arguments ?? []) {
+              if (!allowed.has(arg.name.value)) {
+                throw new GraphQLError(
+                  `Argument "${arg.name.value}" is not allowed on "${key}".`,
+                  {
+                    nodes: [arg],
+                    extensions: {
+                      code: 'GATEWAY_ARGUMENT_NOT_ALLOWED',
+                      field: key,
+                      argument: arg.name.value,
+                      allowed: [...allowed].sort()
+                    }
+                  }
+                )
+              }
+            }
+          }
+
+          if (forcedNodes.length === 0) return
+
+          const merged = [...(node.arguments || [])]
+          for (const arg of forcedNodes) {
+            const i = merged.findIndex(a => a.name.value === arg.name.value)
+            // Override, never merge: a caller-supplied value must not survive.
+            if (i > -1) merged[i] = arg
+            else merged.push(arg)
+          }
+          return {...node, arguments: merged}
+        }
+      })
+    )
+
+    return {...originalRequest, document}
+  }
+}
+
+export class PylonPatchTransform<TPatch> implements Transform {
   constructor(
     private patches: TPatch,
-    private api: any
+    private api: any,
+    private strict = false
   ) {}
 
   // Injects __typename into all selection sets via AST traversal to ensure
@@ -390,6 +641,21 @@ class PylonPatchTransform<TPatch> implements Transform {
     // `patches` is optional — a pure pass-through gateway has none. Guard the lookup
     // so a patch-less gateway doesn't crash on `undefined[typeName]`.
     const patchFn = typeName ? (this.patches as any)?.[typeName] : undefined
+
+    // Default-deny. Without this, a type reachable through a patched field but
+    // not itself patched is published WHOLE — so the patch map is an allowlist
+    // only for the types someone remembered, and a type the remote adds later
+    // arrives in the public schema with no code change and nothing to review.
+    // `strict` turns that omission into a failure. Opt-in, because switching it
+    // on removes types an existing gateway is already serving.
+    if (this.strict && typeName && !patchFn) {
+      throw new Error(
+        `Gateway (strict): no patch for remote type "${typeName}", so it would ` +
+          `be exposed in full. Add a patch for it, or declare it deliberately ` +
+          `with \`${typeName}: passthrough()\`.`
+      )
+    }
+
     if (patchFn) {
       const patchedData = patchFn(processedData, this.api)
 
@@ -427,12 +693,47 @@ class PylonGateway<
       url: string
       headers?: (ctx: any) => Record<string, string>
       patches?: TPatch
+      strict?: boolean
     }
   ) {
     this.apiContext = {
       delegate: this.delegate.bind(this) as any
     }
+    // Collected once: the policies are static, and the type name each one
+    // belongs to is the patch's own key.
+    this.policies = collectPolicies(this.config.patches)
   }
+
+  private policies: Map<string, FieldPolicy>
+
+  /**
+   * Delegate with a guard — the result is `null` when the guard rejects it.
+   *
+   * The guard's argument is typed from `needs`, which is the only way to read
+   * back a field you fetched purely to decide with. Intersecting those fields
+   * into the RETURN type instead does not work: an intersection is a
+   * structurally new type, so the schema builder mints a second `Org_1`
+   * alongside `Org` and then rejects the duplicate. Keeping them inside the
+   * guard leaves the returned type — the one the schema is generated from —
+   * exactly as it was.
+   */
+  public async delegate<
+    K extends keyof TRegistry['delegate'],
+    TNeeds extends NeedsMap<TRegistry['delegate'][K]['return']> = NeedsMap<
+      TRegistry['delegate'][K]['return']
+    >
+  >(
+    key: K,
+    options: {
+      args?: TRegistry['delegate'][K]['args']
+      needs?: TNeeds
+      guard: (data: NeedsResult<TNeeds, TRegistry['delegate'][K]['return']>) => boolean
+    }
+  ): Promise<PatchSchema<
+    TRegistry['delegate'][K]['return'],
+    TPatch,
+    TRegistry['types']
+  > | null>
 
   public async delegate<
     K extends keyof TRegistry['delegate'],
@@ -446,16 +747,35 @@ class PylonGateway<
       : [options: {args: TRegistry['delegate'][K]['args']; needs?: TNeeds}]
   ): Promise<
     PatchSchema<TRegistry['delegate'][K]['return'], TPatch, TRegistry['types']>
-  > {
+  >
+
+  public async delegate<
+    K extends keyof TRegistry['delegate'],
+    TNeeds extends NeedsMap<TRegistry['delegate'][K]['return']> = NeedsMap<
+      TRegistry['delegate'][K]['return']
+    >
+  >(
+    key: K,
+    ...opts: [
+      options?: {
+        args?: TRegistry['delegate'][K]['args']
+        needs?: TNeeds
+        guard?: (data: any) => boolean
+      }
+    ]
+  ): Promise<any> {
     const {info} = getResolveInfo()
     const ctx = getContext()
 
     if (!info || !ctx) throw new Error('Pylon context missing')
 
     // Extract args and needs from the unified options object
-    const options = opts[0] as {args?: any; needs?: any} | undefined
+    const options = opts[0] as
+      | {args?: any; needs?: any; guard?: (data: any) => boolean}
+      | undefined
     const args = options?.args || {}
     const needs = options?.needs
+    const guard = options?.guard
 
     const [rootType, fieldName] = String(key).split('.')
 
@@ -480,21 +800,14 @@ class PylonGateway<
       )
     }
 
-    if (!schemaCache.has(this.config.url)) {
-      const executor = buildHTTPExecutor({
+    const schema = await getRemoteSchema(this.config.url, () =>
+      buildHTTPExecutor({
         endpoint: this.config.url,
         headers: r => ({
           ...(this.config.headers ? this.config.headers(r?.context) : {})
         })
       })
-
-      const schemaPromise = schemaFromExecutor(executor).then(schema =>
-        wrapSchema({schema, executor})
-      )
-      schemaCache.set(this.config.url, schemaPromise)
-    }
-
-    const schema = await schemaCache.get(this.config.url)
+    )
 
     const result = await delegateToSchema({
       schema,
@@ -506,9 +819,17 @@ class PylonGateway<
       transforms: [
         new InjectNeedsTransform(needs), // Injects requested AST fields
         new InlineArgsTransform(args), // Injects arguments into the AST
-        new PylonPatchTransform(this.config.patches, this.apiContext)
+        // Last of the request transforms, so a forced argument overrides one
+        // the caller passed AND one `needs` wrote — it is the boundary, and
+        // nothing upstream of it in this list gets to widen it.
+        new ForceArgsTransform(this.policies, ctx),
+        new PylonPatchTransform(this.config.patches, this.apiContext, this.config.strict)
       ]
     })
+
+    // A rejected row is `null`, not an error: "not visible to you" and "does not
+    // exist" are the same answer to a caller who may not know the difference.
+    if (guard && result != null && !guard(result)) return null as any
 
     return result as any
   }
@@ -541,6 +862,18 @@ class PylonGateway<
  * });
  * ```
  */
+/**
+ * Marks a remote type as deliberately exposed in full.
+ *
+ * Only meaningful under `strict`, where an unpatched type is an error. Using
+ * this says "every field of this type, now and as the remote adds them, is
+ * public" — which is a real decision for a leaf like `Money`, and a mistake for
+ * anything else.
+ */
+export function passthrough<T>(): (data: T) => T {
+  return data => data
+}
+
 export function createGateway<TRegistry extends {delegate: any; types: any}>() {
   return {
     configure: <
@@ -553,6 +886,15 @@ export function createGateway<TRegistry extends {delegate: any; types: any}>() {
       url: string
       headers?: (ctx: Context) => Record<string, string>
       patches?: TPatch
+      /**
+       * Fail on a remote type that has no patch, instead of publishing it whole.
+       *
+       * Off by default: turning it on removes types an existing gateway is
+       * already serving, which is the point, but it is a breaking change to
+       * adopt. Types that genuinely should pass through say so with
+       * `passthrough()`, so it reads as a decision rather than an omission.
+       */
+      strict?: boolean
     }) => {
       return new PylonGateway<TRegistry, TPatch>(config)
     }

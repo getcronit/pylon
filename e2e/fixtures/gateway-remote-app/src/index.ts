@@ -12,6 +12,17 @@ export class User {
   seenAuth(): string {
     return getContext()?.req.header('authorization') ?? ''
   }
+  // A field whose ARGUMENT decides which rows come back — what the front's
+  // `forceArgs` has to be able to constrain. Returns `id:status` strings so the
+  // fixture needs no extra types.
+  orders(status?: string, limit?: number): string[] {
+    const all = [
+      {id: 'o1', status: 'ACTIVE'},
+      {id: 'o2', status: 'DRAFT'}
+    ]
+    const rows = status ? all.filter(o => o.status === status) : all
+    return rows.slice(0, limit ?? rows.length).map(o => `${o.id}:${o.status}`)
+  }
 }
 
 const DB: Record<string, {id: string; email: string; firstName: string; lastName: string; orgId: string}> = {
