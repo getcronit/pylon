@@ -77,16 +77,15 @@ describe('ForceArgsTransform', () => {
     expect(out).toContain('first: 10')
   })
 
-  it('OVERRIDES a value the client sent, rather than merging with it', () => {
-    // The whole point: a forced argument is a constraint, not a default. A
-    // client asking for drafts must not get them.
-    const out = run(
-      new ForceArgsTransform(policies({'ProductCollection.products': {force: {query: VISIBLE}}}), {}),
-      `{ productCollections { products(query: "status:DRAFT") { totalCount } } }`
-    )
-
-    expect(out).toContain(`query: "${VISIBLE}"`)
-    expect(out).not.toContain('status:DRAFT')
+  it('refuses a client value for a forced argument rather than overriding it', () => {
+    // A client asking for drafts must not get them — and must be TOLD, not
+    // handed the constrained set as though the filter had applied.
+    expect(() =>
+      run(
+        new ForceArgsTransform(policies({'ProductCollection.products': {force: {query: VISIBLE}}}), {}),
+        `{ productCollections { products(query: "status:DRAFT") { totalCount } } }`
+      )
+    ).toThrow(/cannot be supplied/)
   })
 
   it('keys on the PARENT TYPE, so a same-named field elsewhere is untouched', () => {
@@ -165,15 +164,38 @@ describe('argument allowlist', () => {
     ).toThrow(/Argument "after" is not allowed on "ProductCollection.products"/)
   })
 
-  it('allows a forced argument even though it is not in args', () => {
-    // Forcing implies permission: the caller's value is replaced, not refused.
+  it('REFUSES a forced argument the caller tried to set', () => {
+    // Not "allowed and overridden": silently discarding a caller's filter is
+    // the failure this mechanism exists to remove — it looks like it worked.
+    expect(() =>
+      run(
+        new ForceArgsTransform(policies(ALLOW), {}),
+        `{ productCollections { products(first: 5, query: "status:DRAFT") { totalCount } } }`
+      )
+    ).toThrow(/set by the gateway and cannot be supplied/)
+  })
+
+  it('refuses a forced argument even with no allowlist set', () => {
+    // `force` and `args` are disjoint — forcing alone is enough to refuse.
+    expect(() =>
+      run(
+        new ForceArgsTransform(
+          policies({'ProductCollection.products': {force: {query: 'visible'}}}),
+          {}
+        ),
+        `{ productCollections { products(query: "status:DRAFT") { totalCount } } }`
+      )
+    ).toThrow(/GATEWAY_ARGUMENT_FORCED|cannot be supplied/)
+  })
+
+  it('still applies the forced value when the caller omits it', () => {
     const out = run(
       new ForceArgsTransform(policies(ALLOW), {}),
-      `{ productCollections { products(first: 5, query: "status:DRAFT") { totalCount } } }`
+      `{ productCollections { products(first: 5) { totalCount } } }`
     )
 
     expect(out).toContain('query: "visible"')
-    expect(out).not.toContain('status:DRAFT')
+    expect(out).toContain('first: 5')
   })
 
   it('rejects an argument the REMOTE added later — deny by default', () => {
@@ -197,11 +219,13 @@ describe('argument allowlist', () => {
     } catch (err: any) {
       expect(err.extensions?.code).toBe('GATEWAY_ARGUMENT_NOT_ALLOWED')
       expect(err.extensions?.field).toBe('ProductCollection.products')
-      expect(err.extensions?.allowed).toEqual(['first', 'query'])
+      // `force` is disjoint from `args`, so the allowed set is what a CALLER
+      // may set — `query` is the gateway's, not theirs.
+      expect(err.extensions?.allowed).toEqual(['first'])
     }
   })
 
-  it('without `args` nothing is denied — forcing alone stays opt-in', () => {
+  it('without `args`, a non-forced argument passes through untouched', () => {
     const out = run(
       new ForceArgsTransform(
         policies({'ProductCollection.products': {force: {query: 'visible'}}}),
@@ -211,6 +235,7 @@ describe('argument allowlist', () => {
     )
 
     expect(out).toContain('after: "x"')
+    expect(out).toContain('query: "visible"')
   })
 })
 
@@ -406,13 +431,29 @@ describe('forceArgs through a real delegation', () => {
     seenQuery = undefined
   })
 
-  it('a client asking for drafts through a nested field gets the forced filter', async () => {
+  it('refuses a client that tries to set the forced argument', async () => {
     const res: any = await execute({
       schema: gatewayFor(
         policies({'ProductCollection.products': {force: {query: 'status:ACTIVE'}}})
       ),
       document: parse(
         `{ productCollections { products(query: "status:DRAFT") { totalCount nodes { title } } } }`
+      )
+    })
+
+    expect(res.errors?.[0]?.message).toMatch(/cannot be supplied/)
+    // The remote was never asked.
+    expect(seenQuery).toBeUndefined()
+    expect(JSON.stringify(res.data ?? {})).not.toContain('Secret draft')
+  })
+
+  it('applies the forced filter when the client asks for nothing', async () => {
+    const res: any = await execute({
+      schema: gatewayFor(
+        policies({'ProductCollection.products': {force: {query: 'status:ACTIVE'}}})
+      ),
+      document: parse(
+        `{ productCollections { products { totalCount nodes { title } } } }`
       )
     })
 

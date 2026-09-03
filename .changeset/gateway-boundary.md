@@ -36,10 +36,12 @@ createGateway<Registry>().configure({
 })
 ```
 
-`force` is written into the outgoing request and overrides what the caller sent.
-`args` is an allowlist — an argument outside it is rejected, so one the remote
-adds later is denied by default. The type name comes from the patch's key, and
-the nested selection still travels in the parent's single request.
+`force` is written into the outgoing request, and a caller may not supply a
+forced argument — discarding their value silently is the same "looks like it
+worked" failure the boundary exists to remove. `args` is an allowlist for what
+they may set, so an argument the remote adds later is denied by default. The two
+are disjoint. The type name comes from the patch's key, and the nested selection
+still travels in the parent's single request.
 
 **`guard` — decide with a field you do not expose** (#117)
 

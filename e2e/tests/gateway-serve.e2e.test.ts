@@ -8,7 +8,7 @@
  *   - the computed `fullName` patch surfaces,
  *   - `needs` limits the upstream fetch (a non-needed field comes back null),
  *   - per-request auth header is forwarded (echoed by the remote's `seenAuth`),
- *   - `pass` forces an argument on a delegated field, overriding the client's,
+ *   - `pass` forces an argument on a delegated field, and refuses a client that sets it,
  *   - `pass` rejects an argument outside its allowlist,
  *   - a missing remote row resolves to null.
  * No DB/docker.
@@ -166,12 +166,11 @@ describe('gateway — three real Pylon services, pull + cross-service delegate o
     expect(r.data.fullUser).toEqual({email: 'ada@x.com', org: {name: 'Acme'}})
   })
 
-  it('pass() forces an argument, overriding the client', async () => {
-    // The client asks for DRAFT; the gateway forces ACTIVE. A patch could not
-    // do this — by the time it runs, the remote has already answered.
+  it('pass() refuses a client that sets the forced argument', async () => {
+    // Refused rather than silently overridden: handing back the constrained
+    // set as though the filter applied is the failure this removes.
     const r = await gql(frontUrl, '{ fullUser(id: "u1") { orders(status: "DRAFT") } }')
-    expect(r.errors).toBeUndefined()
-    expect(r.data.fullUser.orders).toEqual(['o1:ACTIVE'])
+    expect(r.errors?.[0]?.message ?? '').toMatch(/cannot be supplied/)
   })
 
   it('pass() applies when the client passes no argument at all', async () => {

@@ -422,10 +422,13 @@ class InlineArgsTransform implements Transform {
  * rejected, so an argument the remote adds later is denied by default — the same
  * rule fields already follow. Omit it to allow everything.
  *
- * `force` is applied to the outgoing request and OVERRIDES whatever the caller
- * sent. It is a constraint, not a default. Values are constants, or
- * `(ctx) => value` for per-request ones. A forced argument is always allowed,
- * whether or not it appears in `args`.
+ * `force` is applied to the outgoing request. It is a constraint, not a default,
+ * and a caller may NOT supply a forced argument — the value could only ever be
+ * overridden, and silently discarding what they sent is the failure this exists
+ * to remove. Values are constants, or `(ctx) => value` for per-request ones.
+ *
+ * `force` and `args` are therefore disjoint: `args` is what the caller may set,
+ * `force` is what the gateway sets.
  */
 export interface FieldPolicy {
   args?: readonly string[]
@@ -547,30 +550,43 @@ export class ForceArgsTransform implements Transform {
 
           const forcedNodes = forced.get(key) ?? []
 
-          // Deny first: an argument outside the allowlist must fail, not be
-          // quietly dropped — silently discarding a filter changes what the
-          // caller asked for without telling them.
-          if (policy.args) {
-            const allowed = new Set<string>([
-              ...policy.args,
-              ...Object.keys(policy.force ?? {})
-            ])
-            for (const arg of node.arguments ?? []) {
-              if (!allowed.has(arg.name.value)) {
-                throw new GraphQLError(
-                  `Argument "${arg.name.value}" is not allowed on "${key}".`,
-                  {
-                    nodes: [arg],
-                    extensions: {
-                      code: 'GATEWAY_ARGUMENT_NOT_ALLOWED',
-                      field: key,
-                      argument: arg.name.value,
-                      allowed: [...allowed].sort()
-                    }
-                  }
-                )
+          // Deny first. An argument that cannot take effect must FAIL rather
+          // than be quietly dropped: silently discarding a caller's filter is
+          // the exact failure this whole mechanism exists to remove — it looks
+          // like it worked and did not.
+          //
+          // `force` and `args` are disjoint. A forced argument is ours, so a
+          // caller supplying it is refused even when no allowlist is set: the
+          // value could only ever be overridden.
+          //
+          // Taken from the RESOLVED nodes, not the policy keys: a
+          // `(ctx) => value` that returns undefined forces nothing, so the
+          // caller's own value stands and refusing it would be wrong.
+          const forcedNames = new Set(forcedNodes.map(a => a.name.value))
+          const allowed = policy.args ? new Set<string>(policy.args) : undefined
+
+          for (const arg of node.arguments ?? []) {
+            const name = arg.name.value
+            const isForced = forcedNames.has(name)
+            const isDenied = isForced || (allowed ? !allowed.has(name) : false)
+            if (!isDenied) continue
+
+            throw new GraphQLError(
+              isForced
+                ? `Argument "${name}" on "${key}" is set by the gateway and cannot be supplied.`
+                : `Argument "${name}" is not allowed on "${key}".`,
+              {
+                nodes: [arg],
+                extensions: {
+                  code: isForced
+                    ? 'GATEWAY_ARGUMENT_FORCED'
+                    : 'GATEWAY_ARGUMENT_NOT_ALLOWED',
+                  field: key,
+                  argument: name,
+                  ...(allowed ? {allowed: [...allowed].sort()} : {})
+                }
               }
-            }
+            )
           }
 
           if (forcedNodes.length === 0) return

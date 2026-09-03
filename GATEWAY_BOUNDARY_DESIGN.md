@@ -105,10 +105,17 @@ patches: {
 }
 ```
 
-- `force` is written into the outgoing document and **overrides** what the
-  caller sent. A constraint, not a default.
+- `force` is written into the outgoing document. A constraint, not a default —
+  and a caller may not supply a forced argument at all. Silently discarding
+  what they sent is the same "looks like it worked" failure the whole boundary
+  exists to remove, so it is refused instead. (Found by porting a real
+  storefront: forcing alone let a caller send `query: "status:DRAFT"` and get
+  the constrained set back with no error.)
 - `args` is an allowlist, enforced on the request: an argument outside it is
   rejected, so an argument the remote adds later is denied by default.
+- The two are disjoint — `args` is the caller's, `force` is the gateway's.
+- Forced names are taken from the RESOLVED values, so a `(ctx) => undefined`
+  forces nothing and the caller's own value stands.
 - Keyed on parent type + field, resolved with a `TypeInfo` walk — the document
   alone says `products`, not *which* `products`. The type name comes from the
   patch's key.

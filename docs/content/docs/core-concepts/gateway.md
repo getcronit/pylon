@@ -146,12 +146,17 @@ const catalogue = createGateway<CatalogueRegistry>().configure({
 })
 ```
 
-- **`force`** is applied to the outgoing request and **overrides** what the
-  client sent. It is a constraint, not a default.
+- **`force`** is applied to the outgoing request. It is a constraint, not a
+  default — and a client may **not** supply a forced argument. The value could
+  only ever be discarded, and handing back the constrained set as though their
+  filter had applied is exactly the failure this removes.
 - **`args`** is an allowlist. An argument outside it is rejected — so an argument
   the remote adds *later* is denied by default, the same rule fields already
   follow. Omit `args` to allow everything and only force.
-- A forced argument is always permitted, whether or not it appears in `args`.
+- `force` and `args` are disjoint: `args` is what a client may set, `force` is
+  what the gateway sets. Setting a forced argument is refused with
+  `GATEWAY_ARGUMENT_FORCED`, one outside the allowlist with
+  `GATEWAY_ARGUMENT_NOT_ALLOWED`.
 
 The type name comes from the patch's own key, so it is never repeated. Values are
 constants, or `(ctx) => value` for per-request ones:
