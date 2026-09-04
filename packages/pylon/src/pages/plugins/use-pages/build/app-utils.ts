@@ -124,6 +124,28 @@ export function getNotFoundComponentName(filePath: string): string {
 }
 
 /**
+ * Converts a file path to a corresponding loading component name.
+ *
+ * `loading.tsx` alongside a `layout.tsx`/`page.tsx` provides the segment's Suspense
+ * fallback (and cascades to nested segments, like `error.tsx`/`not-found.tsx`). It is
+ * wired as the route's `HydrateFallback` and as a CLIENT-ONLY Suspense boundary around
+ * the segment's page (see `withLoading` in the generated module) — Phase 1 keeps SSR
+ * boundary-free so the buffered HTML carries resolved content, not the fallback.
+ * @param filePath - The file path to convert.
+ * @returns The generated loading component name.
+ */
+export function getLoadingComponentName(filePath: string): string {
+  const segments = filePath
+    .replace(PAGES_DIR, '')
+    .replace(/\\/g, '/')
+    .replace(/loading\.tsx$/, '')
+    .split('/')
+    .filter(Boolean)
+
+  return (segments.map(formatSegment).join('') || 'Root') + 'Loading'
+}
+
+/**
  * Converts dynamic route segments from [param] format to :param format.
  * @param segment - A segment of the route.
  * @returns The converted route segment.
@@ -161,7 +183,8 @@ function processLayoutItem(
   route: Route,
   context: ScanContext,
   errorComponentName?: string,
-  notFoundComponentName?: string
+  notFoundComponentName?: string,
+  loadingComponentName?: string
 ): void {
   const layoutComponentName = getLayoutComponentName(relativePath)
   context.imports.push(`import ${layoutComponentName} from ${importPath};`)
@@ -208,7 +231,9 @@ function processLayoutItem(
     notFoundComponentName
   )
 
-  route.HydrateFallback = 'HydrateFallback'
+  // The segment's `loading.tsx` (own or inherited) is the hydration fallback; the built-in
+  // `HydrateFallback` is the default when none is defined.
+  route.HydrateFallback = loadingComponentName ?? 'HydrateFallback'
 }
 
 /**
@@ -219,18 +244,28 @@ function processPageItem(
   importPath: string,
   route: Route,
   errorComponentName?: string,
-  notFoundComponentName?: string
+  notFoundComponentName?: string,
+  loadingComponentName?: string
 ): void {
   const catchAllParam = relativePath.match(/\[\.\.\.(.+)\]/)?.[1]
   const pageComponentName = getPageComponentName(relativePath)
+
+  // The page IS the segment's leaf element, so its `loading.tsx` (own or inherited) wraps
+  // it in a CLIENT-ONLY Suspense boundary (see `withLoading`): the navigation loading state
+  // on the client, while SSR stays boundary-free so the buffered HTML carries resolved
+  // content. `withRouteData` first, then `withLoading` around it.
+  const componentExpr = `withRouteData(i.default, "${pageComponentName}", ${catchAllParam ? `"${catchAllParam}"` : 'undefined'})`
+  const wrappedComponentExpr = loadingComponentName
+    ? `withLoading(${componentExpr}, ${loadingComponentName})`
+    : componentExpr
 
   route.children!.push({
     id: pageComponentName,
     path: undefined,
     index: true,
     errorElement: buildErrorElement(false, errorComponentName, notFoundComponentName),
-    lazy: `async () => {const i = await import(${importPath}).catch((e) => {console.error("[pylon] failed to load route module", ${importPath}, e); if (typeof window !== 'undefined') { window.location.reload(); return new Promise(() => {}); } throw e;}); return {Component: withRouteData(i.default, "${pageComponentName}", ${catchAllParam ? `"${catchAllParam}"` : 'undefined'})}}`,
-    HydrateFallback: 'HydrateFallback'
+    lazy: `async () => {const i = await import(${importPath}).catch((e) => {console.error("[pylon] failed to load route module", ${importPath}, e); if (typeof window !== 'undefined') { window.location.reload(); return new Promise(() => {}); } throw e;}); return {Component: ${wrappedComponentExpr}}}`,
+    HydrateFallback: loadingComponentName ?? 'HydrateFallback'
   })
 }
 
@@ -285,7 +320,8 @@ export function scanDirectory(
   context: ScanContext,
   basePath: string = '',
   inheritedError?: string,
-  inheritedNotFound?: string
+  inheritedNotFound?: string,
+  inheritedLoading?: string
 ): Route | null {
   const items = fs.readdirSync(directory, {withFileTypes: true})
   const route: Route = {path: basePath || '/', children: []}
@@ -317,9 +353,11 @@ export function scanDirectory(
   }
   const ownError = detect('error.tsx', getErrorComponentName)
   const ownNotFound = detect('not-found.tsx', getNotFoundComponentName)
+  const ownLoading = detect('loading.tsx', getLoadingComponentName)
   // This segment's components, and what its descendants inherit.
   const errorComponentName = ownError ?? inheritedError
   const notFoundComponentName = ownNotFound ?? inheritedNotFound
+  const loadingComponentName = ownLoading ?? inheritedLoading
   // Record the ROOT files: `rootError` drives the "no root error boundary" warning,
   // `rootNotFound` feeds the top-level catch-all in makeAppFiles.
   if (basePath === '') {
@@ -340,7 +378,8 @@ export function scanDirectory(
         context,
         relativePath,
         errorComponentName,
-        notFoundComponentName
+        notFoundComponentName,
+        loadingComponentName
       )
       if (childRoute) {
         route.children!.push(childRoute)
@@ -352,7 +391,8 @@ export function scanDirectory(
         route,
         context,
         errorComponentName,
-        notFoundComponentName
+        notFoundComponentName,
+        loadingComponentName
       )
       hasLayout = true
     } else if (item.name === 'page.tsx') {
@@ -361,7 +401,8 @@ export function scanDirectory(
         importPath,
         route,
         errorComponentName,
-        notFoundComponentName
+        notFoundComponentName,
+        loadingComponentName
       )
       pageFound = true
     }
@@ -536,6 +577,24 @@ const ErrorElement: React.FC<{standalone: boolean, component?: React.ComponentTy
 
 const HydrateFallback = () => {
   return <div>Loading...</div>
+}
+
+// Wrap a route's page component in its segment's \`loading.tsx\` Suspense fallback.
+// CLIENT-ONLY by design (Phase 1): on the server we render the component directly so a
+// suspending \`useData\` escalates to the shell — the buffered SSR HTML then carries the
+// resolved content (never the fallback) and a thrown \`notFound()\` stays a real 404. On the
+// client the Suspense boundary provides the navigation loading state. (Phase 4 / streaming
+// is what would make this boundary active server-side; see rfcs/PAGES_STREAMING.md.)
+function withLoading(Component: React.ComponentType<any>, Loading: React.ComponentType) {
+  if (!Loading) return Component
+  return function WithLoading(props: any) {
+    if (typeof window === 'undefined') return <Component {...props} />
+    return (
+      <Suspense fallback={<Loading />}>
+        <Component {...props} />
+      </Suspense>
+    )
+  }
 }
 
 // Replaced pageClientCache with central cache in DataClientProvider
