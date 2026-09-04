@@ -2,6 +2,18 @@ import {buildSchema} from 'graphql'
 import {describe, expect, it} from 'vitest'
 import {compileOperation, type SelectorNode} from '@/query/build/compile'
 
+/**
+ * The per-operation `context` channel (`$__context` + `@inContext(context:)`) is compiled
+ * into EVERY operation now (always-on; see rfcs/ACTING_TENANT.md). Strip it so these
+ * selection-focused assertions stay about the selection — the emission itself is locked by
+ * the dedicated test below and by the analyzer's selectors-to-document test.
+ */
+const stripCtx = (body: string): string =>
+  body
+    .replace(/, \$__context: String\)/, ')')
+    .replace(/\(\$__context: String\)/, '')
+    .replace(/ @inContext\(context: \$__context\)/, '')
+
 const schema = buildSchema(/* GraphQL */ `
   type Query {
     me: User
@@ -45,9 +57,19 @@ const compile = (selectors: SelectorNode, opts?: any) =>
   compileOperation(schema, selectors, {name: 'Test', ...opts})
 
 describe('compileOperation', () => {
+  it('compiles the always-on per-op `context` channel onto every operation', () => {
+    const op = compile({me: {name: true}})
+    // `$__context` declared + carried on `@inContext`; opContext flag set for the client.
+    expect(op.body).toContain('$__context: String')
+    expect(op.body).toContain('@inContext(context: $__context)')
+    expect(op.opContext).toBe(true)
+    // A no-variable selection still declares `$__context` (the channel needs no other vars).
+    expect(op.body.startsWith('query Test($__context: String) @inContext(')).toBe(true)
+  })
+
   it('compiles a simple nested selection (auto-selects __typename + id)', () => {
     const op = compile({me: {name: true, age: true}})
-    expect(op.body).toBe('query Test { me { name age __typename id } }')
+    expect(stripCtx(op.body)).toBe('query Test { me { name age __typename id } }')
     expect(op.variables).toEqual([])
     // TS type omits the auto-injected infra fields.
     expect(op.resultType).toBe(
@@ -57,7 +79,7 @@ describe('compileOperation', () => {
 
   it('lifts field arguments into variables', () => {
     const op = compile({user: {__args: '{ id: userId }', name: true}})
-    expect(op.body).toBe(
+    expect(stripCtx(op.body)).toBe(
       'query Test($v0: ID!) { user(id: $v0) { name __typename id } }'
     )
     expect(op.variables).toEqual([{name: 'v0', expr: 'userId'}])
@@ -65,7 +87,7 @@ describe('compileOperation', () => {
 
   it('handles a scalar field with arguments (no meta injection on scalars)', () => {
     const op = compile({count: {__args: '{ filter: q }'}})
-    expect(op.body).toBe('query Test($v0: String) { count(filter: $v0) }')
+    expect(stripCtx(op.body)).toBe('query Test($v0: String) { count(filter: $v0) }')
     expect(op.variables).toEqual([{name: 'v0', expr: 'q'}])
     expect(op.resultType).toBe('{ count: number | null }')
   })
@@ -83,7 +105,7 @@ describe('compileOperation', () => {
       {name: 'v1', expr: 'b'}
     ])
     // Branch 0 keeps the base field name; branch 1 gets a deterministic arg-alias.
-    expect(op.body).toBe(
+    expect(stripCtx(op.body)).toBe(
       'query Test($v0: String, $v1: String) ' +
         '{ count(filter: $v0) count__pqArg__1: count(filter: $v1) }'
     )
@@ -136,7 +158,7 @@ describe('compileOperation', () => {
         ]
       }
     })
-    expect(op.body).toBe(
+    expect(stripCtx(op.body)).toBe(
       'query Test($v0: String, $v1: String, $v2: String) ' +
         '{ me { tally(kind: $v0) tally__pqArg__1: tally(kind: $v1) ' +
         'tally__pqArg__2: tally(kind: $v2) __typename id } }'
@@ -172,8 +194,8 @@ describe('compileOperation', () => {
         {alias: 'tally__pqArg__2', args: {kind: 'v4'}}
       ]
     })
-    expect(op.body).toContain('me { tally(kind: $v0) tally__pqArg__1: tally(kind: $v1)')
-    expect(op.body).toContain(
+    expect(stripCtx(op.body)).toContain('me { tally(kind: $v0) tally__pqArg__1: tally(kind: $v1)')
+    expect(stripCtx(op.body)).toContain(
       'user(id: $v2) { tally__pqArg__1: tally(kind: $v3) tally__pqArg__2: tally(kind: $v4)'
     )
   })
@@ -190,9 +212,9 @@ describe('compileOperation', () => {
     const op = compileOperation(s, {hit: {status: true, label: true}}, {name: 'T'})
     // `status` clashes (AStatus! vs BStatus!) → aliased per member so the query merges;
     // `label` is String on both → left un-aliased.
-    expect(op.body).toContain('... on A { status__pqAbs__A: status label __typename id }')
-    expect(op.body).toContain('... on B { status__pqAbs__B: status label __typename id }')
-    expect(op.body).not.toContain('label__pqAbs__')
+    expect(stripCtx(op.body)).toContain('... on A { status__pqAbs__A: status label __typename id }')
+    expect(stripCtx(op.body)).toContain('... on B { status__pqAbs__B: status label __typename id }')
+    expect(stripCtx(op.body)).not.toContain('label__pqAbs__')
     // TS still reads `status`/`label` (merged-optional across members).
     expect(op.resultType).toContain('status?:')
     // The completeness shape mirrors `normalize`'s un-aliasing: the stored key is
@@ -242,12 +264,12 @@ describe('compileOperation', () => {
       last: 'p_last',
       before: 'p_before'
     })
-    expect(op.body).toContain(
+    expect(stripCtx(op.body)).toContain(
       'posts(first: $p_first, after: $p_after, last: $p_last, before: $p_before)'
     )
-    expect(op.body).toContain('hasNextPage hasPreviousPage startCursor endCursor')
-    expect(op.body).toContain('node { title __typename id }')
-    expect(op.body).toContain('totalCount')
+    expect(stripCtx(op.body)).toContain('hasNextPage hasPreviousPage startCursor endCursor')
+    expect(stripCtx(op.body)).toContain('node { title __typename id }')
+    expect(stripCtx(op.body)).toContain('totalCount')
   })
 
   it('selects startIndex + passes an anchor base var when the connection exposes them', () => {
@@ -271,10 +293,10 @@ describe('compileOperation', () => {
       {name: 'Test', connection: {path: ['posts']}}
     )
     // startIndex is a real connection field → auto-selected like totalCount.
-    expect(op.body).toContain('startIndex')
+    expect(stripCtx(op.body)).toContain('startIndex')
     // `anchor` is a base arg bound by its own name, and recorded in meta so the
     // hook's imperative seekTo(id) knows the variable to set.
-    expect(op.body).toContain('anchor: $anchor')
+    expect(stripCtx(op.body)).toContain('anchor: $anchor')
     expect(op.connection).toMatchObject({ anchor: 'anchor' })
   })
 
@@ -290,10 +312,10 @@ describe('compileOperation', () => {
       },
       {connection: {path: ['posts']}}
     )
-    expect(op.body).toContain('node { title __typename id }')
+    expect(stripCtx(op.body)).toContain('node { title __typename id }')
     // hook controls are not GraphQL fields → never selected
-    expect(op.body).not.toContain('loadNext')
-    expect(op.body).not.toContain('isLoadingMore')
+    expect(stripCtx(op.body)).not.toContain('loadNext')
+    expect(stripCtx(op.body)).not.toContain('isLoadingMore')
   })
 
   it('recognises a connection nested UNDER an interface field (STI base)', () => {
@@ -323,13 +345,13 @@ describe('compileOperation', () => {
       },
       {name: 'Test', connection: {path: ['party', 'attachments']}}
     )
-    expect(op.body).toContain('node { name __typename id }')
-    expect(op.body).not.toContain('isLoadingMore')
+    expect(stripCtx(op.body)).toContain('node { name __typename id }')
+    expect(stripCtx(op.body)).not.toContain('isLoadingMore')
   })
 
   it('merges conditional branches into one selection', () => {
     const op = compile({me: [{name: true}, {age: true}] as any})
-    expect(op.body).toBe('query Test { me { name age __typename id } }')
+    expect(stripCtx(op.body)).toBe('query Test { me { name age __typename id } }')
   })
 
   describe('completeness shape', () => {

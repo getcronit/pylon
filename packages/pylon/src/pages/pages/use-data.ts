@@ -1,9 +1,11 @@
 import {
   useQueryDoc,
   usePaginatedDoc,
+  stableStringify,
   type PaginatedResult,
   type TypedDoc
 } from '@getcronit/pylon/query'
+import type {OperationContext} from '@getcronit/pylon'
 import mitt from 'mitt'
 import {useEffect, useRef} from 'react'
 import type {Data} from './index'
@@ -40,6 +42,36 @@ export interface UseDataOptions {
    * but won't fetch.
    */
   disableBuildTimeGeneration?: boolean
+  /**
+   * Per-operation context for THIS call — the app-typed `OperationContext` bag. The flagship
+   * use is acting-as-tenant (`{ context: { actingTenant } }`), gated server-side by
+   * `useDatabase({operationContext})`; a bare value grants nothing. Carried as the
+   * `$__context` variable, so it folds into the cache key (two contexts never share an entry)
+   * and threads through SSR unchanged. Omit it and the call runs with no context. See
+   * rfcs/ACTING_TENANT.md.
+   */
+  context?: OperationContext
+}
+
+/**
+ * Merge the per-call `OperationContext` into an operation's variables, as a canonical JSON
+ * string (`stableStringify` → key order can't split the cache). Guarded by `doc.opContext`
+ * so `$__context` is never sent to a document that doesn't declare it (GraphQL would reject
+ * the unknown variable) — a stray `{context}` on a hand-written doc is ignored. An empty bag
+ * is dropped so it keys identically to no context.
+ */
+function withOperationContext(
+  doc: TypedDoc<any, any> | undefined,
+  variables: (() => Record<string, unknown>) | undefined,
+  context: OperationContext | undefined
+): (() => Record<string, unknown>) | undefined {
+  if (context == null || !doc?.opContext || Object.keys(context).length === 0) {
+    return variables
+  }
+  return () => ({
+    ...(variables ? variables() : {}),
+    __context: stableStringify(context)
+  })
 }
 
 /**
@@ -75,7 +107,13 @@ export function useData(
   // renders THIS route's error boundary (not the leaf's). Undefined outside a route
   // provider — the handler then falls back to leaf attribution.
   const owner = useRouteId()
-  const data = useQueryDoc(doc as TypedDoc<any, any> | undefined, variables, {
+  const typedDoc = doc as TypedDoc<any, any> | undefined
+  const variablesWithContext = withOperationContext(
+    typedDoc,
+    variables,
+    options?.context
+  )
+  const data = useQueryDoc(typedDoc, variablesWithContext, {
     ...options,
     owner
   })

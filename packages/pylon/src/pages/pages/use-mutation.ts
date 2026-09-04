@@ -1,8 +1,10 @@
 import {
   useMutationDoc,
+  stableStringify,
   type MutationState,
   type TypedDoc
 } from '@getcronit/pylon/query'
+import type {OperationContext} from '@getcronit/pylon'
 import {useCallback} from 'react'
 import type {Mutations} from './index'
 import {dataRefetch} from './use-data'
@@ -10,6 +12,13 @@ import {dataRefetch} from './use-data'
 export interface UseMutationOptions {
   /** After a successful mutation, refetch queries carrying these tags. */
   refetch?: string[]
+  /**
+   * Per-operation context for this mutation — the app-typed `OperationContext` bag (e.g.
+   * `{ context: { actingTenant } }` so a `SUPER_ADMIN` writes into the acted org). Carried as
+   * the `$__context` variable and gated server-side by `useDatabase({operationContext})`; a
+   * bare value grants nothing. See rfcs/ACTING_TENANT.md.
+   */
+  context?: OperationContext
 }
 
 // Mutations[K] is `(args) => Return` (callable-field style); extract both.
@@ -53,16 +62,28 @@ export function useMutation(
   const [trigger, state] = useMutationDoc(doc as TypedDoc<any, any>)
 
   const refetchKey = options?.refetch?.join(',')
+  // Carry the per-call OperationContext as the `$__context` variable — guarded by
+  // `doc.opContext` so it's never sent to a doc that doesn't declare it. Canonical JSON so
+  // the value is stable. See `withOperationContext` in use-data.ts for the query twin.
+  const context = options?.context
+  const contextJson =
+    context && doc?.opContext && Object.keys(context).length > 0
+      ? stableStringify(context)
+      : undefined
   const wrapped = useCallback(
     async (variables?: Record<string, unknown>) => {
-      const result = await trigger(variables as any)
+      const vars =
+        contextJson !== undefined
+          ? {...(variables ?? {}), __context: contextJson}
+          : variables
+      const result = await trigger(vars as any)
       if (options?.refetch && options.refetch.length > 0) {
         dataRefetch(options.refetch)
       }
       return result
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [trigger, refetchKey]
+    [trigger, refetchKey, contextJson]
   )
 
   return [wrapped, state]

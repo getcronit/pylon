@@ -58,9 +58,13 @@ describe('analyzer selectors → pylon-query document', () => {
     expect(queries.length).toBe(1)
 
     const lowered = lowerQuery(schema, queries[0].selectors, 'Page', '__doc')
+    // Every compiled operation carries the always-on per-op `context` channel (§ACTING_TENANT).
     expect(lowered.compiled.body).toBe(
-      'query Page($v0: ID!) { user(id: $v0) { name email __typename id } }'
+      'query Page($v0: ID!, $__context: String) @inContext(context: $__context) ' +
+        '{ user(id: $v0) { name email __typename id } }'
     )
+    expect(lowered.compiled.opContext).toBe(true)
+    expect(lowered.docDeclaration).toContain('opContext: true')
     expect(lowered.variablesThunk).toBe('() => ({v0: id})')
     expect(lowered.docDeclaration).toContain('doc<')
     expect(lowered.docDeclaration).toContain('id: "q')

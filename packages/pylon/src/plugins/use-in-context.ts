@@ -25,11 +25,11 @@ export const useInContext = (): Plugin => ({
     const directive = operation?.directives?.find(d => d.name.value === 'inContext')
     if (!directive) return
 
-    const context: InContext = {}
-    for (const arg of directive.arguments ?? []) {
-      if (arg.name.value !== 'locale') continue
-      // A variable (the compiled form — one document serves every locale) or an inline
-      // literal (a hand-written query).
+    // Resolve an argument to its string value: a variable (the compiled form — one
+    // document serves every value) or an inline literal (a hand-written query).
+    const argValue = (name: string): string | undefined => {
+      const arg = directive.arguments?.find(a => a.name.value === name)
+      if (!arg) return undefined
       const value =
         arg.value.kind === 'Variable'
           ? (args.variableValues as Record<string, unknown> | null)?.[
@@ -38,12 +38,28 @@ export const useInContext = (): Plugin => ({
           : arg.value.kind === 'StringValue'
             ? arg.value.value
             : undefined
-      if (typeof value === 'string' && value) context.locale = value
+      return typeof value === 'string' && value ? value : undefined
     }
-    if (!context.locale) return
+
+    const inContext: InContext = {}
+    const locale = argValue('locale')
+    if (locale) inContext.locale = locale
+    // `context` rides as a JSON string (app-independent SDL). Parse it into the typed bag;
+    // a malformed value is ignored rather than failing the operation.
+    const contextJson = argValue('context')
+    if (contextJson) {
+      try {
+        const parsed = JSON.parse(contextJson)
+        if (parsed && typeof parsed === 'object') inContext.context = parsed
+      } catch {
+        // ignore a malformed context blob
+      }
+    }
+    // Nothing resolved (e.g. the variables were all null) — leave the context unset.
+    if (inContext.locale === undefined && inContext.context === undefined) return
 
     try {
-      getContext().set(IN_CONTEXT_KEY as never, context as never)
+      getContext().set(IN_CONTEXT_KEY as never, inContext as never)
     } catch {
       // No request context (an in-process execution outside a request) — nothing to bind to.
     }

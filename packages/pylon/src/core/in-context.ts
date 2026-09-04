@@ -37,13 +37,37 @@ import {getContext} from './context.js'
 export const IN_CONTEXT_SDL = `directive @inContext(
   """The locale for this operation, e.g. \`en\` or \`de-AT\`."""
   locale: String
+  """Per-operation context, as JSON (an app-typed \`OperationContext\` bag). Carried as a
+  variable so it folds into the client cache key. INERT until the server acts on it — e.g.
+  \`useDatabase({operationContext})\` honouring an acting tenant; a bare value grants nothing."""
+  context: String
 ) on QUERY | MUTATION | SUBSCRIPTION`
 
 /** Hono context key holding the operation's resolved context. */
 export const IN_CONTEXT_KEY = 'pylonInContext'
 
+/**
+ * Per-operation context an app carries on a call and reads on the server. Extend it by
+ * declaration merging — NO compiler change per key:
+ *
+ * ```ts
+ * declare module '@getcronit/pylon' {
+ *   interface OperationContext { previewMode?: boolean }
+ * }
+ * ```
+ *
+ * `actingTenant` ships as the flagship key: per-operation tenant impersonation, gated by
+ * `useDatabase({operationContext})` (rfcs/ACTING_TENANT.md). Like every key here it is an
+ * UNGATED request — it grants nothing until the server acts on it.
+ */
+export interface OperationContext {
+  actingTenant?: string
+}
+
 export interface InContext {
   locale?: string
+  /** The operation's `@inContext(context:)` bag, parsed from its JSON. See OperationContext. */
+  context?: OperationContext
 }
 
 /**
@@ -54,6 +78,11 @@ export interface InContext {
  * rather than guess.
  */
 export const getLocale = (): string | undefined => getInContext().locale
+
+// The per-operation `OperationContext` bag is read via `getInContext().context` (kept a plain
+// field rather than its own accessor, so it doesn't shadow the Hono `getContext()`). These
+// are UNGATED request values — inspect them inside `useDatabase({operationContext})` (or a
+// resolver) to decide what to honour, never as an authorization by themselves.
 
 /** Everything `@inContext` carried for this operation. */
 export const getInContext = (): InContext => {

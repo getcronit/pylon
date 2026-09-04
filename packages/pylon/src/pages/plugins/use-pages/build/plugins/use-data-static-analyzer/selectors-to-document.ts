@@ -78,6 +78,8 @@ export function lowerQuery(
     : ''
   // Tells the runtime client to supply `$__locale` before it hashes the variables.
   const inContextMeta = compiled.inContext ? `,\n  inContext: true` : ''
+  // Tells the runtime client the doc accepts `$__context` (per-call OperationContext bag).
+  const opContextMeta = compiled.opContext ? `,\n  opContext: true` : ''
   // Completeness shape → the runtime read gate (never renders a partial op).
   const shapeMeta = compiled.shape
     ? `,\n  shape: ${JSON.stringify(compiled.shape)}`
@@ -87,7 +89,7 @@ export function lowerQuery(
     `const ${constName} = ${docFn}<${compiled.resultType}>({\n` +
     `  id: ${JSON.stringify(id)},\n` +
     `  name: ${JSON.stringify(compiled.name)},\n` +
-    `  body: ${JSON.stringify(compiled.body)}${connectionMeta}${argAliasesMeta}${argSlotsMeta}${inContextMeta}${shapeMeta}\n` +
+    `  body: ${JSON.stringify(compiled.body)}${connectionMeta}${argAliasesMeta}${argSlotsMeta}${inContextMeta}${opContextMeta}${shapeMeta}\n` +
     `})`
 
   let variablesThunk: string | undefined
@@ -236,6 +238,7 @@ export function lowerMutation(
     `  rootField: ${JSON.stringify(fieldName)},\n` +
     `  body: ${JSON.stringify(compiled.body)}` +
     (compiled.inContext ? `,\n  inContext: true` : '') +
+    (compiled.opContext ? `,\n  opContext: true` : '') +
     `\n})`
 
   return {docConstName: constName, docDeclaration, variablesThunk: undefined, compiled}

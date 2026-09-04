@@ -36,8 +36,11 @@ describe('mutation compilation', () => {
       operation: 'mutation',
       runtimeArgsField: 'createUser'
     })
+    // Mutations carry the always-on per-op `context` channel too (a SUPER_ADMIN write can act
+    // as another tenant) — see rfcs/ACTING_TENANT.md.
     expect(op.body).toBe(
-      'mutation CreateUser($name: String!) { createUser(name: $name) { id name email __typename } }'
+      'mutation CreateUser($name: String!, $__context: String) @inContext(context: $__context) ' +
+        '{ createUser(name: $name) { id name email __typename } }'
     )
     // args are supplied at call time by mutate(vars), not from the source.
     expect(op.variables).toEqual([])

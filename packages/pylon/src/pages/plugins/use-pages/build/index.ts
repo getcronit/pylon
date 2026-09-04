@@ -180,7 +180,8 @@ export const build = async (
         injectAppHydrationPlugin(version, appTsxAbs, sentryEnabled),
         useDataStaticAnalyzerRolldown({
           debug: true,
-          // Compiled operations carry `@inContext` only when the app configured i18n.
+          // Compiled operations carry `@inContext` locale only when the app configured i18n.
+          // (The per-op `context` channel is always compiled in — see compileOperation.)
           inContext: Boolean(options.i18n),
           manager: analysisManager,
           entryPaths: [appTsxAbs],
@@ -232,7 +233,8 @@ export const build = async (
         ssrExternalizeNodeModules(),
         useDataStaticAnalyzerRolldown({
           debug: true,
-          // Compiled operations carry `@inContext` only when the app configured i18n.
+          // Compiled operations carry `@inContext` locale only when the app configured i18n.
+          // (The per-op `context` channel is always compiled in — see compileOperation.)
           inContext: Boolean(options.i18n),
           manager: analysisManager,
           entryPaths: [appTsxAbs, ...(hasSitemap ? [sitemapAbs] : [])],

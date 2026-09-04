@@ -1,6 +1,7 @@
 import {buildSchema, parse, validate} from 'graphql'
 import {describe, expect, it} from 'vitest'
 import {compileOperation, type SelectorNode} from '@/query/build/compile'
+import {IN_CONTEXT_SDL} from '@/core/in-context'
 import {describeSchema} from '@/query/build/describe-schema'
 import {isRef, normalize} from '@/query/runtime/normalize'
 import {wrapResult} from '@/query/runtime/wrap'
@@ -36,6 +37,7 @@ const objSubtypeSchema = buildSchema(/* GraphQL */ `
     marker: String
     title: String
   }
+  ${IN_CONTEXT_SDL}
 `)
 
 // ── Gap 2: a shared field name differing only in NULLABILITY ──────────────────
@@ -57,6 +59,7 @@ const nullabilitySchema = buildSchema(/* GraphQL */ `
   type BlockImage {
     url: String!
   }
+  ${IN_CONTEXT_SDL}
 `)
 
 const validationErrors = (schema: Parameters<typeof validate>[0], body: string) =>

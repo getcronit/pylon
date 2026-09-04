@@ -21,8 +21,14 @@
  * use the rest of pylon-db without ever importing this plugin.
  */
 import type {Plugin} from '@getcronit/pylon'
-import {GraphQLError} from 'graphql'
-import {runWithAppContext} from './app-context.js'
+import {
+  getContext,
+  getInContext,
+  type InContext,
+  type OperationContext
+} from '@getcronit/pylon'
+import {GraphQLError, type OperationDefinitionNode} from 'graphql'
+import {runWithAppContext, getAppContext, type AppContext} from './app-context.js'
 import {connect, type Database, databaseForKysely} from './database.js'
 import {BadRequestError, NotFoundError} from './errors.js'
 import {leaseNodeId, type NodeLease} from './node-lease.js'
@@ -42,6 +48,28 @@ export const defaultValidationErrorMapper: ValidationErrorMapper = issues => ({
   message: 'Validation failed',
   extensions: {code: 'BAD_USER_INPUT', issues}
 })
+
+/**
+ * A per-operation descriptor passed to `operationContext`. Pylon builds this — it is a
+ * deliberate, stable surface, NOT the raw envelop payload.
+ */
+export interface OperationInfo {
+  /**
+   * The operation's per-op `OperationContext` bag (`{}` when none). The acting tenant arrives
+   * here already parsed: `op.context.actingTenant`. UNGATED — the hook decides what to honour.
+   */
+  context: OperationContext
+  /** Everything `@inContext` carried, including `locale`. `context` above is the sugar. */
+  inContext: InContext
+  /** 'query' | 'mutation' | 'subscription'. */
+  operationType: 'query' | 'mutation' | 'subscription'
+  /** The operation name, if the document names one. */
+  operationName?: string
+  /** The operation's coerced variables. Escape hatch — not needed for acting-as. */
+  variables: Record<string, unknown>
+  /** The Hono request context (headers, etc.). Escape hatch; undefined off-request. */
+  honoContext: any
+}
 
 export interface UseDatabaseOptions {
   /** Defaults to `process.env.DATABASE_URL` (else standard `PG*` env vars). */
@@ -101,6 +129,31 @@ export interface UseDatabaseOptions {
    * `c => c.req.header('x-debug') === '1'`).
    */
   debug?: boolean | ((context: any) => boolean)
+  /**
+   * Refine the request `AppContext` PER OPERATION — the seam for acting-as-tenant
+   * (rfcs/ACTING_TENANT.md). Runs once per operation, inside that operation's execution
+   * scope, so the returned tenant/features are ambient during field resolution. `base` is
+   * the request-scoped context (gate on `base.principal`); `op` carries the operation's
+   * `@inContext`. Return `base` unchanged for the common case, or an override.
+   *
+   * Pylon NEVER infers the gate: a missing/forbidden `op.inContext.actingTenant` must yield
+   * the unchanged `base` (the app owns the privilege check and the target-features load).
+   * The DB connection stays request-scoped; only ambient values nest per operation, so
+   * `transactionPerRequest` is unaffected.
+   */
+  operationContext?: (
+    base: AppContext,
+    op: OperationInfo
+  ) => AppContext | Promise<AppContext>
+}
+
+/** The Hono request context, or undefined when there is none (off-request execution). */
+function safeContext(): any {
+  try {
+    return getContext()
+  } catch {
+    return undefined
+  }
 }
 
 export function useDatabase(options: UseDatabaseOptions = {}): Plugin {
@@ -169,7 +222,40 @@ export function useDatabase(options: UseDatabaseOptions = {}): Plugin {
       }
     },
 
-    onExecute() {
+    onExecute(payload) {
+      // Per-operation AppContext refinement (acting-as-tenant, §1 of the RFC). Wrap the
+      // executor so the refined context is ACTIVE DURING field resolution — building it
+      // beforehand isn't enough. Only ambient tenant/features/principal nest per op; the
+      // DB connection stays request-scoped (bound in `middleware`), so a per-request
+      // transaction is untouched. Installed only when the app supplies the hook.
+      const resolveOpContext = options.operationContext
+      if (resolveOpContext) {
+        const {args, executeFn, setExecuteFn} = payload
+        const opDef = args.document.definitions.find(
+          (d): d is OperationDefinitionNode =>
+            d.kind === 'OperationDefinition' &&
+            (!args.operationName || d.name?.value === args.operationName)
+        )
+        setExecuteFn(execArgs => {
+          // Read INSIDE the wrapper: by execute time `useInContext` has populated the
+          // request context, so `getInContext()` sees THIS operation's `@inContext`
+          // values regardless of plugin order.
+          const inContext = getInContext()
+          const op: OperationInfo = {
+            context: inContext.context ?? {},
+            inContext,
+            operationType: opDef?.operation ?? 'query',
+            operationName: opDef?.name?.value,
+            variables: (args.variableValues ?? {}) as Record<string, unknown>,
+            honoContext: safeContext()
+          }
+          // The hook may be async; resolve the refined context first, then enter its ALS
+          // scope around the (possibly async) execute so it stays bound through resolution.
+          return Promise.resolve(resolveOpContext(getAppContext(), op)).then(opCtx =>
+            runWithAppContext(opCtx, () => executeFn(execArgs))
+          )
+        })
+      }
       return {
         onExecuteDone({result, setResult}) {
           // `result` may be an async iterator (streamed/incremental delivery) —

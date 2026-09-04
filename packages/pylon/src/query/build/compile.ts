@@ -82,6 +82,15 @@ export interface CompiledVariable {
  */
 export const IN_CONTEXT_VARIABLE = '__locale'
 
+/**
+ * Variable name carrying the per-operation context bag (JSON string). Underscore-prefixed
+ * like `__locale`, and rides the SAME `@inContext` directive. Emitted on EVERY compiled
+ * operation (no config gate — it's inert until the server acts on it); the client supplies
+ * the value per call, so it lands in the cache key (`variablesHash`) by construction. See
+ * rfcs/ACTING_TENANT.md.
+ */
+export const OP_CONTEXT_VARIABLE = '__context'
+
 export interface CompileOptions {
   /** Operation name. */
   name: string
@@ -143,6 +152,9 @@ export interface CompiledOperation {
   body: string
   /** The operation declares `$__locale`; the client must supply it. */
   inContext?: boolean
+  /** The operation declares `$__context` (always true for compiled ops); the client
+   *  supplies the per-call `OperationContext` bag as a JSON string. */
+  opContext?: boolean
   /** TS type literal for the result root, e.g. "{ me: { name: string } }". */
   resultType: string
   /** Variables whose values come from the call site (the thunk). */
@@ -286,19 +298,28 @@ export function compileOperation(
     ...ctx.runtimeVarDecls,
     ...ctx.connVarDecls
   ]
-  // `@inContext` carries the locale INSIDE the document, as a variable, so one compiled
-  // document serves every locale AND the locale lands in the client's cache key
-  // (`documentId ~ variablesHash`). A header would leave those keys identical across
-  // locales — see core/in-context.ts.
+  // `@inContext` carries request context INSIDE the document, as variables, so one compiled
+  // document serves every value AND the value lands in the client's cache key
+  // (`documentId ~ variablesHash`). A header would leave those keys identical across values
+  // — see core/in-context.ts.
   //
   // The variable declaration and the directive are inseparable: GraphQL rejects a declared
-  // variable that is never used, so the directive is what makes `$__locale` legal. That is
-  // the same constraint that pushed Shopify to a directive.
-  if (options.inContext) allDecls.push(`$${IN_CONTEXT_VARIABLE}: String`)
+  // variable that is never used, so the directive is what makes `$__locale` / `$__actingTenant`
+  // legal. That is the same constraint that pushed Shopify to a directive. `locale` and
+  // `actingTenant` share ONE directive when both are enabled.
+  const inContextArgs: string[] = []
+  if (options.inContext) {
+    allDecls.push(`$${IN_CONTEXT_VARIABLE}: String`)
+    inContextArgs.push(`locale: $${IN_CONTEXT_VARIABLE}`)
+  }
+  // The per-operation context channel is ALWAYS compiled in (no config gate): the value is
+  // supplied per call and inert until the server acts on it. `context` rides as a JSON
+  // String so this directive stays app-independent — the app's `OperationContext` shape
+  // lives in TS, never in the SDL.
+  allDecls.push(`$${OP_CONTEXT_VARIABLE}: String`)
+  inContextArgs.push(`context: $${OP_CONTEXT_VARIABLE}`)
   const varDecls = allDecls.length ? `(${allDecls.join(', ')})` : ''
-  const directives = options.inContext
-    ? ` @inContext(locale: $${IN_CONTEXT_VARIABLE})`
-    : ''
+  const directives = ` @inContext(${inContextArgs.join(', ')})`
 
   const body = `${operation} ${options.name}${varDecls}${directives} ${sdl}`
 
@@ -306,6 +327,7 @@ export function compileOperation(
     name: options.name,
     body,
     inContext: options.inContext || undefined,
+    opContext: true,
     resultType: ts,
     variables: ctx.variables.map(v => ({name: v.name, expr: v.expr})),
     connection: ctx.connectionMeta,

@@ -62,6 +62,13 @@ export interface DocInit {
    * locales in two cache entries rather than one.
    */
   inContext?: boolean
+  /**
+   * The operation declares `$__context` via `@inContext` (true for every compiled op). The
+   * client supplies the per-call `OperationContext` bag from `useData(sel, {context})` as a
+   * JSON string; being a variable it lands in `opKey`'s `variablesHash` by construction, so
+   * two contexts never share a cache entry. See rfcs/ACTING_TENANT.md.
+   */
+  opContext?: boolean
   connection?: ConnectionMeta
   /** For mutations: the single top-level field whose value `mutate()` returns. */
   rootField?: string
