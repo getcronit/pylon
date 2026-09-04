@@ -4,5 +4,5 @@ import {useData} from '@getcronit/pylon/pages'
 // `withLoading(..., SectionLoading)` and use SectionLoading as HydrateFallback.
 export default function DeepPage() {
   const data = useData()
-  return <div id="deep-page">deep-page:{data.ok}</div>
+  return <div id="deep-page">deep-page:{data.slow}</div>
 }

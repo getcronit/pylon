@@ -1,11 +1,53 @@
 # RFC: usePages streaming — `loading.tsx` boundaries + progressive SSR
 
-Status: **Phase 1 landed** (rest Draft). Scope: introduce a `loading.tsx` file convention that creates framework-managed
-`<Suspense>` boundaries per route segment, and build progressive streaming on top of it — driven purely by
+Status: **Implemented**. Scope: a `loading.tsx` file convention that creates framework-managed
+`<Suspense>` boundaries per route segment, and progressive streaming on top of it — driven purely by
 boundary presence (no opt-in flag), without regressing the response-status correctness
-(`notFound()`/`redirect()`/`forbidden()`) that the current buffered model guarantees. Related:
+(`notFound()`/`redirect()`/`forbidden()`) that the buffered model guarantees. Related:
 [SSR request context](./SSR_REQUEST_CONTEXT.md),
 [SSR i18n](./SSR_I18N.md).
+
+## Status: implemented (what shipped)
+
+- **`loading.tsx` convention** — a fifth file convention (`getLoadingComponentName` + `detect('loading.tsx', …)`
+  in `app-utils.ts`), cascading like `error.tsx`/`not-found.tsx` via a threaded `inheritedLoading`. The
+  segment's leaf **page** is wrapped in `withLoading(…)` (a `<Suspense fallback>`), and the resolved loading
+  component is also the route's `HydrateFallback`.
+- **Always-on streaming send path** (`setup/index.tsx`) — prod always uses `renderToReadableStream` and
+  flushes the shell at shell-ready. **No flag, no gating.** With no boundary (no `loading.tsx` *and* no manual
+  `<Suspense>`), the shell is the whole document, so it degenerates to the buffered result — no behavioral
+  difference. `withLoading` is therefore active on both server and client (no client-only mode split — an
+  earlier draft's workaround, removed).
+- **Response-status correctness preserved where it can be.** With no boundary, any throw is a *shell* error:
+  `renderToReadableStream` rejects before a byte flushes, and the handler falls through to the **buffered
+  path**, whose re-render draws the `errorElement` server-side with the right status. So `notFound()`/status/
+  containment are unchanged for no-boundary routes and for throws *above* a boundary (in the shell) or in a
+  loader.
+- **The scoped tradeoff.** A `useData` failure or `notFound()` *below* a flushed boundary can no longer set
+  the status (stays 200) or be contained server-side — React aborts that boundary and the client re-renders
+  it (React Router's `errorElement` contains it client-side). This is inherent, not a workaround: see
+  "Why loaders can't remove it" below.
+- **Cache handoff.** The pre-render half (`context`/`i18n`/`messages`) rides React's `bootstrapScriptContent`.
+  The post-render `cache` (the pylon-query store snapshot) is appended by a `TransformStream.flush()` at
+  stream-end (== React `allReady` == store complete) — the streaming-safe equivalent of the buffered path's
+  `</body>` splice.
+- **Dev buffers** (the Vite HTML transform needs the whole document string); behavior is otherwise identical.
+- Validated: `e2e/tests/loading-boundary-serve.e2e.test.ts` + `e2e/fixtures/loading-app` (9 tests: streams
+  own + inherited boundaries with the fallback in the shell and resolved content on the same response;
+  no-boundary routes show no fallback; generated routes wire own + inherited and skip uncovered segments;
+  fallback shipped to the client bundle). Full e2e green apart from one pre-existing, unrelated `@inContext`
+  failure.
+
+### Why loaders can't remove the tradeoff
+
+The obvious "fix" — resolve a route's data in a pre-render loader so status/errors are known before the
+first byte — does **not** work for Pylon, because `useData` is co-located with components and **JSX gates
+which components render** (`{isAdmin && <AuditPanel/>}`). The set of operations that actually execute is
+therefore *render-determined*: you cannot enumerate it ahead of render without over-fetching (running gated-
+away queries, including ones the user's auth would exclude) or already knowing the render outcome. Rendering
+*is* the query-discovery mechanism (that is what the static per-`useData` documents feed: shape, not the
+executed set). So a throw below a boundary is unknowable pre-flush **by construction**, and the tradeoff is a
+property of the model, not of this implementation.
 
 ## What already works (verified, not assumed)
 

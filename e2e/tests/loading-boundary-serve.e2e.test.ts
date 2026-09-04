@@ -1,19 +1,21 @@
 /**
- * `loading.tsx` — framework-managed Suspense boundaries per route segment (Phase 1 of
- * rfcs/PAGES_STREAMING.md).
+ * `loading.tsx` — framework-managed Suspense boundaries per route segment, and progressive
+ * streaming (rfcs/PAGES_STREAMING.md).
  *
- * Phase 1 is the BUFFERED phase: the SSR handler still drains the stream to a string, and the
- * `loading.tsx` boundary is CLIENT-ONLY (see `withLoading` in app-utils.ts). So the fallback
- * provides the navigation loading state on the client but must NEVER appear in the buffered
- * SSR HTML — the server render escalates the `useData` suspension to the shell and ships
- * resolved content, keeping `notFound()`/status semantics untouched.
+ * The SSR handler always uses the streaming send path in prod: React flushes the shell as soon
+ * as it is ready, so a `loading.tsx` boundary whose `useData` is still pending emits its FALLBACK
+ * in the shell and streams the resolved segment in behind it. With NO boundary in the chain the
+ * shell is the whole document, so it degenerates to the buffered result — no fallback, no
+ * behavioral difference.
  *
  * What this pins down:
- *   - the fallback is absent from server HTML on a segment WITH its own `loading.tsx`,
- *   - and on a nested segment that INHERITS it (cascade), and where there is none,
+ *   - a segment WITH its own `loading.tsx` streams: the fallback is in the shell AND the resolved
+ *     content arrives, on the same response;
+ *   - a nested segment that INHERITS the fallback does the same (cascade);
+ *   - a route with no `loading.tsx` in its chain shows no fallback (degenerates to buffered);
  *   - the generated routes wire `withLoading(...)` + `HydrateFallback` for own AND inherited
- *     segments, and do NOT wire it where no `loading.tsx` exists,
- *   - the fallback component is shipped to the client bundle (for client navigation).
+ *     segments, and do NOT wire it where no `loading.tsx` exists;
+ *   - the fallback component is shipped to the client bundle (also the client nav loading state).
  */
 import {type ChildProcess, spawn, spawnSync} from 'node:child_process'
 import {existsSync, promises as fs} from 'node:fs'
@@ -84,32 +86,41 @@ afterAll(async () => {
   await fs.rm(pylonDir, {recursive: true, force: true})
 })
 
-describe('loading.tsx is client-only: never in the buffered SSR HTML', () => {
-  it('renders resolved content, not the fallback, on a segment WITH its own loading.tsx', async () => {
+describe('streaming: a loading.tsx boundary flushes its fallback in the shell and streams the segment', () => {
+  it('streams a segment WITH its own loading.tsx — fallback in the shell AND resolved content', async () => {
     const {status, html} = await body('/section')
     expect(status).toBe(200)
-    expect(html).toContain('section-page:ok')
+    // Ancestor chrome renders immediately.
     expect(html).toContain('section-chrome')
-    expect(html).not.toContain(LOADING_MARKER)
+    // The boundary's fallback is in the shell (the segment's data was still pending)…
+    expect(html).toContain(LOADING_MARKER)
+    // …and the resolved content is streamed in on the SAME response.
+    expect(html).toContain('section-page:slow-ok')
+    // The post-render hydration payload is appended too.
+    expect(html).toContain('Object.assign(window.__pylonStaticData')
   })
 
-  it('renders resolved content, not the fallback, on a nested segment that INHERITS it (cascade)', async () => {
+  it('streams a nested segment that INHERITS the fallback (cascade)', async () => {
     const {status, html} = await body('/section/deep')
     expect(status).toBe(200)
-    expect(html).toContain('deep-page:ok')
+    expect(html).toContain(LOADING_MARKER)
+    expect(html).toContain('deep-page:slow-ok')
+  })
+})
+
+describe('no boundary in the chain → no fallback (degenerates to buffered)', () => {
+  it('renders the home route with no fallback', async () => {
+    const {status, html} = await body('/')
+    expect(status).toBe(200)
+    expect(html).toContain('home:ok')
     expect(html).not.toContain(LOADING_MARKER)
   })
 
-  it('renders normally where there is no loading.tsx at all', async () => {
-    const home = await body('/')
-    expect(home.status).toBe(200)
-    expect(home.html).toContain('home:ok')
-    expect(home.html).not.toContain(LOADING_MARKER)
-
-    const plain = await body('/plain')
-    expect(plain.status).toBe(200)
-    expect(plain.html).toContain('plain-page:ok')
-    expect(plain.html).not.toContain(LOADING_MARKER)
+  it('renders a sibling of /section with no loading.tsx and no fallback', async () => {
+    const {status, html} = await body('/plain')
+    expect(status).toBe(200)
+    expect(html).toContain('plain-page:ok')
+    expect(html).not.toContain(LOADING_MARKER)
   })
 })
 
@@ -119,7 +130,7 @@ describe('the generated routes wire the boundary (own + inherited), and only whe
     app = await fs.readFile(path.join(pylonDir, 'app.tsx'), 'utf8')
   })
 
-  it('defines the client-only withLoading helper and imports the fallback', () => {
+  it('defines the withLoading helper and imports the fallback', () => {
     expect(app).toContain('function withLoading(')
     expect(app).toContain('SectionLoading')
   })

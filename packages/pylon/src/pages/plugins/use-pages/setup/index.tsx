@@ -800,12 +800,90 @@ export const setup = async (
         ? `window.__pylonStaticData = ${serializeForScript(bootstrapData)};`
         : undefined
 
+    // The operation-keyed hydration payload, as a trailing inline script. The store is only
+    // complete AFTER the render, so this is emitted at the end (flush() when streaming, or a
+    // `</body>` splice when buffered). `Object.assign`s onto the bootstrap envelope. Empty
+    // string when there is nothing to hydrate.
+    const cacheScript = (): string => {
+      const payload = pagesClient.collect()
+      const hasData =
+        payload &&
+        (Object.keys(payload.ops ?? {}).length > 0 ||
+          Object.keys(payload.entities ?? {}).length > 0)
+      return hasData
+        ? `<script>window.__pylonStaticData = Object.assign(window.__pylonStaticData || {}, {cache: ${serializeForScript(payload)}})</script>`
+        : ''
+    }
+
     // =====================================================================
-    // Render ONCE. Suspense drives useData fetching into the store during this
-    // render; the hydration payload (window.__pylon) is appended to the HTML
-    // afterwards. A second render happens ONLY on the error path (a component
-    // threw a redirect/notFound/crash → populate context.errors → render the
-    // error page).
+    // STREAMING SEND PATH (rfcs/PAGES_STREAMING.md).
+    //
+    // Always attempted in prod: React resolves `renderToReadableStream` at SHELL-ready (before
+    // pending Suspense boundaries resolve), so the shell flushes early and each boundary streams
+    // in as its data arrives. With NO boundary (no `loading.tsx`, no manual `<Suspense>`) the
+    // shell IS the whole document, so this degenerates to the buffered result — no behavioral
+    // difference. That is also why status/containment stay correct there: any throw is a SHELL
+    // error, which rejects the promise BEFORE a byte flushes, so we fall through to the buffered
+    // path (below) and its re-render draws the errorElement server-side with the right status.
+    //
+    // The tradeoff is scoped to routes that DO put a boundary in the way: a `useData` failure or
+    // `notFound()` BELOW the flush line can no longer change the status (200) or be contained
+    // server-side — React aborts that boundary and the client re-renders it (RR's errorElement
+    // then contains it client-side). See the RFC.
+    //
+    // Dev is excluded: the Vite HTML transform needs the whole document as a string.
+    if (!devBridge && reactServer.renderToReadableStream) {
+      let reactStream: ReadableStream | undefined
+      try {
+        reactStream = await reactServer.renderToReadableStream(
+          renderComponent(context),
+          {
+            bootstrapModules: bootstrapEntry ? [bootstrapEntry] : undefined,
+            bootstrapScriptContent,
+            onError(err: unknown) {
+              // Thrown Responses (notFound/redirect) are control flow, not errors. A real error
+              // here is a post-flush boundary failure (the pre-flush/shell case rejects the
+              // promise and is handled by the buffered fallback below).
+              if (!isResponse(err)) {
+                console.error('[pylon] streaming render error', err)
+              }
+            }
+          }
+        )
+      } catch {
+        // Shell error: nothing flushed. Leave `reactStream` unset and fall through to the
+        // buffered path, which re-renders with full error containment + correct status.
+        reactStream = undefined
+      }
+
+      if (reactStream) {
+        // Shell rendered cleanly. Commit the response now — before the shell bytes go out — then
+        // stream, appending the (post-render) cache payload once React closes the source stream.
+        const encoder = new TextEncoder()
+        const withCache = reactStream.pipeThrough(
+          new TransformStream({
+            flush(controller) {
+              // Source close == React `allReady` == store fully populated.
+              const script = cacheScript()
+              if (script) controller.enqueue(encoder.encode(script))
+            }
+          })
+        )
+
+        flushCookies()
+        if (i18n) {
+          for (const header of I18N_VARY) appendVary(c.res.headers, header)
+        }
+        c.status(context.statusCode as any)
+        c.header('Content-Type', 'text/html')
+        return c.body(withCache as any)
+      }
+    }
+
+    // =====================================================================
+    // BUFFERED SEND PATH. Runs in dev, when streaming is unavailable, or as the shell-error
+    // fallback above. Renders ONCE; a SECOND render happens only on the error path (a component
+    // threw a redirect/notFound/crash → populate context.errors → render the error page).
     // =====================================================================
     let html: string
     try {
@@ -890,21 +968,10 @@ export const setup = async (
       }
     }
 
-    // Append the operation-keyed hydration payload right before </body>. The
-    // store can only be collected AFTER the render that populated it, so unlike
-    // the context/i18n/messages half (emitted pre-render via bootstrapScriptContent
-    // above) it can't ride the bootstrap channel. Merge the collected snapshot into
-    // that SAME envelope under `.cache` — that is what the client bootstrap reads
-    // (`__pylonStaticData.cache`) and feeds to `client.hydrate()`. Both are classic
-    // inline scripts, so they run in document order (bootstrap first, then this)
-    // before the deferred app.js calls hydrate().
-    const payload = pagesClient.collect()
-    const hasData =
-      payload &&
-      (Object.keys(payload.ops ?? {}).length > 0 ||
-        Object.keys(payload.entities ?? {}).length > 0)
-    if (hasData) {
-      const script = `<script>window.__pylonStaticData = Object.assign(window.__pylonStaticData || {}, {cache: ${serializeForScript(payload)}})</script>`
+    // Splice the operation-keyed hydration payload in right before </body>. Same envelope as the
+    // pre-render bootstrap script; see cacheScript().
+    const script = cacheScript()
+    if (script) {
       html = html.includes('</body>')
         ? html.replace('</body>', `${script}</body>`)
         : html + script

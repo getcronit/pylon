@@ -7,7 +7,14 @@ import {Pylon} from '@getcronit/pylon'
 export default new Pylon({
   graphql: {
     Query: {
-      ok: (): string => 'ok'
+      ok: (): string => 'ok',
+      // Deliberately async with a small delay so a `loading.tsx` boundary reading it reliably
+      // SUSPENDS during SSR — the streaming path then flushes the fallback in the shell and
+      // streams the resolved value in behind it.
+      slow: async (): Promise<string> => {
+        await new Promise(r => setTimeout(r, 40))
+        return 'slow-ok'
+      }
     },
     Mutation: {}
   }

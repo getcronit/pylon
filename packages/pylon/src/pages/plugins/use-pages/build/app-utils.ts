@@ -128,9 +128,10 @@ export function getNotFoundComponentName(filePath: string): string {
  *
  * `loading.tsx` alongside a `layout.tsx`/`page.tsx` provides the segment's Suspense
  * fallback (and cascades to nested segments, like `error.tsx`/`not-found.tsx`). It is
- * wired as the route's `HydrateFallback` and as a CLIENT-ONLY Suspense boundary around
- * the segment's page (see `withLoading` in the generated module) — Phase 1 keeps SSR
- * boundary-free so the buffered HTML carries resolved content, not the fallback.
+ * wired as the route's `HydrateFallback` and as the Suspense boundary around the segment's
+ * page (see `withLoading` in the generated module): the SSR streaming path flushes it in the
+ * shell and streams the resolved segment in, and on the client it is the navigation loading
+ * state.
  * @param filePath - The file path to convert.
  * @returns The generated loading component name.
  */
@@ -250,10 +251,10 @@ function processPageItem(
   const catchAllParam = relativePath.match(/\[\.\.\.(.+)\]/)?.[1]
   const pageComponentName = getPageComponentName(relativePath)
 
-  // The page IS the segment's leaf element, so its `loading.tsx` (own or inherited) wraps
-  // it in a CLIENT-ONLY Suspense boundary (see `withLoading`): the navigation loading state
-  // on the client, while SSR stays boundary-free so the buffered HTML carries resolved
-  // content. `withRouteData` first, then `withLoading` around it.
+  // The page IS the segment's leaf element, so its `loading.tsx` (own or inherited) wraps it in
+  // a Suspense boundary (see `withLoading`): the SSR streaming path flushes the fallback in the
+  // shell and streams the resolved page in, and on the client it is the navigation loading
+  // state. `withRouteData` first, then `withLoading` around it.
   const componentExpr = `withRouteData(i.default, "${pageComponentName}", ${catchAllParam ? `"${catchAllParam}"` : 'undefined'})`
   const wrappedComponentExpr = loadingComponentName
     ? `withLoading(${componentExpr}, ${loadingComponentName})`
@@ -579,16 +580,14 @@ const HydrateFallback = () => {
   return <div>Loading...</div>
 }
 
-// Wrap a route's page component in its segment's \`loading.tsx\` Suspense fallback.
-// CLIENT-ONLY by design (Phase 1): on the server we render the component directly so a
-// suspending \`useData\` escalates to the shell — the buffered SSR HTML then carries the
-// resolved content (never the fallback) and a thrown \`notFound()\` stays a real 404. On the
-// client the Suspense boundary provides the navigation loading state. (Phase 4 / streaming
-// is what would make this boundary active server-side; see rfcs/PAGES_STREAMING.md.)
+// Wrap a route's page component in its segment's \`loading.tsx\` Suspense fallback. Active on
+// BOTH server and client: on the server the streaming send path flushes this fallback in the
+// shell and streams the resolved segment in behind it; on the client it is the navigation
+// loading state. With no \`loading.tsx\` in the chain the page is not wrapped at all, so there is
+// no boundary and the render simply resolves into the shell. See rfcs/PAGES_STREAMING.md.
 function withLoading(Component: React.ComponentType<any>, Loading: React.ComponentType) {
   if (!Loading) return Component
   return function WithLoading(props: any) {
-    if (typeof window === 'undefined') return <Component {...props} />
     return (
       <Suspense fallback={<Loading />}>
         <Component {...props} />
