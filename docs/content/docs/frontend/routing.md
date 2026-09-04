@@ -38,8 +38,8 @@ The mapping rules:
 - `[...slug]/` is a **catch-all**: it matches the rest of the path and gives you
   `params.slug` as a `string[]`.
 - `layout.tsx` wraps every route in its directory and all nested directories.
-- `error.tsx` and `not-found.tsx` set the error / 404 UI for their directory and
-  cascade to nested routes — see
+- `error.tsx`, `not-found.tsx`, and `loading.tsx` set the error / 404 / loading
+  UI for their directory and cascade to nested routes — see
   [Loading & Errors](/docs/frontend/loading-and-errors).
 
 ## Pages

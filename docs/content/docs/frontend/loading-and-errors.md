@@ -1,7 +1,7 @@
 ---
 title: Loading & Error States
 nav: Loading & Errors
-description: Suspense-driven loading, throwing control-flow helpers like notFound and redirect, custom error.tsx / not-found.tsx pages that cascade, and an ErrorBoundary for in-page failures.
+description: Suspense-driven loading with streaming SSR and loading.tsx fallbacks, throwing control-flow helpers like notFound and redirect, custom error.tsx / not-found.tsx pages that cascade, and an ErrorBoundary for in-page failures.
 section: Frontend — usePages
 order: 6
 ---
@@ -14,10 +14,8 @@ right HTTP status and error page.
 
 ## Loading
 
-`useData` suspends while its query is in flight. Each route is wrapped in a
-Suspense boundary with a `HydrateFallback`, so a page that's still fetching shows
-the fallback instead of a blank frame — no loading flag to thread through your
-component:
+`useData` suspends while its query is in flight — no loading flag to thread
+through your component:
 
 ```tsx title="pages/posts/page.tsx"
 import {useData} from '@getcronit/pylon/pages'
@@ -28,9 +26,67 @@ export default function Posts() {
 }
 ```
 
-During SSR the server awaits the data before sending HTML, so the first paint is
-already populated. On the client, the fallback covers navigations that need
-fresh data.
+### Streaming SSR
+
+The server **streams**: it sends the surrounding shell as soon as it's ready and
+streams each Suspense boundary in as its data resolves. So a slow segment no
+longer blocks first paint — the chrome shows immediately, with the segment's
+fallback in its place, and the real content swaps in when it arrives.
+
+A boundary comes from a `loading.tsx` (below) or your own `<Suspense>`. **With no
+boundary in a route's chain, there's nothing to stream** — the server simply
+includes the resolved content in the shell, so the first paint is fully populated,
+exactly as a buffered render would be. You opt into streaming a segment by giving
+it a fallback; you never opt out of anything.
+
+### Custom loading UI — `loading.tsx`
+
+Drop a `loading.tsx` beside a `layout.tsx`/`page.tsx` to give that segment a
+Suspense fallback. It is the **default export** and takes no props:
+
+```tsx title="pages/posts/loading.tsx"
+export default function PostsLoading() {
+  return <p>Loading posts…</p>
+}
+```
+
+`loading.tsx` **cascades** like `error.tsx`/`not-found.tsx`: it covers its own
+segment and every nested route that doesn't define its own. It's also the route's
+`HydrateFallback` (shown during client-side navigation to the segment). Without
+one, a built-in fallback is used.
+
+```
+pages/
+  layout.tsx
+  page.tsx
+  posts/
+    loading.tsx       → fallback for /posts and below (streamed in the shell)
+    page.tsx
+    [id]/
+      page.tsx        → inherits posts/loading.tsx
+```
+
+For a per-widget loading state rather than a whole segment, drop a `<Suspense>`
+right where you need it — it streams the same way:
+
+```tsx
+import {Suspense} from 'react'
+
+<Suspense fallback={<Spinner />}>
+  <SlowWidget />
+</Suspense>
+```
+
+:::warning
+A `notFound()`/`redirect()`/`forbidden()` thrown **below a boundary** — from a
+component whose data was still resolving when the shell was sent — can render the
+right UI but **cannot change the HTTP status**: the response (a 200) is already on
+the wire. Above any boundary, or with no `loading.tsx` in the chain, the status is
+always correct. So for a route whose *existence* depends on data (a `notFound()`
+that must return a real 404 to crawlers), either don't wrap that segment in a
+`loading.tsx`, or resolve the check before the boundary. This is the one trade-off
+streaming makes; it's scoped entirely to segments you gave a fallback.
+:::
 
 ## Control-flow helpers
 
@@ -67,6 +123,13 @@ On the server these throw a real `Response` with the right status; in the
 browser they unwind the render and show the matching error element. `redirect`
 navigates client-side when it can, and emits a `Location` response on the
 server:
+
+:::note
+One exception: a helper thrown **below a streamed boundary** (a `loading.tsx` or
+`<Suspense>`) can't set the status once the shell has been sent — see the
+streaming warning under **Loading** above.
+:::
+
 
 ```tsx
 import {redirect} from '@getcronit/pylon/pages'
