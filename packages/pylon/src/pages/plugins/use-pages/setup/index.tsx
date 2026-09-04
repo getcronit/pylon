@@ -47,18 +47,38 @@ function isResponse(value: any): value is Response {
  */
 async function renderToHtml(
   component: React.ReactElement,
-  appModule?: string
+  appModule?: string,
+  /**
+   * The server→client state handoff (`window.__pylonStaticData = {...}`), emitted on
+   * React's OWN bootstrap channel rather than as a node in the reconciled tree. This is
+   * plumbing, not content: a `<script>` rendered in-tree is server-only (the client has no
+   * data to re-render it from), so it becomes a hydration asymmetry that any app `<script>`
+   * nearby then collides with. `bootstrapScriptContent` sidesteps that AND is streaming-safe
+   * — React flushes it right after the shell, before the deferred app module, with no tree
+   * node to reconcile. The post-render `cache` chunk is appended separately (it can only be
+   * known AFTER the render that populates the store); it `Object.assign`s onto this envelope.
+   */
+  bootstrapScriptContent?: string
 ): Promise<string> {
   const bootstrapModules = appModule ? [appModule] : undefined
   if (reactServer.renderToReadableStream) {
     const stream = await reactServer.renderToReadableStream(component, {
-      bootstrapModules
+      bootstrapModules,
+      bootstrapScriptContent
     })
     // Consuming the stream to a string waits for everything (incl. Suspense).
     return await new Response(stream as any).text()
   }
   if (reactServer.renderToString) {
-    return reactServer.renderToString(component)
+    // Fallback path: `renderToString` has no bootstrap channel, so inline the handoff
+    // before `</body>` ourselves. (This path also emits no app module, so it is already a
+    // degraded environment; parity is best-effort.)
+    const html = reactServer.renderToString(component)
+    if (!bootstrapScriptContent) return html
+    const tag = `<script>${bootstrapScriptContent}</script>`
+    return html.includes('</body>')
+      ? html.replace('</body>', `${tag}</body>`)
+      : html + tag
   }
   throw new Error('Environment not supported')
 }
@@ -765,6 +785,21 @@ export const setup = async (
       </__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider>
     )
 
+    // The half of the hydration envelope known BEFORE render (auth/features/role context,
+    // negotiated locale, active messages). Emitted via React's bootstrap channel (see
+    // renderToHtml) as `window.__pylonStaticData = {...};` — the exact shape the client
+    // provider reads and the serve tests assert. `cache` is NOT here: it is only known after
+    // the render populates the store, so it is appended below and `Object.assign`ed on.
+    const bootstrapData = {
+      ...(pagesContext ? {context: pagesContext} : {}),
+      ...(i18n ? {i18n} : {}),
+      ...(messages ? {messages} : {})
+    }
+    const bootstrapScriptContent =
+      Object.keys(bootstrapData).length > 0
+        ? `window.__pylonStaticData = ${serializeForScript(bootstrapData)};`
+        : undefined
+
     // =====================================================================
     // Render ONCE. Suspense drives useData fetching into the store during this
     // render; the hydration payload (window.__pylon) is appended to the HTML
@@ -774,7 +809,11 @@ export const setup = async (
     // =====================================================================
     let html: string
     try {
-      html = await renderToHtml(renderComponent(context), bootstrapEntry)
+      html = await renderToHtml(
+        renderComponent(context),
+        bootstrapEntry,
+        bootstrapScriptContent
+      )
     } catch (errorOrResponse) {
       if (isResponse(errorOrResponse)) {
         const status = errorOrResponse.status
@@ -835,7 +874,11 @@ export const setup = async (
 
       // Error path only: re-render with the populated error context.
       try {
-        html = await renderToHtml(renderComponent(context), bootstrapEntry)
+        html = await renderToHtml(
+        renderComponent(context),
+        bootstrapEntry,
+        bootstrapScriptContent
+      )
       } catch (criticalError) {
         console.error('CRITICAL RENDER ERROR', criticalError)
         flushCookies()
@@ -848,13 +891,13 @@ export const setup = async (
     }
 
     // Append the operation-keyed hydration payload right before </body>. The
-    // store can only be collected AFTER the render that populated it, so this
-    // can't be embedded by the in-tree DataClientProvider (which already wrote
-    // `window.__pylonStaticData = {context}` earlier in the body). Merge the
-    // collected snapshot into that SAME envelope under `.cache` — that is what
-    // inject-app-hydration.ts reads (`__pylonStaticData.cache`) and feeds to
-    // `client.hydrate()`. Both are classic inline scripts, so they run in
-    // document order before the deferred app.js calls hydrate().
+    // store can only be collected AFTER the render that populated it, so unlike
+    // the context/i18n/messages half (emitted pre-render via bootstrapScriptContent
+    // above) it can't ride the bootstrap channel. Merge the collected snapshot into
+    // that SAME envelope under `.cache` — that is what the client bootstrap reads
+    // (`__pylonStaticData.cache`) and feeds to `client.hydrate()`. Both are classic
+    // inline scripts, so they run in document order (bootstrap first, then this)
+    // before the deferred app.js calls hydrate().
     const payload = pagesClient.collect()
     const hasData =
       payload &&

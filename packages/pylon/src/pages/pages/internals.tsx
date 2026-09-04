@@ -17,20 +17,6 @@ import {
   type ResponseCookies
 } from './response-cookies'
 
-/**
- * Serialize a value for safe embedding inside an inline `<script>` tag.
- *
- * `JSON.stringify` alone is unsafe here: the HTML parser terminates the script
- * block at the first literal `</script>` (or `<!--`) in the text, regardless of
- * JSON string quoting. We escape `<` as `<` (which parses back to `<`) plus
- * the U+2028/U+2029 line separators that are valid JSON but invalid in JS source.
- */
-const serializeForScript = (value: unknown): string =>
-  JSON.stringify(value)
-    .replace(/</g, '\\u003c')
-    .replace(/\u2028/g, '\\u2028')
-    .replace(/\u2029/g, '\\u2029')
-
 const dataClientContext = createContext<{
   client: any
   pagesContext?: any
@@ -76,10 +62,6 @@ const DataClientProvider: React.FC<{
   const isServer = typeof window === 'undefined'
   const coreClient = client?.client ?? client
 
-  // Server: the prepass already populated this client's store, so we just embed
-  // the collected snapshot for the browser. Client: hydration runs globally in
-  // inject-app-hydration.ts before hydrateRoot.
-  const cache = isServer ? staticData?.cache : undefined
   const pagesContext = isServer
     ? staticData?.context
     : (typeof window !== 'undefined' &&
@@ -134,24 +116,14 @@ const DataClientProvider: React.FC<{
             ))}
           </>
         )}
-        {isServer && (cache || pagesContext || i18n || messages) && (
-          <script
-            dangerouslySetInnerHTML={{
-              // Embed the SSR static data as a single envelope mirroring the
-              // `staticData` prop: `{cache, context}`. `cache` seeds the
-              // pylon-query store pre-hydration (inject-app-hydration.ts);
-              // `context` (auth/features/role) feeds `useRouteData`. Without the
-              // latter, `context` was undefined on hydration and feature-gated UI
-              // rendered on the server flashed away on the client.
-              __html: `window.__pylonStaticData = ${serializeForScript({
-                ...(cache ? {cache} : {}),
-                ...(pagesContext ? {context: pagesContext} : {}),
-                ...(i18n ? {i18n} : {}),
-                ...(messages ? {messages} : {})
-              })};`
-            }}
-          />
-        )}
+        {/* NOTE: the `window.__pylonStaticData` envelope is NOT rendered here. A server-only
+            <script> in this hydrated tree has no client counterpart (the client has no data to
+            re-render it from), so it is a hydration asymmetry — an app <script> placed nearby
+            reconciles against it and the whole document re-renders client-side, discarding the
+            SSR HTML. It is emitted out-of-tree via bootstrapScriptContent (pre-render half) and
+            a trailing inline script (the post-render `cache`); see setup/index.tsx. The <link>s
+            above stay in-tree deliberately: they are hoistable resources React matches by
+            identity, so they carry no positional asymmetry. */}
         {children}
       </dataClientContext.Provider>
     </PylonQueryProvider>
