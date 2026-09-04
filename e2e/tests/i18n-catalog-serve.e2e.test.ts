@@ -201,9 +201,11 @@ describe('@inContext — resolvers see the locale', () => {
     )
     const joined = sources.join('\n')
     // The variable declaration and the directive are inseparable — GraphQL rejects a
-    // declared variable that is never used.
+    // declared variable that is never used. `locale` may be followed by the per-operation
+    // `context:` channel (`@inContext(locale: $__locale, context: $__context)`), so match the
+    // locale argument tolerant of a trailing `, context: …`.
     expect(joined).toContain('$__locale: String')
-    expect(joined).toContain('@inContext(locale: $__locale)')
+    expect(joined).toMatch(/@inContext\(locale: \$__locale[,)]/)
   })
 
   it('gives each locale its OWN cache entry', async () => {
