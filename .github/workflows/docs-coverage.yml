@@ -1,0 +1,67 @@
+name: Docs coverage
+
+# Keeps the docs honest against the code. Two checks (see docs/coverage/):
+#   - check:coverage — every public export / CLI command / config key is documented.
+#     Parses SOURCE (no build needed), so it runs first and fast as the hard gate.
+#   - check:examples — type-checks the docs' ```ts examples against the built .d.ts,
+#     reporting import drift. Advisory (needs a build; fuzzier), so it does not block.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'packages/**'
+      - 'docs/**'
+      - '.github/workflows/docs-coverage.yml'
+  pull_request:
+    paths:
+      - 'packages/**'
+      - 'docs/**'
+      - '.github/workflows/docs-coverage.yml'
+
+jobs:
+  coverage:
+    name: Docs coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4.0.0
+        with:
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Setup pnpm store
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm i --frozen-lockfile
+
+      # Hard gate — parses source, so no build required. Fails the job on a gap.
+      - name: Coverage (public API / CLI / config)
+        run: pnpm --filter @getcronit/pylon-docs check:coverage
+
+      # The example type-check resolves '@getcronit/*' imports against the built .d.ts.
+      - name: Build packages
+        run: pnpm build
+
+      # Advisory — reports import drift in docs code blocks but does not block the
+      # build. Remove `continue-on-error` to promote it to a hard gate.
+      - name: Examples type-check (advisory)
+        run: pnpm --filter @getcronit/pylon-docs check:examples
+        continue-on-error: true

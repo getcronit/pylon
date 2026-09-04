@@ -1,0 +1,218 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`app-utils > makeAppFiles > should generate the correct app files content 1`] = `
+"import Layout from "./../pages/layout";
+import AuthLayout from "./../pages/auth/layout";
+import DashboardLayout from "./../pages/dashboard/layout";
+
+import {useMemo, Suspense} from 'react'
+import {__PYLON_ROUTER_INTERNALS_DO_NOT_USE, __PYLON_INTERNALS_DO_NOT_USE, GlobalErrorPage, StatusPage} from '@getcronit/pylon/pages'
+const Outlet = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.Outlet
+
+const ErrorElement: React.FC<{standalone: boolean, component?: React.ComponentType<{error: Error, reset: () => void}>, notFound?: React.ComponentType}> = ({standalone, component: UserErrorBoundary, notFound: UserNotFound}) => {
+  // Destructure for cleaner code
+  const { useRouteError, isRouteErrorResponse, Navigate } = __PYLON_ROUTER_INTERNALS_DO_NOT_USE;
+
+  const error = useRouteError();
+  console.error(error);
+
+  let message = 'An unexpected error occurred.';
+
+  // 1. Handle raw Response redirects (e.g., thrown directly during client render)
+  if (
+    error instanceof Response && 
+    error.status >= 300 && 
+    error.status < 400 && 
+    error.headers.get('Location')
+  ) {
+    return <Navigate to={error.headers.get('Location')!} replace />;
+  }
+
+  // 2. Use the official router check for handled data errors (404, 401, etc.)
+  // We check \`error.internal\` as a fallback just in case the server formatting is slightly off
+  const isRouteError = isRouteErrorResponse(error)
+
+  if (isRouteError) {
+    try {
+      const errorData = (error as any).data;
+      const rawMessage = typeof errorData === 'string' ? errorData : errorData?.message;
+      
+      if (rawMessage) {
+        try {
+          const parsed = JSON.parse(rawMessage);
+          message = parsed.message || rawMessage;
+        } catch (e) {
+          message = rawMessage;
+        }
+      }
+    } catch (e) {}
+
+    // A thrown \`notFound()\` surfaces here as a 404 (distinct from an unmatched
+    // path, which the catch-all route's \`element\` renders). When an app catch-all
+    // matches every path, this is the ONLY way a 404 happens — so the segment's
+    // \`not-found.tsx\` must be honored here, not just on the unmatched-path route.
+    if ((error as any).status === 404 && UserNotFound) {
+      return <UserNotFound />;
+    }
+
+    // Only render the StatusPage for non-500 HTTP errors
+    if ((error as any).status !== 500) {
+      return (
+        <StatusPage
+          code={(error as any).status}
+          message={message}
+          error={error}
+          standalone={standalone}
+        />
+      );
+    }
+  }
+
+  // 3. Fallback for standard code crashes (e.g., TypeError) and explicit 500s
+  const displayError = error instanceof Error
+    ? error
+    : new Error(
+        message ||
+        (error && typeof error === 'object' && ((error as any).message || (error as any).statusText)) ||
+        'A critical error occurred'
+      );
+
+  // A segment's \`error.tsx\` (passed as \`component\`) owns the crash UI, but only for
+  // genuine crashes — redirects and handled HTTP statuses (404/403) are framework
+  // concerns handled above, so the user boundary never sees them. \`reset\` re-runs the
+  // failed render from a clean slate; a full reload is the one recovery guaranteed to
+  // drop the cached read error and refetch (client-only — a no-op during SSR).
+  if (UserErrorBoundary) {
+    const reset = () => { if (typeof window !== 'undefined') window.location.reload(); };
+    return <UserErrorBoundary error={displayError as any} reset={reset} />;
+  }
+
+  return <GlobalErrorPage error={displayError as any} standalone={standalone} />;
+}
+
+const HydrateFallback = () => {
+  return <div>Loading...</div>
+}
+
+// Replaced pageClientCache with central cache in DataClientProvider
+
+function withRouteData(Component: React.ComponentType<any>, id?: string, catchAllParam?: string) {
+  return function WithRouteDataWrapper(props: any) {
+    const dataClient = __PYLON_INTERNALS_DO_NOT_USE.useDataClient()
+    const pagesContext = dataClient.pagesContext
+
+    const location = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useLocation()
+    const [searchParams] = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useSearchParams()
+    const searchParamsObject = useMemo(() => Object.fromEntries(searchParams.entries()), [searchParams])
+
+    const reactRouterParams = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.useParams()
+
+    const params = useMemo(() => {
+      const params: Record<string, string | string[] | undefined> = reactRouterParams
+
+      if (catchAllParam && reactRouterParams['*']) {
+        params[catchAllParam] = reactRouterParams['*']?.split('/')
+      }
+
+      return params
+    }, [reactRouterParams, catchAllParam])
+
+    const pageProps = useMemo(() => {
+      return {
+        path: location.pathname,
+        params,
+        searchParams: searchParamsObject,
+        context: pagesContext,
+      }
+    }, [location.pathname, params, searchParamsObject, pagesContext])
+
+    return (
+      <__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider props={pageProps} name={id}>
+        <Component {...(props as any)} {...pageProps} children={<Outlet />} />
+      </__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider>
+    )
+  };
+}
+
+
+
+
+
+const RootLayout = (props: { children: React.ReactNode; [key: string]: any }) => {
+  const manifest = (globalThis as any).__PYLON_MANIFEST__;
+
+  return (
+    <Layout {...props}>
+      <meta charSet="utf-8" />
+      {manifest?.['index.css'] && <link rel="stylesheet" href={manifest['index.css']} precedence="high" />}
+      {manifest?.['app.css'] && <link rel="stylesheet" href={manifest['app.css']} precedence="high" />}
+      {props.children}
+    </Layout>
+  )
+}
+
+const NotFoundPage: React.FC<{standalone: boolean}> = ({standalone = false}) => {
+  return <StatusPage code={404} message="The page you are looking for does not exist." standalone={standalone} />
+}
+
+const routes = [{"path": "/", "children": [{"id": "Page", "path": undefined, "index": true, "errorElement": <ErrorElement standalone={false} />, "lazy": async () => {const i = await import("./../pages/page").catch((e) => {console.error("[pylon] failed to load route module", "./../pages/page", e); if (typeof window !== 'undefined') { window.location.reload(); return new Promise(() => {}); } throw e;}); return {Component: withRouteData(i.default, "Page", undefined)}}, "HydrateFallback": HydrateFallback}, {"path": "auth", "children": [{"path": "login", "children": [{"id": "AuthLoginPage", "path": undefined, "index": true, "errorElement": <ErrorElement standalone={false} />, "lazy": async () => {const i = await import("./../pages/auth/login/page").catch((e) => {console.error("[pylon] failed to load route module", "./../pages/auth/login/page", e); if (typeof window !== 'undefined') { window.location.reload(); return new Promise(() => {}); } throw e;}); return {Component: withRouteData(i.default, "AuthLoginPage", undefined)}}, "HydrateFallback": HydrateFallback}]}, {"id": "AuthLayout/NotFound", "path": "*", "element": <NotFoundPage standalone={false} />, "loader": () => { return new Response("Not Found", { status: 404 }) }}], "id": "AuthLayout", "Component": withRouteData((props) => <AuthLayout children={<Outlet />} {...props} />, "AuthLayout", undefined), "shouldRevalidate": ({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
+    // Revalidate if a form was submitted (standard behavior)
+    if (formData) return true;
+
+    // List of params this layout segment depends on
+    const relevantKeys = [];
+    
+    // Check if any relevant URL parameter changed
+    const hasParamChanged = relevantKeys.some(key => 
+      JSON.stringify(currentParams[key]) !== JSON.stringify(nextParams[key])
+    );
+
+    // If it's the RootLayout, we might only want to revalidate on hard refreshes 
+    // or specific global triggers. Otherwise, follow param changes.
+    return hasParamChanged || (relevantKeys.length === 0 && defaultShouldRevalidate);
+  }, "errorElement": <ErrorElement standalone={false} />, "HydrateFallback": HydrateFallback}, {"path": "dashboard", "children": [{"id": "DashboardPage", "path": undefined, "index": true, "errorElement": <ErrorElement standalone={false} />, "lazy": async () => {const i = await import("./../pages/dashboard/page").catch((e) => {console.error("[pylon] failed to load route module", "./../pages/dashboard/page", e); if (typeof window !== 'undefined') { window.location.reload(); return new Promise(() => {}); } throw e;}); return {Component: withRouteData(i.default, "DashboardPage", undefined)}}, "HydrateFallback": HydrateFallback}, {"path": "settings", "children": [{"id": "DashboardSettingsPage", "path": undefined, "index": true, "errorElement": <ErrorElement standalone={false} />, "lazy": async () => {const i = await import("./../pages/dashboard/settings/page").catch((e) => {console.error("[pylon] failed to load route module", "./../pages/dashboard/settings/page", e); if (typeof window !== 'undefined') { window.location.reload(); return new Promise(() => {}); } throw e;}); return {Component: withRouteData(i.default, "DashboardSettingsPage", undefined)}}, "HydrateFallback": HydrateFallback}]}, {"id": "DashboardLayout/NotFound", "path": "*", "element": <NotFoundPage standalone={false} />, "loader": () => { return new Response("Not Found", { status: 404 }) }}], "id": "DashboardLayout", "Component": withRouteData((props) => <DashboardLayout children={<Outlet />} {...props} />, "DashboardLayout", undefined), "shouldRevalidate": ({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
+    // Revalidate if a form was submitted (standard behavior)
+    if (formData) return true;
+
+    // List of params this layout segment depends on
+    const relevantKeys = [];
+    
+    // Check if any relevant URL parameter changed
+    const hasParamChanged = relevantKeys.some(key => 
+      JSON.stringify(currentParams[key]) !== JSON.stringify(nextParams[key])
+    );
+
+    // If it's the RootLayout, we might only want to revalidate on hard refreshes 
+    // or specific global triggers. Otherwise, follow param changes.
+    return hasParamChanged || (relevantKeys.length === 0 && defaultShouldRevalidate);
+  }, "errorElement": <ErrorElement standalone={false} />, "HydrateFallback": HydrateFallback}, {"id": "RootLayout/NotFound", "path": "*", "element": <NotFoundPage standalone={false} />, "loader": () => { return new Response("Not Found", { status: 404 }) }}], "id": "RootLayout", "Component": withRouteData((props) => <RootLayout children={<Outlet />} {...props} />, "RootLayout", undefined), "shouldRevalidate": ({ currentParams, nextParams, formData, defaultShouldRevalidate }) => {
+    // Revalidate if a form was submitted (standard behavior)
+    if (formData) return true;
+
+    // List of params this layout segment depends on
+    const relevantKeys = [];
+    
+    // Check if any relevant URL parameter changed
+    const hasParamChanged = relevantKeys.some(key => 
+      JSON.stringify(currentParams[key]) !== JSON.stringify(nextParams[key])
+    );
+
+    // If it's the RootLayout, we might only want to revalidate on hard refreshes 
+    // or specific global triggers. Otherwise, follow param changes.
+    return hasParamChanged || (relevantKeys.length === 0 && defaultShouldRevalidate);
+  }, "errorElement": <ErrorElement standalone={true} />, "HydrateFallback": HydrateFallback}, {"id": "NotFound", "path": "*", "element": <NotFoundPage standalone={true} />, "loader": () => { return new Response("Not Found", { status: 404 }) }}]
+
+export default routes
+
+"
+`;
+
+exports[`app-utils > makeAppFiles > should generate the correct app files content 2`] = `
+"export default [
+  "/auth/login",
+  "/auth",
+  "/dashboard/settings",
+  "/dashboard",
+  "/"
+]"
+`;

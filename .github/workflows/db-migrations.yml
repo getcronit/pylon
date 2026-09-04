@@ -1,0 +1,123 @@
+name: DB Migrations
+
+# Runs the migration "moat" against a real Postgres: the pylon-ir diff-engine unit
+# tests and the pylon-db integration suite — including the round-trip / fuzz walks
+# that generate → apply → rollback → re-apply real migrations and assert they
+# converge and reverse cleanly. See packages/pylon-db/test/integration/.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'packages/pylon/**'
+      - '.github/workflows/db-migrations.yml'
+  pull_request:
+    paths:
+      - 'packages/pylon/**'
+      - '.github/workflows/db-migrations.yml'
+
+jobs:
+  migrations:
+    name: Migration round-trip (Postgres)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # pgvector-enabled image: the pylon-db suite includes pgvector tests
+        # (upsert/vector-nearest) that `CREATE EXTENSION vector`, which stock
+        # postgres:16-alpine doesn't ship. This image is postgres:16 + pgvector.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: pylon
+          POSTGRES_PASSWORD: pylon
+          POSTGRES_DB: pylon_test
+        # Match the docker-compose / test default (postgres://pylon:pylon@localhost:5433/pylon_test)
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U pylon -d pylon_test"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+
+    env:
+      DATABASE_URL: postgres://pylon:pylon@localhost:5433/pylon_test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4.0.0
+        with:
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Setup pnpm store
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm i --frozen-lockfile
+
+      # The ir/db tests run against SOURCE (vitest aliases every @getcronit/pylon
+      # subpath to src/), so no build is needed for them. We still build so the
+      # dev/CLI-spawning tests (which exec dist/cli/index.js) work if included.
+      - name: Build packages
+        run: pnpm build
+
+      # ir diff-engine unit tests + db round-trip/fuzz integration. DATABASE_URL is
+      # set (below), so the db integration suite runs (describe.skipIf(!runDb)).
+      - name: pylon ir + db tests (diff engine + round-trip/fuzz)
+        run: pnpm --filter @getcronit/pylon test test/ir test/db
+
+  cli-e2e:
+    name: pylon db CLI (e2e)
+    runs-on: ubuntu-latest
+    # The e2e suite owns its own Postgres via docker-compose (global-setup.ts,
+    # port 5434) — ubuntu runners have Docker, so no service container needed here.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4.0.0
+        with:
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Setup pnpm store
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm i --frozen-lockfile
+
+      # `pnpm test` runs the e2e `pretest` (builds the shipped CLI + deps) first,
+      # then vitest against just the migration-CLI file; global-setup brings the DB up.
+      - name: pylon db migrate e2e (shipped CLI vs live Postgres)
+        run: pnpm --filter pylon-e2e test tests/db-migrate.e2e.test.ts

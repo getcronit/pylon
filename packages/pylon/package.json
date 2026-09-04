@@ -1,12 +1,90 @@
 {
   "name": "@getcronit/pylon",
-  "version": "2.9.6",
+  "version": "2.9.5",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "dist/core/index.js",
+  "types": "dist/core/index.d.ts",
+  "bin": {
+    "pylon": "./dist/cli/index.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/core/index.js",
+      "types": "./dist/core/index.d.ts"
+    },
+    "./ir": {
+      "import": "./dist/ir/index.js",
+      "types": "./dist/ir/index.d.ts"
+    },
+    "./query/build": {
+      "import": "./dist/query/build/index.js",
+      "types": "./dist/query/build/index.d.ts"
+    },
+    "./db": {
+      "import": "./dist/db/index.js",
+      "types": "./dist/db/index.d.ts"
+    },
+    "./db/plugin": {
+      "import": "./dist/db/plugin.js",
+      "types": "./dist/db/plugin.d.ts"
+    },
+    "./queues": {
+      "import": "./dist/queues/index.js",
+      "types": "./dist/queues/index.d.ts"
+    },
+    "./queues/plugin": {
+      "import": "./dist/queues/plugin.js",
+      "types": "./dist/queues/plugin.d.ts"
+    },
+    "./queues/run-worker": {
+      "import": "./dist/queues/run-worker.js",
+      "types": "./dist/queues/run-worker.d.ts"
+    },
+    "./auth": {
+      "import": "./dist/auth/index.js",
+      "types": "./dist/auth/index.d.ts"
+    },
+    "./auth/plugin": {
+      "import": "./dist/auth/plugin.js",
+      "types": "./dist/auth/plugin.d.ts"
+    },
+    "./auth/contract": {
+      "import": "./dist/auth/contract.js",
+      "types": "./dist/auth/contract.d.ts"
+    },
+    "./auth/zitadel": {
+      "import": "./dist/auth/zitadel.js",
+      "types": "./dist/auth/zitadel.d.ts"
+    },
+    "./pages": {
+      "import": "./dist/pages/index.js",
+      "types": "./dist/pages/index.d.ts"
+    },
+    "./pages/plugin": {
+      "import": "./dist/pages/plugin.js",
+      "types": "./dist/pages/plugin.d.ts"
+    },
+    "./pages/dev": {
+      "import": "./dist/pages/plugins/use-pages/dev/vite-dev-server.js",
+      "types": "./dist/pages/plugins/use-pages/dev/vite-dev-server.d.ts"
+    },
+    "./pages/index.css": "./dist/pages/index.css",
+    "./query": {
+      "import": "./dist/query/index.js",
+      "types": "./dist/query/index.d.ts"
+    },
+    "./tsconfig.pylon.json": "./tsconfig.pylon.json"
+  },
   "scripts": {
-    "build": "rimraf ./dist && esbuild ./src/index.ts --bundle --platform=node --target=node18 --format=esm --outdir=./dist --sourcemap=linked --packages=external && pnpm run build:declarations",
-    "build:declarations": "tsc --declaration --emitDeclarationOnly --outDir ./dist"
+    "build": "rimraf ./dist && node build.js && pnpm run build:declarations",
+    "build:declarations": "tsc -p tsconfig.typecheck.json --declaration --emitDeclarationOnly --outDir ./dist && tsc-alias",
+    "test": "vitest run",
+    "test:integration": "PYLON_ORM_IT=1 vitest run test/db/integration",
+    "test:integration:queues": "PYLON_QUEUES_IT=1 vitest run test/queues/integration",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down -v",
+    "check:boundaries": "node scripts/check-boundaries.mjs",
+    "typecheck": "node scripts/check-boundaries.mjs && tsc --noEmit -p tsconfig.typecheck.json && tsc --noEmit -p test/tsconfig.json"
   },
   "files": [
     "dist",
@@ -20,27 +98,108 @@
     "directory": "packages/pylon"
   },
   "homepage": "https://pylon.cronit.io",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
     "@envelop/core": "^5.0.3",
-    "@envelop/disable-introspection": "^8.0.0",
-    "@getcronit/pylon-telemetry": "workspace:^",
+    "@graphql-tools/delegate": "^12.0.9",
+    "@graphql-tools/executor-http": "^3.1.0",
+    "@graphql-tools/wrap": "^11.1.9",
+    "@graphql-yoga/plugin-disable-introspection": "^2.13.0",
+    "@hono/node-server": "^1.13.7",
     "@hono/sentry": "^1.2.0",
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@radix-ui/react-collapsible": "^1.1.3",
+    "@radix-ui/react-slot": "^1.1.2",
     "@sentry/bun": "^8.17.0",
     "@sentry/node": "^8.54.0",
+    "@sentry/react": "^10.5.0",
+    "@vercel/nft": "^1.10.2",
+    "@vitejs/plugin-react": "^5.2.0",
+    "bullmq": "^5.0.0",
+    "chokidar": "^4.0.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "commander": "^12.1.0",
+    "conf": "^13.1.0",
     "consola": "^3.2.3",
+    "dotenv": "^16.4.5",
+    "esbuild-plugin-tsc": "^0.4.0",
+    "escape-string-regexp": "^5.0.0",
     "graphql": "^16.9.0",
     "graphql-scalars": "^1.24.0",
     "graphql-yoga": "^5.6.2",
     "hono": "^4.0.8",
-    "jsonwebtoken": "^9.0.2",
-    "openid-client": "^5.6.4",
+    "ioredis": "^5.4.0",
+    "kysely": "^0.27.4",
+    "lucide-react": "^0.474.0",
+    "mime": "^4.0.6",
+    "mitt": "^3.0.1",
+    "openid-client": "^6.1.7",
+    "pg": "^8.13.1",
+    "postcss-load-config": "^6.0.1",
+    "postcss-value-parser": "^4.2.0",
+    "posthog-node": "^4.10.1",
+    "react-router": "^7.1.5",
+    "rolldown": "1.2.4",
+    "rolldown-vite": "^7.3.1",
+    "sharp": "^0.33.5",
+    "tailwind-merge": "^3.0.1",
+    "tailwindcss-animate": "^1.0.7",
+    "tiny-glob": "^0.2.9",
     "toucan-js": "^4.1.0",
-    "winston": "^3.8.2"
+    "ts-morph": "^28.0.0",
+    "tsx": "^4.19.2",
+    "vite-tsconfig-paths": "^6.1.1"
   },
-  "engines": {
-    "node": ">=18.0.0"
+  "peerDependencies": {
+    "@bull-board/api": "*",
+    "@bull-board/hono": "*",
+    "@tailwindcss/postcss": "^4.0.4",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.5.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^3.24.0 || ^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@bull-board/api": {
+      "optional": true
+    },
+    "@bull-board/hono": {
+      "optional": true
+    },
+    "@tailwindcss/postcss": {
+      "optional": true
+    },
+    "autoprefixer": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    },
+    "zod": {
+      "optional": true
+    }
   },
   "devDependencies": {
-    "@sentry/types": "^8.54.0"
+    "@sentry/types": "^8.54.0",
+    "@tailwindcss/postcss": "^4.0.6",
+    "@types/node": "^20.0.0",
+    "@types/pg": "^8.11.10",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.4",
+    "graphql": "^16.9.0",
+    "hono": "^4.0.0",
+    "rimraf": "^6.0.1",
+    "tailwindcss": "^4.0.4",
+    "tsc-alias": "^1.8.11",
+    "typescript": "^5.7.3",
+    "vitest": "^2.0.0",
+    "zod": "^3.24.0"
   }
 }

@@ -1,0 +1,1528 @@
+import {
+  type Connection,
+  createManager,
+  ModelCtor,
+  readPolicyDenies,
+  type WhereInput
+} from './manager.js'
+import {registerModelAbilities, type ModelAbilitiesFn} from './abilities.js'
+import {ForbiddenError} from './features.js'
+import {isSnowflakeString, snowflakeDefault} from './snowflake.js'
+import type {QueryConfig} from './query-schema.js'
+import {
+  asPaginated,
+  type HasManyThroughBinding,
+  HasManyThroughManager,
+  loadBelongsTo,
+  loadHasOne,
+  loadLazyColumn,
+  ManyToManyManager,
+  type Relation,
+  RelatedManager
+} from './relations.js'
+import {
+  ColumnDefinition,
+  finalizeModel,
+  getModelDefinition,
+  getModelDefinitionOrThrow,
+  ModelDefinition,
+  ModelIndex,
+  SingleColumnIndex,
+  OnDelete,
+  registerColumn,
+  registerRelation,
+  RelationDefinition,
+  SqlType
+} from './registry.js'
+import type {FieldSchema} from './standard-schema.js'
+import {snakeCase} from './util.js'
+
+// ===========================================================================
+// Field builders
+// ---------------------------------------------------------------------------
+// A field is declared as a class-field *initializer*:
+//
+//   class User extends Model {
+//     id = id()
+//     email = text({unique: true})
+//     posts = hasMany(() => Post, {foreignKey: 'authorId'})
+//   }
+//
+// Each builder returns a descriptor object at runtime, but its *type* is the
+// column's value type (`text()` is typed `string`). The model `Proxy` (see
+// `modelHandler`) swallows the field-init assignments, harvests the descriptors
+// into the registry, and thereafter reads/writes real column values from a
+// per-instance store so instances stay honest (`new User().email === undefined`,
+// defaults applied). No decorator, no wrapper subclass — the class stays itself.
+// ===========================================================================
+
+export interface FieldOptions {
+  /** Override the column name. */
+  column?: string
+  unique?: boolean
+  /** Create a secondary (non-unique) index on this column. `true` = zero-config
+   *  (btree, or HNSW/cosine on a `vector`); pass a {@link SingleColumnIndex} to tune
+   *  the method/metric/storage params. Composite indexes go in `static config`. */
+  index?: boolean | SingleColumnIndex
+  nullable?: boolean
+  primaryKey?: boolean
+  /** Literal default applied client-side on insert. */
+  default?: unknown
+  /** Raw SQL default, e.g. `now()`. */
+  defaultSql?: string
+  /** A column CHECK expression, e.g. `price > 0` (references the column name). */
+  check?: string
+  /** Validation: min value (numbers) / min length (strings). */
+  min?: number
+  /** Validation: max value (numbers) / max length (strings). */
+  max?: number
+  /** Validation: string must match this pattern. */
+  pattern?: RegExp
+  /** Validation: string must be a valid email. */
+  email?: boolean
+  /** Validation: custom rule — return `true` or an error message. */
+  validate?: (value: unknown) => true | string
+  /**
+   * Validation: a Standard Schema (Zod / Valibot / ArkType, …). Runs alongside
+   * the built-in rules; the library owns the error message. The ORM never
+   * imports the library — it only reads the standard `~standard` interface.
+   */
+  schema?: FieldSchema
+  /** Force hidden from the generated GraphQL API. */
+  hidden?: boolean
+  /** LAZY (deferred) load — see {@link ColumnDefinition.lazy}. Excluded from the
+   *  hydration SELECT; the property becomes a no-arg async accessor that batch-loads
+   *  on demand. Use for big columns (email bodies, rendered HTML) so lists stay light. */
+  lazy?: boolean
+}
+
+/** A deferred column value: a no-arg async accessor that loads on demand. Assignable
+ *  FROM the raw value too, so writes (`create({col: raw})`) keep type-checking. */
+export type Lazy<T> = (() => Promise<T>) | T
+
+type NullableOpts = FieldOptions & {nullable: true}
+
+/** Internal descriptor produced by a scalar field builder. */
+class FieldBuilder {
+  constructor(
+    readonly sqlType: SqlType,
+    readonly base: Partial<ColumnDefinition>,
+    readonly options: FieldOptions & {length?: number; precision?: number; scale?: number; dim?: number; onUpdate?: () => unknown; enumValues?: readonly string[]; array?: boolean; generatedAs?: string; ftsLanguage?: string; requires?: 'postgres'}
+  ) {}
+}
+
+/** Internal descriptor produced by a relation builder. */
+class RelationBuilder {
+  constructor(
+    readonly kind: 'belongsTo' | 'hasOne' | 'hasMany' | 'manyToMany' | 'hasManyThrough',
+    readonly target: () => Function,
+    // Loosely typed on purpose: the public builders above are fully typed; this
+    // internal descriptor just carries whatever they pass. A single intersection
+    // can't hold both m2m's `through: string` (join-table name) and hasManyThrough's
+    // `through: () => Model` (intermediate) — they collide on the property name — so
+    // reads here are guarded by the `kind` switch in `harvestMember`.
+    readonly options: any
+  ) {}
+}
+
+/**
+ * Per-instance backing store for column values, behind the proxy's column traps.
+ * Held under a non-enumerable Symbol so it never leaks into a spread / `JSON.stringify`.
+ */
+const COLUMN_STORE = Symbol('pylon.columns')
+
+function field(
+  sqlType: SqlType,
+  base: Partial<ColumnDefinition>,
+  options: FieldOptions & {length?: number; precision?: number; scale?: number; dim?: number; onUpdate?: () => unknown; enumValues?: readonly string[]; array?: boolean; generatedAs?: string; ftsLanguage?: string; requires?: 'postgres'}
+): unknown {
+  return new FieldBuilder(sqlType, base, options)
+}
+
+/** Auto-incrementing integer primary key. */
+/** A snowflake PK is a client-generated numeric STRING, so it types as `string`. */
+export function id(options: FieldOptions & {snowflake: true}): string
+export function id(options?: FieldOptions & {snowflake?: false}): number
+export function id(options: FieldOptions & {snowflake?: boolean} = {}): number | string {
+  if (options.snowflake) {
+    // A client-generated snowflake id: a `text` PK (so the 64-bit value round-trips
+    // as a string — no JS-number precision loss), filled by the process generator
+    // whose node id `useDatabase({nodeId})` sets, and format-validated on write so
+    // every id in the table really is a snowflake — seeds/imports mint new snowflake
+    // ids rather than carrying fixed or legacy values.
+    const {snowflake: _snowflake, ...rest} = options
+    return field(
+      'text',
+      {primaryKey: true},
+      {default: snowflakeDefault, validate: isSnowflakeString, ...rest}
+    ) as string
+  }
+  return field('bigint', {primaryKey: true, autoIncrement: true}, options) as number
+}
+
+/** UUID column (pass `{primaryKey: true}` for a uuid PK with a server default). */
+export function uuid(options: NullableOpts): string | null
+export function uuid(options?: FieldOptions): string
+export function uuid(options: FieldOptions = {}): string | null {
+  const base: Partial<ColumnDefinition> = {}
+  // Postgres-specific (dialect override point): server-side uuid default.
+  if (options.primaryKey) base.defaultSql = 'gen_random_uuid()'
+  return field('uuid', base, options) as string | null
+}
+
+export function text(options: FieldOptions & {lazy: true; nullable: true}): Lazy<string | null>
+export function text(options: FieldOptions & {lazy: true}): Lazy<string>
+export function text(options: NullableOpts): string | null
+export function text(options?: FieldOptions): string
+// Return type is the widest overload (lazy accessor OR string|null); every caller sees
+// a narrower one via the overloads above.
+export function text(options: FieldOptions = {}): Lazy<string | null> {
+  return field('text', {}, options) as Lazy<string | null>
+}
+
+export function varchar(length: number, options: NullableOpts): string | null
+export function varchar(length: number, options?: FieldOptions): string
+export function varchar(length: number, options: FieldOptions = {}): string | null {
+  return field('varchar', {}, {...options, length}) as string | null
+}
+
+export function int(options: NullableOpts): number | null
+export function int(options?: FieldOptions): number
+export function int(options: FieldOptions = {}): number | null {
+  return field('integer', {}, options) as number | null
+}
+
+export function bigint(options: NullableOpts): number | null
+export function bigint(options?: FieldOptions): number
+export function bigint(options: FieldOptions = {}): number | null {
+  return field('bigint', {}, options) as number | null
+}
+
+/** Options for {@link numeric} — `precision`/`scale` map to `numeric(p, s)`. */
+export interface NumericOptions extends FieldOptions {
+  /** Total significant digits (e.g. 12 in `Decimal(12, 2)`). */
+  precision?: number
+  /** Digits after the decimal point (e.g. 2 in `Decimal(12, 2)`). */
+  scale?: number
+}
+export interface NullableNumericOptions extends NumericOptions {
+  nullable: true
+}
+export function numeric(options: NullableNumericOptions): number | null
+export function numeric(options?: NumericOptions): number
+export function numeric(options: NumericOptions = {}): number | null {
+  return field('numeric', {}, options) as number | null
+}
+
+export function boolean(options: NullableOpts): boolean | null
+export function boolean(options?: FieldOptions): boolean
+export function boolean(options: FieldOptions = {}): boolean | null {
+  return field('boolean', {}, options) as boolean | null
+}
+
+export function timestamp(options: NullableOpts): Date | null
+export function timestamp(options?: FieldOptions): Date
+export function timestamp(options: FieldOptions = {}): Date | null {
+  return field('timestamptz', {}, options) as Date | null
+}
+
+export function date(options: NullableOpts): Date | null
+export function date(options?: FieldOptions): Date
+export function date(options: FieldOptions = {}): Date | null {
+  return field('date', {}, options) as Date | null
+}
+
+/**
+ * A timestamp set once on insert — Prisma's `@default(now())` for `createdAt`.
+ * Filled client-side (`new Date()`) AND backed by a DB default (`now()`), so
+ * adding the column to an existing (populated) table backfills its rows and
+ * direct-SQL inserts still get a value. Override with `{defaultSql: …}`.
+ */
+export function createdAt(options: FieldOptions = {}): Date {
+  return field('timestamptz', {}, {
+    ...options,
+    default: () => new Date(),
+    defaultSql: options.defaultSql ?? 'now()'
+  }) as Date
+}
+
+/**
+ * A timestamp set on insert AND re-stamped on every update — Prisma's
+ * `@updatedAt`. `default` fills it on insert, `onUpdate` re-runs it on every
+ * write, and a DB default (`now()`) backfills column-adds / direct-SQL inserts.
+ */
+export function updatedAt(options: FieldOptions = {}): Date {
+  return field('timestamptz', {}, {
+    ...options,
+    default: () => new Date(),
+    defaultSql: options.defaultSql ?? 'now()',
+    onUpdate: () => new Date()
+  }) as Date
+}
+
+export function json<T = unknown>(options: NullableOpts): T | null
+export function json<T = unknown>(options?: FieldOptions): T
+export function json<T = unknown>(options: FieldOptions = {}): T | null {
+  return field('jsonb', {}, options) as T | null
+}
+
+/**
+ * A `jsonb` column exposed on the wire as its STRUCTURED generic `T` — a real GraphQL object type
+ * with selectable subfields — rather than the opaque `JSON` scalar that {@link json} produces.
+ *
+ * Same storage as `models.JSON` (one `jsonb` column, whole-value read/write); the only difference
+ * is the GraphQL surface. Reach for it when clients need to select into the shape:
+ *
+ * ```ts
+ * interface AuditMeta { v: number; target?: { id: string; label?: string | null } }
+ * metadata = models.Struct<AuditMeta | null>({schema: auditMetaSchema, nullable: true})
+ * //  → GraphQL `metadata: AuditMeta` (object type), queryable as `metadata { v target { id } }`
+ * ```
+ *
+ * The exposed type name + fields are reflected from `T` by the build's type-checker (the ORM only
+ * flags the column `struct`); pass a concrete interface/`z.infer` generic, not `unknown`. Prefer
+ * {@link json} when the value is genuinely opaque — a struct type is a schema-visible contract.
+ */
+export function struct<T = unknown>(options: NullableOpts): T | null
+export function struct<T = unknown>(options?: FieldOptions): T
+export function struct<T = unknown>(options: FieldOptions = {}): T | null {
+  return field('jsonb', {struct: true}, options) as T | null
+}
+
+/**
+ * A pgvector embedding column — `vector(dim)`, storing a fixed-length `number[]`
+ * (e.g. a 1024-dim `voyage-3`/`bge-m3` embedding). Requires the `vector` extension
+ * (installed automatically when any model declares one) — hence `requires: 'postgres'`.
+ *
+ * The raw embedding is **write-mostly**: excluded from the default SELECT (see
+ * `selectableColumns`), referenced only in the `ORDER BY` of an ANN query, and read
+ * back via `.nearest(...).matches()` (which returns `{item, score}`, item WITHOUT the
+ * vector) — never surfaced as an instance value unless explicitly requested.
+ *
+ * ```ts
+ * embedding = models.Vector({dim: 1024})   // → column: vector(1024) NOT NULL
+ * ```
+ */
+export function vector(options: NullableOpts & {dim: number}): number[] | null
+export function vector(options: FieldOptions & {dim: number}): number[]
+export function vector(options: FieldOptions & {dim: number}): number[] | null {
+  const {dim} = options
+  if (!Number.isInteger(dim) || dim < 1)
+    throw new Error(`models.Vector: dim must be a positive integer, got ${String(dim)}`)
+  // `requires: 'postgres'` — the `vector` type + ANN index are Postgres-only.
+  return field('vector', {}, {...options, dim, requires: 'postgres'}) as number[] | null
+}
+
+/** A string-valued TS enum object (`enum X { A = 'a' }` compiles to this). */
+type StringEnum = Record<string, string>
+
+/**
+ * An enum column. Pass a native (string) TS `enum` — the recommended form, since
+ * its members are usable in backend code (`UserRole.ADMIN`) and the GraphQL enum
+ * takes the enum's name — or a plain list of string values. Stored as `text`
+ * with a `CHECK (… IN (…))` (portable; not a native Postgres enum type, which is
+ * painful to migrate). The GraphQL enum itself is named by the type-checker from
+ * the field's TS type; the ORM only contributes the column + constraint.
+ *
+ * ```ts
+ * enum UserRole { SUPER_ADMIN = 'SUPER_ADMIN', ADMIN = 'ADMIN', USER = 'USER' }
+ * role = enumOf(UserRole, {default: UserRole.USER})   // → `role: UserRole`
+ * status = enumOf(['draft', 'live'] as const)         // → ad-hoc union enum
+ * ```
+ */
+export function enumOf<E extends StringEnum>(
+  enumObject: E,
+  options?: NullableOpts
+): E[keyof E] | null
+export function enumOf<E extends StringEnum>(
+  enumObject: E,
+  options?: FieldOptions
+): E[keyof E]
+export function enumOf<const V extends string>(
+  values: readonly V[],
+  options?: NullableOpts
+): V | null
+export function enumOf<const V extends string>(
+  values: readonly V[],
+  options?: FieldOptions
+): V
+export function enumOf(
+  source: StringEnum | readonly string[],
+  options: FieldOptions = {}
+): unknown {
+  const values = Array.isArray(source)
+    ? [...source]
+    : Object.values(source as StringEnum)
+  if (values.some(v => typeof v !== 'string')) {
+    throw new Error(
+      'enumOf requires string values — numeric/heterogeneous TS enums are not supported as DB enums.'
+    )
+  }
+  return field('text', {}, {...options, enumValues: values as string[]})
+}
+
+/**
+ * A Postgres array column built from an element field: `array(text())` → `text[]`
+ * (GraphQL `[String!]`). The element provides the SQL type (and varchar length);
+ * the array column's own options (nullable, default, …) come from `options`.
+ *
+ * ```ts
+ * features = array(text())            // text[]
+ * tags = array(varchar(50), {nullable: true})
+ * ```
+ */
+export function array<E>(element: E, options: NullableOpts): E[] | null
+export function array<E>(element: E, options?: FieldOptions): E[]
+export function array<E>(element: E, options: FieldOptions = {}): E[] | null {
+  const el = element as unknown as FieldBuilder
+  if (!(el instanceof FieldBuilder)) {
+    throw new Error('array(...) expects a field builder element, e.g. array(text()).')
+  }
+  return field(el.sqlType, {}, {length: el.options.length, ...options, array: true}) as E[] | null
+}
+
+// ===========================================================================
+// Relation builders
+// ===========================================================================
+
+export interface ForeignKeyOptions extends FieldOptions {
+  /** SQL type of the FK column; defaults to `bigint` (matches `id()`). */
+  type?: SqlType
+  /**
+   * Name of the lazy accessor property. Defaults to the declared property with
+   * a trailing `Id` stripped (`authorId` → `author`).
+   */
+  accessor?: string
+  /** ON DELETE behavior for the generated FK constraint. */
+  onDelete?: OnDelete
+}
+
+/**
+ * Many-to-one foreign key. Assign to the FK *scalar* property (e.g. `authorId`):
+ * this registers the `author_id` column and installs a lazy, batched accessor
+ * (named `author`) that resolves to the related instance. Declare the accessor
+ * type alongside it:
+ *
+ * ```ts
+ * authorId = foreignKey(() => Author)
+ * declare author: Relation<Author>
+ * ```
+ */
+/**
+ * The scalar type of the FK target's primary key. Inferred precisely when the
+ * PK is named `id` (the convention — and what Prisma/most ORMs default to);
+ * for a differently-named PK it widens to `string | number` (safe, just loose —
+ * the runtime always resolves the *actual* PK type regardless of its name).
+ */
+type IdOf<R> = R extends {id: infer I} ? Exclude<I, null> : string | number
+
+export function foreignKey<R extends object>(
+  target: () => ModelCtor<R>,
+  options: ForeignKeyOptions & {nullable: true}
+): IdOf<R> | null
+export function foreignKey<R extends object>(
+  target: () => ModelCtor<R>,
+  options?: ForeignKeyOptions
+): IdOf<R>
+export function foreignKey<R extends object>(
+  target: () => ModelCtor<R>,
+  options: ForeignKeyOptions = {}
+): IdOf<R> | null {
+  return new RelationBuilder(
+    'belongsTo',
+    target as () => Function,
+    options as ForeignKeyOptions & HasManyOptions
+  ) as unknown as IdOf<R> | null
+}
+
+/**
+ * A PAGINATED relation accessor: instead of a list, the GraphQL field takes Relay
+ * args and returns a `Connection`. Declared by `{paginate: true}`. At the type
+ * level it's a callable so the compiler emits `field(first, after, last, before):
+ * TConnection`; at runtime it's a prototype method that calls the manager's
+ * `.paginate()` scoped to the parent row.
+ */
+// A paginated relation accessor: CALLABLE (Relay args → `Connection`, which is what
+// the compiler reads off the call signature to emit `field(first, …): TConnection`)
+// AND exposing the manager's methods, so programmatic reads/writes
+// (`post.tags.add(...)`, `.all()`, `await post.tags`) stay typed. The runtime backs
+// this with a callable Proxy over the manager (`asPaginated`).
+//
+// Why a hand-listed interface (not `extends RelatedManager` / an intersection):
+//  - it must be a SINGLE interface with a call signature — an INTERSECTION
+//    suppresses the call signature, so the compiler emits the alias name instead
+//    of the Connection;
+//  - it must NOT be Array-shaped — `RelatedManager`/`ManyToManyManager` extend
+//    `Array`, and a relation field of that shape is matched by `WhereInput`'s
+//    to-many key set, whose `ToManyFilter<WhereInput<target>>` recurses through
+//    this type's `Connection<R>` return type and trips TS's circular-reference
+//    guard on any bidirectional relation graph (→ a broken `WhereInput`).
+// Methods are referenced by indexed access so their signatures never drift.
+export interface PaginatedHasMany<R extends object> {
+  (first?: number, after?: string, last?: number, before?: string, skip?: number, query?: string, anchor?: string): Promise<Connection<R>>
+  all: RelatedManager<R>['all']
+  filter: RelatedManager<R>['filter']
+  orderBy: RelatedManager<R>['orderBy']
+  limit: RelatedManager<R>['limit']
+  first: RelatedManager<R>['first']
+  get: RelatedManager<R>['get']
+  count: RelatedManager<R>['count']
+  create: RelatedManager<R>['create']
+  createMany: RelatedManager<R>['createMany']
+  set: RelatedManager<R>['set']
+  paginate: RelatedManager<R>['paginate']
+  then: RelatedManager<R>['then']
+}
+export interface PaginatedManyToMany<R extends object> {
+  (first?: number, after?: string, last?: number, before?: string, skip?: number, query?: string): Promise<Connection<R>>
+  all: ManyToManyManager<R>['all']
+  count: ManyToManyManager<R>['count']
+  add: ManyToManyManager<R>['add']
+  remove: ManyToManyManager<R>['remove']
+  clear: ManyToManyManager<R>['clear']
+  set: ManyToManyManager<R>['set']
+  filter: ManyToManyManager<R>['filter']
+  paginate: ManyToManyManager<R>['paginate']
+  then: ManyToManyManager<R>['then']
+}
+
+/** A property name of the TARGET model — the compile-time constraint on option
+ *  strings that reference a field (FK / ordering). Mirrors `ModelConfig`'s
+ *  `ColumnKey`: it includes relation accessors/methods too, but still catches the
+ *  common mistake (a mistyped or non-existent field name). `any` widens to `string`,
+ *  so the non-generic re-exports stay source-compatible. */
+export type TargetField<R> = Extract<keyof R, string>
+/** An ordering argument over the target: a property, `-`-prefixed for descending. */
+export type OrderByArg<R> = TargetField<R> | `-${TargetField<R>}`
+
+export interface HasManyOptions<R = any> {
+  /** The FK *property* on the target model that references this model. */
+  foreignKey: TargetField<R>
+  /**
+   * Expose this relation as a Relay `Connection` (cursor-paginated) instead of a
+   * plain list — the GraphQL field gains `first/after/last/before` args and
+   * returns `TConnection`. Programmatic access becomes `parent.field(first, …)`
+   * (or `parent.field().` defaults). NOTE: a paginated relation is not
+   * N+1-batched (each parent's page is its own keyset query).
+   */
+  paginate?: boolean
+  /**
+   * Default ordering for the plain list (`await parent.field` / the GraphQL list
+   * field). A target-model property name, optionally `-`-prefixed for descending
+   * (e.g. `'createdAt'` ascending, `'-createdAt'` descending). Without it the
+   * list is returned in unspecified DB order. Ignored when `paginate` is set
+   * (cursor pagination orders by its own `orderBy` arg).
+   */
+  orderBy?: OrderByArg<R>
+  /** Hide this relation from the generated GraphQL API (kept usable in code). */
+  hidden?: boolean
+}
+
+/**
+ * Reverse one-to-many. Assign to a property; it resolves to a `RelatedManager`
+ * scoped to the parent's primary key — or, with `{paginate: true}`, to a
+ * cursor-paginated `Connection` accessor.
+ *
+ * ```ts
+ * posts = hasMany(() => Post, {foreignKey: 'authorId'})
+ * pagedPosts = hasMany(() => Post, {foreignKey: 'authorId', paginate: true})
+ * ```
+ */
+export function hasMany<R extends object>(
+  target: () => ModelCtor<R>,
+  options: HasManyOptions<R> & {paginate: true}
+): PaginatedHasMany<R>
+export function hasMany<R extends object>(
+  target: () => ModelCtor<R>,
+  options: HasManyOptions<R>
+): RelatedManager<R>
+export function hasMany<R extends object>(
+  target: () => ModelCtor<R>,
+  options: HasManyOptions<R>
+): RelatedManager<R> | PaginatedHasMany<R> {
+  return new RelationBuilder(
+    'hasMany',
+    target as () => Function,
+    options as ForeignKeyOptions & HasManyOptions & ManyToManyOptions
+  ) as unknown as RelatedManager<R>
+}
+
+export interface HasOneOptions<R = any> {
+  /** The FK *property* on the target model that references this model. */
+  foreignKey: TargetField<R>
+  /** Hide this relation from the generated GraphQL API (kept usable in code). */
+  hidden?: boolean
+}
+
+/**
+ * Reverse ONE-to-one. The inverse of a unique foreign key: the owning side holds
+ * `foreignKey(() => T, {unique: true})`, this side navigates back to the single
+ * related row (or `null`). Resolves to a `Relation<R>` (a `Promise<R | null>`),
+ * batched like `hasMany`.
+ *
+ * ```ts
+ * // Account (owning): userId = foreignKey(() => User, {unique: true})
+ * // User (inverse):
+ * account = hasOne(() => Account, {foreignKey: 'userId'})  // → account: Account
+ * ```
+ */
+export function hasOne<R extends object>(
+  target: () => ModelCtor<R>,
+  options: HasOneOptions<R>
+): Relation<R> {
+  return new RelationBuilder(
+    'hasOne',
+    target as () => Function,
+    options as ForeignKeyOptions & HasOneOptions & HasManyOptions & ManyToManyOptions
+  ) as unknown as Relation<R>
+}
+
+export interface ManyToManyOptions {
+  /**
+   * Explicit join-table name. Defaults to both tables sorted and joined with
+   * `_` (e.g. `post` + `tag` → `post_tag`), so both relation sides agree
+   * without coordination.
+   */
+  through?: string
+  /**
+   * Join column referencing THIS model. Defaults to `<table>_<pk>`. Set this
+   * (with `through`/`targetColumn`) to bind to an existing join table whose
+   * columns don't follow the default convention — e.g. Prisma's `A`/`B`.
+   */
+  sourceColumn?: string
+  /** Join column referencing the TARGET model. Defaults to `<table>_<pk>`. */
+  targetColumn?: string
+  /**
+   * Mark this as the INVERSE side: it gives a read/write accessor over the join
+   * table the OTHER side owns, but does NOT synthesize/create the table itself.
+   * Required when the two endpoints live in **different apps** (each app
+   * synthesizes its own migrations, so without this both would `createTable` the
+   * shared join → a deploy collision). Declare the canonical side normally and
+   * the other side `{inverse: true}`.
+   */
+  inverse?: boolean
+  /**
+   * Expose this relation as a Relay `Connection` (cursor-paginated) instead of a
+   * plain list — see {@link HasManyOptions.paginate}. Paginates THROUGH the join
+   * table, keyset on the target's PK by default.
+   */
+  paginate?: boolean
+  /**
+   * Hide this relation from the generated GraphQL API while keeping it usable in
+   * code (and, for m2m, its join table in migrations). Relations don't support the
+   * `$`-prefix trick (that's column-only), so use this flag — e.g. a raw membership
+   * join that the model resolves into a computed field.
+   */
+  hidden?: boolean
+}
+
+/**
+ * Many-to-many. Declare it on *both* sides; a join table is synthesized (two
+ * FK columns + a composite UNIQUE index) and shared by both. Resolves to a
+ * {@link ManyToManyManager} scoped to the parent row — or, with
+ * `{paginate: true}`, to a cursor-paginated `Connection` accessor.
+ *
+ * ```ts
+ * // on Post
+ * tags = manyToMany(() => Tag)
+ * // on Tag
+ * posts = manyToMany(() => Post)
+ * ```
+ */
+export function manyToMany<R extends object>(
+  target: () => ModelCtor<R>,
+  options: ManyToManyOptions & {paginate: true}
+): PaginatedManyToMany<R>
+export function manyToMany<R extends object>(
+  target: () => ModelCtor<R>,
+  options?: ManyToManyOptions
+): ManyToManyManager<R>
+export function manyToMany<R extends object>(
+  target: () => ModelCtor<R>,
+  options: ManyToManyOptions = {}
+): ManyToManyManager<R> | PaginatedManyToMany<R> {
+  return new RelationBuilder(
+    'manyToMany',
+    target as () => Function,
+    options as ForeignKeyOptions & HasManyOptions & ManyToManyOptions
+  ) as unknown as ManyToManyManager<R>
+}
+
+/** The paginated `hasManyThrough` field: callable (Relay args → `Connection`, read
+ *  off the call signature by the schema builder) plus the read-only chain terminals.
+ *  A single non-Array interface (see {@link PaginatedHasMany} for why). */
+export interface PaginatedHasManyThrough<R extends object> {
+  (first?: number, after?: string, last?: number, before?: string, skip?: number): Promise<Connection<R>>
+  all: HasManyThroughManager<R>['all']
+  count: HasManyThroughManager<R>['count']
+  first: HasManyThroughManager<R>['first']
+  paginate: HasManyThroughManager<R>['paginate']
+  then: HasManyThroughManager<R>['then']
+}
+
+export interface HasManyThroughOptions<I = any, R = any> {
+  /**
+   * The INTERMEDIATE model (a thunk, so it resolves lazily AND is inferred — which
+   * is what lets `foreignKey`/`via` below be `keyof` its fields). E.g.
+   * `() => TicketMessage` for `Ticket → TicketMessage → Comment`.
+   */
+  through: () => ModelCtor<I>
+  /**
+   * The FK *property* on the intermediate that points back to THIS owner — e.g.
+   * `'ticketId'` (`TicketMessage.ticketId → Ticket`). OPTIONAL: auto-detected from the
+   * intermediate's `belongsTo` to the owner; only needed when the intermediate has
+   * more than one FK to the owner (ambiguous). Same sense as a `hasMany`'s `foreignKey`.
+   */
+  foreignKey?: TargetField<I>
+  /**
+   * The `hasMany` | `manyToMany` relation on the intermediate that reaches the
+   * target — e.g. `'comments'` (`TicketMessage.comments`), or `'attachments'` for a
+   * `TicketMessage.attachments` many-to-many. Together with `through`+`foreignKey`
+   * this walks `owner → intermediate → target` over the FKs that already exist (no
+   * denormalized key, no migration).
+   */
+  via: TargetField<I>
+  /** Default target ordering — a target property, `-`-prefixed for descending. */
+  orderBy?: OrderByArg<R>
+  /** Static scope predicate ANDed onto the target (e.g. `{deletedAt: null}`). */
+  where?: WhereInput<R>
+  /** Expose as a Relay `Connection` (cursor-paginated) instead of a plain list. The
+   *  list badge (`totalCount`) batches to a single grouped count across a request. */
+  paginate?: boolean
+  /** Hide this relation from the generated GraphQL API (kept usable in code). */
+  hidden?: boolean
+}
+
+/**
+ * A read-only relation that hops TWO existing relations to reach a grandchild set —
+ * Rails' `has_many :through` / Django's nested lookups. Declare the bridge
+ * (`through`, a hasMany on this model) and the second hop (`via`, a hasMany or
+ * manyToMany on the intermediate); the chain resolves over existing FKs, so there's
+ * no new column and no migration. Every terminal (`count`/`all`/`paginate.totalCount`)
+ * batches across a request tick — the reason to reach for this over a per-row
+ * `async` method that would N+1.
+ *
+ * The intermediate `I` is inferred from the `through` thunk and the target `R` from
+ * the first arg, so `foreignKey`/`via` type-check against the intermediate's fields
+ * and `orderBy`/`where` against the target's — no explicit type arguments.
+ *
+ * ```ts
+ * // Ticket → TicketMessage → Comment (comments = a hasMany on TicketMessage)
+ * comments = hasManyThrough(() => Comment, {through: () => TicketMessage, foreignKey: 'ticketId', via: 'comments', paginate: true})
+ * // Ticket → TicketMessage → Asset (attachments = a m2m on TicketMessage)
+ * attachments = hasManyThrough(() => Asset, {through: () => TicketMessage, foreignKey: 'ticketId', via: 'attachments', where: {deletedAt: null}, paginate: true})
+ * ```
+ */
+export function hasManyThrough<I extends object, R extends object>(
+  target: () => ModelCtor<R>,
+  options: HasManyThroughOptions<I, R> & {paginate: true}
+): PaginatedHasManyThrough<R>
+export function hasManyThrough<I extends object, R extends object>(
+  target: () => ModelCtor<R>,
+  options: HasManyThroughOptions<I, R>
+): HasManyThroughManager<R>
+export function hasManyThrough<I extends object, R extends object>(
+  target: () => ModelCtor<R>,
+  options: HasManyThroughOptions<I, R>
+): HasManyThroughManager<R> | PaginatedHasManyThrough<R> {
+  return new RelationBuilder(
+    'hasManyThrough',
+    target as () => Function,
+    options
+  ) as unknown as HasManyThroughManager<R>
+}
+
+// ===========================================================================
+// Model finalization — harvest descriptors, install accessors, finalize the model
+// ===========================================================================
+
+export interface ModelOptions {
+  /** Override the table name (defaults to snake_case of the class name). */
+  table?: string
+  /** Abstract base model: contributes columns to subclasses but has no table. */
+  abstract?: boolean
+  /** Migration-group / app this model belongs to. Prefer `models.app(name)`. */
+  app?: string
+  /** Property name of the tenant FK for auto-scoping. Prefer `models.app(name,{tenant})`. */
+  tenant?: string
+  /**
+   * Deny-by-default authorization. With `secure: true`, any action (read /
+   * create / update / delete) that has no matching rule in `definePolicy()` is
+   * rejected. Without it, an action with no rule is allowed (policies are
+   * additive restrictions). Use for high-stakes models where forgetting a rule
+   * should fail closed, not open.
+   */
+  secure?: boolean
+  /**
+   * Relay `Node` opt-in for this model: expose a `gid://<Type>/<id>` global id and
+   * implement the shared `Node` interface. Usually set once at the app level (the
+   * top-level `node` option) or project-wide on the root; set it here (in a model's
+   * `static config`) only to override for a single model. `undefined` inherits the
+   * app / project default.
+   */
+  node?: boolean
+  /**
+   * Composite (multi-column) secondary indexes. `columns` are property names.
+   * Single-column indexes use the field option `{index: true}`; a composite
+   * unique constraint is `{columns: [...], unique: true}`.
+   */
+  indexes?: ModelIndex[]
+  /**
+   * Full-text search (Postgres). Synthesizes a hidden, STORED-generated
+   * `tsvector` column from the given property columns (kept in sync with no
+   * triggers) plus a GIN index — search infrastructure, never a GraphQL field.
+   * Query it with `Model.objects.search(text)`.
+   *
+   * Pass an array for multiple independent search sets (each its own column +
+   * GIN index); target one with `.search(text, {column: 'titleFts'})`.
+   *
+   * ```ts
+   * static config = {search: {columns: ['title', 'body'], language: 'german'}}
+   * static config = {search: [
+   *   {name: 'titleFts', columns: ['title']},
+   *   {name: 'bodyFts',  columns: ['body']}
+   * ]}
+   * ```
+   */
+  search?: SearchOptions | SearchOptions[]
+  /**
+   * Trigram (substring) search (Postgres `pg_trgm`). Creates a `gin_trgm_ops`
+   * GIN index on each named text column — and ensures the `pg_trgm` extension —
+   * so a `contains` filter (`ILIKE '%x%'`) on that column becomes index-backed
+   * instead of a sequential scan. Use this where FTS can't help: matching a
+   * fragment *inside* a token (SKUs, serials, handles, emails), since FTS only
+   * matches whole words / prefixes.
+   *
+   * Unlike `search`, this synthesizes NO column — it indexes the existing
+   * column directly, and needs no query-side change (`{contains}` already maps
+   * to `ILIKE`, which the planner accelerates with this index).
+   *
+   * ```ts
+   * static config = {trigram: {columns: ['sku', 'handle']}}
+   * ```
+   */
+  trigram?: TrigramOptions
+  /**
+   * Query/filter configuration for the Shopify-style `query` DSL (and the future
+   * typed `where` input). Adds **virtual/derived fields** (a named predicate over
+   * relations or computed buckets) and a **public allowlist** that curates which
+   * fields a public consumer may query.
+   *
+   * ```ts
+   * static config = {
+   *   query: {
+   *     fields: {
+   *       vendor: {path: 'product.vendorId'},                       // alias / re-path
+   *       inStock: {toWhere: (_op, v) => ({                         // virtual
+   *         inventoryItems: {some: {available: {gt: 0}}}
+   *       })},
+   *     },
+   *     public: ['title', 'vendor', 'inStock'],                     // curated public surface
+   *   },
+   * }
+   * ```
+   */
+  query?: QueryConfig
+  /**
+   * Single-table inheritance — declare this model an STI **base**. Its subclasses
+   * (`class Sub extends This`) share this table, discriminated by the named
+   * column, and the base projects to a GraphQL `interface <ClassName>` (no `I`
+   * prefix) while staying a usable manager. Subclasses set `discriminatorValue`.
+   */
+  inheritance?: {strategy?: 'single-table'; discriminator: string}
+  /** STI **subclass**: the value of the base's discriminator column that selects it. */
+  discriminatorValue?: string | number
+}
+
+/** Full-text search config for `static config = {search}`. */
+export interface SearchOptions {
+  /** Property names whose columns feed the search vector. */
+  columns: string[]
+  /** Postgres text-search config (e.g. `english`, `german`). Default `english`. */
+  language?: string
+  /** Generated column name (default `fts`; required when there are several). */
+  name?: string
+}
+
+/** Trigram substring-search config for `static config = {trigram}`. */
+export interface TrigramOptions {
+  /** Property names (text columns) to give a `gin_trgm_ops` index. */
+  columns: string[]
+}
+
+/** A model's column property names — the surface `ModelConfig` type-checks against. */
+type ColumnKey<T> = Extract<keyof T, string>
+
+interface ModelSearchConfig<T> {
+  columns: ColumnKey<T>[]
+  language?: string
+  name?: string
+}
+
+/**
+ * Typed model configuration, declared as `static config = {...} satisfies
+ * ModelConfig<T>` — the sole per-model config surface (the ORM is decorator-free).
+ * `tenant`, `indexes`, `search`, and `trigram` reference the model's OWN fields — so a
+ * mistyped column name is a compile error, not a silent miss. (`app` is set by the
+ * registration binding — `new Pylon({name, db: {models}})` — not here.)
+ */
+export interface ModelConfig<T, D extends ColumnKey<T> = never> {
+  table?: string
+  abstract?: boolean
+  secure?: boolean
+  tenant?: ColumnKey<T>
+  indexes?: Array<{
+    columns: ColumnKey<T>[]
+    unique?: boolean
+    /** `hnsw`/`ivfflat` for a pgvector ANN index over a `vector` column; `gin` for
+     *  FTS; default btree. */
+    method?: 'gin' | 'btree' | 'hnsw' | 'ivfflat'
+    /** ANN distance metric (hnsw/ivfflat) → operator class. Default `cosine`. */
+    metric?: 'cosine' | 'l2' | 'ip'
+    /** Index storage params, e.g. HNSW `{m: 16, ef_construction: 64}` → `WITH (…)`. */
+    with?: Record<string, number>
+    name?: string
+  }>
+  search?: ModelSearchConfig<T> | ModelSearchConfig<T>[]
+  trigram?: {columns: ColumnKey<T>[]}
+  query?: QueryConfig<T>
+  /** STI base: subclasses share this table, discriminated by the named column. */
+  inheritance?: {strategy?: 'single-table'; discriminator: ColumnKey<T>}
+  /**
+   * STI subclass: the discriminator value that selects it. Supply the
+   * discriminator key as the 2nd generic to type-check the value against that
+   * field — `static config = {...} satisfies ModelConfig<VideoAsset, 'type'>`
+   * then requires `discriminatorValue: AssetType`. Without it, it's `string | number`.
+   */
+  discriminatorValue?: [D] extends [never] ? string | number : T[D]
+}
+
+// Mirror the runtime validator's type buckets (validation.ts) so a DB CHECK and
+// the JS rule agree on what `min`/`max` mean: numeric value bounds vs string
+// length bounds.
+const CHECK_NUMBER_TYPES = new Set<SqlType>(['integer', 'bigint', 'numeric'])
+const CHECK_STRING_TYPES = new Set<SqlType>(['text', 'varchar', 'uuid'])
+
+/**
+ * Compose a single column CHECK from the field's constraints — the DB-level
+ * backstop for the SAME `min`/`max`/enum rules the runtime validator enforces
+ * (defense-in-depth: the validator fails fast with structured errors for ORM
+ * writes; the CHECK still protects against raw SQL and non-ORM writers).
+ *
+ * Only rules whose SQL is provably equivalent to the JS validator are projected:
+ * numeric `min`/`max` as value bounds, string `min`/`max` as `char_length`
+ * bounds, and enum membership as `IN (…)`. `pattern`/`email` are deliberately
+ * NOT projected — a JS `RegExp` does not translate faithfully to Postgres POSIX
+ * regex, so a DB CHECK could diverge from the app rule (a value accepted in one
+ * place, rejected in the other); they stay JS-only. A CHECK passes when the
+ * column is NULL, so nullable columns need no special-casing. (`char_length`
+ * counts code points vs JS `.length`'s UTF-16 units — they differ only for
+ * non-BMP characters, an acceptable edge for a length bound.)
+ */
+function buildCheck(
+  columnName: string,
+  sqlType: SqlType,
+  options: FieldOptions & {enumValues?: readonly string[]}
+): string | undefined {
+  const col = `"${columnName}"`
+  const clauses: string[] = []
+  if (options.enumValues) {
+    clauses.push(`${col} IN (${options.enumValues.map(v => `'${v.replace(/'/g, "''")}'`).join(', ')})`)
+  }
+  if (CHECK_NUMBER_TYPES.has(sqlType)) {
+    if (options.min !== undefined) clauses.push(`${col} >= ${options.min}`)
+    if (options.max !== undefined) clauses.push(`${col} <= ${options.max}`)
+  } else if (CHECK_STRING_TYPES.has(sqlType)) {
+    if (options.min !== undefined) clauses.push(`char_length(${col}) >= ${options.min}`)
+    if (options.max !== undefined) clauses.push(`char_length(${col}) <= ${options.max}`)
+  }
+  // An explicit `check` is author-controlled — appended verbatim.
+  if (options.check) clauses.push(options.check)
+
+  if (clauses.length === 0) return undefined
+  if (clauses.length === 1) return clauses[0]
+  return clauses.map(c => `(${c})`).join(' AND ')
+}
+
+function buildColumn(key: string, b: FieldBuilder): ColumnDefinition {
+  // A `$`-prefixed property is hidden from the generated GraphQL API: `$` is not
+  // a valid GraphQL field-name character, so Pylon's schema builder excludes the
+  // member entirely. The column still persists; the `$` is stripped for the
+  // column name (`$passwordHash` → `password_hash`).
+  const hidden = b.options.hidden ?? key.startsWith('$')
+  const exposedName = key.startsWith('$') ? key.slice(1) : key
+  const columnName = b.options.column ?? snakeCase(exposedName)
+  // A field-level ANN index (`{index: {method: 'hnsw' | 'ivfflat'}}`) only makes
+  // sense on a `vector` column — fail at authoring time, not at migrate time.
+  const idxOpts = typeof b.options.index === 'object' ? b.options.index : undefined
+  if ((idxOpts?.method === 'hnsw' || idxOpts?.method === 'ivfflat') && b.sqlType !== 'vector') {
+    throw new Error(
+      `${columnName}: '${idxOpts.method}' index is only valid on a vector column.`
+    )
+  }
+  // Project enum membership + numeric/string min/max (and any explicit check)
+  // into a single DB CHECK — the DB-level backstop for the runtime validator.
+  const check = buildCheck(columnName, b.sqlType, b.options)
+  return {
+    propertyKey: key,
+    columnName,
+    sqlType: b.sqlType,
+    primaryKey: b.options.primaryKey ?? b.base.primaryKey ?? false,
+    autoIncrement: b.base.autoIncrement ?? false,
+    unique: b.options.unique ?? b.base.unique ?? false,
+    nullable: b.options.nullable ?? false,
+    hidden,
+    lazy: b.options.lazy ?? false,
+    // `{index}` may be a boolean shorthand or a tuning object — normalize to a flag
+    // plus the resolved options (read by `entityFromDefinition`).
+    index: !!b.options.index,
+    indexOptions: typeof b.options.index === 'object' ? b.options.index : undefined,
+    length: b.options.length,
+    precision: b.options.precision,
+    scale: b.options.scale,
+    dim: b.options.dim,
+    onUpdateFn: b.options.onUpdate,
+    generatedAs: b.options.generatedAs,
+    ftsLanguage: b.options.ftsLanguage,
+    requires: b.options.requires,
+    // A literal default is persisted (→ IR/DDL); a function default is a
+    // client-side generator resolved at insert (never serialized).
+    default: typeof b.options.default === 'function' ? undefined : b.options.default,
+    defaultFn:
+      typeof b.options.default === 'function'
+        ? (b.options.default as () => unknown)
+        : undefined,
+    defaultSql: b.options.defaultSql ?? b.base.defaultSql,
+    check,
+    min: b.options.min,
+    max: b.options.max,
+    pattern: b.options.pattern,
+    email: b.options.email,
+    enumValues: b.options.enumValues,
+    validate: b.options.validate,
+    schema: b.options.schema,
+    array: b.options.array,
+    struct: b.base.struct
+  }
+}
+
+/**
+ * Register the column/relation a single field initializer declares, into the pending
+ * registry for `Ctor`. Returns the RelationDefinition (so the caller can install its
+ * accessor) or `undefined` for a plain scalar column. Called from the model proxy's
+ * trap-capture (`captureBuilder`) as each field initializer runs.
+ */
+function harvestMember(
+  Ctor: Function,
+  key: string,
+  value: unknown
+): RelationDefinition | undefined {
+  if (value instanceof FieldBuilder) {
+    registerColumn(Ctor, buildColumn(key, value))
+    return undefined
+  }
+  if (!(value instanceof RelationBuilder)) return undefined
+  if (value.kind === 'belongsTo') {
+    const fkProperty = key
+    const fkColumn = value.options.column ?? snakeCase(fkProperty)
+    // The FK is a normal scalar column (filterable, hydrated like any other).
+    registerColumn(Ctor, {
+      propertyKey: fkProperty,
+      columnName: fkColumn,
+      sqlType: value.options.type ?? 'bigint',
+      fkInferType: value.options.type === undefined,
+      primaryKey: false,
+      autoIncrement: false,
+      unique: value.options.unique ?? false,
+      nullable: value.options.nullable ?? false,
+      hidden: value.options.hidden ?? false,
+      default: undefined,
+      defaultSql: undefined
+    })
+    const accessor =
+      value.options.accessor ??
+      (fkProperty.endsWith('Id') ? fkProperty.slice(0, -2) : `${fkProperty}Ref`)
+    const rel: RelationDefinition = {
+      kind: 'belongsTo',
+      propertyKey: accessor,
+      target: value.target,
+      nullable: value.options.nullable ?? false,
+      fkProperty,
+      fkColumn,
+      onDelete: value.options.onDelete
+    }
+    registerRelation(Ctor, rel)
+    return rel
+  }
+  if (value.kind === 'manyToMany') {
+    const rel: RelationDefinition = {
+      kind: 'manyToMany',
+      propertyKey: key,
+      target: value.target,
+      nullable: true,
+      through: value.options.through,
+      sourceColumn: value.options.sourceColumn,
+      targetColumn: value.options.targetColumn,
+      inverse: value.options.inverse,
+      paginate: value.options.paginate,
+      // `$`-prefixed → hidden, same universal convention as columns.
+      hidden: value.options.hidden ?? key.startsWith('$')
+    }
+    registerRelation(Ctor, rel)
+    return rel
+  }
+  if (value.kind === 'hasOne') {
+    const rel: RelationDefinition = {
+      kind: 'hasOne',
+      propertyKey: key,
+      target: value.target,
+      nullable: true,
+      targetForeignKey: value.options.foreignKey,
+      hidden: value.options.hidden ?? key.startsWith('$')
+    }
+    registerRelation(Ctor, rel)
+    return rel
+  }
+  if (value.kind === 'hasManyThrough') {
+    const rel: RelationDefinition = {
+      kind: 'hasManyThrough',
+      propertyKey: key,
+      target: value.target,
+      nullable: true,
+      throughTarget: value.options.through as unknown as () => Function,
+      throughForeignKey: value.options.foreignKey,
+      viaRelation: value.options.via,
+      orderBy: value.options.orderBy,
+      where: value.options.where,
+      paginate: value.options.paginate,
+      hidden: value.options.hidden ?? key.startsWith('$')
+    }
+    registerRelation(Ctor, rel)
+    return rel
+  }
+  const rel: RelationDefinition = {
+    kind: 'hasMany',
+    propertyKey: key,
+    target: value.target,
+    nullable: true,
+    targetForeignKey: value.options.foreignKey,
+    paginate: value.options.paginate,
+    orderBy: value.options.orderBy,
+    hidden: value.options.hidden ?? key.startsWith('$')
+  }
+  registerRelation(Ctor, rel)
+  return rel
+}
+
+/**
+ * Install the lazy relation accessors (belongsTo/hasOne/hasMany/manyToMany) on the
+ * user class's OWN prototype. Proxy instances reach them because the trap never lets a
+ * relation builder become an own prop that would shadow the prototype accessor.
+ */
+function installRelationAccessors(proto: any, relations: RelationDefinition[]): void {
+  for (const rel of relations) {
+    if (rel.kind === 'belongsTo') {
+      const {fkProperty, target} = rel
+      Object.defineProperty(proto, rel.propertyKey, {
+        configurable: true,
+        enumerable: false,
+        get(this: any) {
+          const fk = this[fkProperty!]
+          if (fk === null || fk === undefined) return Promise.resolve(null)
+          const targetCtor = target() as ModelCtor<any>
+          return loadBelongsTo(targetCtor, fk).then(row => {
+            if (row !== null) return row
+            // The FK is set but the target row didn't resolve. For a NULLABLE
+            // relation, null is a valid answer. For a NON-NULL relation this would
+            // otherwise surface as GraphQL's opaque "Cannot return null for
+            // non-nullable field <T>.<rel>" — so raise a precise error instead.
+            // The usual cause is the target's READ policy denying the traversal
+            // (a no-principal/cross-tenant read) → ForbiddenError; otherwise it's
+            // a dangling foreign key.
+            const srcDef = getModelDefinitionOrThrow(this.constructor)
+            const fkNullable =
+              srcDef.columns.find(c => c.propertyKey === fkProperty)?.nullable ??
+              false
+            if (fkNullable) return null
+            const targetDef = getModelDefinitionOrThrow(targetCtor)
+            if (readPolicyDenies(targetDef)) {
+              throw new ForbiddenError(
+                `Not authorized to read "${targetDef.tableName}" through relation ` +
+                  `"${rel.propertyKey}".`
+              )
+            }
+            throw new Error(
+              `Relation "${rel.propertyKey}" references ${targetDef.tableName} ` +
+                `"${String(fk)}", but no such row resolved (dangling foreign key, ` +
+                `row-level policy, or a different tenant).`
+            )
+          })
+        }
+      })
+    } else if (rel.kind === 'hasOne') {
+      // Inverse 1:1 — resolve the single child whose FK points at this row's PK
+      // (batched like hasMany, takes the first). Returns Promise<T | null>.
+      const {target, targetForeignKey} = rel
+      Object.defineProperty(proto, rel.propertyKey, {
+        configurable: true,
+        enumerable: false,
+        get(this: any) {
+          const def = getModelDefinitionOrThrow(this.constructor)
+          const pkProperty = def.primaryKey?.propertyKey
+          if (!pkProperty) {
+            throw new Error(
+              `Cannot resolve hasOne "${rel.propertyKey}": "${def.tableName}" has no primary key.`
+            )
+          }
+          const targetCtor = target() as ModelCtor<any>
+          const targetDef = getModelDefinitionOrThrow(targetCtor)
+          const fkColumn =
+            targetDef.columns.find(c => c.propertyKey === targetForeignKey)?.columnName ??
+            targetForeignKey!
+          return loadHasOne(targetCtor, fkColumn, this[pkProperty])
+        },
+        set() {
+          /* no-op: relation is a computed accessor, not stored state */
+        }
+      })
+    } else if (rel.kind === 'hasManyThrough') {
+      const {target, throughTarget, throughForeignKey, viaRelation, orderBy, where, paginate} = rel
+      const binding: HasManyThroughBinding = {
+        through: throughTarget as () => ModelCtor<any>,
+        foreignKey: throughForeignKey!,
+        via: viaRelation!,
+        orderBy,
+        where: where as HasManyThroughBinding['where']
+      }
+      const makeManager = (self: any): HasManyThroughManager<any> => {
+        const def = getModelDefinitionOrThrow(self.constructor)
+        const pkProperty = def.primaryKey?.propertyKey
+        if (!pkProperty) {
+          throw new Error(
+            `Cannot resolve hasManyThrough "${rel.propertyKey}": "${def.tableName}" has no primary key.`
+          )
+        }
+        return new HasManyThroughManager(
+          self.constructor as ModelCtor<any>,
+          self[pkProperty],
+          target() as ModelCtor<any>,
+          binding
+        )
+      }
+      Object.defineProperty(proto, rel.propertyKey, {
+        configurable: true,
+        enumerable: false,
+        get(this: any) {
+          const mgr = makeManager(this)
+          return paginate ? asPaginated(mgr) : mgr
+        },
+        set() {
+          /* no-op: relation is a computed accessor, not stored state */
+        }
+      })
+    } else if (rel.kind === 'manyToMany') {
+      const {target, through, sourceColumn, targetColumn, paginate} = rel
+      const makeManager = (self: any): ManyToManyManager<any> => {
+        const def = getModelDefinitionOrThrow(self.constructor)
+        const pkProperty = def.primaryKey?.propertyKey
+        if (!pkProperty) {
+          throw new Error(
+            `Cannot resolve manyToMany "${rel.propertyKey}": "${def.tableName}" has no primary key.`
+          )
+        }
+        return new ManyToManyManager(
+          self.constructor as ModelCtor<any>,
+          target() as ModelCtor<any>,
+          self[pkProperty],
+          {through, sourceColumn, targetColumn}
+        )
+      }
+      // Paginated → a getter returning a callable manager (Relay args →
+      // Connection when called; `.add()/.all()/await` still reach the manager).
+      // Plain → a getter returning the (thenable, list-shaped) manager.
+      Object.defineProperty(proto, rel.propertyKey, {
+        configurable: true,
+        enumerable: false,
+        get(this: any) {
+          const mgr = makeManager(this)
+          // Pass the target def so `asPaginated` can parse the `query` arg (→ target `where`).
+          return paginate ? asPaginated(mgr, getModelDefinitionOrThrow(target() as ModelCtor<any>)) : mgr
+        },
+        set() {
+          /* no-op: relation is a computed accessor, not stored state */
+        }
+      })
+    } else {
+      const {target, targetForeignKey, paginate, orderBy} = rel
+      const makeManager = (self: any): RelatedManager<any> => {
+        const def = getModelDefinitionOrThrow(self.constructor)
+        const pkProperty = def.primaryKey?.propertyKey
+        if (!pkProperty) {
+          throw new Error(
+            `Cannot resolve hasMany "${rel.propertyKey}": "${def.tableName}" has no primary key.`
+          )
+        }
+        return new RelatedManager(target() as ModelCtor<any>, targetForeignKey!, self[pkProperty], orderBy)
+      }
+      Object.defineProperty(proto, rel.propertyKey, {
+        configurable: true,
+        enumerable: false,
+        get(this: any) {
+          const mgr = makeManager(this)
+          // Pass the target def so `asPaginated` can parse the `query` arg.
+          return paginate ? asPaginated(mgr, getModelDefinitionOrThrow(target() as ModelCtor<any>)) : mgr
+        },
+        // Swallow the field-initializer write: `posts = hasMany(...)` runs in
+        // the constructor and would otherwise throw ("has only a getter").
+        set() {
+          /* no-op: relation is a computed accessor, not stored state */
+        }
+      })
+    }
+  }
+}
+
+// ── Proxy model path ─────────────────────────────────────────────────────────
+// The `Model` base returns `new Proxy(this, modelHandler)` for EVERY model. Field-init
+// `[[Define]]`/`[[Set]]` of builders is swallowed by the traps and harvested to the
+// registry, so a plain `class Post extends Model { id = id() }` needs no `Wrapped`
+// subclass and no binding replacement. Columns read/write the per-instance COLUMN_STORE;
+// relation accessors live on the class prototype (installed by `finalizeProxyModel`) and
+// show through because the trap never lets the relation builder become an own prop.
+
+function proxyStore(t: any): Record<string, unknown> {
+  let s = t[COLUMN_STORE] as Record<string, unknown> | undefined
+  if (!s) {
+    s = {}
+    Object.defineProperty(t, COLUMN_STORE, {
+      value: s,
+      enumerable: false,
+      writable: true,
+      configurable: true
+    })
+  }
+  return s
+}
+
+const isProxyColumn = (ctor: Function, k: PropertyKey): boolean =>
+  typeof k === 'string' &&
+  !!getModelDefinition(ctor)?.columns.some(c => c.propertyKey === k)
+
+const isLazyColumn = (ctor: Function, k: string): boolean =>
+  !!getModelDefinition(ctor)?.columns.find(c => c.propertyKey === k)?.lazy
+
+/**
+ * Swallow a field-initializer builder → harvest schema (idempotent, only until the
+ * model is finalized) + seed a literal default. MUST run in BOTH `set` and
+ * `defineProperty` (class fields may compile to assignment, not `[[Define]]`), and
+ * BEFORE the is-column store-write — else a re-run initializer would store the BUILDER
+ * as the column value (DD §6.7). Returns true when the value was a builder (swallow).
+ */
+function captureBuilder(t: any, k: PropertyKey, v: unknown): boolean {
+  if (typeof k !== 'string') return false
+  if (!(v instanceof FieldBuilder) && !(v instanceof RelationBuilder)) return false
+  const ctor = t.constructor as Function
+  if (!getModelDefinition(ctor)) harvestMember(ctor, k, v) // harvest until finalized
+  if (
+    v instanceof FieldBuilder &&
+    'default' in v.options &&
+    typeof v.options.default !== 'function'
+  ) {
+    proxyStore(t)[k] = v.options.default
+  }
+  return true
+}
+
+export const modelHandler: ProxyHandler<any> = {
+  defineProperty(t, k, desc) {
+    if ('value' in desc && captureBuilder(t, k, (desc as PropertyDescriptor).value)) return true
+    return Reflect.defineProperty(t, k, desc)
+  },
+  get(t, k, r) {
+    if (isProxyColumn(t.constructor, k)) {
+      const store = proxyStore(t)
+      // A LAZY column absent from the store (excluded from the hydration SELECT) reads
+      // as a no-arg async accessor that batch-loads by PK on demand. graphql-js's
+      // default resolver invokes it only when the field is actually selected, so a list
+      // never loads the column. A value already in the store (written on create, or
+      // eagerly loaded) is returned as-is — no round-trip, and writes stay plain.
+      if (typeof k === 'string' && !(k in store) && isLazyColumn(t.constructor, k)) {
+        const def = getModelDefinitionOrThrow(t.constructor)
+        const id = store[def.primaryKey!.propertyKey]
+        return () => loadLazyColumn(def, k, id)
+      }
+      return store[k as string]
+    }
+    return Reflect.get(t, k, r) // relation accessors (prototype), methods, symbols
+  },
+  set(t, k, v, r) {
+    if (captureBuilder(t, k, v)) return true // builder swallow takes precedence
+    if (isProxyColumn(t.constructor, k)) {
+      if (v !== undefined) proxyStore(t)[k as string] = v // ignore undefined ("not provided")
+      return true
+    }
+    return Reflect.set(t, k, v, r)
+  },
+  has(t, k) {
+    return isProxyColumn(t.constructor, k) || Reflect.has(t, k)
+  },
+  ownKeys(t) {
+    const cols =
+      getModelDefinition(t.constructor)
+        ?.columns.filter(c => !c.hidden)
+        .map(c => c.propertyKey) ?? []
+    const real = Reflect.ownKeys(t).filter(x => typeof x === 'string' && !cols.includes(x))
+    return [...cols, ...real]
+  },
+  getOwnPropertyDescriptor(t, k) {
+    if (isProxyColumn(t.constructor, k))
+      return {value: proxyStore(t)[k as string], writable: true, enumerable: true, configurable: true}
+    return Reflect.getOwnPropertyDescriptor(t, k)
+  },
+  deleteProperty(t, k) {
+    if (isProxyColumn(t.constructor, k)) {
+      delete proxyStore(t)[k as string]
+      return true
+    }
+    return Reflect.deleteProperty(t, k)
+  }
+}
+
+/**
+ * Finalize a plain model registered via `new Pylon({db: {models}})`: probe once to
+ * harvest its columns/relations through the proxy traps, `finalizeModel`, install
+ * relation accessors on its OWN prototype, wire co-located `static abilities`, and
+ * assign a default manager. No decorator and no `Wrapped` subclass — the class keeps
+ * its own identity throughout.
+ */
+export function finalizeProxyModel(Ctor: Function, options: ModelOptions = {}): void {
+  const existing = getModelDefinition(Ctor)
+  if (existing) {
+    // Idempotent for the SAME app (e.g. an HMR re-eval). A DIFFERENT app is a real
+    // error: a model class binds to exactly one definition (one table, one manager),
+    // so it belongs to exactly one app — to use it elsewhere, import the class.
+    if ((existing.app ?? undefined) !== (options.app ?? undefined)) {
+      throw new Error(
+        `[pylon-db] Model "${Ctor.name}" is already registered to app ` +
+          `"${existing.app ?? '(root)'}"; cannot re-register to "${options.app ?? '(root)'}". ` +
+          'A model belongs to one app — import the class to use it from another.'
+      )
+    }
+    return
+  }
+
+  // Merge the model's own `static config` (table/indexes/search/secure/tenant/…) with the
+  // app-level binding the registrar passes (`app`, plus default `tenant`/`secure`). The app
+  // owns `app`; the model's own config WINS for `tenant`/`secure` with the app value as the
+  // fallback — so a passed `secure: undefined` (an app with no `db.secure`) never clobbers a
+  // model's `static config.secure`.
+  const staticConfig = ((Ctor as {config?: ModelOptions}).config ?? {}) as ModelOptions
+  options = {
+    ...staticConfig,
+    ...options,
+    tenant: staticConfig.tenant ?? options.tenant,
+    secure: staticConfig.secure ?? options.secure,
+    // A model's own `static config.node` wins over the app-level default.
+    node: staticConfig.node ?? options.node
+  }
+
+  // A self-referential model (`static objects = manager(Author)`) compiles, under
+  // `useDefineForClassFields:false` (required for the field-builder path), to
+  // `var Author = class _Author {…}` — so `Ctor.name` is the esbuild inner name
+  // `_Author`. Strip that single leading underscore so the table/entity/GraphQL names
+  // stay clean and match the TS type the compiler emits. (An intentional `_Foo` would
+  // be mangled to `__Foo`, so stripping ONE underscore round-trips it correctly.)
+  if (/^_[A-Za-z]/.test(Ctor.name)) {
+    try {
+      Object.defineProperty(Ctor, 'name', {value: Ctor.name.slice(1), configurable: true})
+    } catch {
+      /* name not configurable (frozen) — fall through with the mangled name */
+    }
+  }
+
+  // Table name: an explicit `static config.table` wins; otherwise snake_case of the
+  // class, prefixed by the app NAME when one is set (`blog` → `blog_post`, Django-style)
+  // so composing multiple named apps can't collide on a shared table. An UNNAMED (root)
+  // app doesn't prefix — the single-app common case keeps clean table names.
+  const base = snakeCase(Ctor.name)
+  let tableName =
+    options.table ?? (options.app ? `${snakeCase(options.app)}_${base}` : base)
+  // STI subclass: adopt the nearest inheriting ancestor's table so schema-sync AND
+  // the runtime manager both hit the one shared table (the base is registered first),
+  // and resolve the discriminator binding for scoping/create/materialisation.
+  let sti: ModelDefinition['sti']
+  if (options.discriminatorValue !== undefined) {
+    let proto = Object.getPrototypeOf(Ctor)
+    while (proto && proto !== Function.prototype) {
+      const baseDef = getModelDefinition(proto)
+      if (baseDef?.inheritance) {
+        tableName = baseDef.tableName
+        const property = baseDef.inheritance.discriminator
+        const column =
+          baseDef.columns.find(c => c.propertyKey === property)?.columnName ?? property
+        sti = {baseCtor: baseDef.ctor, property, column, value: options.discriminatorValue}
+        break
+      }
+      proto = Object.getPrototypeOf(proto)
+    }
+  }
+  const isAbstract = options.abstract ?? false
+
+  new (Ctor as any)() // probe: field initializers run under the proxy → traps harvest
+
+  finalizeModel(Ctor, {
+    tableName,
+    abstract: isAbstract,
+    app: options.app,
+    indexes: options.indexes,
+    tenant: options.tenant,
+    secure: options.secure,
+    node: options.node,
+    search: options.search,
+    trigram: options.trigram,
+    query: options.query,
+    inheritance: options.inheritance,
+    discriminatorValue: options.discriminatorValue,
+    sti
+  })
+
+  const def = getModelDefinitionOrThrow(Ctor)
+  installRelationAccessors(Ctor.prototype, def.relations)
+
+  // STI subclass: its own columns share the base's ONE table, so its trigram columns and
+  // composite indexes belong on that table. Fold them onto the base def (registered
+  // first) — then every consumer that reads the base's `trigramColumns`/`indexes` picks
+  // them up: migrations (IR), schema-sync's `createTable`, and the runtime `.query()`
+  // search. So a `FileAsset({trigram:{columns:['mimeType']}})` makes `Asset.objects
+  // .query()` search the shared table by mimeType, with one GIN index.
+  if (sti) {
+    const baseDef = getModelDefinition(sti.baseCtor)
+    if (baseDef) {
+      if (def.trigramColumns?.length) {
+        baseDef.trigramColumns = Array.from(
+          new Set([...(baseDef.trigramColumns ?? []), ...def.trigramColumns])
+        )
+      }
+      if (def.indexes?.length) {
+        baseDef.indexes = [...(baseDef.indexes ?? []), ...def.indexes]
+      }
+    }
+  }
+
+  if (!isAbstract) {
+    const abilitiesFn = (Ctor as {abilities?: unknown}).abilities
+    if (typeof abilitiesFn === 'function') {
+      registerModelAbilities(Ctor as ModelCtor<any>, abilitiesFn as ModelAbilitiesFn)
+    }
+  }
+
+  if (!isAbstract && !Object.prototype.hasOwnProperty.call(Ctor, 'objects')) {
+    Object.defineProperty(Ctor, 'objects', {
+      value: createManager(Ctor as any),
+      writable: false,
+      enumerable: false,
+      configurable: true
+    })
+  }
+}
+
