@@ -708,6 +708,23 @@ export const setup = async (
     const responseCookies =
       __PYLON_INTERNALS_DO_NOT_USE.createResponseCookies()
     const flushCookies = () => {
+      // Before the early return, so this applies to EVERY page response and not
+      // only the ones that happen to set a cookie.
+      //
+      // An HTML response with no `Cache-Control` does not go uncached — the
+      // browser invents a freshness lifetime for it (heuristic caching). The
+      // visitor then keeps a document naming content-hashed bundles that the
+      // next deploy deleted, and every chunk 404s until they hard-refresh.
+      //
+      // `no-cache` still stores the document; it just revalidates before use,
+      // which the ETag turns into a 304. `private` because a page rendered for
+      // one visitor must not be held by a shared cache — the same reason a
+      // Set-Cookie response must not be, which is what this rule used to be
+      // only about. An app that wants its own policy sets one and keeps it.
+      if (!c.res.headers.has('Cache-Control')) {
+        c.header('Cache-Control', 'private, no-cache')
+      }
+
       const entries = responseCookies.entries()
       if (entries.length === 0) return
 
@@ -730,14 +747,6 @@ export const setup = async (
         else setCookie(c, name, value, withDefaults as any)
       }
 
-      // A response carrying Set-Cookie must never be stored by a SHARED cache — one
-      // visitor's cookie would be replayed to everyone else. Most CDNs decline to cache
-      // Set-Cookie responses, but that is convention, not a guarantee, and some are
-      // configured to strip the header and cache the body. Only set it when the app has
-      // not chosen its own policy.
-      if (!c.res.headers.has('Cache-Control')) {
-        c.header('Cache-Control', 'private, no-cache')
-      }
     }
 
     // =====================================================================
