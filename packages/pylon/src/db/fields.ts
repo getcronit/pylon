@@ -577,7 +577,7 @@ export function hasOne<R extends object>(
   ) as unknown as Relation<R>
 }
 
-export interface ManyToManyOptions {
+export interface ManyToManyOptions<R = any> {
   /**
    * Explicit join-table name. Defaults to both tables sorted and joined with
    * `_` (e.g. `post` + `tag` → `post_tag`), so both relation sides agree
@@ -608,6 +608,17 @@ export interface ManyToManyOptions {
    */
   paginate?: boolean
   /**
+   * Default ordering for `.all()` / the plain list field: a target property,
+   * optionally `-`-prefixed for descending (e.g. `"displayName"`, `"-createdAt"`).
+   * A stable PRIMARY-KEY tiebreaker is ALWAYS appended, so the order is total even
+   * when the column has ties. With no `orderBy`, reads fall back to the target PK —
+   * a bare m2m otherwise returns rows in an unspecified, plan-dependent order that
+   * can differ between two queries (e.g. a list card vs a detail sheet reading the
+   * same relation). NOTE: does not yet steer `{paginate:true}` connections — those
+   * keyset on the target PK (declared-order pagination needs composite cursors).
+   */
+  orderBy?: OrderByArg<R>
+  /**
    * Hide this relation from the generated GraphQL API while keeping it usable in
    * code (and, for m2m, its join table in migrations). Relations don't support the
    * `$`-prefix trick (that's column-only), so use this flag — e.g. a raw membership
@@ -631,15 +642,15 @@ export interface ManyToManyOptions {
  */
 export function manyToMany<R extends object>(
   target: () => ModelCtor<R>,
-  options: ManyToManyOptions & {paginate: true}
+  options: ManyToManyOptions<R> & {paginate: true}
 ): PaginatedManyToMany<R>
 export function manyToMany<R extends object>(
   target: () => ModelCtor<R>,
-  options?: ManyToManyOptions
+  options?: ManyToManyOptions<R>
 ): ManyToManyManager<R>
 export function manyToMany<R extends object>(
   target: () => ModelCtor<R>,
-  options: ManyToManyOptions = {}
+  options: ManyToManyOptions<R> = {}
 ): ManyToManyManager<R> | PaginatedManyToMany<R> {
   return new RelationBuilder(
     'manyToMany',
@@ -1065,6 +1076,7 @@ function harvestMember(
       targetColumn: value.options.targetColumn,
       inverse: value.options.inverse,
       paginate: value.options.paginate,
+      orderBy: value.options.orderBy,
       // `$`-prefixed → hidden, same universal convention as columns.
       hidden: value.options.hidden ?? key.startsWith('$')
     }
@@ -1221,7 +1233,7 @@ function installRelationAccessors(proto: any, relations: RelationDefinition[]): 
         }
       })
     } else if (rel.kind === 'manyToMany') {
-      const {target, through, sourceColumn, targetColumn, paginate} = rel
+      const {target, through, sourceColumn, targetColumn, orderBy, paginate} = rel
       const makeManager = (self: any): ManyToManyManager<any> => {
         const def = getModelDefinitionOrThrow(self.constructor)
         const pkProperty = def.primaryKey?.propertyKey
@@ -1234,7 +1246,7 @@ function installRelationAccessors(proto: any, relations: RelationDefinition[]): 
           self.constructor as ModelCtor<any>,
           target() as ModelCtor<any>,
           self[pkProperty],
-          {through, sourceColumn, targetColumn}
+          {through, sourceColumn, targetColumn, orderBy}
         )
       }
       // Paginated → a getter returning a callable manager (Relay args →

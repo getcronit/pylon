@@ -150,6 +150,26 @@ describe.skipIf(!runDb)('Many-to-many (Postgres)', () => {
     await post.tags.clear()
     expect(await post.tags.count()).toBe(0)
   })
+
+  it('.all() order is deterministic + link-order-independent by default (PK tiebreaker)', async () => {
+    // With no declared orderBy, a bare m2m used to return join rows in an
+    // unspecified, plan-dependent order — so the SAME relation could come back
+    // differently in two queries (a list card vs a detail sheet). The PK fallback
+    // makes it total: two posts linking the same tags in DIFFERENT orders read them
+    // back identically, and repeated reads never reshuffle.
+    const a = await M2MTag.objects.create({label: 'aa'})
+    const b = await M2MTag.objects.create({label: 'bb'})
+    const c = await M2MTag.objects.create({label: 'cc'})
+    const p1 = await M2MPost.objects.create({title: 'p1'})
+    const p2 = await M2MPost.objects.create({title: 'p2'})
+    await p1.tags.add(a, b, c)
+    await p2.tags.add(c, a, b) // linked in a different order
+
+    const o1 = (await p1.tags.all()).map(t => t.label)
+    const o2 = (await p2.tags.all()).map(t => t.label)
+    expect(o1).toEqual(o2) // same order regardless of how they were linked
+    expect((await p1.tags.all()).map(t => t.label)).toEqual(o1) // stable on repeat
+  })
 })
 
 // A Prisma-style binding: an explicit join table with `A`/`B` columns (what
@@ -219,5 +239,63 @@ describe.skipIf(!runDb)('Many-to-many with explicit join columns (Postgres)', ()
 
     await px.tags.remove(t1)
     expect((await px.tags.all()).map(t => t.label)).toEqual(['t2'])
+  })
+})
+
+// A declared read order on the m2m relation (a target column, `-` = desc).
+class OrdList extends Model {
+  static config = {table: 'ord_list'} satisfies ModelConfig<OrdList>
+  static objects = manager(OrdList)
+  id = id()
+  name = text()
+  items = manyToMany(() => OrdItem, {orderBy: '-label'})
+}
+new Pylon({db: {models: [OrdList]}})
+
+class OrdItem extends Model {
+  static config = {table: 'ord_item'} satisfies ModelConfig<OrdItem>
+  static objects = manager(OrdItem)
+  id = id()
+  label = text()
+  lists = manyToMany(() => OrdList)
+}
+new Pylon({db: {models: [OrdItem]}})
+
+describe.skipIf(!runDb)('Many-to-many with a declared orderBy (Postgres)', () => {
+  let db: Database
+  const JOIN2 = 'ord_item_ord_list'
+
+  beforeAll(async () => {
+    db = connect({connectionString})
+    await db.kysely.schema.dropTable(JOIN2).ifExists().cascade().execute()
+    await db.kysely.schema.dropTable('ord_list').ifExists().cascade().execute()
+    await db.kysely.schema.dropTable('ord_item').ifExists().cascade().execute()
+    await syncSchema()
+  })
+
+  afterAll(async () => {
+    if (db) {
+      await db.kysely.schema.dropTable(JOIN2).ifExists().cascade().execute()
+      await db.kysely.schema.dropTable('ord_list').ifExists().cascade().execute()
+      await db.kysely.schema.dropTable('ord_item').ifExists().cascade().execute()
+      await db.destroy()
+    }
+    setDefaultDatabase(undefined)
+  })
+
+  it('.all() sorts by the declared target column, independent of link order', async () => {
+    const list = await OrdList.objects.create({name: 'l'})
+    // Create + link in a deliberately non-sorted order.
+    const banana = await OrdItem.objects.create({label: 'banana'})
+    const apple = await OrdItem.objects.create({label: 'apple'})
+    const cherry = await OrdItem.objects.create({label: 'cherry'})
+    await list.items.add(banana, apple, cherry)
+
+    // orderBy '-label' → descending by label, regardless of link/creation order.
+    expect((await list.items.all()).map(i => i.label)).toEqual([
+      'cherry',
+      'banana',
+      'apple'
+    ])
   })
 })

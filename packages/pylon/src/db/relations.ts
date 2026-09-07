@@ -211,6 +211,11 @@ function loadHasMany<T extends object>(
         .select(selectableColumns(def))
         .where(fkColumn as any, 'in', keys as any)
       if (order) query = query.orderBy(order.column as any, order.dir)
+      // Stable PK tiebreaker: a declared order over a non-unique column still leaves
+      // ties in an unspecified order, and a bare load has no order at all — either
+      // way two queries can disagree. Appending the PK makes the order total.
+      const pkColumn = def.primaryKey?.columnName
+      if (pkColumn && pkColumn !== order?.column) query = query.orderBy(pkColumn as any, 'asc')
       const rows = await applyTenantWhere(applyPolicyWhere(query, def, 'read'), def).execute()
       const byKey = new Map<unknown, T[]>()
       for (const row of rows) {
@@ -255,16 +260,20 @@ const manyToManyRealm = createRealm<unknown, any[]>()
 function loadManyToMany<T extends object>(
   targetCtor: ModelCtor<T>,
   s: M2MSpec,
-  ownerPk: unknown
+  ownerPk: unknown,
+  order?: RelationOrder
 ): Promise<T[]> {
   const targetDef = getModelDefinitionOrThrow(targetCtor)
-  const token = `${s.joinTable}:${s.localColumn}->${s.targetTable}`
+  // Order is part of the token so two orderings never share a batch (mirrors hasMany).
+  const token = order
+    ? `${s.joinTable}:${s.localColumn}->${s.targetTable}#${order.column} ${order.dir}`
+    : `${s.joinTable}:${s.localColumn}->${s.targetTable}`
   return batchLoad<unknown, T[]>(
     manyToManyRealm,
     token,
     ownerPk,
     async keys => {
-      const rows = await applyPolicyWhere(
+      let q: any = applyPolicyWhere(
         getDatabase()
           .kysely.selectFrom(s.targetTable)
           .innerJoin(
@@ -278,7 +287,15 @@ function loadManyToMany<T extends object>(
         targetDef,
         'read',
         s.targetTable
-      ).execute()
+      )
+      // Declared order (a TARGET column) then a stable PK tiebreaker — see loadHasMany.
+      // A bare m2m otherwise returns join rows in an unspecified, plan-dependent order,
+      // so the same relation can come back differently in two queries (a list card vs
+      // a detail sheet). Ordering the ONE batched query orders every owner's sublist.
+      if (order) q = q.orderBy(`${s.targetTable}.${order.column}` as any, order.dir)
+      if (order?.column !== s.targetPkColumn)
+        q = q.orderBy(`${s.targetTable}.${s.targetPkColumn}` as any, 'asc')
+      const rows = await q.execute()
       const byKey = new Map<unknown, T[]>()
       for (const row of rows) {
         const {__m2m_local: k, ...rest} = row as any
@@ -573,6 +590,9 @@ export interface ManyToManyBinding {
   through?: string
   sourceColumn?: string
   targetColumn?: string
+  /** Declared default read order, as a target property (`-`-prefixed = desc). A PK
+   *  tiebreaker is always appended; absent, reads fall back to the target PK. */
+  orderBy?: string
 }
 
 /** A target row to link/unlink: a full instance, a `{id}` object, or the bare
@@ -585,6 +605,7 @@ export class ManyToManyManager<T extends object> {
   private readonly through?: string
   private readonly sourceColumn?: string
   private readonly targetColumn?: string
+  private readonly orderProperty?: string
 
   constructor(
     private readonly ownerCtor: ModelCtor<any>,
@@ -595,6 +616,17 @@ export class ManyToManyManager<T extends object> {
     this.through = binding.through
     this.sourceColumn = binding.sourceColumn
     this.targetColumn = binding.targetColumn
+    this.orderProperty = binding.orderBy
+  }
+
+  /** Resolve the declared default order to a TARGET column + direction (or none). */
+  private get order(): RelationOrder | undefined {
+    if (!this.orderProperty) return undefined
+    const desc = this.orderProperty.startsWith('-')
+    const prop = desc ? this.orderProperty.slice(1) : this.orderProperty
+    const def = getModelDefinitionOrThrow(this.targetCtor)
+    const column = def.columns.find(c => c.propertyKey === prop)?.columnName ?? prop
+    return {column, dir: desc ? 'desc' : 'asc'}
   }
 
   private spec() {
@@ -636,7 +668,7 @@ export class ManyToManyManager<T extends object> {
   // Batched across a tick (loadManyToMany) → `owner.related.all()` over a whole list
   // collapses to ONE join query, so it's no longer an N+1.
   all(): Promise<T[]> {
-    return loadManyToMany(this.targetCtor, this.spec(), this.ownerPk)
+    return loadManyToMany(this.targetCtor, this.spec(), this.ownerPk, this.order)
   }
 
   // Batched grouped count (countManyToMany) — the twin of `.all()`.
