@@ -11,8 +11,10 @@ import {
   OperationTypeNode,
   SelectionNode,
   SelectionSetNode,
+  parseType,
   TypeInfo,
   ValueNode,
+  VariableDefinitionNode,
   visit,
   visitWithTypeInfo
 } from 'graphql'
@@ -181,9 +183,46 @@ export interface GatewayContext<TRegistry extends {delegate: any; types: any}> {
 
 // --- AST Builder Utilities ---
 
-function astFromJSValue(value: any): ValueNode {
+/**
+ * Collects the argument values that cannot survive being written into a query
+ * document, so they can be sent as variables instead.
+ *
+ * Keyed by the generated variable name; the caller turns these into variable
+ * definitions and hands them to the executor as the request payload.
+ */
+type UploadCollector = Map<string, unknown>
+
+/**
+ * A `File`/`Blob`, including one from another realm.
+ *
+ * `instanceof Blob` is not enough: the value may have been constructed by a
+ * different copy of the runtime's globals, and this check is on the path
+ * between two processes. Duck-typing on the three members we would need is
+ * both looser and more honest about why we care.
+ */
+const isBinary = (value: any): boolean =>
+  typeof value === 'object' &&
+  value !== null &&
+  typeof value.arrayBuffer === 'function' &&
+  typeof value.stream === 'function' &&
+  typeof value.size === 'number'
+
+function astFromJSValue(value: any, uploads?: UploadCollector): ValueNode {
   if (value === null || value === undefined) {
     return {kind: Kind.NULL}
+  }
+  // A file has no enumerable keys, so the object branch below would write it
+  // into the document as `{}` — the argument arrives at the remote as an empty
+  // object and the upload is silently lost. Hand it back as a variable so it
+  // reaches the executor's payload, where multipart extraction can find it.
+  //
+  // Without a collector (server-authored args: `needs.__args`, forced policy
+  // values) there is nowhere to put it, and the old flattening stands — those
+  // call sites never carry a file.
+  if (uploads && isBinary(value)) {
+    const name = `_pylonUpload_${uploads.size}`
+    uploads.set(name, value)
+    return {kind: Kind.VARIABLE, name: {kind: Kind.NAME, value: name}}
   }
   if (typeof value === 'string') {
     return {kind: Kind.STRING, value}
@@ -199,7 +238,7 @@ function astFromJSValue(value: any): ValueNode {
   if (Array.isArray(value)) {
     return {
       kind: Kind.LIST,
-      values: value.map(astFromJSValue)
+      values: value.map(v => astFromJSValue(v, uploads))
     }
   }
   if (typeof value === 'object') {
@@ -211,7 +250,7 @@ function astFromJSValue(value: any): ValueNode {
         .map(([key, val]) => ({
           kind: Kind.OBJECT_FIELD,
           name: {kind: Kind.NAME, value: key},
-          value: astFromJSValue(val)
+          value: astFromJSValue(val, uploads)
         }))
     }
   }
@@ -311,11 +350,15 @@ class InjectNeedsTransform implements Transform {
   }
 }
 
-class InlineArgsTransform implements Transform {
+export class InlineArgsTransform implements Transform {
   constructor(private wrapperArgs: Record<string, any>) {}
 
   transformRequest(originalRequest: any, delegationContext: any) {
     // 1. Parse the root args provided by your JS wrapper (if any)
+    // Anything that cannot be written into the document — files — is set aside
+    // here and sent as a variable instead. See `astFromJSValue`.
+    const uploads: UploadCollector = new Map()
+
     const rootInlineArguments =
       this.wrapperArgs && Object.keys(this.wrapperArgs).length > 0
         ? Object.entries(this.wrapperArgs)
@@ -325,7 +368,7 @@ class InlineArgsTransform implements Transform {
               ([key, value]): ArgumentNode => ({
                 kind: Kind.ARGUMENT,
                 name: {kind: Kind.NAME, value: key},
-                value: astFromJSValue(value)
+                value: astFromJSValue(value, uploads)
               })
             )
         : []
@@ -361,6 +404,7 @@ class InlineArgsTransform implements Transform {
       Argument(node) {
         if (node.value.kind === Kind.VARIABLE) {
           const varName = node.value.name.value
+          if (uploads.has(varName)) return
           if (!(varName in variables) || variables[varName] === undefined) {
             return null // Deletes `first: $a70fde` from the AST
           }
@@ -371,6 +415,7 @@ class InlineArgsTransform implements Transform {
       ObjectField(node) {
         if (node.value.kind === Kind.VARIABLE) {
           const varName = node.value.name.value
+          if (uploads.has(varName)) return
           if (!(varName in variables) || variables[varName] === undefined) {
             return null // Deletes the field from the input object
           }
@@ -380,10 +425,18 @@ class InlineArgsTransform implements Transform {
       // D. Inline all surviving variables (and safely fallback to NullNode just in case)
       Variable(node) {
         const varName = node.name.value
-        return astFromJSValue(variables[varName])
+        // A variable this transform introduced for a file. It is not in the
+        // incoming payload — `variables[varName]` is undefined and inlining it
+        // would write `null` over the upload — and traversal reaches it because
+        // the root arguments injected above are visited as part of their new
+        // parent node.
+        if (uploads.has(varName)) return
+        return astFromJSValue(variables[varName], uploads)
       },
 
-      // E. Wipe variable definitions
+      // E. Wipe variable definitions. The ones for lifted files are added back
+      //    below, once the type-info pass has worked out what to declare them
+      //    as — they are the only variables this request still has.
       OperationDefinition(node) {
         return {...node, variableDefinitions: []}
       }
@@ -392,6 +445,7 @@ class InlineArgsTransform implements Transform {
     // 3. Run the TypeInfo pass over the FULL document.
     // This ensures both root and nested string AST nodes are correctly coerced to Enums!
     const typeInfo = new TypeInfo(delegationContext.targetSchema)
+    const uploadDefs: VariableDefinitionNode[] = []
     inlineDocument = visit(
       inlineDocument,
       visitWithTypeInfo(typeInfo, {
@@ -403,14 +457,38 @@ class InlineArgsTransform implements Transform {
               return {kind: Kind.ENUM, value: node.value}
             }
           }
+        },
+        // The same pass that resolves enums tells us what a lifted file has to
+        // be declared as. `getInputType()` here is the type the position
+        // expects — the item type inside a list, the field type inside an
+        // input object — which is exactly what the variable definition needs.
+        Variable(node) {
+          if (!uploads.has(node.name.value)) return
+          const inputType = typeInfo.getInputType()
+          if (!inputType) return
+          uploadDefs.push({
+            kind: Kind.VARIABLE_DEFINITION,
+            variable: node,
+            type: parseType(inputType.toString())
+          })
         }
       })
     )
 
+    if (uploadDefs.length > 0) {
+      inlineDocument = visit(inlineDocument, {
+        OperationDefinition(node) {
+          return {...node, variableDefinitions: uploadDefs}
+        }
+      })
+    }
+
     return {
       ...originalRequest,
       document: inlineDocument,
-      variables: {} // Wipe the payload, we don't need it anymore!
+      // Only the lifted files survive as a payload; everything else is now in
+      // the document.
+      variables: Object.fromEntries(uploads)
     }
   }
 }
