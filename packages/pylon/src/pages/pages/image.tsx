@@ -1,4 +1,5 @@
 import React, {useMemo} from 'react'
+import {thumbHashToAverageRGBA} from 'thumbhash'
 
 interface ImageValuesProps {
   src: string | PylonBuildSrc
@@ -7,6 +8,21 @@ interface ImageValuesProps {
   width?: number
   height?: number
   blurDataURL?: string
+  /**
+   * A thumbHash for this picture — ~25 bytes that decode to its average colour.
+   *
+   * Supply one and the placeholder costs NOTHING: it becomes a background
+   * colour written into the HTML, painted on first parse. The generated LQIP
+   * placeholder is a request per image instead, and a background is not lazy —
+   * it is fetched as soon as the element renders, however far down the page it
+   * sits.
+   *
+   * Only the average colour is decoded here, so the blur decoder never reaches
+   * a browser bundle. For a genuinely blurred placeholder — worth it for the
+   * LCP image and nothing else, at ~5.8 KB of inline HTML — decode it yourself
+   * and pass `blurDataURL`.
+   */
+  thumbHash?: string
   /**
    * Whether this is the priority image. Needed here, not just by the component,
    * because it decides whether the generated placeholder is PRELOADED — see the
@@ -83,6 +99,27 @@ interface PylonBuildSrc {
  * @param {ImageProps} props - The image properties including src, width, height, and blurDataURL.
  * @returns {Object} The processed image values: width, height, blurDataURL, and final image source.
  */
+/**
+ * `rgb(…)` for a thumbHash's average colour, or undefined if it is unusable.
+ *
+ * A malformed hash is a placeholder we do without, never a crashed render — the
+ * value travels from a database through an API, and the picture is decoration.
+ */
+function thumbHashColor(hash: string): string | undefined {
+  try {
+    const bin = atob(hash)
+    const bytes = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+    // Shorter than this is not a hash, and the decoder reads past the end.
+    if (bytes.length < 5) return undefined
+    const {r, g, b} = thumbHashToAverageRGBA(bytes)
+    const c = (n: number) => Math.round(Math.min(1, Math.max(0, n)) * 255)
+    return `rgb(${c(r)} ${c(g)} ${c(b)})`
+  } catch {
+    return undefined
+  }
+}
+
 const usePylonImageValues = (
   props: ImageValuesProps
 ): {
@@ -93,6 +130,8 @@ const usePylonImageValues = (
   srcSet?: string
   sizes?: string
   preloads: string[]
+  /** Average colour from `thumbHash`, when one was supplied and decoded. */
+  placeholderColor?: string
 } => {
   return useMemo(() => {
     // // Parse the image source URL to extract query parameters
@@ -158,7 +197,13 @@ const usePylonImageValues = (
 
     const preloads: string[] = []
 
-    if (!blurDataURL) {
+    // A supplied thumbHash replaces the generated placeholder entirely: it is
+    // already in the HTML, so there is nothing to fetch and nothing to preload.
+    const placeholderColor = props.thumbHash
+      ? thumbHashColor(props.thumbHash)
+      : undefined
+
+    if (!blurDataURL && !placeholderColor) {
       // Use finalSrc with lqip=true to generate blurDataURL
       blurDataURL = finalSrc + '&lqip=true'
 
@@ -212,7 +257,8 @@ const usePylonImageValues = (
       src: finalSrc,
       srcSet,
       sizes,
-      preloads
+      preloads,
+      placeholderColor
     }
   }, [props])
 }
@@ -249,8 +295,15 @@ export const Image: React.FC<ImageProps> = props => {
           // unquoted URL is one string in the HTML and another in the DOM, and
           // hydration reports a style mismatch on every Image. Emitting the
           // quotes ourselves makes both sides agree.
-          backgroundImage: `url("${values.blurDataURL}")`,
-          backgroundSize: 'cover',
+          // A decoded thumbHash is a flat colour, so it needs no image and no
+          // `background-size`. Falls back to the generated placeholder when no
+          // hash was supplied.
+          ...(values.placeholderColor
+            ? {backgroundColor: values.placeholderColor}
+            : {
+                backgroundImage: `url("${values.blurDataURL}")`,
+                backgroundSize: 'cover'
+              }),
           height: props.fill ? '100%' : undefined,
           width: props.fill ? '100%' : undefined,
           ...props.style
