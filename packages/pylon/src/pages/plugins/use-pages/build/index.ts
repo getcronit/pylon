@@ -120,9 +120,20 @@ export const build = async (
     })
   }
 
+  // `pylon build` IS the production build, so default accordingly. Defaulting to
+  // 'development' meant a deployed bundle got React's development build —
+  // `react.development.js` and `react-dom-client.development.js`, which validate
+  // on every element creation and every hydration step. A storefront measured
+  // 2.9s of script execution, 5.7s of main-thread work and 20 long tasks for a
+  // page that painted in 0.5s; the cost is not bytes, it is the work.
+  //
+  // An explicit NODE_ENV still wins, so a deliberate development build stays
+  // possible. `pylon dev` sets PYLON_DEV, which keeps the development build and
+  // with it the warnings that are the point of running dev.
   const define = {
     'process.env.NODE_ENV': JSON.stringify(
-      process.env.NODE_ENV || 'development'
+      process.env.NODE_ENV ||
+        (process.env.PYLON_DEV ? 'development' : 'production')
     )
   }
   const transform = {jsx: 'react-jsx', target: 'es2020', define} as const
