@@ -646,7 +646,14 @@ const RootLayout = (props: { children: React.ReactNode; [key: string]: any }) =>
   return (
     <Layout {...props}>
       <meta charSet="utf-8" />
-      {manifest?.['index.css'] && <link rel="stylesheet" href={manifest['index.css']} precedence="high" />}
+      {/* The framework stylesheet is for Pylon's OWN surfaces — the dev error
+          overlay, StatusPage, GlobalErrorPage. Those pages link it themselves
+          when they render, so on an ordinary page it was a second
+          render-blocking stylesheet, from a different Tailwind version, for
+          components the page never shows. Kept in dev, where the overlay can
+          appear at any moment; the comparison is statically replaced at build,
+          so production drops the link entirely. */}
+      {process.env.NODE_ENV !== 'production' && manifest?.['index.css'] && <link rel="stylesheet" href={manifest['index.css']} precedence="high" />}
       {manifest?.['app.css'] && <link rel="stylesheet" href={manifest['app.css']} precedence="high" />}
       {props.children}
     </Layout>

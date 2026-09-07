@@ -94,6 +94,22 @@ const HydrateFallback = () => {
   return <div>Loading...</div>
 }
 
+// Wrap a route's page component in its segment's \`loading.tsx\` Suspense fallback. Active on
+// BOTH server and client: on the server the streaming send path flushes this fallback in the
+// shell and streams the resolved segment in behind it; on the client it is the navigation
+// loading state. With no \`loading.tsx\` in the chain the page is not wrapped at all, so there is
+// no boundary and the render simply resolves into the shell. See rfcs/PAGES_STREAMING.md.
+function withLoading(Component: React.ComponentType<any>, Loading: React.ComponentType) {
+  if (!Loading) return Component
+  return function WithLoading(props: any) {
+    return (
+      <Suspense fallback={<Loading />}>
+        <Component {...props} />
+      </Suspense>
+    )
+  }
+}
+
 // Replaced pageClientCache with central cache in DataClientProvider
 
 function withRouteData(Component: React.ComponentType<any>, id?: string, catchAllParam?: string) {
@@ -144,7 +160,14 @@ const RootLayout = (props: { children: React.ReactNode; [key: string]: any }) =>
   return (
     <Layout {...props}>
       <meta charSet="utf-8" />
-      {manifest?.['index.css'] && <link rel="stylesheet" href={manifest['index.css']} precedence="high" />}
+      {/* The framework stylesheet is for Pylon's OWN surfaces — the dev error
+          overlay, StatusPage, GlobalErrorPage. Those pages link it themselves
+          when they render, so on an ordinary page it was a second
+          render-blocking stylesheet, from a different Tailwind version, for
+          components the page never shows. Kept in dev, where the overlay can
+          appear at any moment; the comparison is statically replaced at build,
+          so production drops the link entirely. */}
+      {process.env.NODE_ENV !== 'production' && manifest?.['index.css'] && <link rel="stylesheet" href={manifest['index.css']} precedence="high" />}
       {manifest?.['app.css'] && <link rel="stylesheet" href={manifest['app.css']} precedence="high" />}
       {props.children}
     </Layout>
