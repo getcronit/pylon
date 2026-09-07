@@ -460,14 +460,27 @@ export const setup = async (
     }
   )
 
+  /**
+   * A content-hashed filename — `app-CJhS2YtW.js`, `index-b373a319.css`.
+   *
+   * The hash IS the version: change the file and the name changes with it, so
+   * the bytes behind one name can never differ. That is the precondition for
+   * `immutable`, and it is why an unhashed name (`manifest.json`) must not get
+   * it — a client would keep a stale copy for a year with no way to be told.
+   */
+  const HASHED_ASSET = /-[A-Za-z0-9_-]{8,}\.[a-z0-9]+$/
+
   app.get('/__pylon/static/*', etag(), async c => {
-    const filePath = path.resolve(
-      root,
-      '.pylon',
-      '__pylon',
-      'static',
-      c.req.path.replace('/__pylon/static/', '')
-    )
+    const rel = c.req.path.replace('/__pylon/static/', '')
+    const filePath = path.resolve(root, '.pylon', '__pylon', 'static', rel)
+
+    // Without this the origin sends no `Cache-Control` at all, and whatever sits
+    // in front picks a default — Cloudflare's is four hours, so a returning
+    // visitor re-validated every hashed asset several times a day for files that
+    // cannot have changed. `immutable` also stops a reload from revalidating.
+    if (HASHED_ASSET.test(rel)) {
+      c.header('Cache-Control', 'public, max-age=31536000, immutable')
+    }
 
     return serveFilePath({filePath, context: c})
   })
