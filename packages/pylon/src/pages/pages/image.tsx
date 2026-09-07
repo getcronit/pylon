@@ -8,6 +8,12 @@ interface ImageValuesProps {
   height?: number
   blurDataURL?: string
   /**
+   * Whether this is the priority image. Needed here, not just by the component,
+   * because it decides whether the generated placeholder is PRELOADED — see the
+   * note where `preloads` is filled.
+   */
+  priority?: boolean
+  /**
    * How wide the image renders, as a CSS `sizes` list — e.g.
    * `'(max-width: 768px) 100vw, 50vw'`.
    *
@@ -156,8 +162,18 @@ const usePylonImageValues = (
       // Use finalSrc with lqip=true to generate blurDataURL
       blurDataURL = finalSrc + '&lqip=true'
 
-      // Preload the blurDataURL image
-      preloads.push(blurDataURL)
+      // Preload the placeholder for the PRIORITY image only.
+      //
+      // React hoists these into `<head>`, so preloading one per image put every
+      // picture on the page — lazy ones far below the fold included — at the
+      // front of the network queue, competing with the CSS and fonts the first
+      // paint is waiting on. A storefront home page emitted 39 of them, 16
+      // duplicates, for decorative logos nobody had scrolled to.
+      //
+      // A lazy image preloading anything defeats the point of being lazy. The
+      // placeholder still renders either way: `blurDataURL` is a CSS background
+      // below, and only the network hint is dropped.
+      if (props.priority) preloads.push(blurDataURL)
     }
 
     // One candidate URL, differing only in width. `h` is dropped: the proxy

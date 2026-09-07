@@ -49,7 +49,18 @@ export function setOperationClientResolver(
 async function run(
   docOrSelector: TypedDoc<any, any> | ((root: any) => any),
   thunk?: () => Record<string, unknown>,
-  selector?: (root: any) => any
+  selector?: (root: any) => any,
+  /**
+   * Root type the result is projected against. `op.mutation` passes "Mutation";
+   * `op.query` leaves it undefined and takes the descriptor's query root.
+   *
+   * The document body carries the operation type, but the wrapper resolves
+   * fields through the DESCRIPTOR, and defaulting that to the query root made
+   * every `op.mutation` over a field with arguments throw
+   * `<field> is not a function` — after the mutation had already run, so the
+   * write landed and only reading the result failed.
+   */
+  rootTypeName?: string
 ): Promise<any> {
   if (typeof docOrSelector === 'function' || !selector) {
     throw new Error(
@@ -75,7 +86,9 @@ async function run(
   // wrapDoc (not raw wrapData) so a selector reading one field with different args
   // at multiple call sites routes each to its own slot — same arg-alias seam the
   // hook read paths use.
-  return selector(client.wrapDoc(docOrSelector, () => data, () => variables))
+  return selector(
+    client.wrapDoc(docOrSelector, () => data, () => variables, undefined, rootTypeName)
+  )
 }
 
 export interface Operation {
@@ -85,5 +98,8 @@ export interface Operation {
 
 export const op: Operation = {
   query: (a: any, b?: any, c?: any) => run(a, b, c),
-  mutation: (a: any, b?: any, c?: any) => run(a, b, c)
+  // "Mutation" so the projection resolves against the mutation root — the same
+  // name `runMutation` passes. Identical at runtime otherwise; the document
+  // body is what decides the operation actually sent.
+  mutation: (a: any, b?: any, c?: any) => run(a, b, c, 'Mutation')
 }

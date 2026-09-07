@@ -413,7 +413,17 @@ export class PylonQueryClient {
     doc: Pick<DocInit, 'argAliases' | 'name' | 'id'>,
     getRoot: () => unknown,
     getVariables?: () => Record<string, unknown> | undefined,
-    rootExtras?: Record<string, unknown>
+    rootExtras?: Record<string, unknown>,
+    /**
+     * Root type the wrapped data is resolved against. Defaults to the QUERY
+     * root, which is right for a query and silently wrong for anything else: a
+     * mutation field is not on the query type, so the field descriptor lookup
+     * misses, `callable` is undefined, and calling the field throws
+     * `is not a function` — AFTER the mutation has already run. `runMutation`
+     * below has always passed "Mutation" explicitly; callers that wrap a
+     * mutation document themselves have to say so too.
+     */
+    rootTypeName?: string
   ): T {
     const {argAliases} = doc
     const argAliasMap: ArgAliasMapSource | undefined = argAliases
@@ -427,7 +437,14 @@ export class PylonQueryClient {
     const getIdentityCache = doc.id
       ? () => this.identityBucket(opKey(doc as Pick<DocInit, 'id'>, getVariables?.()))
       : undefined
-    return this.wrapData<T>(getRoot, rootExtras, undefined, doc.name, argAliasMap, getIdentityCache)
+    return this.wrapData<T>(
+      getRoot,
+      rootExtras,
+      rootTypeName,
+      doc.name,
+      argAliasMap,
+      getIdentityCache
+    )
   }
 
   /**
