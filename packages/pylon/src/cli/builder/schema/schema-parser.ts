@@ -135,6 +135,26 @@ interface Index {
   Subscription?: ts.Type
 }
 
+/**
+ * A field's API-facing shape, as a comparable string.
+ *
+ * Name, type and arguments — not the descriptions attached to them. This is
+ * what decides whether two union members share a field, so anything included
+ * here becomes something a member can differ on and lose the field over.
+ */
+const apiShape = (field: Type['fields'][number]): string => {
+  const bare = ({description: _doc, ...ref}: TypeDefinition) => ref
+
+  return JSON.stringify({
+    name: field.name,
+    type: bare(field.type),
+    args: (field.args ?? []).map(arg => ({
+      name: arg.name,
+      type: bare(arg.type)
+    }))
+  })
+}
+
 export class SchemaParser {
   private schema: Schema
   private checker: ts.TypeChecker
@@ -472,13 +492,22 @@ export class SchemaParser {
 
     const baseType = unionTypes[0]
 
-    // Check which fields are common in all types
-
+    // Which fields every member has — compared on the API shape ALONE.
+    //
+    // The comparison used to be `JSON.stringify(f) === JSON.stringify(field)`
+    // over the whole descriptor, and a field's JSDoc lives inside its
+    // `TypeDefinition`. So two members declaring the same field with different
+    // comments did not "share" it and the interface silently lost it: the
+    // build succeeds, the schema is valid, and the only way to get the field
+    // back is to write the same comment on every member. Documentation should
+    // not decide what a schema contains.
+    //
+    // Type identity stays STRICT — nullability and list-ness are part of
+    // `TypeRefDef` and still compared — because an interface field the
+    // implementing type cannot satisfy is an invalid schema, not a nicer one.
     const commonFields = baseType.fields.filter(field => {
       return unionTypes.every(type => {
-        return type.fields.some(
-          f => JSON.stringify(f) === JSON.stringify(field)
-        )
+        return type.fields.some(f => apiShape(f) === apiShape(field))
       })
     })
 
@@ -486,7 +515,23 @@ export class SchemaParser {
       return {
         name: union.name,
         description: union.description,
-        fields: commonFields
+        // The first member to document a field describes it on the interface.
+        // Taking only `baseType`'s would leave the interface undocumented
+        // whenever the union happens to list an undocumented member first.
+        fields: commonFields.map(field => {
+          if (field.type.description) return field
+
+          const documented = unionTypes
+            .flatMap(type => type.fields)
+            .find(f => apiShape(f) === apiShape(field) && f.type.description)
+
+          return documented
+            ? {
+                ...field,
+                type: {...field.type, description: documented.type.description}
+              }
+            : field
+        })
       }
     }
 
