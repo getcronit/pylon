@@ -203,7 +203,11 @@ export const build = async (
       chunkFileNames: 'chunks/[name]-[hash].js',
       assetFileNames: 'assets/[name]-[hash][extname]',
       sourcemap: true,
-      minify: false
+      // Minify for production, exactly as the SSR bundle below does. This is the
+      // bundle a VISITOR downloads — it was shipping unminified while the server
+      // bundle, which nobody downloads, was minified. Skipped under `pylon dev`:
+      // pure rebuild cost, and it makes a stack trace unreadable while working.
+      minify: !process.env.PYLON_DEV
     })
     await bundle.close()
 
