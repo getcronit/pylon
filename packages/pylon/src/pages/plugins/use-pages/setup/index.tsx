@@ -474,15 +474,26 @@ export const setup = async (
     const rel = c.req.path.replace('/__pylon/static/', '')
     const filePath = path.resolve(root, '.pylon', '__pylon', 'static', rel)
 
-    // Without this the origin sends no `Cache-Control` at all, and whatever sits
-    // in front picks a default — Cloudflare's is four hours, so a returning
-    // visitor re-validated every hashed asset several times a day for files that
-    // cannot have changed. `immutable` also stops a reload from revalidating.
+    const res = await serveFilePath({filePath, context: c})
+
+    // Set on the RESPONSE, and only once it is known to be a hit.
+    //
+    // Setting it up front put `immutable` on the 404 too, and a missing hashed
+    // asset is not a rare case: during a rolling deploy one container serves
+    // HTML naming the new hashes while a chunk request lands on the container
+    // that still has the old ones. Cached for a year, that turns a blip lasting
+    // seconds into a page that stays broken until someone clears their cache.
+    //
+    // A miss is explicitly `no-store` for the same reason — the file usually
+    // exists moments later, and nothing should remember otherwise.
     if (HASHED_ASSET.test(rel)) {
-      c.header('Cache-Control', 'public, max-age=31536000, immutable')
+      res.headers.set(
+        'Cache-Control',
+        res.ok ? 'public, max-age=31536000, immutable' : 'no-store'
+      )
     }
 
-    return serveFilePath({filePath, context: c})
+    return res
   })
 
   // Image optimization route
