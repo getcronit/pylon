@@ -68,7 +68,19 @@ export function useRequestContext<T>(
         // After `next()`: the downstream response exists, so its headers are the ones the
         // client will see. The SSR render is fully buffered before `c.html(...)`, which is
         // why mutating headers here is safe rather than a race.
-        for (const header of vary) appendVary(c.res.headers, header)
+        //
+        // Only on responses whose CONTENT can depend on the context. This runs on `*`, so
+        // it was also varying the static-file route and the image proxy — a `.woff2` or a
+        // resized `.webp` is determined entirely by its URL and cannot differ per cookie.
+        // The cost of getting that wrong is not cosmetic: a CDN will not share a response
+        // that varies on Cookie, so `Vary: Cookie` on an asset quietly cancels whatever
+        // `Cache-Control` it was given. Cloudflare, for one, only caches on
+        // `Vary: Accept-Encoding`.
+        const type = c.res.headers.get('content-type') ?? ''
+        const rendered = type.includes('text/html') || type.includes('application/json')
+        if (rendered) {
+          for (const header of vary) appendVary(c.res.headers, header)
+        }
       })
     }
   }

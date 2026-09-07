@@ -496,6 +496,22 @@ export const setup = async (
     return res
   })
 
+  /**
+   * How long a transformed image may be reused.
+   *
+   * The output is a pure function of the query — same src, width, quality and
+   * format give the same bytes — so it is worth caching, and it was served with
+   * no `Cache-Control` at all. That leaves it to whatever sits in front to
+   * guess, and a CDN that guesses "don't" re-runs the transform for every
+   * visitor of every page.
+   *
+   * A day, then a week of serving stale while revalidating in the background.
+   * Deliberately NOT `immutable`: `src` is a path, not a content hash, so
+   * replacing the file behind it must not strand clients for a year.
+   */
+  const IMAGE_CACHE_CONTROL =
+    'public, max-age=86400, stale-while-revalidate=604800'
+
   // Image optimization route
   app.get('/__pylon/image', async c => {
     try {
@@ -561,6 +577,10 @@ export const setup = async (
           await fs.promises.access(cachedImageFileName)
           const stream = fs.createReadStream(cachedImageFileName)
           c.res.headers.set('Content-Type', getContentType(format))
+          // Also here: this is the HIT path and it returns before the header is
+          // set below, so a transform that was already on disk — which is nearly
+          // every request in production — went out uncacheable.
+          c.res.headers.set('Cache-Control', IMAGE_CACHE_CONTROL)
           return c.body(Readable.toWeb(stream) as ReadableStream)
         } catch (e) {
           // Proceed to optimize and cache the image if it doesn't exist
@@ -623,6 +643,8 @@ export const setup = async (
           quality
         })
       }
+
+      c.res.headers.set('Cache-Control', IMAGE_CACHE_CONTROL)
 
       if (IS_IMAGE_CACHE_POSSIBLE) {
         const image = await data.toFile(cachedImageFileName)
