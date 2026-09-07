@@ -443,32 +443,56 @@ export const setup = async (
     }
   }
 
+  /**
+   * How long an author-named file may be reused.
+   *
+   * A day, then a week of serving stale while it revalidates. Not `immutable`:
+   * a favicon or a share image is replaced in place, under the same name, and a
+   * year-long copy could never be corrected.
+   */
+  const AUTHORED_CACHE_CONTROL =
+    'public, max-age=86400, stale-while-revalidate=604800'
+
+  /** A build output: the name encodes the content, so it can never change. */
+  const IMMUTABLE_CACHE_CONTROL = 'public, max-age=31536000, immutable'
+
   app.on(
     'GET',
     publicFiles.map(file => `/${file}`),
     etag(),
     async c => {
+      const rel = c.req.path.replace('/', '')
       const publicFilePath = path.resolve(
         root,
         '.pylon',
         '__pylon',
         'public',
-        c.req.path.replace('/', '')
+        rel
       )
 
-      return serveFilePath({filePath: publicFilePath, context: c})
+      const res = await serveFilePath({filePath: publicFilePath, context: c})
+
+      // `public/` had no policy at all, so fonts, favicons and share images were
+      // left to whatever sits in front to guess — Cloudflare's guess is four
+      // hours, for files that change once a year.
+      //
+      // Same rule as the build outputs: a content-hashed name is immutable,
+      // because the name is the version. An author-named file is not — a
+      // favicon can be replaced in place — so it gets a day, then a week of
+      // serving stale while it revalidates. A miss is never stored.
+      // Decided by the ROUTE, not by pattern-matching the filename. Everything
+      // here came from the app's `public/` directory, so it is author-named and
+      // replaceable in place — `hanken-grotesk-400-latin.woff2` looks hashed to
+      // any regex loose enough to catch a real hash, and caching it for a year
+      // would be unfixable.
+      res.headers.set(
+        'Cache-Control',
+        res.ok ? AUTHORED_CACHE_CONTROL : 'no-store'
+      )
+
+      return res
     }
   )
-
-  /**
-   * A content-hashed filename — `app-CJhS2YtW.js`, `index-b373a319.css`.
-   *
-   * The hash IS the version: change the file and the name changes with it, so
-   * the bytes behind one name can never differ. That is the precondition for
-   * `immutable`, and it is why an unhashed name (`manifest.json`) must not get
-   * it — a client would keep a stale copy for a year with no way to be told.
-   */
-  const HASHED_ASSET = /-[A-Za-z0-9_-]{8,}\.[a-z0-9]+$/
 
   app.get('/__pylon/static/*', etag(), async c => {
     const rel = c.req.path.replace('/__pylon/static/', '')
@@ -486,12 +510,18 @@ export const setup = async (
     //
     // A miss is explicitly `no-store` for the same reason — the file usually
     // exists moments later, and nothing should remember otherwise.
-    if (HASHED_ASSET.test(rel)) {
-      res.headers.set(
-        'Cache-Control',
-        res.ok ? 'public, max-age=31536000, immutable' : 'no-store'
-      )
-    }
+    // Everything under this route is a build output and content-hashed by
+    // construction — no name-sniffing needed, and none that could be fooled.
+    // `manifest.json` is the one exception: a fixed name, rewritten every build.
+    const named = path.basename(rel)
+    res.headers.set(
+      'Cache-Control',
+      !res.ok
+        ? 'no-store'
+        : named === 'manifest.json'
+          ? 'no-cache'
+          : IMMUTABLE_CACHE_CONTROL
+    )
 
     return res
   })
