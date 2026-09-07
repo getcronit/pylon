@@ -282,6 +282,39 @@ export const build = async (
   /** Write the framework base stylesheet + concatenated app CSS to the static dir and
    *  return their manifest entries (public URLs). Shared by the prod client build and
    *  the dev CSS-only path. */
+  /**
+   * Minify a stylesheet for production.
+   *
+   * The CSS was never minified — a storefront shipped 129,616 bytes across
+   * 4,789 lines, and a stylesheet blocks rendering, so those bytes sit directly
+   * in front of the first paint.
+   *
+   * Minify only. No `targets`, so no syntax lowering and no prefixing: Tailwind
+   * v4 already does that with this same library, and re-running it here would be
+   * a second opinion on output that is already correct.
+   *
+   * Loaded lazily and failing open — a stylesheet that cannot be minified is
+   * worth shipping unminified, never worth failing a build over.
+   *
+   * Skipped in dev, like the JS minifier: unreadable CSS in devtools costs more
+   * than the bytes save.
+   */
+  const minifyCss = async (css: string, filename: string): Promise<string> => {
+    if (process.env.PYLON_DEV || !css.trim()) return css
+    try {
+      const {transform} = await import('lightningcss')
+      const {code} = transform({
+        filename,
+        code: Buffer.from(css),
+        minify: true
+      })
+      return code.toString()
+    } catch (err) {
+      console.warn(`Pages [css] minify skipped for ${filename}:`, err)
+      return css
+    }
+  }
+
   const writeCssFiles = async (
     collectedCss: Map<string, string>
   ): Promise<Record<string, string>> => {
@@ -292,20 +325,22 @@ export const build = async (
       outputDir: DIST_STATIC_DIR,
       publicPath: PUBLIC_PATH
     })
-    const indexName = `index-${hashCss(indexCss)}.css`
+    const indexOut = await minifyCss(indexCss, 'index.css')
+    const indexName = `index-${hashCss(indexOut)}.css`
     await updateFileIfChanged(
       path.join(DIST_STATIC_DIR, indexName),
-      Buffer.from(indexCss)
+      Buffer.from(indexOut)
     )
     entries['index.css'] = `${PUBLIC_PATH}/${indexName}`
 
     // App CSS graph — concatenated in import order (see rolldown-plugins.ts).
     const appCss = [...collectedCss.values()].join('\n')
     if (appCss.trim()) {
-      const appName = `app-${hashCss(appCss)}.css`
+      const appOut = await minifyCss(appCss, 'app.css')
+      const appName = `app-${hashCss(appOut)}.css`
       await updateFileIfChanged(
         path.join(DIST_STATIC_DIR, appName),
-        Buffer.from(appCss)
+        Buffer.from(appOut)
       )
       entries['app.css'] = `${PUBLIC_PATH}/${appName}`
     }
