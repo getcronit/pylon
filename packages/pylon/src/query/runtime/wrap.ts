@@ -218,8 +218,47 @@ function makeDualMode(call: (...args: unknown[]) => any): unknown {
   })
 }
 
+/**
+ * ISO string → `Date`, memoised on the string.
+ *
+ * The `Date` scalar crosses the wire as an ISO string, and the generated types
+ * say `Date`. Nothing reconciled the two, so `x.createdAt.toISOString()` type-
+ * checked and threw at runtime — past `tsc`, past a build, into a render.
+ *
+ * Memoised because the proxy rebuilds a value on every read: a fresh `Date` per
+ * read is a new object identity per render, which silently invalidates every
+ * `useMemo`/`useEffect` dependency it appears in. Keyed on the string, so the
+ * same instant is always the same object.
+ *
+ * An unparseable value is passed through untouched rather than becoming an
+ * Invalid Date — a string that reaches a consumer is debuggable; `Invalid Date`
+ * is the type lying a second time.
+ *
+ * The returned `Date` is shared. Mutating it (`setHours` and friends) mutates
+ * it for every reader; treat a scalar read as read-only, as with any other.
+ */
+const dateCache = new Map<string, Date>()
+
+function reviveDate(value: unknown): unknown {
+  if (typeof value !== 'string') return value
+  const hit = dateCache.get(value)
+  if (hit) return hit
+  const revived = new Date(value)
+  if (Number.isNaN(revived.getTime())) return value
+  dateCache.set(value, revived)
+  return revived
+}
+
 function buildValue(getValue: () => any, fd: FieldDesc, ctx: Ctx): unknown {
-  if (fd.scalar) return getValue()
+  if (fd.scalar) {
+    const value = getValue()
+    if (fd.type !== 'Date') return value
+    // A scalar LIST is caught here, before the list branch below — `fd.scalar`
+    // and `fd.list` are both true for `[Date!]`, and the scalar check comes
+    // first — so the elements have to be revived here or not at all.
+    if (fd.list) return Array.isArray(value) ? value.map(reviveDate) : value
+    return reviveDate(value)
+  }
 
   if (fd.list) {
     const arr = getValue()
