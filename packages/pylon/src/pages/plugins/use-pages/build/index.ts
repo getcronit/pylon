@@ -429,7 +429,54 @@ export const build = async (
  * generations from earlier in the session are swept. `manifest.json` is stable-named (written
  * via `updateFileIfChanged`, so it may keep an old mtime) and is always kept.
  */
-async function pruneStaleOutputs(dir: string, graceMs = 15_000): Promise<void> {
+/**
+ * Every file the CURRENT bundle can reach, by name.
+ *
+ * A generation's entry is content-hashed, but the files it imports are only as
+ * safe as the sweep below: delete one still named in the live graph and the
+ * next dynamic import of that route fails with `Cannot find module`, on the
+ * server only, until something rewrites it. Age is a proxy for "unreferenced"
+ * and a bad one, so the graph is read instead of guessed at.
+ */
+async function liveGraph(dir: string): Promise<Set<string>> {
+  const live = new Set<string>()
+  let entry: string | undefined
+  try {
+    const manifest = JSON.parse(
+      await fs.readFile(path.join(dir, 'manifest.json'), 'utf8')
+    )
+    entry = manifest['app.js']
+  } catch {
+    return live // no manifest yet: nothing is live, the age rule stands alone
+  }
+  if (!entry) return live
+
+  const walk = async (rel: string): Promise<void> => {
+    const name = path.basename(rel)
+    if (live.has(name)) return
+    live.add(name)
+    let src: string
+    try {
+      src = await fs.readFile(path.resolve(dir, '..', '..', rel), 'utf8')
+    } catch {
+      try {
+        src = await fs.readFile(path.join(dir, name), 'utf8')
+      } catch {
+        return
+      }
+    }
+    for (const spec of new Set(
+      [...src.matchAll(/["']([^"']*\/?[A-Za-z0-9._-]+\.js)["']/g)].map(m => m[1])
+    )) {
+      if (spec.includes('/') || spec.endsWith('.js')) await walk(spec)
+    }
+  }
+
+  await walk(entry)
+  return live
+}
+
+async function pruneStaleOutputs(dir: string, graceMs = 60_000): Promise<void> {
   const cutoff = Date.now() - graceMs
   let entries: Awaited<ReturnType<typeof fs.readdir>>
   try {
@@ -437,9 +484,17 @@ async function pruneStaleOutputs(dir: string, graceMs = 15_000): Promise<void> {
   } catch {
     return // dir may not exist yet on the very first build
   }
+
+  // Never sweep a file the live bundle still imports, whatever its age. The age
+  // rule alone assumed a rebuild's predecessor was done being used within the
+  // grace window; a streamed render holds its request open across Suspense
+  // boundaries and can dynamically import a route chunk long after that.
+  const live = await liveGraph(dir)
+
   await Promise.all(
     (entries as any[]).map(async e => {
       if (!e.isFile() || e.name === 'manifest.json') return
+      if (live.has(e.name)) return
       const p = path.join(e.parentPath ?? dir, e.name)
       try {
         const st = await fs.stat(p)
