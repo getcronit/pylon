@@ -198,6 +198,7 @@ export class PylonQueryClient {
             Object.keys(res.data as Record<string, unknown>).length > 0)
         if (hasErrors && !hasData) {
           const err = new GraphQLResultError(res.errors!)
+          this.store.endFetch(key)
           this.store.patch(key, {error: err, promise: undefined})
           throw err
         }
@@ -231,6 +232,7 @@ export class PylonQueryClient {
           this.store.mergeEntities(entities)
           data = root
         }
+        this.store.endFetch(key)
         this.store.patch(key, {
           data,
           error: undefined,
@@ -242,6 +244,7 @@ export class PylonQueryClient {
         return res.data as TResult
       },
       err => {
+        this.store.endFetch(key)
         this.store.patch(key, {error: err, promise: undefined})
         throw err
       }
@@ -250,6 +253,11 @@ export class PylonQueryClient {
     // Silent: this may run during render (ensure() → SWR revalidate). The data
     // write in the .then above emits normally once resolved.
     this.store.patch(key, {promise}, true)
+    // The same event, announced on a microtask so it lands after this render.
+    // Without it nothing outside the suspending subtree can learn that a fetch
+    // began — only that one ended — which is why a navigation could not be
+    // reported while it was happening.
+    this.store.beginFetch(key)
     return promise
   }
 

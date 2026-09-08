@@ -23,6 +23,13 @@ export type {
   ResponseCookieOptions
 } from './response-cookies'
 export {Link} from './link'
+/**
+ * The pages version, which ORs the router's navigation state with the query
+ * client's in-flight set — see the hook for why either alone leaves a gap.
+ * `@getcronit/pylon` exports a query-only `useIsFetching` for non-routed apps.
+ */
+export {useIsFetching} from './use-is-fetching'
+export type {UseIsFetchingOptions} from '@/query'
 export {
   ErrorBoundary,
   type ErrorBoundaryProps,

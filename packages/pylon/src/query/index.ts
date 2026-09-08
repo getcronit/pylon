@@ -57,3 +57,9 @@ export {
   setOperationClientResolver,
   type Operation
 } from './runtime/operation'
+export {
+  useIsFetching,
+  useIsFetchingNow,
+  useDelayedFlag,
+  type UseIsFetchingOptions
+} from './react/use-is-fetching'

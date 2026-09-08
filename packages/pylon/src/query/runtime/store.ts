@@ -130,12 +130,48 @@ export class Store {
   private entities = new Map<string, Record<string, unknown>>()
   private listeners = new Set<() => void>()
   private version = 0
+  /** Operation keys with a fetch in flight. Size drives `isFetching()`. */
+  private inFlight = new Set<string>()
 
   /**
    * Monotonic change counter for `useSyncExternalStore`. Bumped on every write.
    * Arrow property so its identity is stable across renders.
    */
   getVersion = (): number => this.version
+
+  /**
+   * Is any operation fetching right now?
+   *
+   * The store has always KNOWN this — `StoreEntry.promise` is set for exactly
+   * the window — but the write that sets it is silent (see `patch`), so no
+   * subscriber could ever observe a fetch STARTING. Only its end. Which is why
+   * a page could not show that a navigation was in flight: the one transition
+   * worth reporting was the one that never notified.
+   *
+   * Tracked as a set rather than derived by walking the map, so a subscriber
+   * asking on every store change is O(1).
+   */
+  isFetching = (): boolean => this.inFlight.size > 0
+
+  /**
+   * Record a fetch starting, and notify — but on a MICROTASK.
+   *
+   * `ensure()` runs during render, so emitting synchronously here is what the
+   * silent write was avoiding: React warns when a store update during render
+   * schedules an update in another component. A microtask lands after the
+   * current render, which is late enough to be legal and early enough that the
+   * indicator appears in the same frame the navigation starts.
+   */
+  beginFetch(key: string): void {
+    if (this.inFlight.has(key)) return
+    this.inFlight.add(key)
+    queueMicrotask(() => this.emit())
+  }
+
+  /** Record a fetch settling. Emits inline: the caller is already async. */
+  endFetch(key: string): void {
+    if (this.inFlight.delete(key)) this.emit()
+  }
 
   get(key: string): StoreEntry | undefined {
     return this.map.get(key)
