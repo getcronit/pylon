@@ -80,4 +80,50 @@ describe('extractQueries: a helper local must not become a query argument', () =
     expect(args, 'the argument must not name a helper local').not.toMatch(/\broot\b/)
     expect(args, "the argument is the caller's own binding").toContain('scope')
   })
+
+
+  it('does not append a helper\'s property reads to the caller\'s variable', () => {
+    // The second half of the same failure. `subtreeHandles` reads `node.handle`
+    // off the plain tree it was handed; that segment is not a property of the
+    // caller's variable, and appending it emitted `scope.handle` — which builds,
+    // then reads `handle` off a string at render.
+    project.createSourceFile(
+      '/tree.ts',
+      `
+      export function subtreeHandles(nodes, handle) {
+        const out = [];
+        const walk = (node) => {
+          out.push(node.handle);
+          node.children.forEach(walk);
+        };
+        nodes.forEach(walk);
+        return out;
+      }
+    `
+    )
+
+    const filePath = '/list.tsx'
+    project.createSourceFile(
+      filePath,
+      `
+      import { useData } from '@getcronit/pylon/pages';
+      import { subtreeHandles } from './tree';
+
+      export default function Page({collections, collection}) {
+        const scope = collection ? subtreeHandles(collections, collection).join(' ') : undefined;
+        const data = useData();
+        const list = data.products({query: scope, first: 10});
+        return <div>{list.nodes.map(p => p.title)}</div>;
+      }
+    `
+    )
+
+    const {queries} = extractQueries(filePath, project)
+    const args = String(
+      (queries[0]!.selectors as Record<string, any>).products.__args ?? ''
+    )
+
+    expect(args, 'no property of the tree may be appended').not.toMatch(/scope\./)
+    expect(args).toContain('scope')
+  })
 })

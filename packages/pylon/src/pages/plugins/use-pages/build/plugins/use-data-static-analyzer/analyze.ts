@@ -379,6 +379,18 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
         if ((first as any)?.sourceName) {
           if (first.name.startsWith('__target_')) return name
           if (path.some(p => p.isElement)) return name
+          // The value's source IS this identifier, so the identifier is already
+          // the expression and there is nothing to rebuild. Appending the path's
+          // segments here can only be wrong: they were recorded while a helper
+          // walked its own argument — `subtreeHandles` reading `node.handle` off
+          // a plain collection tree — and none of them is a property of this
+          // variable. That emitted `vocabularyScope.handle` into the `useData()`
+          // variables thunk, which builds, and then reads `handle` off a string
+          // at render.
+          //
+          // The rewrite is for the case it was written for: an identifier that
+          // ALIASES something else, where naming the original is the point.
+          if ((first as any).sourceName === name) return name
           let result = (first as any).sourceName
           for (let i = 1; i < path.length; i++) {
             const seg = path[i]
