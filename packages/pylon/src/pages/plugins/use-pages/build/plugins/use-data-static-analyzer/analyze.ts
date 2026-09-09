@@ -587,12 +587,39 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
       paths = evaluateExpression(body)
     }
 
+    // Names declared INSIDE this body, before the scope holding them goes away.
+    const innerNames = new Set<string>()
+    for (let i = isolate ? 1 : oldScopes.length; i < scopes.length; i++) {
+      for (const key of scopes[i]!.bindings.keys()) innerNames.add(key)
+    }
+
     if (isolate) {
       scopes = oldScopes
     } else {
       scopes.pop()
     }
-    return paths
+
+    // A returned path carries the binding its value CAME FROM, so a hoisted
+    // argument can read `list.nodes` rather than whatever local aliased it.
+    // That only works while the source has a name at the call site. A helper's
+    // own local does not: `collectionFilter` returns through `tokens` and
+    // `subtreeHandles` through `root`, and emitting either into the caller's
+    // `useData()` variables thunk is a reference to a name the page has never
+    // had. It builds, and fails at render with `ReferenceError: root is not
+    // defined`, naming a variable that appears nowhere in the file.
+    //
+    // Only names declared in THIS body are stripped. A prop drilled down from a
+    // parent component is also resolved through an executed body, and there the
+    // source is the parent's own binding — still nameable, and still the right
+    // thing to emit.
+    return innerNames.size === 0
+      ? paths
+      : paths.map(path => {
+          const first = path[0] as any
+          if (!first?.sourceName || !innerNames.has(first.sourceName)) return path
+          const {sourceName: _dropped, ...rest} = first
+          return [rest, ...path.slice(1)] as Path
+        })
   }
 
   function bindIteratorParam(
