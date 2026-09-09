@@ -833,6 +833,38 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
     return undefined
   }
 
+  /**
+   * Whether a function body must run WITHOUT the caller's scope.
+   *
+   * A function closes over where it was WRITTEN, not where it is called. One
+   * declared at module level — or imported, which is the same thing in another
+   * file — cannot see a caller's locals, so executing its body in the caller's
+   * scope lets its parameters resolve to same-named locals there. When such a
+   * local holds data, the helper's own property reads land on it: a tree walk
+   * written `(list) => list.some(node => node.children)` contributed `children`
+   * and `handle` to a component's `const list = data.products(…)`, and the
+   * build failed on fields the connection has never had.
+   *
+   * A function NESTED in the component is a real closure and keeps the scope,
+   * because reading the component's data is exactly what it is for.
+   */
+  function closesOverCallSite(fnDef: any): boolean {
+    let parent = fnDef?.getParent?.()
+    while (parent) {
+      const kind = parent.getKind()
+      if (
+        kind === SyntaxKind.FunctionDeclaration ||
+        kind === SyntaxKind.FunctionExpression ||
+        kind === SyntaxKind.ArrowFunction ||
+        kind === SyntaxKind.MethodDeclaration
+      ) {
+        return true
+      }
+      parent = parent.getParent?.()
+    }
+    return false
+  }
+
   function executeIfFunction(
     paths: Path[],
     argsPaths: Path[][],
@@ -855,7 +887,7 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
                   }
                 })
               },
-              isolate
+              isolate || !closesOverCallSite(fnDef)
             )
           })
 
@@ -1326,14 +1358,29 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
         if (retPaths !== undefined) return retPaths
 
         if (fnDef) {
+          // Isolated: a function resolved by DECLARATION closes over the module
+          // it was written in, not over the call site. Executing its body in the
+          // caller's scope lets a parameter resolve to a same-named local of the
+          // caller — and when that local holds data, the function's own property
+          // reads are merged onto it. A helper walking a plain tree with
+          // `(list) => list.some(...)` then contributed `handle`/`children` to a
+          // caller's `const list = data.products(…)`, and the build failed on a
+          // field the connection does not have.
+          //
+          // Closures are unaffected: an inline function is called through
+          // `executeIfFunction` above, which keeps the scope it captured.
           const retPaths = withRecursionGuard(fnDef, () => {
-            return executeFunctionBody(fnDef!.getBody(), () => {
-              fnDef!.getParameters().forEach((param, i) => {
-                if (i < argsPaths.length) {
-                  bindParam(param.getNameNode(), argsPaths[i], true)
-                }
-              })
-            })
+            return executeFunctionBody(
+              fnDef!.getBody(),
+              () => {
+                fnDef!.getParameters().forEach((param, i) => {
+                  if (i < argsPaths.length) {
+                    bindParam(param.getNameNode(), argsPaths[i], true)
+                  }
+                })
+              },
+              !closesOverCallSite(fnDef)
+            )
           })
           if (retPaths) return retPaths
         }
