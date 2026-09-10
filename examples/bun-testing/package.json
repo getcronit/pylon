@@ -13,9 +13,7 @@
     "@getcronit/pylon": "workspace:^",
     "bun-types": "^1.1.18"
   },
-  "devDependencies": {
-    "@getcronit/pylon-dev": "workspace:^"
-  },
+  "devDependencies": {},
   "repository": {
     "type": "git",
     "url": "https://github.com/getcronit/pylon.git"

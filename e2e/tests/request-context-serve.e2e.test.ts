@@ -1,0 +1,250 @@
+/**
+ * `useRequestContext()` — the request-scoped read channel into a usePages SSR render.
+ *
+ * The plugin puts a value on the Hono context as `pagesContext`; the SSR catch-all reads it
+ * before rendering and serialises it into `window.__pylonStaticData.context`, so the browser
+ * hydrates with the IDENTICAL value. That is what makes cookie-driven theme / sidebar /
+ * locale flash-free: the state is in the first byte of HTML rather than applied after mount.
+ *
+ * What this pins down, per rfcs/SSR_REQUEST_CONTEXT.md P0:
+ *   - cookies read at SSR actually change the rendered markup,
+ *   - the SAME object reaches the client (no hydration mismatch by construction),
+ *   - `useRequestContext` is ordered before the usePages catch-all WITHOUT the app
+ *     arranging it — the ordering bug this helper exists to prevent,
+ *   - `Vary` is emitted, additively and without duplicates.
+ *
+ * Serving, not just building: an SSR read channel that compiles but renders the default on
+ * every request would pass a build-only test.
+ */
+import {type ChildProcess, spawn, spawnSync} from 'node:child_process'
+import {existsSync, promises as fs} from 'node:fs'
+import path from 'node:path'
+import {fileURLToPath} from 'node:url'
+import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+
+const dir = path.dirname(fileURLToPath(import.meta.url))
+const repoRoot = path.resolve(dir, '../..')
+const cliBin = path.join(repoRoot, 'packages/pylon/dist/cli/index.js')
+const appDir = path.resolve(dir, '../fixtures/request-context-app')
+const pylonDir = path.join(appDir, '.pylon')
+
+const PORT = 4788
+const base = `http://localhost:${PORT}`
+let server: ChildProcess | undefined
+let serverLog = ''
+
+/** GET a path with an optional Cookie header. */
+const getAt = (path: string, cookie?: string) =>
+  fetch(`${base}${path}`, {
+    headers: cookie ? {Cookie: cookie} : {},
+    redirect: 'manual'
+  })
+
+/** GET `/` with an optional Cookie header. */
+const get = (cookie?: string) => getAt('/', cookie)
+
+/** Every `Set-Cookie` on a response, as raw strings. */
+const setCookies = (res: Response): string[] =>
+  // getSetCookie() keeps them separate; a plain get() would join them into one string.
+  typeof (res.headers as any).getSetCookie === 'function'
+    ? (res.headers as any).getSetCookie()
+    : [res.headers.get('set-cookie')].filter(Boolean) as string[]
+
+const textOf = async (cookie?: string) => (await get(cookie)).text()
+
+/** Pull `id="x">value` out of the SSR markup. */
+const byId = (html: string, id: string): string | undefined =>
+  html.match(new RegExp(`id="${id}"[^>]*>([^<]*)<`))?.[1]
+
+beforeAll(async () => {
+  if (!existsSync(cliBin)) {
+    throw new Error(`pylon CLI not built at ${cliBin}. Run \`pnpm --filter pylon-e2e test\`.`)
+  }
+  await fs.rm(pylonDir, {recursive: true, force: true})
+
+  const build = spawnSync('node', [cliBin, 'build'], {
+    cwd: appDir,
+    encoding: 'utf8',
+    timeout: 180_000,
+    env: {...process.env, PYLON_TELEMETRY_DISABLED: '1', DO_NOT_TRACK: '1'}
+  })
+  if (build.status !== 0) {
+    throw new Error(`build failed:\n${build.stderr ?? ''}\n${build.stdout ?? ''}`)
+  }
+
+  server = spawn('node', ['.pylon/server.mjs'], {
+    cwd: appDir,
+    env: {...process.env, PORT: String(PORT), PYLON_TELEMETRY_DISABLED: '1', DO_NOT_TRACK: '1'}
+  })
+  server.stdout?.on('data', d => (serverLog += d))
+  server.stderr?.on('data', d => (serverLog += d))
+
+  for (let i = 0; i < 80; i++) {
+    try {
+      await get()
+      return
+    } catch {
+      await new Promise(r => setTimeout(r, 250))
+    }
+  }
+  throw new Error(`server never came up on ${PORT}. Log:\n${serverLog}`)
+}, 240_000)
+
+afterAll(async () => {
+  server?.kill('SIGKILL')
+  await fs.rm(pylonDir, {recursive: true, force: true})
+})
+
+describe('useRequestContext at SSR', () => {
+  it('renders the default context when no cookies are sent', async () => {
+    const html = await textOf()
+    expect(byId(html, 'theme')).toBe('system')
+    expect(byId(html, 'locale')).toBe('en')
+    expect(html).toContain('data-state="open"')
+    expect(html).toContain('<html lang="en"')
+  })
+
+  it('renders cookie-driven state into the FIRST byte of HTML, not after mount', async () => {
+    const html = await textOf('theme=dark; locale=de; sidebar=closed')
+    expect(byId(html, 'theme')).toBe('dark')
+    expect(byId(html, 'locale')).toBe('de')
+    expect(html).toContain('data-state="closed"')
+    // The layout reads the same context — this is the flash-free `<html>` attribute case.
+    expect(html).toContain('<html lang="de"')
+    expect(html).toContain('class="dark"')
+  })
+
+  it('varies per request rather than caching the first render', async () => {
+    // Two different cookies back to back: a context captured at boot would return the same
+    // markup twice.
+    const [de, fr] = await Promise.all([textOf('locale=de'), textOf('locale=fr')])
+    expect(byId(de, 'locale')).toBe('de')
+    expect(byId(fr, 'locale')).toBe('fr')
+  })
+
+  it('hands the client the identical context (hydration parity by construction)', async () => {
+    const html = await textOf('theme=dark; locale=de; sidebar=closed')
+    const payload = html.match(/window\.__pylonStaticData = (\{.*?\});/)?.[1]
+    expect(payload, `no hydration envelope in:\n${html.slice(0, 400)}`).toBeDefined()
+
+    const {context} = JSON.parse(payload!)
+    // Exactly what the server rendered from — so the client cannot disagree.
+    expect(context).toEqual({theme: 'dark', sidebarOpen: false, locale: 'de', seen: false})
+  })
+
+  it('beats the usePages catch-all even when listed after it in `plugins`', async () => {
+    // The fixture deliberately lists `useRequestContext` AFTER `usePages`. Middleware runs in
+    // registration order, so array position alone would register it after the catch-all and
+    // SSR would read an empty context — rendering the defaults despite the cookie. It works
+    // because the helper is 'first'-strategy and usePages is 'last': the phase wins.
+    // Flipping the helper to 'last' makes this fail, which is the point of asserting it.
+    const html = await textOf('theme=dark')
+    expect(byId(html, 'theme')).toBe('dark')
+    expect(byId(html, 'theme')).not.toBe('system')
+  })
+})
+
+describe('Vary', () => {
+  it('emits the declared Vary header on the SSR response', async () => {
+    const res = await get('theme=dark')
+    expect(res.headers.get('Vary')?.toLowerCase()).toContain('cookie')
+  })
+
+  it('does not duplicate an entry across requests', async () => {
+    const vary = (await get()).headers.get('Vary') ?? ''
+    const cookieEntries = vary
+      .split(',')
+      .map(v => v.trim().toLowerCase())
+      .filter(v => v === 'cookie')
+    expect(cookieEntries).toHaveLength(1)
+  })
+})
+
+describe('useResponseCookies — writing from inside the render', () => {
+  it('sets a cookie queued by the layout during SSR', async () => {
+    const cookies = setCookies(await get())
+    expect(cookies).toHaveLength(1)
+    expect(cookies[0]).toMatch(/^seen=1/)
+    expect(cookies[0]).toContain('Max-Age=31536000')
+    expect(cookies[0]).toContain('Path=/')
+    expect(cookies[0]).toMatch(/SameSite=Lax/i)
+  })
+
+  it('queues nothing when the layout decides not to write', async () => {
+    // The write is conditional on the incoming cookie, so a return visit is a no-op —
+    // proving the collector is driven by the render rather than set unconditionally.
+    expect(setCookies(await get('seen=1'))).toHaveLength(0)
+  })
+
+  it('emits exactly ONE Set-Cookie when the error path renders twice', async () => {
+    // /boom throws, so the handler renders the tree a second time with the error context
+    // populated. The layout queues `seen` on BOTH renders. Keyed by name, the collector
+    // collapses them; an append-style collector would emit two identical headers here.
+    const res = await getAt('/boom')
+    expect(res.status).toBe(500)
+
+    const cookies = setCookies(res)
+    expect(cookies).toHaveLength(1)
+    expect(cookies[0]).toMatch(/^seen=1/)
+  })
+
+  it('still renders the error boundary while doing so', async () => {
+    const res = await getAt('/boom')
+    expect(res.status).toBe(500)
+    expect(await res.text()).not.toBe('')
+  })
+})
+
+describe('useResponseCookies — security properties', () => {
+  it('percent-encodes values, so a value cannot inject a header or an attribute', async () => {
+    // The classic CRLF-injection shape. Hono serialises the value URL-encoded, so `\r\n`
+    // becomes %0D%0A and `;` becomes %3B — neither can start a new header or a new
+    // cookie attribute.
+    // `seen=1` so the layout's own first-visit write stays out of the way.
+    const res = await getAt('/inject', 'seen=1')
+    const cookies = setCookies(res)
+
+    // Exactly one cookie: nothing was smuggled into a second header.
+    expect(cookies).toHaveLength(1)
+    const probe = cookies[0]
+    expect(probe).toMatch(/^probe=/)
+
+    // The CRLF survives only as encoded data, never as a real line break.
+    expect(probe).toContain('%0D%0A')
+    expect(probe).not.toMatch(/[\r\n]/)
+    expect(probe).not.toContain('injected=admin')
+    expect(res.headers.get('X-Evil')).toBeNull()
+
+    // `; HttpOnly` inside the value stays inert data rather than becoming an attribute.
+    expect(probe).toContain('%3B')
+    expect(probe).not.toMatch(/;\s*HttpOnly/i)
+  })
+
+  it('rejects an invalid cookie name at the call site, not at flush time', async () => {
+    // Flush runs after the render, outside its try/catch — an invalid name reaching the
+    // platform there throws an opaque `Headers.append` TypeError and takes the whole
+    // response down. Validating in set() keeps it a normal render error.
+    const res = await getAt('/badname', 'seen=1')
+    expect(res.status).toBe(500)
+    // The throw happened during render, so nothing was queued — and critically the invalid
+    // name never reached the platform, so no malformed header was emitted.
+    expect(setCookies(res)).toHaveLength(0)
+    expect(res.headers.get('X-Injected')).toBeNull()
+  })
+
+  it('defaults to SameSite=Lax and marks the response uncacheable by shared caches', async () => {
+    const res = await get()
+    expect(setCookies(res)[0]).toMatch(/SameSite=Lax/i)
+    // A Set-Cookie response stored by a shared cache would replay one visitor's cookie to
+    // everyone else.
+    expect(res.headers.get('Cache-Control')).toContain('private')
+  })
+
+  it('adds Secure only when the request arrived over TLS', async () => {
+    // Plain HTTP (development): no Secure, or the cookie would be silently dropped.
+    expect(setCookies(await get())[0]).not.toMatch(/Secure/i)
+    // Behind a TLS-terminating proxy.
+    const proxied = await fetch(base, {headers: {'x-forwarded-proto': 'https'}})
+    expect(setCookies(proxied)[0]).toMatch(/Secure/i)
+  })
+})

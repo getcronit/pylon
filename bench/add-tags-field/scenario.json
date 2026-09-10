@@ -1,0 +1,10 @@
+{
+  "name": "add-tags-field",
+  "base": "../../e2e/fixtures/mcp-demo-app",
+  "prompt": "Add an optional `tags` text field to the Post model (nullable). Update the createPost mutation if needed so the project still type-checks, then make the project verify clean — generate a migration if one is needed.",
+  "expect": {
+    "verdict": "pass",
+    "entityHasField": ["Post", "tags"],
+    "migrationCreated": true
+  }
+}
