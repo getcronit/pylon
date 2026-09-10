@@ -339,6 +339,48 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
     }
   }
 
+  /**
+   * Whether this identifier's declaration COMBINES its source with something
+   * else, rather than merely pointing at it.
+   *
+   * The rewrite below replaces an identifier with the source it was traced to.
+   * That is only sound for a binding whose value IS the source — an alias.
+   * `const b = a ?? ''` is not an alias: it is `a` plus a fallback, and naming
+   * `a` throws the fallback away.
+   *
+   * Which mattered, because the fallback was doing real work. A storefront
+   * wrote `const brandScope = vocabularyScope ?? ''` precisely because its
+   * gateway reads an omitted argument and an empty one as different questions —
+   * every brand, versus the brands in this collection. The thunk came out as
+   * `v0: vocabularyScope`, so on a page where that is undefined the argument
+   * vanished and the field silently answered the wrong one of the two. No
+   * error: just a longer list that looks like a page nobody has filtered yet.
+   *
+   * Deliberately a short list of node kinds rather than "anything that is not an
+   * identifier". A call, an await, a property access are all traced THROUGH by
+   * design and the machinery below relies on that; these three are the shapes
+   * that contribute a value the source cannot supply on its own.
+   */
+  function combinesWithItsSource(identifier: Node): boolean {
+    const decl = identifier
+      .getSymbol()
+      ?.getDeclarations()
+      ?.find(Node.isVariableDeclaration)
+
+    let init = decl?.getInitializer()
+    while (init && Node.isParenthesizedExpression(init)) init = init.getExpression()
+    if (!init) return false
+
+    return (
+      // `a ?? b`, `a || b`, `a + b` — the source is one operand of two.
+      Node.isBinaryExpression(init) ||
+      // `c ? a : b` — the source is one branch; the other is not it.
+      Node.isConditionalExpression(init) ||
+      // `` `${a}` `` — a string built around the source.
+      Node.isTemplateExpression(init)
+    )
+  }
+
   function stringifyArgument(node: Node): string {
     if (Node.isObjectLiteralExpression(node)) {
       const props = node.getProperties().map((prop: any) => {
@@ -391,6 +433,10 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
           // The rewrite is for the case it was written for: an identifier that
           // ALIASES something else, where naming the original is the point.
           if ((first as any).sourceName === name) return name
+          // An alias may be rewritten to its source; a binding that ADDS to its
+          // source may not — the addition would be dropped. See
+          // `combinesWithItsSource`.
+          if (combinesWithItsSource(node)) return name
           let result = (first as any).sourceName
           for (let i = 1; i < path.length; i++) {
             const seg = path[i]
