@@ -1,0 +1,186 @@
+// docs/coverage/registry.mjs
+//
+// The ONE hand-maintained artifact behind the docs coverage check.
+//
+// Everything else — the list of features that must be documented — is EXTRACTED
+// from source (package exports, the pylon-db `models`/`db`/`migrations` namespace
+// objects, CLI `.command()` calls, the `PylonConfig` type). This file only records
+// the two things that can't be derived mechanically:
+//
+//   1. `internal`  — exported symbols that are plumbing, not user-facing features,
+//                    so they are NOT expected to appear in the docs. Adding a symbol
+//                    here is an explicit "this is internal" decision; the drift guard
+//                    fails on any export that is neither documented nor listed here,
+//                    so the list can't silently rot.
+//   2. `publicFlat`— for pylon-db only, the handful of FLAT exports that ARE public
+//                    (the bulk of pylon-db's flat exports are low-level internals, so
+//                    that package is allowlist-driven instead of denylist-driven).
+//
+// Paths are relative to the repo root.
+
+export const REPO_ROOT_FROM_HERE = '../..'
+
+// Where the rendered docs live (markdown-as-data corpus).
+export const DOCS_GLOB_DIR = 'docs/content/docs'
+export const CLI_DOC = 'docs/content/docs/reference/cli.md'
+export const CONFIG_DOC = 'docs/content/docs/reference/config.md'
+
+// The user-facing packages whose public surface the docs must cover.
+export const PACKAGES = {
+  '@getcronit/pylon': {
+    // Small, mostly-public export list → denylist mode (all exports − internal).
+    entries: ['packages/pylon/src/core/index.ts'],
+    mode: 'all-minus-internal',
+    // Build/runtime plumbing the docs intentionally don't teach as features.
+    internal: [
+      'executeConfig', // internal boot hook (codegen calls it)
+      'handler', // internal request handler factory
+      // Logger plumbing for the BullMQ per-job log tee. Exported from core only so the
+      // queues battery can reach it ACROSS the feature boundary via the self-ref (a
+      // relative import would inline a second logger) — not a user-facing feature.
+      'renderLine',
+      'jobLogLevel',
+      // The `@inContext` SDL string. Exported from core only so the schema builder can
+      // append it across the feature boundary via the self-ref — a schema fact, not an API.
+      'IN_CONTEXT_SDL',
+      'getResolveInfo', // low-level GraphQL resolve-info escape hatch
+      'asyncContext', // AsyncLocalStorage primitive behind getContext
+      // Reads PYLON_ROLE for the run-role gate. Plumbing the queues battery reads across
+      // the feature boundary via the self-ref; the role is set by the worker entry, not users.
+      'currentRole'
+    ]
+  },
+
+  '@getcronit/pylon/db': {
+    // The recommended public API is the namespace objects; the flat exports are
+    // "Low-level surface, used internally and by the build bridge" (their words),
+    // so pylon/db is allowlist-driven. The plugin factory lives in db/plugin.
+    entries: ['packages/pylon/src/db/index.ts', 'packages/pylon/src/db/plugin.ts'],
+    mode: 'namespaces-plus-list',
+    namespaces: [
+      // namespace name → the object literal to read its members from.
+      { name: 'models', object: 'modelBuilders' }, // `export const models = {...modelBuilders}`
+      { name: 'db', object: 'db' },
+      { name: 'migrations', object: 'migrations' }
+    ],
+    // Namespace MEMBERS that are low-level workflow internals (what the `pylon db`
+    // CLI drives under the hood), not something a user hand-writes → not expected in
+    // prose. Matched as `namespace.member`.
+    internalMembers: [
+      'migrations.snapshot',
+      'migrations.serializeSnapshot',
+      'migrations.loadSnapshot',
+      'migrations.saveSnapshot',
+      'migrations.planMigration',
+      'migrations.applyMigration',
+      'migrations.isReversible',
+      'migrations.MigrationRunner',
+      'db.setDefaultDatabase', // wiring seam; docs teach db.connect
+      'db.hasDatabase', // "is a DB connected?" predicate; used by useQueues to gate its ORM/outbox wiring
+      'db.onCommit', // low-level tx hook; docs teach signals
+      'db.syncSchema', // programmatic guts of `pylon db push` (the documented UX)
+      'db.dropTables', // ditto — test/prototyping teardown
+      'db.resetSchema', // programmatic guts of `pylon db reset` (the documented UX)
+      'db.ensureDatabase', // create-if-missing driven by `pylon db migrate --create-db` etc.
+      // Relation return-type classes: users interact with instances (.filter/.add/…),
+      // documented behaviorally in data/relations; the class names aren't authored.
+      'models.RelatedManager',
+      'models.ManyToManyManager'
+    ],
+    // Flat exports that genuinely ARE public features (the rest of pylon-db's flat
+    // surface is low-level internals — see the file header).
+    publicFlat: [
+      'useDatabase',
+      'gate',
+      'authorize',
+      'can',
+      'cannot',
+      'filter',
+      'defineFeatures',
+      'requireFeature',
+      'isFeatureEnabled',
+      'featureValue',
+      'runAsSystem',
+      'currentTenant',
+      'currentPrincipal',
+      'signals',
+      'ValidationError',
+      'NotFoundError',
+      'BadRequestError',
+      'toGid',
+      'fromGid',
+      'isGid',
+      'createId',
+      'uuidv4',
+      'snowflake'
+    ]
+  },
+
+  '@getcronit/pylon/auth': {
+    entries: [
+      'packages/pylon/src/auth/index.ts',
+      'packages/pylon/src/auth/plugin.ts', // useIdentity
+      'packages/pylon/src/auth/zitadel.ts'
+    ],
+    mode: 'all-minus-internal',
+    internal: [
+      'getPrincipal' // low-level accessor; docs teach useIdentity/authorize
+    ]
+  },
+
+  '@getcronit/pylon/pages': {
+    // Two entries: the plugin (usePages) and the browser runtime.
+    entries: [
+      'packages/pylon/src/pages/plugin.ts',
+      'packages/pylon/src/pages/index.ts'
+    ],
+    mode: 'all-minus-internal',
+    internal: [
+      'Gid' // client-side gid parser utility class; gid is surfaced via props/helpers
+    ]
+  },
+
+  '@getcronit/pylon/queues': {
+    entries: ['packages/pylon/src/queues/index.ts', 'packages/pylon/src/queues/plugin.ts'],
+    mode: 'all-minus-internal',
+    internal: [
+      'registeredQueues', // registry read used internally
+      'startWorkers', // starts the consumers; called by the worker entry / useQueues, not users
+      'setJobRunner', // test/runner seam
+      'manager', // low-level manager accessor
+      'getQueueDefinition',
+      'QueueDefinition', // class returned by defineQueue; docs teach defineQueue
+      'queuesOf', // IR-harvest seam (analogue of modelsOf), used by build tooling
+      'setConnection',
+      'closeConnection',
+      'getConnection',
+      'setOutboxDriver',
+      'getOutboxDriver',
+      'relayOnce' // single-tick relay; docs teach runOutboxRelay
+    ]
+  }
+}
+
+// pylon-db namespace members that are common English words — matching them as a
+// bare token in prose would produce false "documented" positives, so the checker
+// requires the QUALIFIED form (e.g. `models.Date`) for these.
+export const QUALIFY_ONLY = new Set([
+  'Date',
+  'Boolean',
+  'Array',
+  'JSON',
+  'Int',
+  'Text',
+  'Number'
+])
+
+// CLI: source of the command registry, and commands that are internal/experimental
+// and not expected in the CLI reference page.
+export const CLI_SOURCE = 'packages/pylon/src/cli/index.ts'
+export const CLI_INTERNAL = [
+  'eval' // agent A/B eval harness — internal tooling, not a user command
+]
+
+// Config: the type whose keys the config reference must document.
+export const CONFIG_SOURCE = 'packages/pylon/src/core/index.ts'
+export const CONFIG_TYPE = 'PylonConfig'

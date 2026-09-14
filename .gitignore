@@ -1,5 +1,8 @@
 .cache
 public
+# …but docs/public holds committed source brand assets (favicons, logo), not build output
+!docs/public/
+!docs/public/**
 node_modules
 .npmrc
 
@@ -10,3 +13,26 @@ node_modules
 bun.lockb
 
 .DS_Store
+
+examples
+
+# Pylon build / verify artifacts
+.pylon
+.pylon-verify
+
+# create-pylon scaffold e2e workdir (generated projects, removed after each run)
+e2e/.tmp-create-pylon
+
+# pylon eval run workdirs + reports
+.eval-runs
+eval-report.json
+
+# Local MCP server config (absolute machine paths — kept out of the repo)
+.mcp.json
+
+# Local package tarballs (npm pack output)
+tarballs
+
+# Local planning / design notes (kept out of the repo)
+dd
+.claude/launch.json

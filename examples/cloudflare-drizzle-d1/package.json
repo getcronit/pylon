@@ -16,7 +16,6 @@
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.4.5",
     "@cloudflare/workers-types": "^4.20240903.0",
-    "@getcronit/pylon-dev": "workspace:^",
     "drizzle-kit": "^0.24.2",
     "typescript": "^5.5.2",
     "wrangler": "^3.60.3"

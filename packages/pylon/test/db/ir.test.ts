@@ -1,0 +1,131 @@
+import {toDDL, toSDL, tableSpecOf} from '@getcronit/pylon/ir'
+import {describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
+import {Model, boolean, foreignKey, hasMany, id, manyToMany, text, timestamp} from '@/db/index'
+import {toIR} from '@/db/ir'
+import type {Relation} from '@/db/relations'
+
+class Tag extends Model {
+  id = id()
+  label = text()
+}
+
+class User extends Model {
+  id = id()
+  email = text({unique: true})
+  isActive = boolean({default: true})
+  createdAt = timestamp({defaultSql: 'now()'})
+  posts = hasMany(() => Post, {foreignKey: 'authorId'})
+  $passwordHash = text({nullable: true})
+  // Hidden relations: `$`-prefix (universal convention) and the explicit {hidden}.
+  $secretPosts = hasMany(() => Post, {foreignKey: 'authorId'})
+  hiddenTags = manyToMany(() => Tag, {hidden: true})
+}
+
+class Post extends Model {
+  id = id()
+  title = text()
+  authorId = foreignKey(() => User)
+  declare author: Relation<User>
+}
+
+class Doc extends Model {
+  id = id()
+  // A hidden FK (internal back-reference): both the scalar id and the derived
+  // belongsTo relation must drop out of the API.
+  ownerId = foreignKey(() => User, {nullable: true, hidden: true})
+  declare owner: Relation<User>
+}
+
+new Pylon({db: {models: [User, Post, Doc, Tag]}})
+
+describe('toIR — ORM registry → Pylon IR', () => {
+  const full = toIR()
+
+  it('produces one entity per concrete model', () => {
+    expect(Object.keys(full.entities).sort()).toEqual(['Doc', 'Post', 'Tag', 'User'])
+  })
+
+  it('hides `$`-prefixed and {hidden} relations (name stripped, exposed=false)', () => {
+    const f = (n: string) => full.entities.User.fields.find(x => x.name === n)
+    // `$secretPosts` → name stripped to `secretPosts`, hidden from the API.
+    expect(f('secretPosts')).toMatchObject({exposed: false, relation: {kind: 'hasMany'}})
+    expect(f('$secretPosts')).toBeUndefined()
+    // {hidden} m2m → hidden from the API, but STILL present in the IR with its m2m
+    // metadata (exposed:false), so `joinTablesOf` still synthesizes the join table for
+    // migrations — the same contract as a paginated m2m.
+    expect(f('hiddenTags')).toMatchObject({exposed: false, relation: {kind: 'manyToMany'}})
+    // The normal relation stays exposed.
+    expect(f('posts')).toMatchObject({exposed: true})
+    // Not in the emitted GraphQL schema.
+    const sdl = toSDL(full)
+    expect(sdl).not.toMatch(/secretPosts|hiddenTags|\$/)
+  })
+
+  it('records the primary key as an ID and a bigint identity column', () => {
+    const idField = full.entities.User.fields.find(f => f.name === 'id')!
+    expect(idField.type).toEqual({kind: 'scalar', name: 'ID', nullable: false})
+    expect(idField.column).toMatchObject({primaryKey: true, autoIncrement: true})
+  })
+
+  it('records scalar columns with intent-precise types', () => {
+    const f = (n: string) => full.entities.User.fields.find(x => x.name === n)!
+    expect(f('email').type).toMatchObject({name: 'String', nullable: false})
+    expect(f('isActive').type).toMatchObject({name: 'Boolean'})
+    expect(f('createdAt').type).toMatchObject({name: 'Date'})
+    expect(f('createdAt').column).toMatchObject({defaultSql: 'now()'})
+  })
+
+  it('records hasMany as a non-null list relation, no column', () => {
+    const posts = full.entities.User.fields.find(f => f.name === 'posts')!
+    expect(posts.type).toEqual({
+      kind: 'list',
+      of: {kind: 'ref', name: 'Post', nullable: false},
+      nullable: false
+    })
+    expect(posts.relation).toMatchObject({kind: 'hasMany', target: 'Post', targetFkField: 'authorId'})
+    expect(posts.column).toBeUndefined()
+  })
+
+  it('records belongsTo as a nullable ref plus its FK scalar column', () => {
+    const author = full.entities.Post.fields.find(f => f.name === 'author')!
+    expect(author.type).toEqual({kind: 'ref', name: 'User', nullable: false})
+    expect(author.relation).toMatchObject({kind: 'belongsTo', target: 'User', fkField: 'authorId'})
+    const fk = full.entities.Post.fields.find(f => f.name === 'authorId')!
+    expect(fk.column).toMatchObject({name: 'author_id'})
+  })
+
+  it('a hidden FK drops BOTH its scalar id and its belongsTo relation from the API', () => {
+    const fields = full.entities.Doc.fields
+    const ownerId = fields.find(f => f.column?.name === 'owner_id')!
+    expect(ownerId.exposed).toBe(false) // FK column hidden
+    const owner = fields.find(f => f.name === 'owner')!
+    expect(owner.relation).toMatchObject({kind: 'belongsTo', target: 'User'})
+    expect(owner.exposed).toBe(false) // derived relation hidden too (breaks cycles)
+  })
+
+  it('records the $-hidden column as exposed:false with the $ stripped', () => {
+    const pw = full.entities.User.fields.find(f => f.column?.name === 'password_hash')!
+    expect(pw.name).toBe('passwordHash') // sigil stripped
+    expect(pw.exposed).toBe(false)
+    expect(pw.column).toMatchObject({name: 'password_hash', nullable: true})
+  })
+
+  it('the same IR drives both GraphQL and SQL projections', () => {
+    const sdl = toSDL(full)
+    expect(sdl).toMatch(/type User/)
+    expect(sdl).toMatch(/posts: \[Post!\]!/)
+    expect(sdl).toMatch(/author: User/)
+    expect(sdl).not.toMatch(/passwordHash|password_hash/) // hidden
+
+    const userDDL = toDDL(tableSpecOf(full.entities.User))
+    expect(userDDL).toMatch(/CREATE TABLE "user"/)
+    expect(userDDL).toMatch(/"password_hash" text/) // present in the table
+    expect(userDDL).not.toMatch(/posts/) // relation, not a column
+  })
+
+  it('prints the real IR for inspection', () => {
+    // eslint-disable-next-line no-console
+    console.log('\n===IR===\n' + JSON.stringify(full, null, 2) + '\n===END===')
+  })
+})
