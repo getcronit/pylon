@@ -50,7 +50,21 @@ function columnDefFromSpec(col: TableColumn): ColumnDefinition {
     hidden: false,
     length: col.length,
     default: col.default,
-    defaultSql: col.defaultSql
+    defaultSql: col.defaultSql,
+    // Persistence flags the write + validation paths consult. WITHOUT `array`,
+    // validateColumn treats a `text[]` column (sqlType 'text', array true) as a
+    // scalar text column and rejects its list value ("must be a string"); WITHOUT
+    // `generatedAs`, a DB-managed generated column (e.g. a STORED `tsvector`) would
+    // be written back on insert and Postgres would reject it. The rest are copied
+    // to keep the reconstructed column faithful to its persisted shape.
+    array: col.array,
+    generatedAs: col.generatedAs,
+    check: col.check,
+    struct: col.struct,
+    precision: col.precision,
+    scale: col.scale,
+    dim: col.dim,
+    requires: col.requires
   }
 }
 
