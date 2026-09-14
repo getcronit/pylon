@@ -162,4 +162,82 @@ describe('STI abstract resolution', () => {
       ]
     })
   })
+  /**
+   * The shape a gateway + response cache actually produces: a PLAIN
+   * `__typename` and an ALIASED one on the same abstract field.
+   *
+   * The gateway injects `__typename` so it can pick a patch; the cache adds
+   * `__responseCacheTypeName: __typename` so it can collect entity ids. Both
+   * land in one selection set, and `wrapResolver` then sees a field with mixed
+   * aliased/unaliased nodes and replaces the value with a FUNCTION that routes
+   * per execution. That is correct for an ordinary field and fatal here:
+   * `resolveType` reads `node.__typename` synchronously, before any resolver
+   * runs, so it receives the function and GraphQL throws — naming the value it
+   * got as "[function]".
+   */
+  it('resolves when __typename is selected both plainly and under an alias', async () => {
+    const schema = buildSchema(/* GraphQL */ `
+      type Query {
+        parties: [Party!]!
+      }
+      interface Party {
+        id: ID!
+      }
+      type Person implements Party {
+        id: ID!
+        firstName: String
+      }
+      type Org implements Party {
+        id: ID!
+        legalName: String
+      }
+    `)
+
+    const resolvers = {
+      Query: {
+        parties: () => [
+          stamp({id: '1', firstName: 'Ann'}, 'Person'),
+          stamp({id: '2', legalName: 'ACME'}, 'Org')
+        ]
+      },
+      Party: {__resolveType: (n: any) => (n && n.__typename) || null}
+    }
+
+    const gql = resolversToGraphQLResolvers(resolvers as any)
+    ;(schema.getType('Party') as GraphQLInterfaceType).resolveType =
+      resolvers.Party.__resolveType as any
+    ;(schema.getQueryType()!.getFields() as any).parties.resolve = (
+      gql.Query as any
+    ).parties
+
+    const res = await graphql({
+      schema,
+      source: /* GraphQL */ `
+        {
+          parties {
+            __typename
+            rcType: __typename
+            id
+            ... on Person {
+              firstName
+            }
+            ... on Org {
+              legalName
+            }
+          }
+        }
+      `
+    })
+
+    expect(
+      res.errors,
+      'a plain and an aliased __typename together must still resolve'
+    ).toBeUndefined()
+    expect(res.data).toEqual({
+      parties: [
+        {__typename: 'Person', rcType: 'Person', id: '1', firstName: 'Ann'},
+        {__typename: 'Org', rcType: 'Org', id: '2', legalName: 'ACME'}
+      ]
+    })
+  })
 })

@@ -297,7 +297,24 @@ const wrapResolver = (
     const isPylonResolver =
       resolver[name] && typeof resolver[name] === 'function'
 
-    if (hasAliases && !isPylonResolver) {
+    // `__typename` never takes the alias route. The branch below replaces the
+    // value with a FUNCTION that picks the right key per execution, which is
+    // right for an ordinary field and fatal for this one: `resolveType` reads
+    // `node.__typename` synchronously, before any field resolver runs, so it
+    // gets the function rather than the name and GraphQL throws "must resolve
+    // to an Object type" — reporting the value it received as "[function]".
+    //
+    // Nothing is lost by skipping it. `__typename` is a meta-field: graphql-js
+    // answers it from the concrete type it has already determined, under
+    // whatever aliases the query used, without consulting this object. The only
+    // thing this projection owes it is the plain string, which is what the fast
+    // path below copies.
+    //
+    // Reached when a query selects BOTH a plain and an aliased `__typename` on
+    // one abstract field — `__typename __rc: __typename`. Nobody writes that by
+    // hand; `@graphql-yoga/plugin-response-cache` produces it on every abstract
+    // field once the gateway has injected its own.
+    if (hasAliases && !isPylonResolver && name !== '__typename') {
       // We have a mix of aliases/non-aliases, or purely aliases.
       // We MUST return a function so we can dynamically route the data per execution.
       result[name] = (
