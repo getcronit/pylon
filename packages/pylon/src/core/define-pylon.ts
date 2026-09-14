@@ -122,7 +122,22 @@ export const getSelectedFields = (
     // This is the ONLY discriminant for members that add no unique NON-NULL field of
     // their own — e.g. single-table-inheritance subclasses Person/Organization or
     // FileAsset/FolderAsset, which are structurally identical to each other.
-    if (!result.some(f => f.name === '__typename')) {
+    // An ALIASED `__typename` does not count. `fieldsMap` is keyed by the field
+    // NAME, so `rcType: __typename` lands here as `__typename` and looks like
+    // the discriminant is already covered — but the projection below writes it
+    // out under the ALIAS, so the node reaches `resolveType` carrying `rcType`
+    // and no `__typename`, and GraphQL throws "must resolve to an Object type".
+    //
+    // Nobody aliases `__typename` by hand, which is why this hid for so long.
+    // Plugins do: `@graphql-yoga/plugin-response-cache` rewrites documents to
+    // collect entity ids, adding `__responseCacheTypeName: __typename` to every
+    // selection set. Switching that cache on was enough to stop every abstract
+    // field in an app resolving — silently, because the field just nulls out.
+    if (
+      !result.some(
+        f => f.name === '__typename' && f.fieldNodes.some(n => !n.alias)
+      )
+    ) {
       result.push({name: '__typename', fieldNodes: [], returnType: undefined})
     }
     const abstractType = info.schema.getType(parentType.name) as

@@ -84,4 +84,82 @@ describe('STI abstract resolution', () => {
       ]
     })
   })
+  /**
+   * The same failure, reached from the other side: the client DOES select
+   * `__typename`, but only under an ALIAS.
+   *
+   * `getSelectedFields` keys its map by the field NAME, so an aliased
+   * `rcType: __typename` registers as `__typename` and the auto-injection is
+   * skipped — while `wrapResolver` projects the value out under the ALIAS. The
+   * node then reaches `resolveType` carrying `rcType` and no `__typename`, and
+   * GraphQL throws "must resolve to an Object type".
+   *
+   * Nobody writes this by hand, which is why it went unnoticed. Plugins do:
+   * `@graphql-yoga/plugin-response-cache` rewrites documents to collect entity
+   * ids and adds `__responseCacheTypeName: __typename` / `__responseCacheId: id`
+   * to every selection set. Turning that cache on is enough to make every
+   * abstract field in an app stop resolving — silently, since the field just
+   * nulls out.
+   */
+  it('resolves when __typename is selected only under an alias', async () => {
+    const schema = buildSchema(/* GraphQL */ `
+      type Query {
+        parties: [Party!]!
+      }
+      interface Party {
+        id: ID!
+      }
+      type Person implements Party {
+        id: ID!
+        firstName: String
+      }
+      type Org implements Party {
+        id: ID!
+        legalName: String
+      }
+    `)
+
+    const resolvers = {
+      Query: {
+        parties: () => [
+          stamp({id: '1', firstName: 'Ann'}, 'Person'),
+          stamp({id: '2', legalName: 'ACME'}, 'Org')
+        ]
+      },
+      Party: {__resolveType: (n: any) => (n && n.__typename) || null}
+    }
+
+    const gql = resolversToGraphQLResolvers(resolvers as any)
+    ;(schema.getType('Party') as GraphQLInterfaceType).resolveType =
+      resolvers.Party.__resolveType as any
+    ;(schema.getQueryType()!.getFields() as any).parties.resolve = (
+      gql.Query as any
+    ).parties
+
+    const res = await graphql({
+      schema,
+      source: /* GraphQL */ `
+        {
+          parties {
+            rcType: __typename
+            id
+            ... on Person {
+              firstName
+            }
+            ... on Org {
+              legalName
+            }
+          }
+        }
+      `
+    })
+
+    expect(res.errors, 'an aliased __typename must not break resolution').toBeUndefined()
+    expect(res.data).toEqual({
+      parties: [
+        {rcType: 'Person', id: '1', firstName: 'Ann'},
+        {rcType: 'Org', id: '2', legalName: 'ACME'}
+      ]
+    })
+  })
 })
