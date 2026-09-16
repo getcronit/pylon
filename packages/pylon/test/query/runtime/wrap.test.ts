@@ -173,6 +173,36 @@ describe('wrapResult', () => {
     expect(JSON.parse(JSON.stringify(data))).toEqual(raw)
   })
 
+  // A "hole" — a KNOWN schema field whose key is ABSENT from an otherwise-present object — must
+  // never read back as a silent `undefined`. Absence means the field was either NOT SELECTED by the
+  // build-time query (an analyzer gap the completeness gate can't see) or is MISSING from the cache
+  // (a partial read); both are bugs that otherwise hand component code a truthy object whose field
+  // is `undefined` (→ e.g. a redirect to `/mail/undefined`). Present-vs-absent is the SAME rule
+  // `isSatisfied` draws: a present key (even `null`) is a real answer; an absent key is the hole.
+  // Nullability is irrelevant — we know the schema and the selection, so a hole is a hole.
+  describe('holes vs present-null', () => {
+    it('a present-null scalar reads back as null (a real answer)', () => {
+      const data = wrap({me: {__typename: 'User', name: null, verified: true}})
+      expect(data.me.name).toBeNull()
+      expect(data.me.verified).toBe(true)
+    })
+
+    it('reading a NULLABLE hole throws (not a silent undefined)', () => {
+      const data = wrap({me: {__typename: 'User', verified: true}}) // `name` (String) absent → hole
+      expect(() => data.me.name).toThrow(/name/)
+    })
+
+    it('reading a NON-NULL hole throws', () => {
+      const data = wrap({me: {__typename: 'User', name: 'Ada'}}) // `verified` (Boolean!) absent → hole
+      expect(() => data.me.verified).toThrow(/verified/)
+    })
+
+    it('an unknown (non-schema) field reads as undefined (not a hole)', () => {
+      const data = wrap({me: {__typename: 'User', name: 'Ada', verified: true}})
+      expect((data.me as any).bogus).toBeUndefined()
+    })
+  })
+
   // Reference stability — the question behind `React.memo` on a virtualized feed row.
   // A memo comparator like `(a, b) => a.item === b.item` can only ever SKIP a re-render
   // if the wrapper hands back the SAME node object across renders.

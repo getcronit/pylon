@@ -53,7 +53,7 @@ const D = doc<any, any>({
     'tickets(first: $first, after: $after) { edges { cursor node { ' +
     'timeline(query: $v0) { totalCount __typename } ' +
     'timeline__pqArg__1: timeline(query: $v1) { totalCount __typename } ' +
-    '__typename id } } pageInfo { hasNextPage hasPreviousPage startCursor endCursor } __typename } }',
+    '__typename id } } totalCount pageInfo { hasNextPage hasPreviousPage startCursor endCursor } __typename } }',
   connection: {path: ['tickets'], first: 'first', after: 'after'},
   argAliases: {
     'Ticket.timeline': [
@@ -69,6 +69,7 @@ const D = doc<any, any>({
 const CONNECTION_DATA = {
   tickets: {
     __typename: 'TicketConnection',
+    totalCount: 2,
     edges: [
       {
         cursor: 'c1',

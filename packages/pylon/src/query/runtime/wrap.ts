@@ -183,6 +183,34 @@ function buildField(
     // coerces/forwards to the no-arg result AND stays callable.
     return makeDualMode(call)
   }
+
+  // Hole guard. A KNOWN, non-callable field whose response key is ABSENT from an otherwise-present
+  // owner is a HOLE — either the field was NOT SELECTED by the build-time query (an analyzer gap: a
+  // read it couldn't trace — inside a `throw`, a template literal, a call), or it was selected but is
+  // MISSING from the cache (a partial read: the entity was populated by another operation that
+  // didn't select it). Both are bugs. The completeness gate (`isSatisfied`) is meant to prevent the
+  // second by suspending, but it only knows the fields IN the compiled shape — an UNSELECTED read
+  // sails past it and would otherwise surface here as a silent `undefined`: a truthy proxy handing
+  // back a hole (e.g. `data.myMailbox.id` → undefined → a redirect to `/mail/undefined`). Fail loud
+  // instead. This mirrors `isSatisfied`'s present-vs-absent rule exactly: a PRESENT key (even `null`)
+  // is a real answer and is allowed through; an ABSENT key is the hole. Unknown (non-schema) fields
+  // returned above via `!fd` stay soft (raw `undefined`); callable/arg fields route via their own
+  // args-inclusive slots.
+  const owner = getOwner()
+  if (
+    owner != null &&
+    typeof owner === 'object' &&
+    !Array.isArray(owner) &&
+    !(fieldName in (owner as object))
+  ) {
+    throw new Error(
+      `[pylon-query] Field "${fieldName}" on type "${ownerType}" was read but is absent from the ` +
+        `resolved data — it was not selected by the build-time query, or is missing from the cache. ` +
+        `If it should be there, read it plainly (\`const ${fieldName} = obj.${fieldName}\`) so the ` +
+        `analyzer selects it (a read only inside a throw / template literal / call can't be traced).` +
+        (ctx.debugLabel ? ` [operation: ${ctx.debugLabel}]` : '')
+    )
+  }
   return buildValue(getValue, fd, ctx)
 }
 
