@@ -88,7 +88,8 @@ export interface DbCommandOptions {
     | 'fix-deps'
   /** Migration name (for `diff`; the target for `resolve`). */
   name?: string
-  /** `diff`: which app to generate a migration for (required in apps mode). */
+  /** Which app to act on (required in apps mode): the app to generate a migration
+   *  for (`diff`), or the app owning the `resolve`/`rollback` target migration. */
   app?: string
   /** `plan`: render down SQL instead of up. */
   down?: boolean

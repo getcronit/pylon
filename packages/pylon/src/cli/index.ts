@@ -751,12 +751,14 @@ db.command('resolve')
   .option('-e, --entry <path>', 'Entry that constructs your app / registers models (default ./src/index.ts)')
   .option('-m, --models <path>', 'Deprecated alias for --entry')
   .option('-d, --dir <path>', 'Migrations directory', './migrations')
+  .option('-a, --app <name>', 'Resolve within this app (required in apps mode)')
   .option('--rolled-back', 'Mark as rolled-back (default: applied)')
   .action(async (name, options) => {
     try {
       const {resolved} = await runDbCommand({
         command: 'resolve',
         name,
+        app: options.app,
         models: entryOf(options),
         dir: options.dir,
         resolve: options.rolledBack ? 'rolled-back' : 'applied'
