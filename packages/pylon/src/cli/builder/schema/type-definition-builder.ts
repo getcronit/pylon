@@ -76,10 +76,7 @@ export class TypeDefinitionBuilder {
 
       if (!existingType) break
 
-      if (
-        this.checker.isTypeAssignableTo(type, existingType) &&
-        this.checker.isTypeAssignableTo(existingType, type)
-      ) {
+      if (this.typesEquivalentForNaming(type, existingType)) {
         return name
       }
 
@@ -88,6 +85,62 @@ export class TypeDefinitionBuilder {
       i++
     }
     return name
+  }
+
+  private mutuallyAssignable(a: ts.Type, b: ts.Type): boolean {
+    return (
+      this.checker.isTypeAssignableTo(a, b) &&
+      this.checker.isTypeAssignableTo(b, a)
+    )
+  }
+
+  /** Strip null/undefined and unwrap array element types so structural comparison looks through
+   *  `T[]` / `T | null` at the element shape (an array of two different element shapes must not be
+   *  treated as the same). */
+  private unwrapForNaming(type: ts.Type): ts.Type {
+    const {type: bare} = excludeNullUndefinedFromType(type)
+    if (isList(this.checker, bare)) {
+      const element = this.checker.getIndexTypeOfType(bare, ts.IndexKind.Number)
+      if (element) return this.unwrapForNaming(element)
+    }
+    return bare
+  }
+
+  /**
+   * Whether two types may share a single GraphQL type name. Mutual assignability alone is too
+   * weak: two object shapes that differ ONLY by optional properties are mutually assignable in
+   * TypeScript's structural system (excess optional props are allowed both ways), so a priced
+   * `{...; unitPrice?}` input and a priceless `{...}` input would collapse onto one name and the
+   * first-registered shape's fields would win — silently dropping the extra properties. Compare the
+   * emitted GraphQL shape instead: same property set (names + optionality) at every level, and
+   * recurse into each property's (array-unwrapped) type so a nested difference (e.g. `lines` of a
+   * different element shape under otherwise-identical inputs) also forces distinct names. Leaves
+   * (primitives / scalars / enums — no properties) fall back to mutual assignability, which keeps
+   * `string`≠`number` and distinct enums apart while still unifying genuine duplicates.
+   */
+  private typesEquivalentForNaming(a: ts.Type, b: ts.Type, depth = 0): boolean {
+    if (a === b) return true
+    if (depth > 16) return this.mutuallyAssignable(a, b)
+
+    const propsA = a.getProperties()
+    const propsB = b.getProperties()
+    if (propsA.length === 0 || propsB.length === 0) {
+      return propsA.length === propsB.length && this.mutuallyAssignable(a, b)
+    }
+    if (propsA.length !== propsB.length) return false
+
+    const byNameB = new Map(propsB.map(p => [p.getName(), p]))
+    for (const pa of propsA) {
+      const pb = byNameB.get(pa.getName())
+      if (!pb) return false
+      const optionalA = !!(pa.flags & ts.SymbolFlags.Optional)
+      const optionalB = !!(pb.flags & ts.SymbolFlags.Optional)
+      if (optionalA !== optionalB) return false
+      const ta = this.unwrapForNaming((this.checker as any).getTypeOfSymbol(pa))
+      const tb = this.unwrapForNaming((this.checker as any).getTypeOfSymbol(pb))
+      if (!this.typesEquivalentForNaming(ta, tb, depth + 1)) return false
+    }
+    return true
   }
 
   private isTypeSymbol(symbol: ts.Symbol | undefined): boolean {

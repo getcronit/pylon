@@ -148,4 +148,35 @@ describe('Pylon Builder - Inputs and Arguments', () => {
 
     expect(result).toMatchSnapshot()
   })
+
+  it('does not merge same-named nested inputs that differ only by OPTIONAL fields', () => {
+    // Two mutations expose a `lines` array of different shape: a priced line (with an optional
+    // `unitPrice`) and a priceless one. The two shapes are mutually assignable in TS (the extra
+    // property is optional), so a naming test based on assignability alone would collapse them
+    // onto ONE input type = their intersection, silently dropping `unitPrice`. Each shape must
+    // instead get its own input type; the priced field must survive.
+    const code = `
+      interface PricedLine { description: string; quantity?: number; unitPrice?: number }
+      interface FreeLine { description: string; quantity?: number }
+      export const graphql = {
+        Mutation: {
+          createInvoice: (args: { input: { title: string; lines: PricedLine[] } }) => ({ ok: true }),
+          createDelivery: (args: { input: { title: string; lines: FreeLine[] } }) => ({ ok: true }),
+        }
+      }
+    `
+    const result = buildTestSchema(code)
+
+    // The priced line's field must not be dropped by a wrongful merge.
+    expect(result.typeDefs).toContain('unitPrice')
+
+    // The two `lines` shapes must resolve to DISTINCT input types.
+    const linesTypes = [...result.typeDefs.matchAll(/lines: \[(\w+)!\]/g)].map(
+      m => m[1]
+    )
+    expect(linesTypes.length).toBe(2)
+    expect(new Set(linesTypes).size).toBe(2)
+
+    expect(result).toMatchSnapshot()
+  })
 })
