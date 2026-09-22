@@ -1,5 +1,77 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`Pylon Builder - Inputs and Arguments > does not merge same-named nested inputs that differ only by OPTIONAL fields 1`] = `
+{
+  "resolvers": {},
+  "typeDefs": "type Mutation {
+  createInvoice(args: CreateInvoiceArgsInput!): CreateInvoice!
+  createDelivery(args: CreateDeliveryArgsInput!): CreateDelivery!
+}
+
+type CreateInvoice {
+  ok: Boolean!
+}
+
+type CreateDelivery {
+  ok: Boolean!
+}
+
+input CreateInvoiceArgsInput {
+  input: Input!
+}
+
+input Input {
+  title: String!
+  lines: [PricedLineInput!]!
+}
+
+input PricedLineInput {
+  description: String!
+  quantity: Number
+  unitPrice: Number
+}
+
+input CreateDeliveryArgsInput {
+  input: Input_1!
+}
+
+input Input_1 {
+  title: String!
+  lines: [FreeLineInput!]!
+}
+
+input FreeLineInput {
+  description: String!
+  quantity: Number
+}
+
+scalar String
+
+scalar ID
+
+scalar Int
+
+scalar Float
+
+scalar Boolean
+
+scalar Number
+
+scalar Any
+
+scalar Void
+
+scalar JSONObject
+
+scalar File
+
+scalar Date
+
+scalar JSON
+",
+}
+`;
+
 exports[`Pylon Builder - Inputs and Arguments > should handle direct positional arguments 1`] = `
 {
   "resolvers": {},
@@ -87,14 +159,14 @@ exports[`Pylon Builder - Inputs and Arguments > should handle mix of named objec
 {
   "resolvers": {},
   "typeDefs": "type Mutation {
-  setup(id: String!, profile: SetupProfileInput!): Setup!
+  setup(id: String!, profile: ProfileInput!): Setup!
 }
 
 type Setup {
   id: String!
 }
 
-input SetupProfileInput {
+input ProfileInput {
   bio: String!
 }
 
@@ -149,10 +221,10 @@ input UserArgsInput {
 }
 
 input CreateUserArgsInput {
-  input: Input!
+  input: CreateUserInput!
 }
 
-input Input {
+input CreateUserInput {
   username: String!
   email: String
 }

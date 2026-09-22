@@ -24,9 +24,10 @@ describe('Pylon Builder - Inputs and Arguments', () => {
     expect(result.typeDefs).toContain(
       'createUser(args: CreateUserArgsInput!): CreateUser!'
     )
-    // The input type should be generated
+    // The input type should be generated. The nested `input` keeps its declared interface name
+    // (CreateUserInput) rather than being renamed after the field.
     expect(result.typeDefs).toContain('input CreateUserArgsInput')
-    expect(result.typeDefs).toContain('input Input')
+    expect(result.typeDefs).toContain('input CreateUserInput')
 
     expect(result).toMatchSnapshot()
   })
@@ -60,10 +61,11 @@ describe('Pylon Builder - Inputs and Arguments', () => {
     `
     const result = buildTestSchema(code)
 
+    // The named `Profile` interface keeps its declared name (ProfileInput) as the arg type.
     expect(result.typeDefs).toContain(
-      'setup(id: String!, profile: SetupProfileInput!): Setup!'
+      'setup(id: String!, profile: ProfileInput!): Setup!'
     )
-    expect(result.typeDefs).toContain('input SetupProfileInput')
+    expect(result.typeDefs).toContain('input ProfileInput')
 
     expect(result).toMatchSnapshot()
   })

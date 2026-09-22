@@ -232,6 +232,14 @@ export class TypeDefinitionBuilder {
       type.aliasSymbol?.escapedName?.toString() ||
       type.symbol?.escapedName.toString()
 
+    // Whether `typeName` is the type's OWN nominal name (interface / class / type alias / enum /
+    // __typename literal) rather than a placeholder for an anonymous shape. A real declared name is
+    // meaningful and is preferred over the surrounding field name even for inputs — so an
+    // `interface InvoiceLineInput` used as `lines: InvoiceLineInput[]` stays `InvoiceLineInput`
+    // instead of collapsing to `LinesInput` (and `LinesInput_1`, `_2`, … across mutations).
+    let hasDeclaredName =
+      !!typeName && typeName !== '__type' && typeName !== '__object'
+
     const typenameSymbol = type.getProperty('__typename')
     if (typenameSymbol) {
       const locationNode =
@@ -246,6 +254,7 @@ export class TypeDefinitionBuilder {
         )
         if (typenameType && typenameType.flags & ts.TypeFlags.StringLiteral) {
           typeName = (typenameType as ts.StringLiteralType).value
+          hasDeclaredName = true
         }
       }
     }
@@ -261,6 +270,7 @@ export class TypeDefinitionBuilder {
           for (const declaration of declarations) {
             if ((declaration as any).name) {
               typeName = (declaration as any).name.escapedText?.toString()
+              hasDeclaredName = true
               break
             }
 
@@ -293,7 +303,10 @@ export class TypeDefinitionBuilder {
       (typeName === '__type' ||
         typeName === '__object' ||
         !typeName ||
-        (options.isInputType && effectivePropertyName && !type.aliasSymbol)) &&
+        (options.isInputType &&
+          effectivePropertyName &&
+          !type.aliasSymbol &&
+          !hasDeclaredName)) &&
       !isPrimitive(type) &&
       !(typeName && this.schema.scalars.includes(typeName))
     ) {
