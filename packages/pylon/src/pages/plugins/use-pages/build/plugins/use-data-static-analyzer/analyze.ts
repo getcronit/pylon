@@ -32,6 +32,40 @@ function pathKey(p: Path): string {
   return key
 }
 
+// Stable per-declaration id so that two `__decl` steps referencing DIFFERENT
+// functions never collapse together (their `.name` is both "__decl").
+const declIds = new WeakMap<object, number>()
+let declIdCounter = 0
+
+/**
+ * A dedup key that fully identifies a path, unlike `pathKey` (names only). It folds
+ * in every distinguishing attribute — args, list/element/virtual flags, sourceName,
+ * and crucially the identity of any `__decl` (function reference). Deduping by this
+ * collapses only TRULY identical paths (safe), so the combinatorial duplication the
+ * analyzer accumulates at merge points is bounded WITHOUT merging distinct callbacks
+ * (e.g. every grid column's `col.cell`, which share the name `columns.cell`).
+ */
+function pathKeyStrict(p: Path): string {
+  let key = ''
+  for (const step of p as any[]) {
+    key += '|' + step.name
+    if (step.args !== undefined) key += '(' + step.args + ')'
+    if (step.isElement) key += '@e'
+    if (step.__isList) key += '@l'
+    if (step.__isVirtual) key += '@v'
+    if (step.sourceName) key += '@s:' + step.sourceName
+    if (step.decl) {
+      let id = declIds.get(step.decl)
+      if (id === undefined) {
+        id = ++declIdCounter
+        declIds.set(step.decl, id)
+      }
+      key += '@d' + id
+    }
+  }
+  return key
+}
+
 /** Fast check: does `node` have any keys other than __isList / __args? */
 function hasNonMetaKeys(node: any): boolean {
   for (const k in node) {
@@ -987,6 +1021,24 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
   }
 
   function evaluateExpression(originalNode: Node): Path[] {
+    const raw = evaluateExpressionRaw(originalNode)
+    if (!raw || raw.length < 2) return raw
+    // Dedup by the STRICT key so identical field-chains collapse (bounding the
+    // combinatorial duplication that otherwise OOMs the analyzer) while distinct
+    // function references / list markers are preserved.
+    const seen = new Set<string>()
+    const unique: Path[] = []
+    for (const p of raw) {
+      const k = pathKeyStrict(p)
+      if (!seen.has(k)) {
+        seen.add(k)
+        unique.push(p)
+      }
+    }
+    return unique
+  }
+
+  function evaluateExpressionRaw(originalNode: Node): Path[] {
     if (!originalNode) return []
 
     let node = originalNode
