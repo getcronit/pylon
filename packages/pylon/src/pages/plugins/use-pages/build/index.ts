@@ -1,5 +1,6 @@
 import {Plugin} from '@getcronit/pylon'
 import {createHash} from 'crypto'
+import {span, time} from '../../../../cli/builder/timing'
 import fs from 'fs/promises'
 import {createRequire} from 'module'
 import path from 'path'
@@ -231,22 +232,26 @@ export const build = async (
       ]
     })
 
-    const out = await bundle.write({
-      dir: DIST_STATIC_DIR,
-      format: 'esm',
-      entryFileNames: '[name]-[hash].js',
-      chunkFileNames: 'chunks/[name]-[hash].js',
-      assetFileNames: 'assets/[name]-[hash][extname]',
-      sourcemap: true,
-      // Minify for production, exactly as the SSR bundle below does. This is the
-      // bundle a VISITOR downloads — it was shipping unminified while the server
-      // bundle, which nobody downloads, was minified. Skipped under `pylon dev`:
-      // pure rebuild cost, and it makes a stack trace unreadable while working.
-      minify: !process.env.PYLON_DEV
-    })
+    // rolldown() is lazy — the module graph, transform (analyzer/css/image) and codegen
+    // all run inside write(), so this span covers the client bundle's real work.
+    const out = await time('client: bundle + write (transform, minify, emit)', () =>
+      bundle.write({
+        dir: DIST_STATIC_DIR,
+        format: 'esm',
+        entryFileNames: '[name]-[hash].js',
+        chunkFileNames: 'chunks/[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash][extname]',
+        sourcemap: true,
+        // Minify for production, exactly as the SSR bundle below does. This is the
+        // bundle a VISITOR downloads — it was shipping unminified while the server
+        // bundle, which nobody downloads, was minified. Skipped under `pylon dev`:
+        // pure rebuild cost, and it makes a stack trace unreadable while working.
+        minify: !process.env.PYLON_DEV
+      })
+    )
     await bundle.close()
 
-    await writeClientManifest(out, collectedCss)
+    await time('client: manifest', () => writeClientManifest(out, collectedCss))
     console.log(`Pages [client] Rebuild took ${Date.now() - t}ms`)
   }
 
@@ -288,20 +293,23 @@ export const build = async (
       ]
     })
 
-    const out = await bundle.write({
-      dir: DIST_PAGES_DIR,
-      format: 'esm',
-      entryFileNames: '[name]-[hash].js',
-      chunkFileNames: 'chunks/[name]-[hash].js',
-      assetFileNames: 'assets/[name]-[hash][extname]',
-      sourcemap: 'inline',
-      // Don't minify the node-only SSR bundle in dev — pure rebuild cost with no
-      // benefit. `PYLON_DEV` is set only by `pylon dev`.
-      minify: !process.env.PYLON_DEV
-    })
+    // rolldown() is lazy — transform + codegen run inside write() (see client build).
+    const out = await time('server: bundle + write (transform, minify, emit)', () =>
+      bundle.write({
+        dir: DIST_PAGES_DIR,
+        format: 'esm',
+        entryFileNames: '[name]-[hash].js',
+        chunkFileNames: 'chunks/[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash][extname]',
+        sourcemap: 'inline',
+        // Don't minify the node-only SSR bundle in dev — pure rebuild cost with no
+        // benefit. `PYLON_DEV` is set only by `pylon dev`.
+        minify: !process.env.PYLON_DEV
+      })
+    )
     await bundle.close()
 
-    await writeServerManifest(out, hasSitemap)
+    await time('server: manifest', () => writeServerManifest(out, hasSitemap))
     console.log(`Pages [server] Rebuild took ${Date.now() - t}ms`)
     return collectedCss
   }
@@ -456,11 +464,11 @@ export const build = async (
           fs.rm(DIST_PAGES_DIR, {recursive: true, force: true})
         ])
       }
-      await buildAppFile()
-      await copyPublicDir()
+      await time('pages: app routes file', () => buildAppFile())
+      await time('pages: copy public dir', () => copyPublicDir())
       // Before either bundle: the SSR runtime imports these at request time, and a dev
       // rebuild must pick up an edited catalog.
-      await buildMessageCatalogs()
+      await time('pages: message catalogs', () => buildMessageCatalogs())
       if (process.env.PYLON_DEV) {
         // Dev: Vite serves the client, so the rolldown client JS bundle is dead weight.
         // Skip it — the server build traverses the same graph and now writes the CSS
@@ -477,7 +485,9 @@ export const build = async (
           pruneStaleOutputs(DIST_STATIC_DIR)
         ])
       } else {
-        await Promise.all([runClientBuild(), runServerBuild()])
+        await time('pages: client + server bundles (parallel)', () =>
+          Promise.all([runClientBuild(), runServerBuild()])
+        )
       }
     },
     cancel: async () => {}

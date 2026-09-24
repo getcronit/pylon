@@ -16,6 +16,7 @@ import {
   sessionId
 } from './analytics'
 import {build} from './builder'
+import {report as reportTiming, time as timeStage} from './builder/timing'
 import {appModelToDDL, appModelToSDL, inspectApp} from './inspect'
 import {verifyApp} from './verify'
 import {startMcpServer} from './mcp'
@@ -152,12 +153,16 @@ program
     [] as string[]
   )
   .option('-v, --verbose', 'Verbose output — debug-level logging (e.g. unresolved dynamic imports)')
-  .action(async (options: {standalone?: boolean; include?: string[]}) => {
-    const ctx = await build({
-      sfiFilePath: './src/index.ts',
-      outputFilePath: './.pylon',
-      mode: 'build'
-    })
+  .option('--timing', 'Print a per-stage timing breakdown of the whole build pipeline (also via PYLON_TIMING=1)')
+  .action(async (options: {standalone?: boolean; include?: string[]; timing?: boolean}) => {
+    if (options.timing) process.env.PYLON_TIMING = '1'
+    const ctx = await timeStage('setup (config + bundler)', () =>
+      build({
+        sfiFilePath: './src/index.ts',
+        outputFilePath: './.pylon',
+        mode: 'build'
+      })
+    )
 
     const cleanupAndExit = async () => {
       await ctx.dispose().catch(() => {})
@@ -171,9 +176,11 @@ program
       // Ordered: server bundle (→ schema) → gqty client (← schema) → page bundles
       // (→ manifests, importing the client). The sequence is the fix for the dev
       // ordering bug; one-shot build runs the same order.
-      const out = await ctx.buildServer()
-      await buildClient({schemaChanged: out?.schemaChanged ?? true})
-      await ctx.buildPages()
+      const out = await timeStage('server bundle + schema', () => ctx.buildServer())
+      await timeStage('client (query) generation', () =>
+        buildClient({schemaChanged: out?.schemaChanged ?? true})
+      )
+      await timeStage('page bundles', () => ctx.buildPages())
 
       if (options.standalone) {
         const {buildStandalone} = await import('./builder/standalone.js')
@@ -245,6 +252,7 @@ program
       })
     } finally {
       await ctx.dispose().catch(() => {})
+      reportTiming()
     }
   })
 

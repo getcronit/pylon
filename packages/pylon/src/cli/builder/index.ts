@@ -4,6 +4,7 @@ import consola from 'consola'
 import {introspectViaRunner} from '../project-bridge.js'
 import {Bundler, type BuildMode} from './bundler/bundler.js'
 import {SchemaBuilder} from './schema/builder.js'
+import {span, time} from './timing.js'
 
 /**
  * Cheap fingerprint of a set of files (mtime + size). Editors bump mtime on save,
@@ -48,13 +49,15 @@ export const build = async (options: BuildOptions) => {
   // its introspection THROWS (e.g. a model module fails to load), silently dropping it
   // yields a subtly-wrong analyzer-only schema (STI interfaces don't collapse, etc.). Warn
   // loudly so the real cause is visible instead of surfacing downstream as odd type errors.
-  const contributeIR = await introspectViaRunner(cwd, options.sfiFilePath).catch((e) => {
-    consola.warn(
-      `ORM introspection failed — building schema WITHOUT the ORM contribution. ` +
-        `This usually means a model module failed to load:\n${e?.stack ?? e}`
-    )
-    return undefined
-  })
+  const contributeIR = await time('setup: ORM introspection (runs models)', () =>
+    introspectViaRunner(cwd, options.sfiFilePath).catch((e) => {
+      consola.warn(
+        `ORM introspection failed — building schema WITHOUT the ORM contribution. ` +
+          `This usually means a model module failed to load:\n${e?.stack ?? e}`
+      )
+      return undefined
+    })
+  )
 
   const bundler = new Bundler(options.sfiFilePath, options.outputFilePath)
 
@@ -77,12 +80,17 @@ export const build = async (options: BuildOptions) => {
     if (cache && fingerprint(cache.files) === cache.fp) {
       return cache.defs
     }
-    const builder = new SchemaBuilder(path.join(cwd, options.sfiFilePath))
-    const built = builder.build({contributeIR})
-    const defs = {typeDefs: built.typeDefs, resolvers: built.resolvers}
-    const files = builder.getSourceFiles()
-    cache = {files, fp: fingerprint(files), defs}
-    return defs
+    const end = span('schema: type introspection (ts program + SchemaBuilder)')
+    try {
+      const builder = new SchemaBuilder(path.join(cwd, options.sfiFilePath))
+      const built = builder.build({contributeIR})
+      const defs = {typeDefs: built.typeDefs, resolvers: built.resolvers}
+      const files = builder.getSourceFiles()
+      cache = {files, fp: fingerprint(files), defs}
+      return defs
+    } finally {
+      end()
+    }
   }
 
   const ctx = await bundler.build({mode: options.mode, getBuildDefs})
