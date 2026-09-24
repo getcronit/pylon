@@ -63,9 +63,10 @@ describe('analyzer document injection (schema present)', () => {
       }
     `)
     expect(out).toContain('import { doc as __pylonDoc }')
-    // The analyzer's raw TS output keeps the doc factory's type param
-    // (`__pylonDoc<{…}>(…)`); the old esbuild harness stripped it to `__pylonDoc(`.
-    expect(out).toContain('__pylonDoc<')
+    // The doc factory is emitted as plain JS — no TS type param — so the (sidecar)
+    // module is valid JS in every bundler and dev path without a TS transform.
+    expect(out).toContain('__pylonDoc({')
+    expect(out).not.toContain('__pylonDoc<')
     expect(out).toContain('user(id: $v0)')
     // The call now takes the doc + a variables thunk.
     expect(out).toMatch(/useData\(__pylonDoc_\w+_0,\s*\(\)\s*=>/)

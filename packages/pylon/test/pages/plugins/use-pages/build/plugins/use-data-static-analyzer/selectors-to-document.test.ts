@@ -66,7 +66,10 @@ describe('analyzer selectors → pylon-query document', () => {
     expect(lowered.compiled.opContext).toBe(true)
     expect(lowered.docDeclaration).toContain('opContext: true')
     expect(lowered.variablesThunk).toBe('() => ({v0: id})')
-    expect(lowered.docDeclaration).toContain('doc<')
+    // The doc is emitted as plain JS (no TS generic) so the sidecar virtual module is
+    // valid JS in every bundler/dev path without a TS transform.
+    expect(lowered.docDeclaration).toContain('= doc({')
+    expect(lowered.docDeclaration).not.toContain('doc<')
     expect(lowered.docDeclaration).toContain('id: "q')
   })
 

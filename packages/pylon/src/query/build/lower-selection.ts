@@ -85,8 +85,14 @@ export function lowerQuery(
     ? `,\n  shape: ${JSON.stringify(compiled.shape)}`
     : ''
 
+  // Emitted as plain JS — no `doc<ResultType>` generic. The oxc analyzer puts docs in a
+  // SIDECAR virtual module (`\0pylon-docs:…`), and Vite's TS transform skips `\0` virtual
+  // ids, so a generic there ships raw TS to the browser and breaks hydration. The generic
+  // was type-only and dead anyway: nothing type-checks the sidecar, and a page's
+  // `useData()` result type never came from it. `compiled.resultType` stays available for
+  // any future .d.ts generation.
   const docDeclaration =
-    `const ${constName} = ${docFn}<${compiled.resultType}>({\n` +
+    `const ${constName} = ${docFn}({\n` +
     `  id: ${JSON.stringify(id)},\n` +
     `  name: ${JSON.stringify(compiled.name)},\n` +
     `  body: ${JSON.stringify(compiled.body)}${connectionMeta}${argAliasesMeta}${argSlotsMeta}${inContextMeta}${opContextMeta}${shapeMeta}\n` +
@@ -232,7 +238,7 @@ export function lowerMutation(
   const id = documentId(compiled.body)
   const docFn = options.docFnName ?? 'doc'
   const docDeclaration =
-    `const ${constName} = ${docFn}<${compiled.resultType}>({\n` +
+    `const ${constName} = ${docFn}({\n` +
     `  id: ${JSON.stringify(id)},\n` +
     `  name: ${JSON.stringify(compiled.name)},\n` +
     `  rootField: ${JSON.stringify(fieldName)},\n` +

@@ -31,7 +31,10 @@ describe('oxc analyzer · sidecar emit + adapter core', () => {
     expect(virtualId).toBe('\0pylon-docs:/app/Page.tsx')
     const sidecar = c.loadSidecar(virtualId!)!
     expect(sidecar).toContain(`import { doc } from '@getcronit/pylon/query'`)
-    expect(sidecar).toContain('export const __pylonDoc_Page_0 = doc<')
+    // Plain JS (no TS generic) — the sidecar is a `\0` virtual module Vite won't
+    // TS-transform, so a generic would ship raw TS to the browser.
+    expect(sidecar).toContain('export const __pylonDoc_Page_0 = doc({')
+    expect(sidecar).not.toContain('doc<')
     expect(sidecar).toContain('user(id: $v0)')
     expect(sidecar).toContain('me { name')
   })
