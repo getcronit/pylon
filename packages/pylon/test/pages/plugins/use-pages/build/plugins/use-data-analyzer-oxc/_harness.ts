@@ -4,6 +4,7 @@
  * exact). Sources are analyzed in-memory (no disk writes) via the module-graph
  * overlay.
  */
+import {parseSync} from 'oxc-parser'
 import {analyze} from '@/pages/plugins/use-pages/build/plugins/use-data-analyzer-oxc/propagate'
 import {schema} from './_schema'
 
@@ -57,4 +58,39 @@ export function select(body: string, resultName = 'data'): any {
     `  ${body}\n` +
     `  return null as any\n}\n`
   return analyzeSource(source)
+}
+
+/** If a snippet declares `<name>`, rewrite its initializer to `useData()`;
+ *  otherwise prepend a `const <name> = useData()`. (Corpus snippets sometimes
+ *  build a literal `const data = {…}` instead of tracing a hook result.) */
+function seedify(input: string, name: string): string {
+  try {
+    const {program} = parseSync('s.tsx', input, {astType: 'ts'})
+    let target: any
+    const walk = (n: any) => {
+      if (!n || typeof n !== 'object' || target) return
+      if (Array.isArray(n)) return n.forEach(walk)
+      if (n.type === 'VariableDeclarator' && n.id?.type === 'Identifier' && n.id.name === name && n.init) {
+        target = n.init
+        return
+      }
+      for (const k in n) if (k !== 'type' && k !== 'start' && k !== 'end') walk(n[k])
+    }
+    walk(program)
+    if (target) return input.slice(0, target.start) + 'useData()' + input.slice(target.end)
+  } catch {
+    /* fall through */
+  }
+  return `const ${name} = useData();\n${input}`
+}
+
+/** Trace a snippet's reads off `name` WITHOUT a schema (structural only) — for
+ *  apples-to-apples parity against the schemaless ts-morph tracer. */
+export function traceSchemaless(input: string, name = 'data'): any {
+  const p = `/virtual/${Math.random().toString(36).slice(2)}.tsx`
+  const wrapped =
+    `import { useData } from '@getcronit/pylon/pages'\n` +
+    `export default function Page(props: any) {\n${seedify(input, name)}\n  return null as any\n}\n`
+  const res = analyze([{path: p, text: wrapped}], {})
+  return [...res.seedSelectors.values()][0] ?? {}
 }
