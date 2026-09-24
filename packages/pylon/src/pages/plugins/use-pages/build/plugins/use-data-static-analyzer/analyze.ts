@@ -182,6 +182,12 @@ interface AnalyzeOptions {
 function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
   const result: Record<string, SelectorNode> = {}
 
+  // Identity lookup for target nodes. `indexOf` is O(n) per evaluated expression;
+  // with many targets (batched call-site analysis) that dominates the hot path.
+  const targetIndexMap: Map<Node, number> | undefined = options.targetNodes
+    ? new Map(options.targetNodes.map((n, i) => [n, i]))
+    : undefined
+
   // OPTIMIZATION: Strictly lazy TypeChecker. Only spins up the TS Compiler if absolutely necessary.
   let _checker: any = undefined
   const getChecker = () => {
@@ -1053,9 +1059,9 @@ function coreAnalyze(sourceFile: SourceFile, options: AnalyzeOptions) {
       k = node.getKind()
     }
 
-    if (options.targetNodes) {
-      const idx = options.targetNodes.indexOf(node)
-      if (idx !== -1) {
+    if (targetIndexMap) {
+      const idx = targetIndexMap.get(node)
+      if (idx !== undefined) {
         return [[{name: `__target_${idx}`}]]
       }
     }
@@ -2084,6 +2090,7 @@ export function extractQueries(
     exportedFunctionReturns.entries()
   )
   const processedFunctions = new Set<Node>()
+  const enqueuedExportsForFile = new Set<SourceFile>()
 
   // Per `__target_N`, the RETURN PROPS a hook reconstructs into a plain object literal — the
   // `__prop_X` at the head of that hook's return paths. A DIFFERENT function that receives such
@@ -2183,34 +2190,53 @@ export function extractQueries(
     return refs
   }
 
-  function getCachedAnalysis(sf: SourceFile, targets: Node[]): AnalysisResult {
-    const contentHash = crypto.createHash('sha1').update(sf.getFullText()).digest('hex')
-    const cacheKey =
-      sf.getFilePath() +
-      ':' +
-      contentHash +
-      ':' +
-      targets.map(t => t.getStart() + '-' + t.getEnd()).join(',')
+  // Analyze a caller FILE exactly once, with EVERY call expression in it as a
+  // target, and index each call's inflow selectors out of that single pass.
+  //
+  // The queue previously ran a full `coreAnalyze` per individual call site
+  // (`getCachedAnalysis(sf, [call])`). Because `coreAnalyze` executes the whole
+  // enclosing function body, and a page's call sites nearly all live inside the
+  // one big component, the same expensive body was re-executed once per call site
+  // AND once per queue item — measured at 15× on a real grid page. The recursion
+  // guard is stack-scoped (decremented in `finally`), so batching all targets
+  // into one pass yields byte-identical `result['__target_i']` per call; only
+  // `exportedFunctionReturns` becomes complete for the file, which is desirable.
+  interface FileCallAnalysis {
+    analysisResult: AnalysisResult
+    callIndex: Map<string, number>
+  }
+  function getFileCallAnalysis(sf: SourceFile): FileCallAnalysis {
+    const contentHash = crypto
+      .createHash('sha1')
+      .update(sf.getFullText())
+      .digest('hex')
+    const cacheKey = sf.getFilePath() + ':' + contentHash
     const cached = persistentAnalysisCache.get(cacheKey)
     if (cached) {
       cached.accessedFiles.forEach((file: string) => accessedFiles.add(file))
-      return cached.analysisResult
+      return cached
     }
+
+    const calls = sf.getDescendantsOfKind(SyntaxKind.CallExpression)
+    const callIndex = new Map<string, number>()
+    calls.forEach((c, i) => callIndex.set(c.getStart() + '-' + c.getEnd(), i))
 
     const localAccessedFiles = new Set<string>()
     const analysisResult = coreAnalyze(sf, {
-      targetNodes: targets,
+      targetNodes: calls,
       onFileAccess: s => {
         localAccessedFiles.add(s.getFilePath())
         accessedFiles.add(s.getFilePath())
       }
     })
 
-    persistentAnalysisCache.set(cacheKey, {
+    const entry: FileCallAnalysis & {accessedFiles: Set<string>} = {
       analysisResult,
+      callIndex,
       accessedFiles: localAccessedFiles
-    })
-    return analysisResult
+    }
+    persistentAnalysisCache.set(cacheKey, entry)
+    return entry
   }
 
   while (functionQueue.length > 0) {
@@ -2344,17 +2370,30 @@ export function extractQueries(
       }
 
       if (call && Node.isCallExpression(call)) {
-        accessedFiles.add(call.getSourceFile().getFilePath())
-        const callerAnalysis = getCachedAnalysis(call.getSourceFile(), [call])
+        const callerSf = call.getSourceFile()
+        accessedFiles.add(callerSf.getFilePath())
+        const fileAnalysis = getFileCallAnalysis(callerSf)
+        const callerAnalysis = fileAnalysis.analysisResult
 
-        for (const [
-          newFn,
-          newPaths
-        ] of callerAnalysis.exportedFunctionReturns.entries()) {
-          functionQueue.push([newFn, newPaths])
+        // exportedFunctionReturns is now file-complete; enqueue it once per file.
+        // `processedFunctions` dedups, but this avoids redundant queue churn.
+        if (!enqueuedExportsForFile.has(callerSf)) {
+          enqueuedExportsForFile.add(callerSf)
+          for (const [
+            newFn,
+            newPaths
+          ] of callerAnalysis.exportedFunctionReturns.entries()) {
+            functionQueue.push([newFn, newPaths])
+          }
         }
 
-        const externalSelectors = callerAnalysis.result['__target_0'] || {}
+        const callIdx = fileAnalysis.callIndex.get(
+          call.getStart() + '-' + call.getEnd()
+        )
+        const externalSelectors =
+          (callIdx !== undefined &&
+            callerAnalysis.result[`__target_${callIdx}`]) ||
+          {}
 
         const shadowedProperties = new Set<string>()
         for (const p of paths) {
