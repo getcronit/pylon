@@ -498,6 +498,11 @@ export function summarize(
       const r = ctx.graph.resolveName(curScope, e.name)
       if (r.kind === 'fn') return {node: r.node, local: false, file: r.file}
     }
+    // `NS.member(...)` / `<NS.Member/>` where NS is a namespace import.
+    if (e.type === 'MemberExpression' && !e.computed && e.object?.type === 'Identifier') {
+      const r = ctx.graph.resolveNamespaceMember(curScope, e.object.name, e.property.name)
+      if (r.kind === 'fn') return {node: r.node, local: false, file: r.file}
+    }
     return null
   }
 
@@ -1009,8 +1014,13 @@ export function summarize(
     }
     if (!tag || tag[0] === tag[0].toLowerCase()) return // host element
     // A component is just a callable whose single arg is the props object; route it
-    // through the same closure/summary model as any other call.
-    const callable = resolveCallable({type: 'Identifier', name: tag})
+    // through the same closure/summary model as any other call. `<NS.Member/>`
+    // (namespace import) is resolved as a member expression.
+    const calleeExpr =
+      nameNode?.type === 'JSXMemberExpression' && nameNode.object?.type === 'JSXIdentifier'
+        ? {type: 'MemberExpression', computed: false, object: {type: 'Identifier', name: nameNode.object.name}, property: {type: 'Identifier', name: tag}}
+        : {type: 'Identifier', name: tag}
+    const callable = resolveCallable(calleeExpr)
     const propsSupply: Supply = {k: 'obj', props: propsObj}
     if (callable) invoke(callable, [propsSupply])
     else for (const s of propsObj.values()) recordAllReads(s)

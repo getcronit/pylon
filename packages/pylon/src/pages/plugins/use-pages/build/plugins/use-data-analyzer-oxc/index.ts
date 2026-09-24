@@ -56,10 +56,13 @@ export function createOxcAnalyzerCore(options: OxcAnalyzerOptions = {}) {
   // One module graph for the whole build — resolver + parse/scope caches are reused
   // across pages instead of rebuilt per transform (the dominant multi-page cost).
   let graph = new ModuleGraph({tsconfig: options.tsconfig})
+  /** file -> analysis warnings surfaced on its last transform (adapters emit them). */
+  const warnings = new Map<string, string[]>()
 
   const start = () => {
     clearParseCache()
     graph = new ModuleGraph({tsconfig: options.tsconfig}) // fresh per build
+    warnings.clear()
     schema = loadSchema() // re-read so dev picks up schema changes
   }
 
@@ -91,9 +94,15 @@ export function createOxcAnalyzerCore(options: OxcAnalyzerOptions = {}) {
     })
     if (!emitted) return null
 
+    if (emitted.warnings.length) warnings.set(id, emitted.warnings)
+    else warnings.delete(id)
+    if (!emitted.changed) return null
+
     sidecars.set(sidecarVirtualId(id), emitted.sidecarCode)
     return emitted.code
   }
+
+  const warningsFor = (id: string): string[] => warnings.get(id) ?? []
 
   const resolveSidecar = (source: string): string | null =>
     source.startsWith('pylon-docs:') ? '\0' + source : null
@@ -105,6 +114,7 @@ export function createOxcAnalyzerCore(options: OxcAnalyzerOptions = {}) {
     filter,
     start,
     transformPage,
+    warningsFor,
     resolveSidecar,
     loadSidecar,
     sidecarSpecifier,
@@ -133,6 +143,7 @@ export function useDataOxcRolldown(options: OxcAnalyzerOptions = {}): RolldownPl
       handler(code, id) {
         if (id.startsWith(VIRTUAL_PREFIX)) return null
         const out = core.transformPage(id, code)
+        for (const w of core.warningsFor(id)) this.warn(w)
         return out == null ? null : {code: out, moduleType: id.endsWith('.tsx') ? 'tsx' : 'ts', map: null}
       }
     }
@@ -170,6 +181,7 @@ export function useDataOxcVite(options: OxcAnalyzerOptions = {}): VitePlugin {
       const virtualId = VIRTUAL_PREFIX + filePath
       const before = core.loadSidecar(virtualId)
       const out = core.transformPage(filePath, code)
+      for (const w of core.warningsFor(filePath)) this.warn(w)
       const after = core.loadSidecar(virtualId)
       if (server && after != null && after !== before) {
         const mod = server.moduleGraph?.getModuleById?.(virtualId)

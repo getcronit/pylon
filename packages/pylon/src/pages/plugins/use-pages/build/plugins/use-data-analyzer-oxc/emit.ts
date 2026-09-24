@@ -60,7 +60,20 @@ export interface EmitOptions {
 export interface EmitResult {
   code: string
   sidecarCode: string
+  /** Whether any call was actually rewritten (a sidecar produced). */
+  changed: boolean
+  /** Per-seed lowering failures (malformed selector, unknown field, …). */
+  warnings: string[]
 }
+
+const seedLabel = (rec: SeedRecord): string =>
+  rec.kind === 'mutation'
+    ? 'useMutation'
+    : rec.kind === 'operation'
+      ? `op.${rec.opType}`
+      : rec.kind === 'paginated'
+        ? 'usePaginatedData'
+        : 'useData'
 
 interface Plan {
   constName: string
@@ -87,6 +100,8 @@ export function emitPage(
   if (mine.length === 0) return null
 
   const plans: Plan[] = []
+  const warnings: string[] = []
+  const lineOf = (pos: number) => source.slice(0, pos).split('\n').length
 
   mine.forEach(({key, rec}, i) => {
     const constName = `__pylonDoc_${base}_${i}`
@@ -136,7 +151,7 @@ export function emitPage(
         const connPath = rec.connectionPath ?? []
         if (connPath.length === 0) throw new Error('usePaginatedData needs a connection selector.')
         const tree = buildConnectionTree(connPath, rec.connectionArgs ?? {}, sel)
-        if (queryRoot) validateSelection(tree, queryRoot)
+        if (queryRoot) validateSelection(tree, queryRoot, options.schema)
         const lowered = lowerQuery(options.schema, tree, opName, constName, {
           ...common,
           connection: {path: connPath}
@@ -152,24 +167,28 @@ export function emitPage(
                 ? `${constName}, undefined, ${rest}`
                 : constName
       }
-    } catch {
-      return // leave this call untouched if lowering fails
+    } catch (e: any) {
+      // Surface the failure (malformed selector, unknown field) instead of
+      // silently dropping it; leave the call untouched so the build still runs.
+      warnings.push(`${pageId}:${lineOf(rec.call.start)} ${seedLabel(rec)}(): ${e?.message ?? e}`)
+      return
     }
 
     plans.push({constName, decl: `export ${decl}`, edit: {start: p.open + 1, end: p.close, text: inner}})
   })
 
-  if (plans.length === 0) return null
-
+  const changed = plans.length > 0
   let code = source
-  for (const pl of [...plans].sort((a, b) => b.edit.start - a.edit.start)) {
-    code = code.slice(0, pl.edit.start) + pl.edit.text + code.slice(pl.edit.end)
+  if (changed) {
+    for (const pl of [...plans].sort((a, b) => b.edit.start - a.edit.start)) {
+      code = code.slice(0, pl.edit.start) + pl.edit.text + code.slice(pl.edit.end)
+    }
+    code =
+      `import { ${plans.map(p => p.constName).join(', ')} } from ${JSON.stringify(
+        sidecarSpecifier(pageId)
+      )};\n` + code
   }
-  code =
-    `import { ${plans.map(p => p.constName).join(', ')} } from ${JSON.stringify(
-      sidecarSpecifier(pageId)
-    )};\n` + code
 
-  const sidecarCode = DOC_IMPORT + plans.map(p => p.decl).join('\n\n') + '\n'
-  return {code, sidecarCode}
+  const sidecarCode = changed ? DOC_IMPORT + plans.map(p => p.decl).join('\n\n') + '\n' : ''
+  return {code, sidecarCode, changed, warnings}
 }

@@ -9,6 +9,10 @@
  * actual `[…]` wrapping (adding it for list fields, removing a wrong one for
  * singular fields). Scalar/enum fields collapse to leaves; object fields recurse.
  *
+ * Interfaces and unions: a flat field read off an abstract value is kept if ANY
+ * possible concrete type declares it (the lowering distributes it into the right
+ * `... on Type { … }` fragment). So a field only on one member still survives.
+ *
  * Result: the compiled document can only contain fields that exist, and list-ness
  * is exact — resolving the object-vs-list ambiguity that structure alone cannot.
  */
@@ -34,12 +38,24 @@ function isListDeep(t: GraphQLOutputType): boolean {
   return isListType(x)
 }
 
-function fieldTypeOf(type: GraphQLNamedType, key: string): GraphQLOutputType | undefined {
+/** Resolve a field's type on a type — including, for interfaces/unions, fields
+ *  declared by any possible concrete member (so member-only reads are kept). */
+function fieldTypeOf(
+  type: GraphQLNamedType,
+  key: string,
+  schema: GraphQLSchema
+): GraphQLOutputType | undefined {
   if (isObjectType(type) || isInterfaceType(type)) {
     const f = type.getFields()[key]
-    return f ? (f.type as GraphQLOutputType) : undefined
+    if (f) return f.type as GraphQLOutputType
   }
-  return undefined // scalar / enum / union → no traversable named fields
+  if (isInterfaceType(type) || isUnionType(type)) {
+    for (const member of schema.getPossibleTypes(type)) {
+      const f = member.getFields()[key]
+      if (f) return f.type as GraphQLOutputType
+    }
+  }
+  return undefined // scalar / enum / no member declares it
 }
 
 function isLeafType(named: GraphQLNamedType): boolean {
@@ -47,28 +63,27 @@ function isLeafType(named: GraphQLNamedType): boolean {
 }
 
 /**
- * Normalize `tree` in place against `type`. Unknown keys are removed; `__isList`
- * is set from the schema; scalar fields become leaves. Returns the normalized node
- * (which may replace a scalar's object node with `true`).
+ * Normalize `tree` in place against `type`. Unknown keys are removed; `__isList` is
+ * set from the schema; scalar fields collapse to leaves; object/interface/union
+ * fields recurse (abstract fields kept flat for the lowering to fragment).
  */
 export function validateSelection(
   tree: SelectorNode,
-  type: GraphQLNamedType
+  type: GraphQLNamedType,
+  schema: GraphQLSchema
 ): void {
   for (const key of Object.keys(tree)) {
-    if (key === '__args' || key === '__isList') continue
-    if (key === '__typename') continue // always valid
-    const ft = fieldTypeOf(type, key)
+    if (key === '__args' || key === '__isList' || key === '__typename') continue
+    const ft = fieldTypeOf(type, key, schema)
     if (!ft) {
-      delete tree[key] // not a schema field → JS intrinsic / invalid
+      delete tree[key] // not a schema field (on this type or any member) → drop
       continue
     }
     const named = getNamedType(ft)
     const list = isListDeep(ft)
     const child = tree[key]
 
-    // Arg-branch array: the same field read with different args → one node per
-    // branch. Validate each against the field type.
+    // Arg-branch array: same field, different args → one node per branch.
     if (Array.isArray(child)) {
       for (const b of child as SelectorNode[]) {
         if (!b || typeof b !== 'object') continue
@@ -77,7 +92,7 @@ export function validateSelection(
         } else {
           if (list) b.__isList = true
           else delete b.__isList
-          if (!isUnionType(named)) validateSelection(b, named)
+          validateSelection(b, named, schema)
         }
       }
       continue
@@ -89,8 +104,6 @@ export function validateSelection(
         : undefined
 
     if (isLeafType(named)) {
-      // scalar/enum leaf: `true`, or `{__args}` / `{__isList}` when it carries args
-      // or is a list (matches the structural shape the lowering expects).
       if (childArgs !== undefined || list) {
         const leaf: SelectorNode = {}
         if (childArgs !== undefined) leaf.__args = childArgs
@@ -102,21 +115,14 @@ export function validateSelection(
       continue
     }
 
-    // object / interface / union → recurse
-    let node: SelectorNode =
+    // object / interface / union → recurse (member-aware via fieldTypeOf).
+    const node: SelectorNode =
       child && typeof child === 'object' && !Array.isArray(child)
         ? (child as SelectorNode)
         : {}
     if (list) node.__isList = true
     else delete node.__isList
-    if (isUnionType(named)) {
-      // only __typename survives on a bare union selection here
-      for (const k of Object.keys(node)) {
-        if (k !== '__args' && k !== '__isList' && k !== '__typename') delete node[k]
-      }
-    } else {
-      validateSelection(node, named)
-    }
+    validateSelection(node, named, schema)
     tree[key] = node
   }
 }
@@ -132,5 +138,5 @@ export function validateSeed(
   if (rec.kind === 'paginated') return
   const useMutationRoot = rec.kind === 'mutation' || rec.opType === 'mutation'
   const root = useMutationRoot ? schema.getMutationType() : schema.getQueryType()
-  if (root) validateSelection(tree, root)
+  if (root) validateSelection(tree, root, schema)
 }

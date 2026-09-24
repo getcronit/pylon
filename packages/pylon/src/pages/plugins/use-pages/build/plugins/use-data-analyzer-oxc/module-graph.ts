@@ -23,8 +23,6 @@ export type ResolvedName =
   | {kind: 'external'} // node_modules or unresolvable — treat as opaque
   | {kind: 'value'; file: string; binding: LocalBinding} // a local value, not a fn
 
-const HOC_NAMES = new Set(['memo', 'forwardRef', 'React.memo', 'React.forwardRef'])
-
 /** Join a relative specifier onto a directory, resolving `.`/`..` segments. */
 function normalizeJoin(dir: string, rel: string): string {
   const parts = dir.split('/')
@@ -127,24 +125,17 @@ export class ModuleGraph {
   }
 
   /**
-   * Reduce an expression to the function it denotes: a direct function, a `memo`/
-   * `forwardRef` wrapper (unwrap its first arg), or an identifier (resolve it).
-   * HOC unwrapping is gated on the known wrapper names so an ordinary one-arg call
-   * like `debounce(fn)` or `fetchData(cb)` is not mistaken for a component.
+   * Reduce an expression to the function it denotes: a direct function, an
+   * identifier (resolve it), or a HOC-style wrapper `Hoc(Inner)` — memo/forwardRef
+   * and generic custom HOCs alike — by unwrapping its first function/identifier arg.
+   * This is called only when resolving something used as a component or callee, so a
+   * one-arg call resolving to a function is what we want; a non-fn arg is left alone.
    */
   private unwrapHoc(node: any, scope: FileScope): FnLocation | null {
     const e = unwrap(node)
     if (!e) return null
     if (isFn(e)) return {file: scope.file, node: e}
     if (e.type === 'CallExpression') {
-      const callee = e.callee
-      const calleeName =
-        callee?.type === 'Identifier'
-          ? callee.name
-          : callee?.type === 'MemberExpression' && callee.object?.name && callee.property?.name
-            ? `${callee.object.name}.${callee.property.name}`
-            : ''
-      if (!HOC_NAMES.has(calleeName)) return null
       const arg = e.arguments?.[0]
       const inner = arg ? unwrap(arg) : null
       if (inner && isFn(inner)) return {file: scope.file, node: inner}
@@ -152,6 +143,7 @@ export class ModuleGraph {
         const r = this.resolveName(scope, inner.name)
         if (r.kind === 'fn') return {file: r.file, node: r.node}
       }
+      return null
     }
     if (e.type === 'Identifier') {
       const r = this.resolveName(scope, e.name)
@@ -182,6 +174,15 @@ export class ModuleGraph {
     }
 
     return {kind: 'external'}
+  }
+
+  /** Resolve `NS.member` where `NS` is a namespace import (`import * as NS`). */
+  resolveNamespaceMember(scope: FileScope, ns: string, member: string): ResolvedName {
+    const imp = scope.imports.get(ns)
+    if (!imp || imp.imported !== 'namespace') return {kind: 'external'}
+    const target = this.resolveSpecifier(scope.file, imp.source)
+    if (!target) return {kind: 'external'}
+    return this.resolveExport(target, member)
   }
 
   /** Resolve `exportName` ('#default' for default) in `file` to a defining fn,
