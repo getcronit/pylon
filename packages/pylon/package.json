@@ -138,6 +138,8 @@
     "mime": "^4.0.6",
     "mitt": "^3.0.1",
     "openid-client": "^6.1.7",
+    "oxc-parser": "^0.151.0",
+    "oxc-resolver": "^11.24.2",
     "pg": "^8.13.1",
     "postcss-load-config": "^6.0.1",
     "postcss-value-parser": "^4.2.0",
