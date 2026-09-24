@@ -554,15 +554,23 @@ export function summarize(
   ): Supply {
     // Nested closure (declared in the current fn): shares the enclosing env.
     if (c.local) return interpretInlineFn(c.node, args)
-    // Component/callee receiving a closure config → inline it CONCRETELY, in its
-    // own file frame (fresh env), so the config's closures resolve where invoked.
-    if (args.some(containsClosure)) return interpretInFrame(c.node, args, freshFrame(c.file, c.node))
-    // Pure-data callee → compose its summary (the fast path).
+    // Component/callee receiving a closure config → inline it CONCRETELY, in its own
+    // file frame, so the config's closures resolve where invoked — BUT only when the
+    // call actually carries seed data (a prov arg, or a closure that captured one).
+    // A component fed no seed data can contribute no field read, so inlining it is
+    // wasted work; skipping it is what keeps a UI kit (Button/Menu nested everywhere,
+    // each taking onClick closures) from exploding into millions of re-interpretations.
+    if (args.some(containsClosure) && args.some(carriesSeed)) {
+      return interpretInFrame(c.node, args, freshFrame(c.file, c.node))
+    }
+    // No seed-bearing closure config → compose its summary (the fast path).
     return foldCall({file: c.file, node: c.node}, args)
   }
 
-  /** Does a supply carry tracked data (a prov) anywhere — directly, in a union, or
-   *  nested in an object? Used to gate closure-callee invocation to data-bearing calls. */
+  /** Does a supply carry tracked data (a prov) as a value — directly, or nested in a
+   *  union/object passed as data? NOT through a closure's captured frame: a page-level
+   *  closure captures the whole env (including the seed variable), so that would match
+   *  almost everything. Gates concrete inlining + closure-callee invocation. */
   function carriesProv(sup: Supply): boolean {
     if (sup.k === 'prov') return true
     if (sup.k === 'union') return sup.of.some(carriesProv)
@@ -571,6 +579,7 @@ export function summarize(
     }
     return false
   }
+  const carriesSeed = (sup: Supply): boolean => carriesProv(sup)
 
   /** Does a supply carry a function value anywhere (a closure, or one nested in a
    *  config object/array)? Triggers concrete inlining of the receiver. */
@@ -741,7 +750,7 @@ export function summarize(
     // Gated on a data (prov) argument: only such a call can contribute new reads, and
     // the gate keeps the common data-free handlers (`navigate("/x")`, `toast(...)`)
     // on the cheap path instead of re-interpreting a closure body per call.
-    if (callee.type === 'Identifier' && argSupplies.some(carriesProv)) {
+    if (callee.type === 'Identifier' && argSupplies.some(carriesSeed)) {
       const bound = env.get(callee.name)
       if (bound && containsClosure(bound)) return invokeClosure(bound, argSupplies)
     }

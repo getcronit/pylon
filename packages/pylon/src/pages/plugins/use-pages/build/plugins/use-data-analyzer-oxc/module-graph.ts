@@ -38,6 +38,9 @@ export class ModuleGraph {
   private resolver: ResolverFactory
   private scopeCache = new Map<string, {hash: string; scope: FileScope}>()
   private parsedCache = new Map<string, ParsedFile>()
+  /** (dir\0specifier) -> resolved path (or null). Resolution hits the filesystem, so
+   *  it is cached for the build; cleared on invalidate() so dev picks up new files. */
+  private resolutionCache = new Map<string, string | null>()
   /** In-memory source overlay (primed entry files / bundler-provided text). Used
    *  before disk so analysis works without writing files, and so dev serves the
    *  live buffer rather than stale disk. */
@@ -108,27 +111,38 @@ export class ModuleGraph {
    *  node_modules / unresolvable. */
   resolveSpecifier(fromFile: string, specifier: string): string | null {
     const dir = fromFile.slice(0, fromFile.lastIndexOf('/'))
+    // Resolution (overlay scan + resolver.sync → filesystem stats) is deterministic per
+    // (dir, specifier) within a build, and the analyzer re-resolves the same imports on
+    // every component inline. Cache it — this dominated pathological layouts. Dev clears
+    // the cache on invalidate(), so a newly-added file still re-resolves.
+    const key = dir + '\0' + specifier
+    let resolved = this.resolutionCache.get(key)
+    if (resolved === undefined) {
+      resolved = this.computeResolution(dir, specifier)
+      this.resolutionCache.set(key, resolved)
+    }
+    if (resolved !== null) {
+      const edge = this.importers.get(resolved) ?? new Set()
+      edge.add(fromFile)
+      this.importers.set(resolved, edge)
+    }
+    return resolved
+  }
+
+  private computeResolution(dir: string, specifier: string): string | null {
     // Overlay-first for relative specifiers (in-memory graphs / tests).
     if (specifier.startsWith('.')) {
       const base = normalizeJoin(dir, specifier)
       const exts = ['', '.tsx', '.ts', '.jsx', '.js', '/index.tsx', '/index.ts', '/index.jsx', '/index.js']
       for (const e of exts) {
         const cand = base + e
-        if (this.overlay.has(cand)) {
-          const edge = this.importers.get(cand) ?? new Set()
-          edge.add(fromFile)
-          this.importers.set(cand, edge)
-          return cand
-        }
+        if (this.overlay.has(cand)) return cand
       }
     }
     try {
       const r = this.resolver.sync(dir, specifier)
       if (!r.path) return null
       if (r.path.includes('/node_modules/')) return null
-      const edge = this.importers.get(r.path) ?? new Set()
-      edge.add(fromFile)
-      this.importers.set(r.path, edge)
       return r.path
     } catch {
       return null
@@ -243,5 +257,7 @@ export class ModuleGraph {
   invalidate(file: string): void {
     this.scopeCache.delete(file)
     this.parsedCache.delete(file)
+    // A new/removed file can change how specifiers resolve, so drop resolutions too.
+    this.resolutionCache.clear()
   }
 }
