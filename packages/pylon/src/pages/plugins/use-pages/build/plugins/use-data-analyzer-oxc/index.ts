@@ -16,6 +16,7 @@ import {buildSchema, type GraphQLSchema} from 'graphql'
 import type {Plugin as RolldownPlugin} from 'rolldown'
 import type {Plugin as VitePlugin} from 'rolldown-vite'
 import {emitPage, sidecarSpecifier, sidecarVirtualId} from './emit'
+import {ModuleGraph} from './module-graph'
 import {clearParseCache} from './parse'
 import {analyze} from './propagate'
 
@@ -52,9 +53,13 @@ export function createOxcAnalyzerCore(options: OxcAnalyzerOptions = {}) {
   let schema = loadSchema()
   /** virtualId -> sidecar module source. */
   const sidecars = new Map<string, string>()
+  // One module graph for the whole build — resolver + parse/scope caches are reused
+  // across pages instead of rebuilt per transform (the dominant multi-page cost).
+  let graph = new ModuleGraph({tsconfig: options.tsconfig})
 
   const start = () => {
     clearParseCache()
+    graph = new ModuleGraph({tsconfig: options.tsconfig}) // fresh per build
     schema = loadSchema() // re-read so dev picks up schema changes
   }
 
@@ -75,7 +80,8 @@ export function createOxcAnalyzerCore(options: OxcAnalyzerOptions = {}) {
     const {seeds, seedSelectors, nestedSelectors} = analyze([{path: id, text: code}], {
       schema,
       pylonPackage,
-      tsconfig: options.tsconfig
+      tsconfig: options.tsconfig,
+      graph
     })
 
     const emitted = emitPage(id, code, seeds, seedSelectors, nestedSelectors, {

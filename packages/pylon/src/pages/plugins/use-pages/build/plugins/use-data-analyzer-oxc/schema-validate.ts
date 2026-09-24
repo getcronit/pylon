@@ -66,6 +66,23 @@ export function validateSelection(
     const named = getNamedType(ft)
     const list = isListDeep(ft)
     const child = tree[key]
+
+    // Arg-branch array: the same field read with different args → one node per
+    // branch. Validate each against the field type.
+    if (Array.isArray(child)) {
+      for (const b of child as SelectorNode[]) {
+        if (!b || typeof b !== 'object') continue
+        if (isLeafType(named)) {
+          for (const k of Object.keys(b)) if (k !== '__args' && k !== '__isList') delete b[k]
+        } else {
+          if (list) b.__isList = true
+          else delete b.__isList
+          if (!isUnionType(named)) validateSelection(b, named)
+        }
+      }
+      continue
+    }
+
     const childArgs =
       child && typeof child === 'object' && !Array.isArray(child)
         ? (child as SelectorNode).__args

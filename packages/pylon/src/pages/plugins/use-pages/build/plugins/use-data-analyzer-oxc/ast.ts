@@ -94,26 +94,9 @@ export function graft(
   for (let i = 0; i < path.length; i++) {
     const step = path[i]
     const isLast = i === path.length - 1
-    let node = cur[step.key] as any
-    if (node === undefined || node === true) {
-      node = {}
-      cur[step.key] = node
-    }
-    if (step.args !== undefined && (node as SelectorNode).__args === undefined) {
-      ;(node as SelectorNode).__args = step.args
-    }
-    if (step.list) (node as SelectorNode).__isList = true
-
-    if (isLast) {
-      if (leaf === true) {
-        // leaf scalar: if nothing deeper was recorded, leave as-is (object with
-        // only meta). The compiler treats an object with no real fields via
-        // allScalars / __typename fallback — safe.
-      } else if (typeof leaf === 'object') {
-        deepMerge(node as SelectorNode, leaf)
-      }
-    }
-    cur = node as SelectorNode
+    const node = stepInto(cur, step)
+    if (isLast && leaf !== true && typeof leaf === 'object') deepMerge(node, leaf)
+    cur = node
   }
 }
 
@@ -125,23 +108,55 @@ export function recordRead(root: SelectorNode, path: Path): void {
     const step = path[i]
     const isLast = i === path.length - 1
     if (isLast && step.args === undefined && !step.list) {
+      // scalar leaf: mark `true` unless a richer node was already recorded there.
       if (cur[step.key] === undefined) cur[step.key] = true
-      else if (typeof cur[step.key] === 'object') {
-        /* keep the richer object */
-      }
       return
     }
-    let node = cur[step.key] as any
-    if (node === undefined || node === true) {
-      node = {}
-      cur[step.key] = node
-    }
-    if (step.args !== undefined && (node as SelectorNode).__args === undefined) {
-      ;(node as SelectorNode).__args = step.args
-    }
-    if (step.list) (node as SelectorNode).__isList = true
-    cur = node as SelectorNode
+    cur = stepInto(cur, step)
   }
+}
+
+/**
+ * Get-or-create the child node for `step` under `parent`, branching by arguments:
+ * the SAME field read with DIFFERENT args becomes an array of per-arg nodes (each
+ * lowered to its own aliased selection); identical args reuse one node. Returns the
+ * node to descend into.
+ */
+function stepInto(parent: SelectorNode, step: Step): SelectorNode {
+  const key = step.key
+  const existing = parent[key] as any
+
+  const make = (): SelectorNode => {
+    const n: SelectorNode = {}
+    if (step.args !== undefined) n.__args = step.args
+    if (step.list) n.__isList = true
+    return n
+  }
+
+  if (existing === undefined || existing === true) {
+    const n = make()
+    parent[key] = n
+    return n
+  }
+
+  // Already an array of arg-branches → find matching args, else append.
+  if (Array.isArray(existing)) {
+    let branch = existing.find(b => (b as SelectorNode).__args === step.args)
+    if (!branch) existing.push((branch = make()))
+    else if (step.list) (branch as SelectorNode).__isList = true
+    return branch as SelectorNode
+  }
+
+  const node = existing as SelectorNode
+  // Branch only when both sides carry args and they differ.
+  if (step.args !== undefined && node.__args !== undefined && node.__args !== step.args) {
+    const fresh = make()
+    parent[key] = [node, fresh]
+    return fresh
+  }
+  if (step.args !== undefined && node.__args === undefined) node.__args = step.args
+  if (step.list) node.__isList = true
+  return node
 }
 
 /** Deep clone a SelectorNode (used when grafting a summary subtree). */

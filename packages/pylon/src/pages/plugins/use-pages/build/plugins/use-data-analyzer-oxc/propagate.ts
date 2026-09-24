@@ -25,6 +25,9 @@ export interface AnalyzeOptions {
   /** When provided, each seed's selection is normalized against the schema:
    *  non-fields are dropped and `__isList` is set authoritatively. */
   schema?: GraphQLSchema
+  /** Reuse a persistent module graph across pages (a whole build) instead of
+   *  rebuilding the resolver + parse/scope caches per call. */
+  graph?: ModuleGraph
 }
 
 export interface AnalyzeResult {
@@ -72,7 +75,7 @@ export function analyze(
 ): AnalyzeResult {
   const pylonPackage = options.pylonPackage ?? '@getcronit/pylon/pages'
   const maxPasses = options.maxPasses ?? 12
-  const graph = new ModuleGraph({tsconfig: options.tsconfig})
+  const graph = options.graph ?? new ModuleGraph({tsconfig: options.tsconfig})
 
   // Prime the graph with the entry files' in-memory text.
   for (const f of files) graph.getFile(f.path, f.text)
@@ -84,6 +87,10 @@ export function analyze(
   const computed = new Map<string, Summary>()
   const inProgress = new Set<string>()
   const nodes = new Map<string, {file: string; node: any}>()
+  // Set when a summary is requested while still being computed (recursion / forward
+  // ref). If a whole pass never bootstraps, the call graph is acyclic and one pass
+  // already reached the fixpoint — no confirming pass needed.
+  let bootstrapped = false
 
   const ctx: AnalyzeCtx = {
     graph,
@@ -96,7 +103,10 @@ export function analyze(
       nodes.set(key, {file, node})
       const hit = computed.get(key)
       if (hit) return hit
-      if (inProgress.has(key)) return undefined // bootstrap (recursion / fwd ref)
+      if (inProgress.has(key)) {
+        bootstrapped = true
+        return undefined // bootstrap (recursion / fwd ref)
+      }
       inProgress.add(key)
       const scope = graph.getScope(file)
       let summary: Summary
@@ -124,9 +134,13 @@ export function analyze(
   for (let pass = 0; pass < maxPasses; pass++) {
     computed.clear()
     inProgress.clear()
+    bootstrapped = false
     for (const {file, node} of entryFns) ctx.summaryOf(file, node)
     // also re-drive any fns discovered in earlier passes (callees in other files)
     for (const {file, node} of [...nodes.values()]) ctx.summaryOf(file, node)
+
+    // Acyclic call graph → the first pass already reached the fixpoint.
+    if (!bootstrapped) break
 
     let summarySig = ''
     for (const k of [...computed.keys()].sort()) summarySig += k + serializeSummary(computed.get(k)!)

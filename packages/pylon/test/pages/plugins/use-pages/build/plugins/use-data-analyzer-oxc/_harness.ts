@@ -9,6 +9,20 @@ import {schema} from './_schema'
 
 const ROOT = '/app'
 
+/** Order-independent canonical form (arg-branch arrays are unordered). */
+export function canon(o: any): any {
+  if (o === true) return true
+  if (Array.isArray(o)) {
+    return o.map(canon).sort((a, b) => (JSON.stringify(a) < JSON.stringify(b) ? -1 : 1))
+  }
+  if (o && typeof o === 'object') {
+    const out: any = {}
+    for (const k of Object.keys(o).sort()) out[k] = canon(o[k])
+    return out
+  }
+  return o
+}
+
 /** Analyze a set of in-memory files; return every seed's selection, in order. */
 export function analyzeFiles(
   files: Record<string, string>,
