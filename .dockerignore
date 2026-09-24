@@ -1,0 +1,24 @@
+# Build context is the repo root (see docs/Dockerfile). Keep it lean and
+# deterministic — deps are installed inside the image from the lockfile.
+**/node_modules
+**/dist
+**/.pylon
+**/*.tsbuildinfo
+
+.git
+.github
+.claude
+.vscode
+.changeset
+
+# Never ship local env / secrets into the build
+**/.env
+**/.env.*
+
+# Nothing test/example-related is needed to build & serve the docs
+e2e
+examples
+**/test
+**/*.test.ts
+
+**/.DS_Store

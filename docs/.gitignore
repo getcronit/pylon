@@ -1,6 +1,7 @@
-.next
-node_modules
+node_modules/
+.pylon
+dist
+.env
+.env.local
+*.tsbuildinfo
 .DS_Store
-.vercel
-!bun.lockb
-!public
