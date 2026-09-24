@@ -70,6 +70,11 @@ export interface AnalyzeCtx {
   seeds: Map<string, SeedRecord>
   /** useMutation: nested relation reads off `await trigger(...)`, keyed by seed. */
   nestedSelectors: Map<string, SelectorNode>
+  /** Marks the summary currently being computed as seed-bearing, so the driver
+   *  never serves it from the cross-call cache (re-running is what re-registers a
+   *  seed + drives its selection). Called on every seed encounter, even one already
+   *  present in `seeds` — `seeds.size` deltas are pass-order-sensitive and miss it. */
+  noteSeed?: () => void
 }
 
 // ── Supply: an in-flight value ────────────────────────────────────────────────
@@ -243,6 +248,10 @@ export function summarize(
     // Keyed by the CURRENT frame's file, so a seed created inside an inlined
     // component is attributed to that component's file (not the entry file).
     const key = seedKey(curFile, call)
+    // Always flag the enclosing computation as seed-bearing — even when the seed is
+    // already in `ctx.seeds` (a later fixpoint pass) — so the driver won't cache and
+    // then reuse this summary in a fresh call where the seed was never registered.
+    ctx.noteSeed?.()
     if (!ctx.seeds.has(key)) {
       ctx.seeds.set(key, {file: curFile, call, kind, ...extra})
       if (!ctx.seedSelectors.has(key)) ctx.seedSelectors.set(key, {})

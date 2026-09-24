@@ -95,6 +95,12 @@ export function analyze(
   // (transitive) computation touched is gathered, so the cross-call cache entry is
   // invalidated when any of them changes.
   const depStack: Set<string>[] = []
+  // Parallel to depStack: whether the summary currently being computed (or any
+  // non-cached descendant it inlined) registered a seed. Seed-bearing summaries must
+  // never enter the cross-call cache — reusing one in a fresh call would skip the seed
+  // registration + selection entirely. A `seeds.size` delta misses this across fixpoint
+  // passes (the seed is already present from an earlier pass), so track presence.
+  const seedStack: {hadSeed: boolean}[] = []
 
   const ctx: AnalyzeCtx = {
     graph,
@@ -102,6 +108,9 @@ export function analyze(
     seeds,
     seedSelectors,
     nestedSelectors,
+    noteSeed() {
+      if (seedStack.length) seedStack[seedStack.length - 1].hadSeed = true
+    },
     summaryOf(file: string, node: any): Summary | undefined {
       const key = fnKey(file, node)
       nodes.set(key, {file, node})
@@ -125,8 +134,9 @@ export function analyze(
 
       const myDeps = new Set<string>([file])
       depStack.push(myDeps)
+      const seedFrame = {hadSeed: false}
+      seedStack.push(seedFrame)
       const bootstrapsBefore = bootstraps
-      const seedsBefore = seeds.size
 
       const scope = graph.getScope(file)
       let summary: Summary
@@ -138,14 +148,17 @@ export function analyze(
       }
 
       depStack.pop()
+      seedStack.pop()
       if (depStack.length) for (const d of myDeps) depStack[depStack.length - 1].add(d)
+      // A seed anywhere in this computation taints every ancestor too — none may cache.
+      if (seedStack.length && seedFrame.hadSeed) seedStack[seedStack.length - 1].hadSeed = true
       computed.set(key, summary)
       inProgress.delete(key)
 
       // Cacheable only if this computation was acyclic (no bootstrap) AND registered
       // no seed (re-running is what writes a seed's selection — must not be skipped).
       const cyclic = bootstraps > bootstrapsBefore
-      const registeredSeed = seeds.size > seedsBefore
+      const registeredSeed = seedFrame.hadSeed
       if (!cyclic && !registeredSeed) {
         const deps = [...myDeps]
         graph.summaryCache.set(key, {summary, deps, hashes: deps.map(d => graph.hashOf(d))})
