@@ -522,10 +522,14 @@ function compileObject(
   }
 
   // Normalization metadata — added to the wire document only (not the TS type;
-  // these are infra fields the user didn't select).
+  // these are infra fields the user didn't select). `id` is the entity's cache key,
+  // so it's only meaningful when we actually project fields onto this object; a bare,
+  // opaquely-read object (`data.x.choices` with no field access) takes just
+  // `__typename`, matching a leaf selection.
   if (injectMeta) {
     if (!selected.has('__typename')) selections.push('__typename')
-    if (fields['id'] && !selected.has('id')) selections.push('id')
+    const projectsField = [...selected].some(k => k !== '__typename' && k !== 'id')
+    if (projectsField && fields['id'] && !selected.has('id')) selections.push('id')
   }
 
   if (selections.length === 0) {

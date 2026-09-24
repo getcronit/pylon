@@ -27,6 +27,8 @@ const schema = buildSchema(/* GraphQL */ `
     age: Int!
     role: Role
     tally(kind: String): Int
+    manager: User
+    friends: [User!]!
   }
   enum Role {
     ADMIN
@@ -74,6 +76,22 @@ describe('compileOperation', () => {
     // TS type omits the auto-injected infra fields.
     expect(op.resultType).toBe(
       '{ me: { name: string | null; age: number } | null }'
+    )
+  })
+
+  it('injects the normalization `id` only when a real field is projected', () => {
+    // A field access is made off the object, so `id` is worth carrying for the cache.
+    expect(stripCtx(compile({me: {manager: {name: true}}}).body)).toBe(
+      'query Test { me { manager { name __typename id } __typename id } }'
+    )
+    // A bare, opaquely-read object (no field access) takes just `__typename` — no `id`,
+    // matching a leaf selection. (`me` itself still normalizes: `name` is projected.)
+    expect(stripCtx(compile({me: {name: true, manager: {}}}).body)).toBe(
+      'query Test { me { name manager { __typename } __typename id } }'
+    )
+    // Same for a bare object LIST read.
+    expect(stripCtx(compile({me: {name: true, friends: {__isList: true}}}).body)).toBe(
+      'query Test { me { name friends { __typename } __typename id } }'
     )
   })
 

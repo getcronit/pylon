@@ -339,10 +339,17 @@ export function summarize(
           if (prop.type === 'Literal' && typeof prop.value === 'string') {
             return member(base, mkStep(prop.value))
           }
-          // The index may read data (`LABELS[row.kind]`) AND may resolve to a
-          // literal key (`row[col.accessorKey]` where accessorKey is "name").
+          // The index may read data (`LABELS[row.kind]`) AND may resolve to one
+          // or more literal keys — `row[col.accessorKey]` where `col` ranges over
+          // a config array, so `accessorKey` is the union of every column's key.
           const idx = evaluate(prop)
-          if (idx.k === 'literal') return member(base, mkStep(idx.value))
+          const {values, hasOther} = collectLiterals(idx)
+          if (values.length) {
+            const parts = values.map(v => member(base, mkStep(v)))
+            // a dynamic part alongside the literals still reads an element
+            if (hasOther) parts.push(elementOf(base))
+            return parts.length === 1 ? parts[0] : {k: 'union', of: parts}
+          }
           // numeric or dynamic index → list element
           return elementOf(base)
         }
@@ -460,6 +467,22 @@ export function summarize(
     return OPAQUE
   }
 
+  /** Collect every string-literal value in a supply (through nested unions). */
+  function collectLiterals(s: Supply): {values: string[]; hasOther: boolean} {
+    if (s.k === 'literal') return {values: [s.value], hasOther: false}
+    if (s.k === 'union') {
+      const values: string[] = []
+      let hasOther = false
+      for (const p of s.of) {
+        const r = collectLiterals(p)
+        values.push(...r.values)
+        hasOther ||= r.hasOther
+      }
+      return {values: [...new Set(values)], hasOther}
+    }
+    return {values: [], hasOther: true}
+  }
+
   function elementOf(base: Supply): Supply {
     if (base.k === 'prov') {
       const p: Prov = {root: base.prov.root, path: markLastList(base.prov.path)}
@@ -536,6 +559,17 @@ export function summarize(
     if (args.some(containsClosure)) return interpretInFrame(c.node, args, freshFrame(c.file, c.node))
     // Pure-data callee → compose its summary (the fast path).
     return foldCall({file: c.file, node: c.node}, args)
+  }
+
+  /** Does a supply carry tracked data (a prov) anywhere — directly, in a union, or
+   *  nested in an object? Used to gate closure-callee invocation to data-bearing calls. */
+  function carriesProv(sup: Supply): boolean {
+    if (sup.k === 'prov') return true
+    if (sup.k === 'union') return sup.of.some(carriesProv)
+    if (sup.k === 'obj') {
+      for (const v of sup.props.values()) if (carriesProv(v)) return true
+    }
+    return false
   }
 
   /** Does a supply carry a function value anywhere (a closure, or one nested in a
@@ -700,6 +734,17 @@ export function summarize(
     const argSupplies = node.arguments.map((a: any) =>
       a.type === 'SpreadElement' ? evaluate(a.argument) : evaluate(a)
     )
+    // A call to a variable/param that holds a closure value — a callback prop like
+    // `rowActions(row)`, or any function passed in as data. `resolveCallable` only
+    // finds named function declarations/imports, so invoke the closure supply here
+    // so reads in its body (`item.media.id`) trace against the supplied row.
+    // Gated on a data (prov) argument: only such a call can contribute new reads, and
+    // the gate keeps the common data-free handlers (`navigate("/x")`, `toast(...)`)
+    // on the cheap path instead of re-interpreting a closure body per call.
+    if (callee.type === 'Identifier' && argSupplies.some(carriesProv)) {
+      const bound = env.get(callee.name)
+      if (bound && containsClosure(bound)) return invokeClosure(bound, argSupplies)
+    }
     const callable = resolveCallable(node.callee)
     if (callable) return invoke(callable, argSupplies)
     // unresolved: data args escape → over-select them.
