@@ -87,10 +87,14 @@ export function analyze(
   const computed = new Map<string, Summary>()
   const inProgress = new Set<string>()
   const nodes = new Map<string, {file: string; node: any}>()
-  // Set when a summary is requested while still being computed (recursion / forward
-  // ref). If a whole pass never bootstraps, the call graph is acyclic and one pass
-  // already reached the fixpoint — no confirming pass needed.
-  let bootstrapped = false
+  // Count of bootstraps (a summary requested mid-computation → recursion / forward
+  // ref). A pass with no new bootstrap means the call graph is acyclic and already
+  // at its fixpoint; a per-fn delta > 0 means that fn is part of a cycle.
+  let bootstraps = 0
+  // Dependency-file collection stack: while computing a summary, every file its
+  // (transitive) computation touched is gathered, so the cross-call cache entry is
+  // invalidated when any of them changes.
+  const depStack: Set<string>[] = []
 
   const ctx: AnalyzeCtx = {
     graph,
@@ -101,13 +105,29 @@ export function analyze(
     summaryOf(file: string, node: any): Summary | undefined {
       const key = fnKey(file, node)
       nodes.set(key, {file, node})
+
+      // Cross-call cache: reuse a prior build/page's summary while every file it
+      // depended on is unchanged. (Only acyclic, seed-free summaries are cached.)
+      const cached = graph.summaryCache.get(key)
+      if (cached && cached.deps.every((d, i) => graph.hashOf(d) === cached.hashes[i])) {
+        computed.set(key, cached.summary)
+        if (depStack.length) for (const d of cached.deps) depStack[depStack.length - 1].add(d)
+        return cached.summary
+      }
+
       const hit = computed.get(key)
       if (hit) return hit
       if (inProgress.has(key)) {
-        bootstrapped = true
+        bootstraps++
         return undefined // bootstrap (recursion / fwd ref)
       }
       inProgress.add(key)
+
+      const myDeps = new Set<string>([file])
+      depStack.push(myDeps)
+      const bootstrapsBefore = bootstraps
+      const seedsBefore = seeds.size
+
       const scope = graph.getScope(file)
       let summary: Summary
       if (!scope) {
@@ -116,8 +136,20 @@ export function analyze(
       } else {
         summary = summarize(file, node, scope, ctx)
       }
+
+      depStack.pop()
+      if (depStack.length) for (const d of myDeps) depStack[depStack.length - 1].add(d)
       computed.set(key, summary)
       inProgress.delete(key)
+
+      // Cacheable only if this computation was acyclic (no bootstrap) AND registered
+      // no seed (re-running is what writes a seed's selection — must not be skipped).
+      const cyclic = bootstraps > bootstrapsBefore
+      const registeredSeed = seeds.size > seedsBefore
+      if (!cyclic && !registeredSeed) {
+        const deps = [...myDeps]
+        graph.summaryCache.set(key, {summary, deps, hashes: deps.map(d => graph.hashOf(d))})
+      }
       return summary
     }
   }
@@ -134,13 +166,13 @@ export function analyze(
   for (let pass = 0; pass < maxPasses; pass++) {
     computed.clear()
     inProgress.clear()
-    bootstrapped = false
+    const bootstrapsAtStart = bootstraps
     for (const {file, node} of entryFns) ctx.summaryOf(file, node)
     // also re-drive any fns discovered in earlier passes (callees in other files)
     for (const {file, node} of [...nodes.values()]) ctx.summaryOf(file, node)
 
     // Acyclic call graph → the first pass already reached the fixpoint.
-    if (!bootstrapped) break
+    if (bootstraps === bootstrapsAtStart) break
 
     let summarySig = ''
     for (const k of [...computed.keys()].sort()) summarySig += k + serializeSummary(computed.get(k)!)

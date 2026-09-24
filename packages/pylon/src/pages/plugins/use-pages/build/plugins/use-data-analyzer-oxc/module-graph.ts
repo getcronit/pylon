@@ -46,6 +46,14 @@ export class ModuleGraph {
   private overlay = new Map<string, string>()
   /** reverse edges: file -> set of files that import it (for dev invalidation). */
   readonly importers = new Map<string, Set<string>>()
+  /**
+   * Cross-call function-summary cache (persists across pages in a build). Keyed by
+   * fn id; each entry records the content hashes of every file its summary depended
+   * on, so it's reused only while all of them are unchanged. Holds only acyclic,
+   * seed-free summaries (the safe, reusable ones). Value is `Summary` (typed `any`
+   * here to avoid a cycle with the interpreter module).
+   */
+  readonly summaryCache = new Map<string, {summary: any; deps: string[]; hashes: string[]}>()
 
   constructor(opts: {tsconfig?: string} = {}) {
     this.resolver = new ResolverFactory({
@@ -70,6 +78,11 @@ export class ModuleGraph {
     const parsed = parseFile(file, src)
     this.parsedCache.set(file, parsed)
     return parsed
+  }
+
+  /** Content hash of a file (its parsed hash), or '' if unreadable. */
+  hashOf(file: string): string {
+    return this.getFile(file)?.hash ?? ''
   }
 
   getScope(file: string, text?: string): FileScope | null {
