@@ -61,11 +61,22 @@ export class ModuleGraph {
     })
   }
 
-  /** Parse + scope a file, memoized by content hash. Reads from disk if needed. */
+  /** Parse + scope a file, memoized by path. Reads from disk if needed.
+   *  The parse cache is served for any read WITHOUT fresh `text` — a file's content
+   *  is stable within a build, and dev/HMR calls `invalidate(file)` on change, so this
+   *  avoids re-reading + re-hashing every dependency on each summary-cache lookup (the
+   *  dominant cost on import-heavy pages). Fresh `text` (a primed entry / bundler input)
+   *  always re-parses and refreshes the cache. */
   getFile(file: string, text?: string): ParsedFile | null {
-    let src = text
-    if (src !== undefined) this.overlay.set(file, src)
-    if (src === undefined) src = this.overlay.get(file)
+    if (text !== undefined) {
+      this.overlay.set(file, text)
+      const parsed = parseFile(file, text)
+      this.parsedCache.set(file, parsed)
+      return parsed
+    }
+    const cached = this.parsedCache.get(file)
+    if (cached) return cached
+    let src = this.overlay.get(file)
     if (src === undefined) {
       try {
         src = fs.readFileSync(file, 'utf8')
