@@ -18,7 +18,11 @@ export interface ParsedArgs {
 
 export function parseArgs(raw: string | undefined): ParsedArgs | null {
   if (raw == null) return null
-  let s = raw.trim()
+  // The arg source is sliced verbatim from the file, so an object literal written
+  // across lines can carry line or block comments (e.g. a note above `query:`).
+  // Strip them first — respecting string/template literals — so a comment line is
+  // never mistaken for an argument name.
+  let s = stripComments(raw).trim()
   if (s === '' || s === '{}') return {}
 
   // Strip a single matching outer brace pair, if present.
@@ -74,6 +78,33 @@ function matchingClose(s: string, start: number): number {
     }
   }
   return -1
+}
+
+/** Remove line and block comments, leaving string/template contents intact. */
+function stripComments(s: string): string {
+  let out = ''
+  for (let i = 0; i < s.length; i++) {
+    const str = skipString(s, i)
+    if (str !== i) {
+      out += s.slice(i, str)
+      i = str - 1
+      continue
+    }
+    if (s[i] === '/' && s[i + 1] === '/') {
+      let j = i + 2
+      while (j < s.length && s[j] !== '\n') j++
+      i = j - 1
+      continue
+    }
+    if (s[i] === '/' && s[i + 1] === '*') {
+      let j = i + 2
+      while (j < s.length && !(s[j] === '*' && s[j + 1] === '/')) j++
+      i = j + 1 // step past the closing marker
+      continue
+    }
+    out += s[i]
+  }
+  return out
 }
 
 /** If a string/template literal starts at `i`, return index just past it; else `i`. */

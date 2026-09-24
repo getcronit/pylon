@@ -33,6 +33,23 @@ describe('parseArgs', () => {
     })
   })
 
+  it('strips line and block comments inside the object literal', () => {
+    // Args sliced verbatim from source can carry comments across lines.
+    expect(parseArgs('{\n  // search-as-you-type\n  query: q ? `${q}*` : undefined,\n  first: 20,\n}')).toEqual({
+      query: 'q ? `${q}*` : undefined',
+      first: '20'
+    })
+    expect(parseArgs('{ first: 10 /* count */, after: cursor }')).toEqual({
+      first: '10',
+      after: 'cursor'
+    })
+    // A `//` inside a string value must be preserved.
+    expect(parseArgs('{ url: "http://x", n: 1 }')).toEqual({
+      url: '"http://x"',
+      n: '1'
+    })
+  })
+
   it('returns {} for empty args', () => {
     expect(parseArgs('{}')).toEqual({})
     expect(parseArgs('')).toEqual({})
