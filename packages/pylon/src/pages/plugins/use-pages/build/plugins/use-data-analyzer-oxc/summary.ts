@@ -81,6 +81,9 @@ type Supply =
   // Invoking it interprets `fn` with the concrete arguments, in the frame it was
   // DEFINED in (so its free vars resolve against its own module/scope).
   | {k: 'closure'; fn: any; frame: Frame}
+  // A string-literal value, tracked so a computed access `row[col.accessorKey]`
+  // (config-driven grids) resolves to the concrete field it names.
+  | {k: 'literal'; value: string}
   | {k: 'opaque'}
 
 const OPAQUE: Supply = {k: 'opaque'}
@@ -325,6 +328,9 @@ export function summarize(
       case 'Identifier': {
         return env.get(node.name) ?? OPAQUE
       }
+      case 'Literal': {
+        return typeof node.value === 'string' ? {k: 'literal', value: node.value} : OPAQUE
+      }
       case 'MemberExpression': {
         const base = evaluate(node.object)
         // computed member
@@ -333,6 +339,10 @@ export function summarize(
           if (prop.type === 'Literal' && typeof prop.value === 'string') {
             return member(base, mkStep(prop.value))
           }
+          // The index may read data (`LABELS[row.kind]`) AND may resolve to a
+          // literal key (`row[col.accessorKey]` where accessorKey is "name").
+          const idx = evaluate(prop)
+          if (idx.k === 'literal') return member(base, mkStep(idx.value))
           // numeric or dynamic index → list element
           return elementOf(base)
         }
@@ -340,6 +350,14 @@ export function summarize(
       }
       case 'CallExpression':
         return evalCall(node)
+      case 'NewExpression': {
+        // `new Date(row.createdAt)` etc. — the constructor is opaque, but its
+        // arguments must be evaluated so reads inside them are recorded.
+        for (const a of node.arguments ?? []) {
+          evaluate(a?.type === 'SpreadElement' ? a.argument : a)
+        }
+        return OPAQUE
+      }
       case 'ArrowFunctionExpression':
       case 'FunctionExpression':
         // A closure value. Interpret once with opaque params so closure-variable
@@ -375,6 +393,7 @@ export function summarize(
         return last
       }
       case 'ConditionalExpression': {
+        evaluate(node.test) // the condition often reads data (`x.type === …`)
         const a = evaluate(node.consequent)
         const b = evaluate(node.alternate)
         return {k: 'union', of: [a, b]}
@@ -589,11 +608,32 @@ export function summarize(
         for (const a of node.arguments) evaluate(a)
         return {k: 'prov', prov: {root: {kind: 'mutation-nested', seedKey: bound.prov.root.seedKey}, path: []}}
       }
+
+      // React memoization hooks are transparent to data flow: `useMemo(() => X)` is
+      // X, `useCallback(fn)` is fn. Without this a memoized config (e.g. a columns
+      // array of cell accessors) collapses to opaque and its closures are lost.
+      if (callee.name === 'useMemo') {
+        const cb = node.arguments[0] && unwrap(node.arguments[0])
+        return cb && isFn(cb) ? interpretInlineFn(cb, []) : OPAQUE
+      }
+      if (callee.name === 'useCallback') {
+        return node.arguments[0] ? evaluate(node.arguments[0]) : OPAQUE
+      }
     }
 
     // member call: op.query/op.mutation, iterator, builtin, field-with-args, extern
     if (callee.type === 'MemberExpression' && !callee.computed) {
       const method = callee.property.name
+
+      // `React.useMemo(() => X)` / `React.useCallback(fn)` — same transparency as
+      // the bare-identifier forms above.
+      if (method === 'useMemo') {
+        const cb = node.arguments[0] && unwrap(node.arguments[0])
+        return cb && isFn(cb) ? interpretInlineFn(cb, []) : OPAQUE
+      }
+      if (method === 'useCallback') {
+        return node.arguments[0] ? evaluate(node.arguments[0]) : OPAQUE
+      }
 
       // op.query(q => …) / op.mutation(q => …): the callback param is the root.
       if (
