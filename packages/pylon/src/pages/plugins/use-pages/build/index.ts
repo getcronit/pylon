@@ -20,7 +20,7 @@ import {
 import {existsSync} from 'fs'
 import {StaticAnalysisManager} from './plugins/use-data-static-analyzer/manager'
 import {useDataStaticAnalyzerRolldown} from './plugins/use-data-static-analyzer'
-import {useDataOxcRolldown} from './plugins/use-data-analyzer-oxc'
+import {createOxcAnalyzerCore, useDataOxcRolldown} from './plugins/use-data-analyzer-oxc'
 import type {UsePagesOptions} from '..'
 
 const DIST_STATIC_DIR = path.join(process.cwd(), '.pylon/__pylon/static')
@@ -160,14 +160,24 @@ export const build = async (
   // legacy engine as an escape hatch. oxc resolves its own dependency graph, so it
   // needs neither the shared manager nor entryPaths.
   const useOxc = process.env.PYLON_ANALYZER !== 'ts-morph'
+  // One shared oxc core across the paired server + client builds: they analyze the
+  // same sources back-to-back, so a second core would re-read and re-hash the whole
+  // dependency graph from cold. The shared core keeps its warm graph/parse cache
+  // (content-hash guarded) for the second build.
+  const oxcCore = useOxc
+    ? createOxcAnalyzerCore({
+        inContext: Boolean(options.i18n),
+        scalarTypes,
+        schemaPath: path.join(cwd, '.pylon', 'schema.graphql'),
+        tsconfig: tsConfigExists ? tsConfigPath : undefined,
+        // Server + client passes analyze the same frozen sources: the second pass
+        // re-wires cached documents instead of re-analyzing.
+        reuseResults: true
+      })
+    : undefined
   const analyzerPlugin = (entryPaths: string[]) =>
     useOxc
-      ? useDataOxcRolldown({
-          inContext: Boolean(options.i18n),
-          scalarTypes,
-          schemaPath: path.join(cwd, '.pylon', 'schema.graphql'),
-          tsconfig: tsConfigExists ? tsConfigPath : undefined
-        })
+      ? useDataOxcRolldown({}, oxcCore)
       : useDataStaticAnalyzerRolldown({
           debug: true,
           inContext: Boolean(options.i18n),

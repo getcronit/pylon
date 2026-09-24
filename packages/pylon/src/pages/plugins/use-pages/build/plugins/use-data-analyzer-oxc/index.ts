@@ -10,6 +10,7 @@
  * The compiled documents live in the sidecar (bundled into the output like any
  * import); the page keeps only the import + the inline variables thunks.
  */
+import * as crypto from 'crypto'
 import * as fs from 'fs'
 import path from 'path'
 import {buildSchema, type GraphQLSchema} from 'graphql'
@@ -29,9 +30,20 @@ export interface OxcAnalyzerOptions {
   schema?: GraphQLSchema
   schemaPath?: string
   tsconfig?: string
+  /**
+   * Reuse a page's analysis result across transforms when its source is byte-identical
+   * (content-hash keyed). Safe for the production build, where the paired server and
+   * client passes analyze the same frozen sources — the second pass then only re-wires
+   * the compiled documents instead of re-analyzing. NOT for dev: there a page's
+   * dependency can change while the page's own text does not, which must re-analyze.
+   */
+  reuseResults?: boolean
 }
 
 const VIRTUAL_PREFIX = '\0pylon-docs:'
+
+const hashSource = (code: string): string =>
+  crypto.createHash('sha1').update(code).digest('hex')
 
 export function createOxcAnalyzerCore(options: OxcAnalyzerOptions = {}) {
   const {
@@ -58,12 +70,28 @@ export function createOxcAnalyzerCore(options: OxcAnalyzerOptions = {}) {
   let graph = new ModuleGraph({tsconfig: options.tsconfig})
   /** file -> analysis warnings surfaced on its last transform (adapters emit them). */
   const warnings = new Map<string, string[]>()
+  /** file -> last transform result, content-hash keyed (build-only result reuse). One
+   *  entry per file (replaced on content change), so it stays bounded. */
+  const resultCache = new Map<
+    string,
+    {hash: string; code: string | null; sidecar: string | null; warnings: string[]}
+  >()
+  let graphReady = false
 
   const start = () => {
-    clearParseCache()
-    graph = new ModuleGraph({tsconfig: options.tsconfig}) // fresh per build
     warnings.clear()
     schema = loadSchema() // re-read so dev picks up schema changes
+    // The graph + parse cache are built once and reused across every build that
+    // shares this core — notably the paired server and client production builds,
+    // which analyze the same sources back-to-back. Rebuilding them per build re-read
+    // and re-hashed the whole dependency graph a second time (the dominant cost).
+    // Both caches are content-hash guarded, so a changed file still re-parses; dev
+    // incremental edits invalidate explicitly via `invalidate()`.
+    if (!graphReady) {
+      clearParseCache()
+      graph = new ModuleGraph({tsconfig: options.tsconfig})
+      graphReady = true
+    }
   }
 
   /** Analyze + rewrite one page. Returns null when there is nothing to do. */
@@ -80,6 +108,21 @@ export function createOxcAnalyzerCore(options: OxcAnalyzerOptions = {}) {
     }
     if (!schema) return null // can't compile documents without a schema
 
+    // Result reuse (build only): the analysis is deterministic over the page's source,
+    // so the second (client) pass of a production build re-wires the already-computed
+    // documents instead of re-analyzing. Content-hash keyed, so any source difference
+    // recomputes — never stale within a build.
+    const cacheKey = options.reuseResults ? hashSource(code) : null
+    if (cacheKey) {
+      const hit = resultCache.get(id)
+      if (hit && hit.hash === cacheKey) {
+        if (hit.sidecar != null) sidecars.set(sidecarVirtualId(id), hit.sidecar)
+        if (hit.warnings.length) warnings.set(id, hit.warnings)
+        else warnings.delete(id)
+        return hit.code
+      }
+    }
+
     const {seeds, seedSelectors, nestedSelectors} = analyze([{path: id, text: code}], {
       schema,
       pylonPackage,
@@ -92,12 +135,26 @@ export function createOxcAnalyzerCore(options: OxcAnalyzerOptions = {}) {
       inContext: options.inContext,
       scalarTypes: options.scalarTypes
     })
-    if (!emitted) return null
+    if (!emitted) {
+      if (cacheKey) resultCache.set(id, {hash: cacheKey, code: null, sidecar: null, warnings: []})
+      return null
+    }
 
     if (emitted.warnings.length) warnings.set(id, emitted.warnings)
     else warnings.delete(id)
-    if (!emitted.changed) return null
+    if (!emitted.changed) {
+      if (cacheKey) resultCache.set(id, {hash: cacheKey, code: null, sidecar: null, warnings: emitted.warnings})
+      return null
+    }
 
+    if (cacheKey) {
+      resultCache.set(id, {
+        hash: cacheKey,
+        code: emitted.code,
+        sidecar: emitted.sidecarCode,
+        warnings: emitted.warnings
+      })
+    }
     sidecars.set(sidecarVirtualId(id), emitted.sidecarCode)
     return emitted.code
   }
@@ -124,9 +181,15 @@ export function createOxcAnalyzerCore(options: OxcAnalyzerOptions = {}) {
   }
 }
 
-/** rolldown adapter (production page build). */
-export function useDataOxcRolldown(options: OxcAnalyzerOptions = {}): RolldownPlugin {
-  const core = createOxcAnalyzerCore(options)
+export type OxcAnalyzerCore = ReturnType<typeof createOxcAnalyzerCore>
+
+/** rolldown adapter (production page build). Pass a shared `core` to reuse one warm
+ *  module graph across the paired server + client builds (they analyze the same
+ *  sources, so a second cold pass just re-reads the whole dependency graph). */
+export function useDataOxcRolldown(
+  options: OxcAnalyzerOptions = {},
+  core: OxcAnalyzerCore = createOxcAnalyzerCore(options)
+): RolldownPlugin {
   return {
     name: 'pylon-use-data-oxc',
     buildStart() {
