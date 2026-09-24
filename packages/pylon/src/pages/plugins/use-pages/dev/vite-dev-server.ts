@@ -26,6 +26,7 @@ import {
   wrapViteLogger
 } from '../../../../cli/dev/vite-messages.js'
 import {useDataStaticAnalyzerVite} from '../build/plugins/use-data-static-analyzer/index'
+import {useDataOxcVite} from '../build/plugins/use-data-analyzer-oxc/index'
 import {injectHydrationVite, pylonImageVite} from '../build/vite-plugins'
 
 export interface PagesDevBridge {
@@ -161,25 +162,26 @@ export async function createPagesDevServer(
     plugins: [
       tsconfigPaths({root: options.root, ignoreConfigErrors: true}),
       react(),
-      // `pre`: rewrite useData → compiled docs BEFORE Vite's oxc transpile.
-      // Hand the analyzer the app's tsconfig so its ts-morph project resolves the
-      // app's path aliases (`@/*`) to REAL files. Without it every non-relative
-      // import falls to the analyzer's `*`→dummy catch-all, so a page that imports
-      // its components + the connection node type via `@/…` (the lokalis convention)
-      // leaves the project too thin for the connection pass to trace inline
-      // node-field reads (`e.actorLabel` in a `DataGridColumn<AuditEvent>` cell) — the
-      // selection collapses to `{ id }`. The prod rolldown build sidesteps this by
-      // feeding the WHOLE module graph through the analyzer (every file is loaded by
-      // absolute path); dev transforms modules on-demand, so it needs the aliases to
-      // pull the same sources in. Guarded on existence so alias-less apps are unaffected.
-      useDataStaticAnalyzerVite({
-        inContext: options.inContext,
-        entryPaths: [options.appTsxAbs],
-        tsConfigFilePath: (() => {
-          const tsconfig = path.join(options.root, 'tsconfig.json')
-          return fs.existsSync(tsconfig) ? tsconfig : undefined
-        })()
-      }),
+      // `pre`: rewrite useData → compiled docs BEFORE Vite's oxc transpile. The oxc
+      // analyzer is the default (`PYLON_ANALYZER=ts-morph` falls back to the legacy
+      // engine). Both get the app's tsconfig so path aliases (`@/*`) resolve to real
+      // files — a page that reaches its components/connection-node type via `@/…`
+      // would otherwise trace too little and collapse to `{ id }`.
+      (() => {
+        const tsconfig = path.join(options.root, 'tsconfig.json')
+        const tsconfigPath = fs.existsSync(tsconfig) ? tsconfig : undefined
+        return process.env.PYLON_ANALYZER === 'ts-morph'
+          ? useDataStaticAnalyzerVite({
+              inContext: options.inContext,
+              entryPaths: [options.appTsxAbs],
+              tsConfigFilePath: tsconfigPath
+            })
+          : useDataOxcVite({
+              inContext: options.inContext,
+              schemaPath: path.join(options.root, '.pylon', 'schema.graphql'),
+              tsconfig: tsconfigPath
+            })
+      })(),
       // Resolve module-imported images to the same URL the rolldown dev SSR emits
       // (`.pylon/__pylon/static/media/…`, served by Hono) — no hydration mismatch.
       pylonImageVite(

@@ -17,8 +17,10 @@ import {
   injectAppHydrationPlugin,
   processCssFile
 } from './rolldown-plugins'
+import {existsSync} from 'fs'
 import {StaticAnalysisManager} from './plugins/use-data-static-analyzer/manager'
 import {useDataStaticAnalyzerRolldown} from './plugins/use-data-static-analyzer'
+import {useDataOxcRolldown} from './plugins/use-data-analyzer-oxc'
 import type {UsePagesOptions} from '..'
 
 const DIST_STATIC_DIR = path.join(process.cwd(), '.pylon/__pylon/static')
@@ -154,6 +156,26 @@ export const build = async (
     tsConfigFilePath: tsConfigExists ? tsConfigPath : undefined
   })
 
+  // The oxc analyzer is the default; `PYLON_ANALYZER=ts-morph` falls back to the
+  // legacy engine as an escape hatch. oxc resolves its own dependency graph, so it
+  // needs neither the shared manager nor entryPaths.
+  const useOxc = process.env.PYLON_ANALYZER !== 'ts-morph'
+  const analyzerPlugin = (entryPaths: string[]) =>
+    useOxc
+      ? useDataOxcRolldown({
+          inContext: Boolean(options.i18n),
+          scalarTypes,
+          schemaPath: path.join(cwd, '.pylon', 'schema.graphql'),
+          tsconfig: tsConfigExists ? tsConfigPath : undefined
+        })
+      : useDataStaticAnalyzerRolldown({
+          debug: true,
+          inContext: Boolean(options.i18n),
+          manager: analysisManager,
+          entryPaths,
+          scalarTypes
+        })
+
   const buildAppFile = async () => {
     const appFiles = makeAppFiles()
     await updateFileIfChanged(appTsxAbs, Buffer.from(appFiles.routes))
@@ -189,15 +211,7 @@ export const build = async (
       transform,
       plugins: [
         injectAppHydrationPlugin(version, appTsxAbs, sentryEnabled),
-        useDataStaticAnalyzerRolldown({
-          debug: true,
-          // Compiled operations carry `@inContext` locale only when the app configured i18n.
-          // (The per-op `context` channel is always compiled in — see compileOperation.)
-          inContext: Boolean(options.i18n),
-          manager: analysisManager,
-          entryPaths: [appTsxAbs],
-          scalarTypes
-        }),
+        analyzerPlugin([appTsxAbs]),
         cssCollectPlugin(collectedCss, {
           outputDir: DIST_STATIC_DIR,
           publicPath: PUBLIC_PATH
@@ -246,15 +260,7 @@ export const build = async (
         SERVER_EXTERNALS.some(e => id === e || id.startsWith(`${e}/`)),
       plugins: [
         ssrExternalizeNodeModules(),
-        useDataStaticAnalyzerRolldown({
-          debug: true,
-          // Compiled operations carry `@inContext` locale only when the app configured i18n.
-          // (The per-op `context` channel is always compiled in — see compileOperation.)
-          inContext: Boolean(options.i18n),
-          manager: analysisManager,
-          entryPaths: [appTsxAbs, ...(hasSitemap ? [sitemapAbs] : [])],
-          scalarTypes
-        }),
+        analyzerPlugin([appTsxAbs, ...(hasSitemap ? [sitemapAbs] : [])]),
         cssCollectPlugin(
           collectedCss,
           writeCssAssets
