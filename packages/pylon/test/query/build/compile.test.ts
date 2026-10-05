@@ -1,6 +1,10 @@
 import {buildSchema} from 'graphql'
 import {describe, expect, it} from 'vitest'
-import {compileOperation, type SelectorNode} from '@/query/build/compile'
+import {
+  compileOperation,
+  mutationResultSelectors,
+  type SelectorNode
+} from '@/query/build/compile'
 
 /**
  * The per-operation `context` channel (`$__context` + `@inContext(context:)`) is compiled
@@ -388,5 +392,76 @@ describe('compileOperation', () => {
       expect(keys).toContain('tally')
       expect(keys).toContain('tally__pqArg__1')
     })
+  })
+})
+
+describe('mutationResultSelectors — default plain-data (non-entity) payload expansion', () => {
+  const s = buildSchema(/* GraphQL */ `
+    type Query {
+      _: Boolean
+    }
+    type Mutation {
+      importPreview(x: String): ImportResult
+      createTicket(x: String): TicketPayload
+      createUser(x: String): User
+    }
+    type ImportResult {
+      dryRun: Boolean
+      plan: ImportPlan
+      ticket: Ticket
+    }
+    type ImportPlan {
+      taxCodes: [String!]!
+      accountsToCreate: [PlanAccount!]!
+      owner: User
+    }
+    type PlanAccount {
+      number: String!
+      name: String!
+      kind: String!
+    }
+    type TicketPayload {
+      ticket: Ticket
+      userErrors: [UserError!]!
+    }
+    type UserError {
+      field: String
+      message: String!
+    }
+    type Ticket {
+      id: ID!
+      title: String
+      author: User
+    }
+    type User {
+      id: ID!
+      name: String
+    }
+  `)
+
+  it('materializes object-LIST element subfields nested below the first level', () => {
+    // Regression: a plain-data DTO returned from a mutation + read through React state can't be
+    // traced by the oxc analyzer, so the default selection must fully expand it. Previously
+    // `plan.accountsToCreate` (a nested object list) was dropped — only the one-level recursion ran.
+    expect(mutationResultSelectors(s, 'ImportResult')).toEqual({
+      dryRun: true,
+      plan: {
+        taxCodes: true, // scalar list
+        accountsToCreate: {number: true, name: true, kind: true}, // object list, nested → expanded
+        owner: {id: true, name: true} // entity child → shallow scalars (normalizes), no recursion
+      },
+      ticket: {id: true, title: true} // entity at payload level → scalars only, `author` relation NOT pulled
+    })
+  })
+
+  it('leaves a shallow entity-wrapping payload unchanged', () => {
+    expect(mutationResultSelectors(s, 'TicketPayload')).toEqual({
+      ticket: {id: true, title: true},
+      userErrors: {field: true, message: true}
+    })
+  })
+
+  it('an entity return selects only its scalars (no relations)', () => {
+    expect(mutationResultSelectors(s, 'User')).toEqual({id: true, name: true})
   })
 })

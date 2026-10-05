@@ -23,6 +23,25 @@ export const SDL = /* GraphQL */ `
   type Mutation {
     createUser(name: String!): User
     publishPost(id: ID!): Post
+    # A mutation returning a nested plain-data DTO (no entity id anywhere): the payload
+    # wraps ImportPlan, which itself holds a nested OBJECT LIST (accountsToCreate). Used to
+    # prove the default mutation-result selection fully materializes such a DTO — needed
+    # because a result read through React state can't be traced by the analyzer.
+    importPreview(x: String): ImportResult
+  }
+
+  type ImportResult {
+    dryRun: Boolean
+    plan: ImportPlan
+  }
+  type ImportPlan {
+    taxCodes: [String!]!
+    accountsToCreate: [PlanAccount!]!
+  }
+  type PlanAccount {
+    number: String!
+    name: String!
+    kind: String!
   }
 
   interface Node {

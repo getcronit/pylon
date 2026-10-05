@@ -232,20 +232,47 @@ export function mutationResultSelectors(
 ): SelectorNode {
   const type = schema.getType(typeName)
   if (!type || !isObjectType(type)) return {}
-  const fields = type.getFields()
   // Entity return: own scalars are enough (and normalizable). Don't pull in
   // relations — those come from explicit trigger-return reads when needed.
-  if (fields.id) return allScalarSelectors(schema, typeName)
-  // Payload wrapper: recurse one level so each wrapped entity/error selects its
-  // scalars and normalizes.
+  if (type.getFields().id) return allScalarSelectors(schema, typeName)
+  // Payload wrapper / plain-data DTO: fully materialize it (see expandPayload).
+  return expandPayload(schema, typeName, new Set([typeName]))
+}
+
+/**
+ * Deep default selection for a non-entity mutation payload (a wrapper OR a nested plain-data
+ * DTO). At every level: scalars/enums + scalar-lists are selected; each nested NON-entity
+ * object/object-list is expanded the same way (recursively); each nested ENTITY (has `id`) is
+ * reduced to its scalars — it normalizes and live-updates the cache, and its relations are
+ * pulled only by explicit trigger-return reads. Object vs object-LIST is irrelevant to the
+ * GraphQL selection (both emit `{ …subfields }`); list-ness is carried by the result type.
+ *
+ * Why depth matters: the oxc pages analyzer cannot trace a mutation result that flows through
+ * React state (no useState model), so object-LIST element subfields nested below the first
+ * level — e.g. `result.plan.accountsToCreate { number name }` — would otherwise be dropped.
+ * Shallow entity-wrapping payloads are unaffected (the old one-level behaviour is a special
+ * case of this). Cycle-guarded by `seen`.
+ */
+function expandPayload(
+  schema: GraphQLSchema,
+  typeName: string,
+  seen: Set<string>
+): SelectorNode {
+  const type = schema.getType(typeName)
+  if (!type || !isObjectType(type)) return {}
   const out: SelectorNode = {}
-  for (const field of Object.values(fields)) {
-    if (field.args.length > 0) continue
+  for (const field of Object.values(type.getFields())) {
+    if (field.args.length > 0) continue // can't auto-select arg fields
     const named = getNamedType(field.type)
     if (isScalarType(named) || isEnumType(named)) {
       out[field.name] = true
     } else if (isObjectType(named)) {
-      out[field.name] = allScalarSelectors(schema, named.name)
+      // Entity child, or a cycle → shallow scalars (normalizes, and never loops);
+      // plain-data child → recurse so its nested lists/objects materialize too.
+      out[field.name] =
+        named.getFields().id || seen.has(named.name)
+          ? allScalarSelectors(schema, named.name)
+          : expandPayload(schema, named.name, new Set(seen).add(named.name))
     }
   }
   return out
