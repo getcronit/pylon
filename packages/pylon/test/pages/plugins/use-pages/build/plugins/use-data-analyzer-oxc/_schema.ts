@@ -17,6 +17,7 @@ export const SDL = /* GraphQL */ `
     organization: Organization
     search(term: String!): [SearchResult!]!
     node(id: ID!): Node
+    report(kind: String!): Report
   }
 
   type Mutation {
@@ -109,6 +110,32 @@ export const SDL = /* GraphQL */ `
   }
 
   union SearchResult = User | Post
+
+  # Two union members with a same-named LIST field (rows) of DIFFERENT element
+  # object types that share one field (amount). Mirrors AccountingReportResult
+  # (AccountLedger.rows vs TrialBalance.rows). Reading one member's rows fields
+  # must not collapse to the intersection of both row types.
+  interface Report {
+    kind: String!
+  }
+  type AlphaReport implements Report {
+    kind: String!
+    rows: [AlphaRow!]!
+  }
+  type BetaReport implements Report {
+    kind: String!
+    rows: [BetaRow!]!
+  }
+  type AlphaRow {
+    label: String!
+    tag: String
+    amount: Int!
+    score: Int!
+  }
+  type BetaRow {
+    note: String!
+    amount: Int!
+  }
 `
 
 export const schema = buildSchema(SDL)

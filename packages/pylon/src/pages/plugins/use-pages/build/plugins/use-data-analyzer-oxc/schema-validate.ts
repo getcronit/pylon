@@ -38,24 +38,40 @@ function isListDeep(t: GraphQLOutputType): boolean {
   return isListType(x)
 }
 
-/** Resolve a field's type on a type — including, for interfaces/unions, fields
- *  declared by any possible concrete member (so member-only reads are kept). */
-function fieldTypeOf(
-  type: GraphQLNamedType,
+/** Resolve a field's candidate types across a set of base types — including, for
+ *  interfaces/unions, the field as declared by every possible concrete member.
+ *
+ *  A field name can resolve to DIFFERENT types across the members of one abstract
+ *  base (`rows: [AccountLedgerRow!]!` on AccountLedger vs `[TrialBalanceRow!]!` on
+ *  TrialBalance). ALL of them are returned so the nested sub-selection is validated
+ *  against their union — otherwise a sub-field that only one member's element type
+ *  declares (e.g. `date` on AccountLedgerRow) is dropped just because another
+ *  member was visited first. (The compiler re-partitions the union per member.) */
+function fieldTypesOf(
+  types: GraphQLNamedType[],
   key: string,
   schema: GraphQLSchema
-): GraphQLOutputType | undefined {
-  if (isObjectType(type) || isInterfaceType(type)) {
-    const f = type.getFields()[key]
-    if (f) return f.type as GraphQLOutputType
+): GraphQLOutputType[] {
+  const out: GraphQLOutputType[] = []
+  const seen = new Set<string>()
+  const add = (t: GraphQLOutputType | undefined) => {
+    if (!t) return
+    const sig = String(t)
+    if (seen.has(sig)) return
+    seen.add(sig)
+    out.push(t)
   }
-  if (isInterfaceType(type) || isUnionType(type)) {
-    for (const member of schema.getPossibleTypes(type)) {
-      const f = member.getFields()[key]
-      if (f) return f.type as GraphQLOutputType
+  for (const type of types) {
+    if (isObjectType(type) || isInterfaceType(type)) {
+      add(type.getFields()[key]?.type as GraphQLOutputType | undefined)
+    }
+    if (isInterfaceType(type) || isUnionType(type)) {
+      for (const member of schema.getPossibleTypes(type)) {
+        add(member.getFields()[key]?.type as GraphQLOutputType | undefined)
+      }
     }
   }
-  return undefined // scalar / enum / no member declares it
+  return out // empty → scalar / enum / no member declares it
 }
 
 function isLeafType(named: GraphQLNamedType): boolean {
@@ -69,30 +85,37 @@ function isLeafType(named: GraphQLNamedType): boolean {
  */
 export function validateSelection(
   tree: SelectorNode,
-  type: GraphQLNamedType,
+  typeOrTypes: GraphQLNamedType | GraphQLNamedType[],
   schema: GraphQLSchema
 ): void {
+  // The current node may be validatable against SEVERAL candidate types at once —
+  // the element types of a polymorphic abstract field (`rows` across members). Keep a
+  // key if ANY candidate declares it; recurse into the union of the candidates.
+  const types = Array.isArray(typeOrTypes) ? typeOrTypes : [typeOrTypes]
   for (const key of Object.keys(tree)) {
     if (key === '__args' || key === '__isList' || key === '__typename') continue
-    const ft = fieldTypeOf(type, key, schema)
-    if (!ft) {
-      delete tree[key] // not a schema field (on this type or any member) → drop
+    const fts = fieldTypesOf(types, key, schema)
+    if (fts.length === 0) {
+      delete tree[key] // not a schema field (on any candidate or its members) → drop
       continue
     }
-    const named = getNamedType(ft)
-    const list = isListDeep(ft)
+    const named = fts.map(t => getNamedType(t))
+    const list = fts.some(isListDeep)
+    const leaf = named.every(isLeafType)
+    // Candidate named types to recurse into (the object/interface/union ones).
+    const childTypes = named.filter(n => !isLeafType(n))
     const child = tree[key]
 
     // Arg-branch array: same field, different args → one node per branch.
     if (Array.isArray(child)) {
       for (const b of child as SelectorNode[]) {
         if (!b || typeof b !== 'object') continue
-        if (isLeafType(named)) {
+        if (leaf) {
           for (const k of Object.keys(b)) if (k !== '__args' && k !== '__isList') delete b[k]
         } else {
           if (list) b.__isList = true
           else delete b.__isList
-          validateSelection(b, named, schema)
+          validateSelection(b, childTypes, schema)
         }
       }
       continue
@@ -103,26 +126,26 @@ export function validateSelection(
         ? (child as SelectorNode).__args
         : undefined
 
-    if (isLeafType(named)) {
+    if (leaf) {
       if (childArgs !== undefined || list) {
-        const leaf: SelectorNode = {}
-        if (childArgs !== undefined) leaf.__args = childArgs
-        if (list) leaf.__isList = true
-        tree[key] = leaf
+        const l: SelectorNode = {}
+        if (childArgs !== undefined) l.__args = childArgs
+        if (list) l.__isList = true
+        tree[key] = l
       } else {
         tree[key] = true
       }
       continue
     }
 
-    // object / interface / union → recurse (member-aware via fieldTypeOf).
+    // object / interface / union → recurse against the UNION of candidate types.
     const node: SelectorNode =
       child && typeof child === 'object' && !Array.isArray(child)
         ? (child as SelectorNode)
         : {}
     if (list) node.__isList = true
     else delete node.__isList
-    validateSelection(node, named, schema)
+    validateSelection(node, childTypes, schema)
     tree[key] = node
   }
 }
