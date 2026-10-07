@@ -1227,6 +1227,16 @@ export class SchemaParser {
             this.sfiFile
           )
 
+          // A Promise-typed property (a model's relation / async getter) is never a valid INPUT
+          // field: the namer (getTypeDefinition) unwraps the Promise and references the element's
+          // `<Name>Input`, but the input discovery below SKIPS Promise types for inputs — so
+          // recording the property would emit a field pointing at an input type that is never
+          // defined (the "Unknown type: XInput_N" dangling reference that crashes schema build).
+          // Drop it here so both sides agree a Promise is not an input.
+          if (processing === 'inputs' && isPromise(propertyType)) {
+            return
+          }
+
           if (
             !referenceSchema[processing].get(type)![
               property.escapedName as string
