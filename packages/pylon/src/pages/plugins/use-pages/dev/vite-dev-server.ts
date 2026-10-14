@@ -126,7 +126,14 @@ export async function createPagesDevServer(
     // Middleware mode: Vite serves client assets and runs React Fast Refresh, but binds no
     // port itself — `hmr.server` points the HMR websocket at our shared http.Server (above),
     // so it upgrades over the app port instead of Vite's fixed 24678 (see the note there).
-    server: {middlewareMode: true, hmr: {server: httpServer}},
+    // `cors.preflightContinue`: Vite's dev CORS still sets the headers but calls next() on an OPTIONS
+    // preflight instead of ending it 204 — otherwise it would SWALLOW every OPTIONS before Hono, so an
+    // app route that answers OPTIONS itself (e.g. a WebDAV mount advertising `DAV:`) never runs in dev.
+    server: {
+      middlewareMode: true,
+      hmr: {server: httpServer},
+      cors: {preflightContinue: true, origin: true},
+    },
     // Single instance of the framework/react across the client graph — otherwise the
     // workspace `@getcronit/pylon/pages` (treated as source) can load twice, giving two
     // React contexts → "useDataClient must be used within a DataClientProvider".
