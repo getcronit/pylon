@@ -307,6 +307,30 @@ function optimizeRouteStructure(route: Route, hasLayout: boolean): void {
       pageChild.path = '*'
     }
   }
+
+  // A catch-all (`[...x]`) ALONGSIDE static sibling routes (e.g. `files/[...assetId]` + `files/new` +
+  // `files/settings`). The single-child merge above can't run (there are siblings), so the segment's
+  // BASE path (`/files`) is left with no index route — React Router then renders the parent's empty
+  // `<Outlet/>` ("Matched leaf route … does not have an element"). An unoptional `[...x]` is meant to
+  // cover the base too (like an optional catch-all), so synthesise an index route that reuses the
+  // catch-all's component with empty splat params. Guarded: only when a `*` child coexists with others
+  // and no index already exists.
+  const splat = route.children?.find(child => child.path === '*')
+  if (
+    !hasLayout &&
+    splat &&
+    route.children!.length > 1 &&
+    !route.children!.some(child => child.index)
+  ) {
+    route.children!.push({
+      ...splat,
+      path: undefined,
+      index: true,
+      // A distinct React Router route id (ids must be unique); the DATA component id baked into `lazy`
+      // (withRouteData's 2nd arg) stays the catch-all's, so its generated operations still resolve.
+      id: splat.id ? `${splat.id}Index` : undefined
+    })
+  }
 }
 
 /**
