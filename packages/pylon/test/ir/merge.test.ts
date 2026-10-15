@@ -159,6 +159,37 @@ describe('collapseInterfaceTwins — STI interface unification', () => {
     expect(ir.entities.Image.implements).toEqual(['Asset'])
     expect(ir.entities.Doc.implements).toEqual(['Asset'])
   })
+
+  it('folds a SUBSET alias (fewer than ALL subtypes) — e.g. a method returning `Image | Doc`-subset, or the abstract base through a `{media: Asset}` payload — so no leftover `Asset_1` interface demands the base hidden columns', () => {
+    const ir = emptyIR()
+    ir.entities.Asset = {name: 'Asset', table: 'asset', abstract: false, primaryKey: 'id', implements: [], fields: [f('id'), f('name'), {...f('url'), exposed: true}]}
+    ir.interfaces.Asset = {name: 'Asset', fields: [f('id'), f('name')]}
+    ir.interfaces.IAsset = {name: 'IAsset', fields: [f('id'), f('name')]} // so `Asset` is a collapsed STI base
+    // a dedup-suffixed alias from a method/mutation return, implemented by ONLY a SUBSET of the
+    // subtypes (just Image) and carrying the base's HIDDEN column — the exact-match fold missed it.
+    ir.interfaces.Asset_1 = {name: 'Asset_1', fields: [f('id'), f('name'), f('s3Key', false)]}
+    ir.entities.Image = {name: 'Image', table: 'asset', abstract: false, primaryKey: 'id', implements: ['Asset', 'IAsset', 'Asset_1'], fields: [f('id'), f('name'), f('width')]}
+    ir.entities.Doc = {name: 'Doc', table: 'asset', abstract: false, primaryKey: 'id', implements: ['Asset', 'IAsset'], fields: [f('id'), f('name'), f('pages')]}
+    const collapsed = collapseInterfaceTwins(ir)
+    expect(collapsed.interfaces.Asset_1).toBeUndefined() // the subset alias is folded away
+    expect(collapsed.interfaces.Asset).toBeDefined()
+    expect(collapsed.entities.Image.implements).toEqual(['Asset']) // Asset_1 → Asset, deduped
+    expect(collapsed.entities.Doc.implements).toEqual(['Asset'])
+  })
+
+  it('leaves a genuine interface alone when an implementer is NOT a subclass of the base', () => {
+    const ir = emptyIR()
+    ir.entities.Asset = {name: 'Asset', table: 'asset', abstract: false, primaryKey: 'id', implements: [], fields: [f('id'), f('name')]}
+    ir.interfaces.Asset = {name: 'Asset', fields: [f('id'), f('name')]}
+    ir.interfaces.IAsset = {name: 'IAsset', fields: [f('id'), f('name')]}
+    ir.entities.Image = {name: 'Image', table: 'asset', abstract: false, primaryKey: 'id', implements: ['Asset', 'IAsset'], fields: [f('id'), f('name')]}
+    // `Named` is implemented by Image (an Asset subclass) AND Account (NOT an Asset) → not an Asset alias.
+    ir.interfaces.Named = {name: 'Named', fields: [f('name')]}
+    ir.entities.Image.implements.push('Named')
+    ir.entities.Account = {name: 'Account', table: 'account', abstract: false, primaryKey: 'id', implements: ['Named'], fields: [f('id'), f('name')]}
+    const collapsed = collapseInterfaceTwins(ir)
+    expect(collapsed.interfaces.Named).toBeDefined() // genuine cross-base interface kept
+  })
 })
 
 describe('mergeFields — a hidden m2m relation never shadows an exposed accessor', () => {

@@ -276,12 +276,14 @@ export function collapseInterfaceTwins(
     collapsed.push(name)
     renames?.set(twin, name)
   }
-  // Property-named ALIASES of an STI base: when the base is returned through a polymorphic
-  // property — a mutation's `{item: Media}`, a `folder: Media`, … — the type-checker promotes
-  // that position to a FRESH interface named after the PROPERTY (`Item`) whose implementers
-  // are EXACTLY the base's subclasses. Fold each such alias into the base interface, so the
-  // STI base keeps a single interface (and the alias's over-broad field set — it can even
-  // include the base's HIDDEN columns — doesn't demand fields the subtypes don't expose).
+  // Property-named ALIASES of an STI base: when the base (or a SUBSET of its subclasses) is returned
+  // through a polymorphic position — a mutation's `{item: Media}`, a `folder: Media`, a method returning
+  // `Media` or a `GenericFile | MediaImage` union — the type-checker promotes it to a FRESH interface
+  // (named after the property, or the base with a `_N` suffix) whose implementers are a NON-EMPTY SUBSET
+  // of the base's subclasses. Fold each such alias into the base interface, so the STI base keeps a
+  // single interface and the alias's over-broad field set — it can even include the base's HIDDEN
+  // columns — doesn't demand fields the (hidden-stripped) subtypes don't expose. A non-subset interface
+  // (an implementer outside this base's subclasses) is a genuine, distinct interface and is left alone.
   for (const x of collapsed) {
     const subs = new Set(
       Object.values(ir.entities)
@@ -294,7 +296,7 @@ export function collapseInterfaceTwins(
       const impls = Object.values(ir.entities)
         .filter(e => e.implements.includes(name))
         .map(e => e.name)
-      if (impls.length === subs.size && impls.every(n => subs.has(n))) {
+      if (impls.length > 0 && impls.every(n => subs.has(n))) {
         renameTypeAcross(ir, name, x)
         delete ir.interfaces[name]
         renames?.set(name, x)
