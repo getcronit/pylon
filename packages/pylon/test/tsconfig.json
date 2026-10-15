@@ -1,0 +1,13 @@
+{
+  // Editor/type-check config for the test suite. The package's tsconfig.json
+  // excludes *.test.ts (its job is to build src), so without this the IDE has no
+  // config covering test files → the `@/…` and `@getcronit/pylon/…` imports show as
+  // unresolved. This extends the self-ref-aware typecheck config, widens rootDir to
+  // the package root (tests sit beside src, not under it), and never emits.
+  "extends": "../tsconfig.typecheck.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".."
+  },
+  "include": ["**/*.ts", "**/*.tsx"]
+}
