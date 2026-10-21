@@ -38,6 +38,11 @@ describe('new Pylon({queues}) — decorator-free queue registration', () => {
     expect(getQueueDefinition(Publish).describe().attempts).toBe(3)
   })
 
+  it('app.introspect() aggregates the queues (the CLI read surface, via the extension bus)', () => {
+    const data = news.introspect() as {queues?: Array<{name: string}>}
+    expect((data.queues ?? []).map(q => q.name).sort()).toEqual(['news.digest', 'news.publish'])
+  })
+
   it('an un-named app leaves queue names unprefixed', () => {
     class Sweep extends Queue {
       async process() {}

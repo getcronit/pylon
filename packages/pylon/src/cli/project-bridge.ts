@@ -394,9 +394,37 @@ export interface IntrospectData {
   queues: Array<{name: string; attempts?: number; concurrency?: number; hasSchema: boolean}>
 }
 
-/** Introspect a project via the child runner → its IR + authz + queues. */
-export function introspectAppData(cwd: string, modelsEntry: string): Promise<IntrospectData> {
-  return spawnProjectRunner<IntrospectData>(cwd, 'introspect', modelsEntry)
+/** Introspect a project IN-PROCESS → its IR + authz + queues (subprocess-free; see loadProjectApp).
+ *  Models/IR come off the ORM; queues come off the app's own introspection surface (`app.introspect()`
+ *  via `core.getApps()`) — each satellite reports its own slice through the extension bus, so the CLI
+ *  reads ONE aggregated surface and never imports `@getcronit/pylon/queues` itself. */
+export async function introspectAppData(cwd: string, modelsEntry: string): Promise<IntrospectData> {
+  const orm = await loadProjectApp(cwd, modelsEntry) // imports the entry → apps are constructed
+  try {
+    const ir = orm.toIR()
+    const authz = (orm.allModels?.() ?? [])
+      .filter(m => !m.abstract)
+      .map(m => ({
+        model: m.ctor.name,
+        table: m.tableName,
+        app: m.app,
+        tenant: m.tenantColumn,
+        secure: Boolean(m.secure)
+      }))
+    // Read queues (and any other satellite's data) off the app itself, via core resolved from the
+    // entry — the same instance the entry's `new Pylon(...)` registered into.
+    const entryUrl = pathToFileURL(path.resolve(cwd, modelsEntry)).href
+    const resolver = (import.meta as {resolve?: (s: string, parent: string) => string}).resolve
+    const coreSpec =
+      typeof resolver === 'function' ? resolver('@getcronit/pylon', entryUrl) : '@getcronit/pylon'
+    const core = (await import(coreSpec)) as {getApps(): Array<{introspect(): Record<string, unknown>}>}
+    const queues = core
+      .getApps()
+      .flatMap(a => (a.introspect().queues as IntrospectData['queues'] | undefined) ?? [])
+    return {ir, authz, queues}
+  } finally {
+    await closeProjectApp(orm)
+  }
 }
 
 /** Introspect a project via the child runner → its entity IR (or undefined). */

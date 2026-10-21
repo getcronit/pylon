@@ -76,6 +76,10 @@ function processQueues(app: any): void {
 // Register the construct hook on core's extension bus (no runtime core import). No
 // prototype patch — queue registration is the `queues: […]` constructor option.
 const EXT = Symbol.for('@getcronit/pylon.extend')
-const bus = ((globalThis as any)[EXT] ??= {fns: [], constructHooks: [], Pylon: undefined})
+const bus = ((globalThis as any)[EXT] ??= {fns: [], constructHooks: [], introspectors: [], Pylon: undefined})
 bus.constructHooks ??= []
 bus.constructHooks.push(processQueues)
+// Read side for `app.introspect()`: this app's queues, from the per-app registry (queuesOf) — no core
+// import, so `@getcronit/pylon` stays an optional peer. Core merges this into app.introspect().
+bus.introspectors ??= []
+bus.introspectors.push((app: object) => ({queues: queuesOf(app).map(q => q.describe())}))

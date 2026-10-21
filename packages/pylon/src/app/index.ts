@@ -137,6 +137,13 @@ function callerSourceDir(): string | undefined {
   return undefined
 }
 
+/** Every Pylon app constructed in this process. The subprocess-free CLI loader reads this (getApps)
+ *  to introspect a project in-process after importing its entry. */
+const constructedApps: Pylon<any>[] = []
+
+/** The Pylon apps constructed so far — the CLI's in-process introspection entry point. */
+export const getApps = (): Pylon<any>[] => [...constructedApps]
+
 export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
   /** The resolved config for this instance (set by `executeConfig`). */
   config?: PylonConfig
@@ -270,12 +277,29 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
     // `pylonOptions`/`name` are set. Keeps core decoupled — it never reads those keys.
     const bus = (globalThis as Record<symbol, any>)[Symbol.for('@getcronit/pylon.extend')]
     if (bus?.constructHooks) for (const hook of bus.constructHooks) hook(this)
+    // Track the constructed app so the CLI can introspect it in-process (getApps) — no subprocess.
+    constructedApps.push(this as unknown as Pylon<any>)
 
     // NB: the base request pipeline (compress / async-context / logger /
     // plugin chain / error mapping) is intentionally NOT installed in the
     // constructor. It's a per-served-ROOT concern, installed once by
     // `installBasePipeline()` (from `compose()` and from the serve path). See that
     // method for why constructor args can't decide root-vs-child.
+  }
+
+  /**
+   * The single introspection surface for THIS app — every satellite's view merged (models, queues, …).
+   * Satellites contribute a reader via `introspectors` on the extension bus, so core stays decoupled
+   * (it never learns what they report, and they never import core). The DATA lives on the app itself
+   * (per-app WeakMaps like `queuesOf`); the bus only carries the reader fns.
+   */
+  introspect(): Record<string, unknown> {
+    const bus = (globalThis as Record<symbol, any>)[Symbol.for('@getcronit/pylon.extend')]
+    const out: Record<string, unknown> = {}
+    if (bus?.introspectors)
+      for (const read of bus.introspectors as Array<(a: Pylon<any>) => Record<string, unknown>>)
+        Object.assign(out, read(this as unknown as Pylon<any>))
+    return out
   }
 
   /**
@@ -399,9 +423,13 @@ export class Pylon<G extends Resolvers = {}> extends Hono<Env> {
     // Per-construction hooks: a satellite pushes one to process its slice of the
     // constructor options (e.g. the `models`/`queues` lists). Run by every `new Pylon`.
     constructHooks: [] as Array<(app: Pylon<any>) => void>,
+    // Per-app introspectors: a satellite pushes one that reads its slice back off an app (e.g.
+    // `{queues: queuesOf(app)}`). Merged by `app.introspect()` — the CLI's one read surface.
+    introspectors: [] as Array<(app: Pylon<any>) => Record<string, unknown>>,
     Pylon: undefined as typeof Pylon | undefined
   })
   bus.constructHooks ??= [] // a satellite may have created the bus without this field
+  bus.introspectors ??= []
   bus.Pylon = Pylon
   for (const patch of bus.fns.splice(0)) patch(Pylon)
 }

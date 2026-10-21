@@ -38,10 +38,10 @@ export {
 } from './in-context.js'
 export {useSentry, type SentryPluginOptions} from '../plugins/use-sentry.js'
 export {useNodeServer, type NodeServerOptions} from '../plugins/use-node-server.js'
-export {pylonApp as app, Pylon}
+export {pylonApp as app, Pylon, getApps}
 export type {Gate, Resolvers, PylonOptions} from '../app/index.js'
 
-import {app as pylonApp, Pylon} from '../app/index.js'
+import {app as pylonApp, Pylon, getApps} from '../app/index.js'
 
 import type {Plugin as YogaPlugin} from 'graphql-yoga'
 import {MiddlewareHandler} from 'hono'
