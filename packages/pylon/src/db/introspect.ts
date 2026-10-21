@@ -25,11 +25,14 @@
 import {sql} from 'kysely'
 import {
   physicalSchemaOf,
+  renameCandidates,
   type ForeignKeyChange,
   type IndexSpec,
   type OnDelete,
   type PhysicalSchema,
   type PhysicalTable,
+  type Rename,
+  type SchemaChange,
   type SqlType,
   type TableColumn
 } from '../ir'
@@ -560,4 +563,39 @@ export async function schemaDrift(db: Database = getDatabase()): Promise<SchemaD
   // the type, nullability or constraints the models expect. Deep-compare too.
   const mismatches = computeDeepDrift(await introspectPhysical(db), expectedSchema)
   return {...presence, mismatches}
+}
+
+/**
+ * The DESTRUCTIVE drift `db push` surfaces for the operator to confirm: orphan COLUMNS on model-owned
+ * tables (candidates to DROP) and the likely RENAMEs among them (a dropped column + an added column of
+ * the same SQL type — the official {@link renameCandidates} heuristic). Column-level only, matched by
+ * physical table name; extra TABLES (another service's, in a shared DB) are ignored, exactly like
+ * {@link computeDeepDrift}. This NEVER mutates anything — the engine applies the confirmed subset via
+ * `syncSchema({renames, dropColumns})`.
+ */
+export async function pushPlan(
+  db: Database = getDatabase()
+): Promise<{renameCandidates: Rename[]; dropColumns: Array<{table: string; column: string}>}> {
+  const live = await introspectPhysical(db)
+  const modelByTable = new Map<string, PhysicalTable>()
+  for (const t of Object.values(physicalSchemaOf(toIR().entities))) modelByTable.set(t.table, t)
+
+  const changes: SchemaChange[] = []
+  const dropColumns: Array<{table: string; column: string}> = []
+  for (const liveTable of Object.values(live)) {
+    const modelTable = modelByTable.get(liveTable.table)
+    if (!modelTable) continue // extra table — not ours to touch
+    const want = new Set(modelTable.columns.map(c => c.name))
+    const have = new Set(liveTable.columns.map(c => c.name))
+    for (const col of liveTable.columns) {
+      if (!want.has(col.name)) {
+        changes.push({kind: 'dropColumn', table: liveTable.table, column: col})
+        dropColumns.push({table: liveTable.table, column: col.name})
+      }
+    }
+    for (const col of modelTable.columns) {
+      if (!have.has(col.name)) changes.push({kind: 'addColumn', table: liveTable.table, column: col})
+    }
+  }
+  return {renameCandidates: renameCandidates(changes), dropColumns}
 }

@@ -114,7 +114,7 @@ export {
   type NearestMetric,
   type NearestQuerySet
 } from './manager.js'
-export {syncSchema, dropTables, resetSchema} from './schema-sync.js'
+export {syncSchema, dropTables, resetSchema, type SyncOptions} from './schema-sync.js'
 // `useDatabase` is the CONFIG PLUGIN → exported from `@getcronit/pylon/db/plugin`
 // (see ./plugin.ts), not from the authoring-API root. This keeps the uniform
 // convention: `./db` = authoring API, `./db/plugin` = the plugin.
@@ -190,6 +190,7 @@ export {
   computeDeepDrift,
   hasDrift,
   schemaDrift,
+  pushPlan,
   type SchemaDrift
 } from './introspect.js'
 export {
