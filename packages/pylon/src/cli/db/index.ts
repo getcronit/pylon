@@ -12,13 +12,13 @@ import {promises as fs} from 'node:fs'
 import path from 'node:path'
 import {pathToFileURL} from 'node:url'
 import {describeChange, isDestructive, type SchemaChange} from '../../ir'
-import {spawnProjectRunner, type ProjectApp} from '../project-bridge.js'
+import {loadProjectApp, closeProjectApp, type ProjectApp} from '../project-bridge.js'
 
 /**
- * Load a migration file. The runner already runs under tsx (see `spawnProjectRunner`), which
- * transpiles `.ts` on `import` exactly as `project-runner` loads the models entry directly — so the
- * migration (and any models a data migration pulls in) imports straight from disk: it resolves against
- * the project's own `node_modules` and shares the ONE ORM instance the models registered into.
+ * Load a migration file. `loadProjectApp` has already registered tsx in this process, so the migration
+ * `.ts` transpiles on `import` exactly as the models entry did — so the migration (and any models a
+ * data migration pulls in) imports straight from disk: it resolves against the project's own
+ * `node_modules` and shares the ONE ORM instance the models registered into.
  *
  * This replaces an earlier rolldown bundle written into the project root. That bundle leaked: its
  * cleanup removed only the entry file, so code-split chunks (`rolldown-runtime-*.js`, per-module
@@ -190,16 +190,21 @@ export interface DbCommandResult {
 }
 
 /**
- * Run a `pylon db` command. Executes in a CHILD process (the project runner) so it
- * drives the project's OWN `@getcronit/pylon/db` — one instance, real migration
- * files, real `import.meta`. The parent stays the UX layer: it gets the plain
- * `DbCommandResult` back and formats it (see the CLI actions). See
- * PROJECT_LOADER_DESIGN.md.
+ * Run a `pylon db` command. Loads the project IN-PROCESS (tsx loader + entry-scoped resolution) so it
+ * drives the project's OWN `@getcronit/pylon/db` — one instance, real migration files, real
+ * `import.meta` — then runs the command logic directly, no subprocess, no IPC, no temp file. The ORM
+ * pool is closed afterwards so the CLI can exit; the loaded module stays cached, so a follow-up op in
+ * the same invocation (e.g. push detect→apply) reuses the registered instance and reconnects.
  */
 export async function runDbCommand(options: DbCommandOptions): Promise<DbCommandResult> {
   const cwd = options.cwd ?? process.cwd()
   const entry = options.models ?? './src/index.ts'
-  return spawnProjectRunner<DbCommandResult>(cwd, 'db', entry, [JSON.stringify({...options, cwd})])
+  const orm = await loadProjectApp(cwd, entry)
+  try {
+    return await runDbCommandCore(orm as unknown as ProjectApp, {...options, cwd})
+  } finally {
+    await closeProjectApp(orm)
+  }
 }
 
 /**

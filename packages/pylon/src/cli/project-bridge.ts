@@ -19,7 +19,7 @@ import {spawn} from 'node:child_process'
 import {createRequire} from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
-import {fileURLToPath} from 'node:url'
+import {fileURLToPath, pathToFileURL} from 'node:url'
 import {type RunnerEnvelope} from './project-runner-protocol.js'
 import type {PhysicalSchema, PylonIR, Rename} from '../ir'
 import type {SyncOptions} from '../db'
@@ -269,6 +269,69 @@ function projectRunnerPath(): string {
   const dir = path.dirname(fileURLToPath(import.meta.url))
   const js = path.join(dir, 'project-runner.js')
   return existsSync(js) ? js : path.join(dir, 'project-runner.ts')
+}
+
+// ── in-process project loader (subprocess-free) ─────────────────────────────────
+let tsxRegistered = false
+const appCache = new Map<string, Promise<ProjectApp>>()
+
+/**
+ * Load a Pylon project IN-PROCESS — the subprocess-free successor to spawning `project-runner`. It
+ * registers tsx as a loader (the project's `.ts` transpiles on import), resolves the project's OWN
+ * `@getcronit/pylon/db` from the entry (the one instance the models register into), and imports the
+ * entry to populate the registry. The entry's own stdout during import is redirected to stderr so a
+ * command's machine-readable stdout (e.g. `inspect` JSON) stays clean. Cached per resolved entry: a
+ * second op in the same CLI invocation reuses the loaded, registered instance.
+ *
+ * Correctness equals the old child (one ORM instance via entry-scoped resolution, real files/stacks);
+ * what the child additionally bought — hard `process.exit`/crash containment of the project entry — is
+ * given up. Fine here: the CLI loads the user's OWN project, whose entry registers but doesn't serve.
+ */
+export async function loadProjectApp(cwd: string, modelsEntry: string): Promise<ProjectApp> {
+  const entryAbs = path.resolve(cwd, modelsEntry)
+  const cached = appCache.get(entryAbs)
+  if (cached) return cached
+  const loading = (async () => {
+    if (!tsxRegistered) {
+      const {register} = (await import('tsx/esm/api')) as {register: () => void}
+      register()
+      tsxRegistered = true
+    }
+    // Resolve the project's own pylon-db from the entry's location — NOT the CLI's copy — so the
+    // migration runner drives the exact instance the models register into. `import.meta.resolve` (not
+    // createRequire) so the ESM `import` condition applies: `./db` is an ESM-only export, invisible to
+    // CJS `require` resolution. Under a bundler/vitest that strips `import.meta.resolve`, fall back to a
+    // bare import — there the CLI and project share one (workspace) instance anyway.
+    const entryUrl = pathToFileURL(entryAbs).href
+    const resolver = (import.meta as {resolve?: (s: string, parent: string) => string}).resolve
+    const ormSpecifier =
+      typeof resolver === 'function' ? resolver('@getcronit/pylon/db', entryUrl) : '@getcronit/pylon/db'
+    const orm = (await import(ormSpecifier)) as ProjectApp
+    // The entry's import-time logs go to stderr (like the child forwarded them), keeping stdout clean.
+    const realWrite = process.stdout.write.bind(process.stdout)
+    ;(process.stdout as unknown as {write: typeof process.stderr.write}).write =
+      process.stderr.write.bind(process.stderr)
+    try {
+      await import(entryUrl) // top-level runs → new Pylon(...) → models register into `orm`
+    } finally {
+      ;(process.stdout as unknown as {write: typeof process.stderr.write}).write = realWrite
+    }
+    return orm
+  })()
+  appCache.set(entryAbs, loading)
+  return loading
+}
+
+/** Close the project ORM's default connection pool so the CLI can exit (best-effort; no-op if a
+ *  command like `diff`/`plan` never connected). Does NOT drop the module from the cache — the
+ *  registered models stay, so a later op reconnects against the same instance. */
+export async function closeProjectApp(orm: ProjectApp): Promise<void> {
+  try {
+    const db = (orm as {getDatabase?: () => {destroy?: () => Promise<void>}}).getDatabase?.()
+    await db?.destroy?.()
+  } catch {
+    /* never connected — nothing to close */
+  }
 }
 
 /**
