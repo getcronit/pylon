@@ -11,52 +11,23 @@
 import {promises as fs} from 'node:fs'
 import path from 'node:path'
 import {pathToFileURL} from 'node:url'
-import {rolldown} from 'rolldown'
 import {describeChange, isDestructive, type SchemaChange} from '../../ir'
 import {spawnProjectRunner, type ProjectApp} from '../project-bridge.js'
 
-let migrationCounter = 0
-
 /**
- * Build a migration loader bound to the project root. Migration files are TS, so
- * the CLI transpiles them (esbuild) — keeping pylon-db transpiler-free. The temp
- * bundle is written *inside the project* (like the models-entry bridge) so its
- * external `@getcronit/pylon/db` import — and any models it touches — resolve to
- * the project's own instance, not a copy. The migrations dir may live anywhere
- * (e.g. a tmpdir in tests), so we can't emit the temp beside the source file.
+ * Load a migration file. The runner already runs under tsx (see `spawnProjectRunner`), which
+ * transpiles `.ts` on `import` exactly as `project-runner` loads the models entry directly — so the
+ * migration (and any models a data migration pulls in) imports straight from disk: it resolves against
+ * the project's own `node_modules` and shares the ONE ORM instance the models registered into.
+ *
+ * This replaces an earlier rolldown bundle written into the project root. That bundle leaked: its
+ * cleanup removed only the entry file, so code-split chunks (`rolldown-runtime-*.js`, per-module
+ * `<name>-<hash>.js`) piled up in the repo. A direct import writes nothing.
  */
-function createMigrationLoader(cwd: string) {
+function createMigrationLoader() {
   return async function loadMigrationFile(filePath: string): Promise<unknown> {
-    const stem = path.join(cwd, `.pylon-migration.${process.pid}.${migrationCounter++}`)
-    const tmp = `${stem}.mjs`
-    // rolldown has no inline `tsconfigRaw`; write a temp tsconfig to FORCE
-    // `useDefineForClassFields: false` (field-builder initializers must run as
-    // assignments the model proxy can harvest). `tsconfig` applies globally, so it
-    // works even when the migration file lives in a tmpdir. The ORM is decorator-free.
-    const tsconfig = `${stem}.tsconfig.json`
-    await fs.writeFile(
-      tsconfig,
-      JSON.stringify({
-        compilerOptions: {useDefineForClassFields: false}
-      })
-    )
-    try {
-      const bundle = await rolldown({
-        input: {[path.basename(stem)]: filePath},
-        // packages:'external' equivalent — @getcronit/pylon/db (and any bare import)
-        // stays external so it resolves to the PROJECT's instance at import time.
-        external: id => !id.startsWith('.') && !path.isAbsolute(id),
-        platform: 'node',
-        tsconfig
-      })
-      await bundle.write({dir: cwd, format: 'esm', entryFileNames: `${path.basename(stem)}.mjs`})
-      await bundle.close()
-      const mod = (await import(/* @vite-ignore */ pathToFileURL(tmp).href)) as {default: unknown}
-      return mod.default
-    } finally {
-      await fs.rm(tmp, {force: true})
-      await fs.rm(tsconfig, {force: true})
-    }
+    const mod = (await import(/* @vite-ignore */ pathToFileURL(filePath).href)) as {default: unknown}
+    return mod.default
   }
 }
 
@@ -257,7 +228,7 @@ export async function runDbCommandCore(
   const cwd = options.cwd ?? process.cwd()
   const dir = path.resolve(cwd, options.dir ?? './migrations')
 
-  const loadMigrationFile = createMigrationLoader(cwd)
+  const loadMigrationFile = createMigrationLoader()
 
   // Apps mode: models tagged via `models.app(name)` are DERIVED into migration
   // groups from the registry (group + inferred deps). Each group's dir is
