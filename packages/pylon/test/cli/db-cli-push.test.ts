@@ -1,8 +1,8 @@
 /**
- * `pylon db push` destructive path, end-to-end through the real project-runner bridge (not the engine
+ * `pylon db push` destructive path, end-to-end through the in-process project loader (not the engine
  * in isolation): a detect pass reports the orphan column, and an apply pass with a confirmed
- * `dropColumns` plan drops it. This is the subprocess plumbing — `pushPlan` + `syncSchema(opts)` across
- * the bridge — that the parent CLI drives from the interactive prompt / `--force`.
+ * `dropColumns` plan drops it. This is the `pushPlan` + `syncSchema(opts)` plumbing the parent CLI
+ * drives from the interactive prompt / `--force`.
  */
 import os from 'node:os'
 import path from 'node:path'

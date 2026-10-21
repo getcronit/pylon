@@ -4,23 +4,15 @@
  *
  * A project's app — its models, queues, and the migration/IR API the CLI drives — only
  * exists after the registration code RUNS, so any consumer must EXECUTE the user's entry
- * in the project's own module context. We do that in a CHILD process (`project-runner`,
- * run via tsx with `cwd` = the project): it imports the project's REAL modules and
- * resolves `@getcronit/pylon/db` FROM THE PROJECT, so the models register into the same
- * ORM instance we then read — one instance, no bundle, and `import.meta`/stack traces
- * reflect real files (which is what makes zero-config per-app migrations possible). v3
- * entries don't serve on import (serving is a boot-time config plugin), so no stripping.
- *
- * `spawnProjectRunner` is the parent-side spawn+envelope helper; introspection returns
- * serializable data, and `pylon db` runs its whole command in the child (see db/index).
+ * in the project's own module context. `loadProjectApp` does that IN-PROCESS: it registers
+ * tsx as a loader, imports the project's REAL modules, and resolves `@getcronit/pylon` /
+ * `@getcronit/pylon/db` FROM THE PROJECT, so the models/queues register into the same
+ * instances the CLI then reads — one instance, no bundle, and `import.meta`/stacks reflect
+ * real files (which is what makes zero-config per-app migrations possible). v3 entries don't
+ * serve on import (serving is a boot-time config plugin), so loading is side-effect-light.
  */
-import {existsSync, promises as fsp} from 'node:fs'
-import {spawn} from 'node:child_process'
-import {createRequire} from 'node:module'
-import os from 'node:os'
 import path from 'node:path'
-import {fileURLToPath, pathToFileURL} from 'node:url'
-import {type RunnerEnvelope} from './project-runner-protocol.js'
+import {pathToFileURL} from 'node:url'
 import type {PhysicalSchema, PylonIR, Rename} from '../ir'
 import type {SyncOptions} from '../db'
 
@@ -254,22 +246,6 @@ export interface GroupLike {
   root?: boolean
 }
 
-const requireHere = createRequire(import.meta.url)
-
-/** Absolute path to tsx's CLI (from pylon-dev's own deps), used to run the child. */
-function tsxCliPath(): string {
-  const pkgPath = requireHere.resolve('tsx/package.json')
-  const pkg = requireHere(pkgPath) as {bin: string | {tsx: string}}
-  const bin = typeof pkg.bin === 'string' ? pkg.bin : pkg.bin.tsx
-  return path.join(path.dirname(pkgPath), bin)
-}
-
-/** The runner file beside this module: `.js` in the built dist, `.ts` in dev/test. */
-function projectRunnerPath(): string {
-  const dir = path.dirname(fileURLToPath(import.meta.url))
-  const js = path.join(dir, 'project-runner.js')
-  return existsSync(js) ? js : path.join(dir, 'project-runner.ts')
-}
 
 // ── in-process project loader (subprocess-free) ─────────────────────────────────
 let tsxRegistered = false
@@ -334,58 +310,6 @@ export async function closeProjectApp(orm: ProjectApp): Promise<void> {
   }
 }
 
-/**
- * Run the project runner as a tsx child (cwd = the project), so it loads the
- * project's REAL modules in the project's own context, and return its JSON
- * envelope. This is the bundle-free successor to `loadProjectApp` — one ORM
- * instance by project-scoped resolution, and `import.meta`/stacks reflect real
- * files. `op` selects the operation (`introspect`, later `db`, …).
- */
-export async function spawnProjectRunner<T = unknown>(
-  cwd: string,
-  op: string,
-  modelsEntry: string,
-  extraArgs: string[] = []
-): Promise<T> {
-  // The result envelope goes to a temp FILE, NOT the streams — so the child's stdout
-  // and stderr carry ONLY logs and can be forwarded to the terminal RAW (no filtering).
-  // A file (unlike an extra fd) survives tsx re-spawning the runner.
-  const resultFile = path.join(os.tmpdir(), `pylon-runner-${process.pid}-${runnerSeq++}.json`)
-  const child = spawn(
-    process.execPath,
-    [tsxCliPath(), projectRunnerPath(), op, cwd, modelsEntry, ...extraArgs],
-    {cwd, env: {...process.env, PYLON_RUNNER_RESULT_FILE: resultFile}, stdio: ['ignore', 'pipe', 'pipe']}
-  )
-  // Forward the child's output LIVE — to the parent's STDERR, so it can't corrupt the
-  // parent's own stdout (e.g. `pylon inspect`'s JSON). Makes a `db seed`'s console.log
-  // show as it runs, and a hang visible instead of silent.
-  child.stdout?.on('data', (d: Buffer) => process.stderr.write(d))
-  child.stderr?.on('data', (d: Buffer) => process.stderr.write(d))
-
-  const code: number = await new Promise((resolve, reject) => {
-    child.on('error', reject)
-    child.on('close', c => resolve(c ?? 0))
-  })
-
-  let raw: string
-  try {
-    raw = await fsp.readFile(resultFile, 'utf8')
-  } catch {
-    throw new Error(`project runner produced no result (exit ${code}); see output above.`)
-  } finally {
-    fsp.rm(resultFile, {force: true}).catch(() => {})
-  }
-  const envelope = JSON.parse(raw) as RunnerEnvelope<T>
-  if (!envelope.ok) {
-    // Re-throw the child's failure as if it were ours: the message is what the
-    // user sees, and the child's stack replaces our (useless) spawn-site one.
-    const err = new Error(envelope.error ?? 'project runner failed')
-    if (envelope.stack) err.stack = envelope.stack
-    throw err
-  }
-  return envelope.result as T
-}
-let runnerSeq = 0
 
 /** The serializable ORM-derived data the AppModel is assembled from (parent-side). */
 export interface IntrospectData {
@@ -427,7 +351,7 @@ export async function introspectAppData(cwd: string, modelsEntry: string): Promi
   }
 }
 
-/** Introspect a project via the child runner → its entity IR (or undefined). */
+/** Introspect a project in-process → its entity IR (or undefined). */
 export async function introspectViaRunner(
   cwd: string,
   modelsEntry: string

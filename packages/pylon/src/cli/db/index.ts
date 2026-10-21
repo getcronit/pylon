@@ -208,9 +208,8 @@ export async function runDbCommand(options: DbCommandOptions): Promise<DbCommand
 }
 
 /**
- * The command logic, driven against an already-resolved project ORM. Runs INSIDE
- * the child (via `project-runner`), where the models are registered and the ORM is
- * the project's own instance.
+ * The command logic, driven against an already-resolved project ORM (loaded in-process by
+ * `loadProjectApp`), where the models are registered and the ORM is the project's own instance.
  */
 /**
  * Dev-only "ensure the database exists" step for `push`/`migrate` (Prisma parity).
