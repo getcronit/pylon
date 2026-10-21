@@ -21,7 +21,8 @@ import os from 'node:os'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {type RunnerEnvelope} from './project-runner-protocol.js'
-import type {PhysicalSchema, PylonIR} from '../ir'
+import type {PhysicalSchema, PylonIR, Rename} from '../ir'
+import type {SyncOptions} from '../db'
 
 /** The project's pylon-db migration/IR API, as driven by `runDbCommandCore` in the
  *  child. Typed locally so pylon-dev needn't take a runtime dependency on the ORM. */
@@ -99,8 +100,14 @@ export interface ProjectApp {
     mismatches?: string[]
   }>
   hasDrift(d: {missingTables: string[]; extraTables: string[]; columns: unknown[]}): boolean
-  /** Create tables for all models directly (no migration) — `db push`. */
-  syncSchema(): Promise<void>
+  /** Create tables for all models directly (no migration) — `db push`. `opts` carries the operator's
+   *  confirmed destructive plan (renames / column drops); omitted = purely additive. */
+  syncSchema(models?: unknown, opts?: SyncOptions): Promise<void>
+  /** Read-only: the destructive drift a push would face — orphan columns + likely renames. */
+  pushPlan(db?: unknown): Promise<{
+    renameCandidates: Rename[]
+    dropColumns: Array<{table: string; column: string}>
+  }>
   /** Drop + recreate the schema (full clean slate) — `db reset`. */
   resetSchema(schema?: string): Promise<void>
 

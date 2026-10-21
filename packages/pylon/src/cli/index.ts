@@ -25,6 +25,7 @@ import {fileURLToPath, pathToFileURL} from 'node:url'
 import {createRequire} from 'node:module'
 import {buildClient} from './builder/build-client'
 import {runDbCommand} from './db'
+import {resolvePushPlan, type OrphanPrompt, type OrphanDecision} from './push-resolve'
 import {generatePylonTypes} from './pull'
 import {treeKillSync} from './tree-kill'
 
@@ -902,10 +903,77 @@ db.command('push')
   .option('-e, --entry <path>', 'Entry that constructs your app / registers models (default ./src/index.ts)')
   .option('-m, --models <path>', 'Deprecated alias for --entry')
   .option('-d, --dir <path>', 'Migrations directory (unused)', './migrations')
+  .option(
+    '--rename <spec...>',
+    'Confirm a column rename instead of drop+add, data-preserving: table.old=table.new'
+  )
+  .option('-f, --force', 'Drop columns the models no longer define (DATA LOSS), without prompting')
+  .option('--non-interactive', 'Never prompt; keep orphan columns unless --force / --rename say otherwise')
   .action(async options => {
     try {
-      const {database} = await runDbCommand({command: 'push', models: entryOf(options)})
+      const models = entryOf(options)
+      // Same `table.old=table.new` grammar as `db migrate --rename`.
+      const flagRenames = ((options.rename as string[]) ?? []).map(spec => {
+        const [left, right] = spec.split('=')
+        const [table, from] = (left ?? '').split('.')
+        const to = (right ?? '').split('.')[1] ?? (right ?? '')
+        if (!table || !from || !to)
+          throw new Error(`Invalid --rename "${spec}" (expected table.old=table.new)`)
+        return {table, from, to}
+      })
+      const interactive = !!process.stdout.isTTY && !options.nonInteractive && !process.env.CI
+      // Detect the destructive drift only when the operator might act on it — a plain push stays a
+      // single additive pass (the engine still relaxes + warns about any orphan columns itself).
+      const needDetect = interactive || !!options.force || flagRenames.length > 0
+
+      const promptOrphan: OrphanPrompt = async (o, candidate) => {
+        const choices = [
+          ...(candidate
+            ? [{label: `Rename → ${o.table}.${candidate.to}  (keep the data)`, value: 'rename'}]
+            : []),
+          {label: `Drop ${o.table}.${o.column}  (DELETE the data)`, value: 'drop'},
+          {label: `Keep it  (leave in place; NOT NULL relaxed)`, value: 'keep'}
+        ]
+        const ans = await consola.prompt(`Column ${o.table}.${o.column} is no longer in the models.`, {
+          type: 'select',
+          options: choices,
+          initial: 'keep'
+        })
+        return (typeof ans === 'string' ? ans : 'keep') as OrphanDecision
+      }
+
+      let plan: {renames: typeof flagRenames; dropColumns: Array<{table: string; column: string}>} = {
+        renames: flagRenames,
+        dropColumns: []
+      }
+      let createdInfo: {name: string; created: boolean} | undefined
+      if (needDetect) {
+        const detect = await runDbCommand({command: 'push', models, pushDetect: true})
+        createdInfo = detect.database
+        const drift = detect.pushDrift ?? {renameCandidates: [], dropColumns: []}
+        const resolved = await resolvePushPlan(
+          {
+            candidates: drift.renameCandidates,
+            orphans: drift.dropColumns,
+            flagRenames,
+            force: !!options.force,
+            interactive
+          },
+          interactive ? promptOrphan : undefined
+        )
+        plan = {renames: resolved.renames, dropColumns: resolved.dropColumns}
+        for (const w of resolved.warnings) consola.warn(w)
+      }
+
+      const res = await runDbCommand({
+        command: 'push',
+        models,
+        renames: plan.renames,
+        dropColumns: plan.dropColumns
+      })
+      const database = createdInfo ?? res.database
       if (database?.created) consola.success(`Created database "${database.name}"`)
+      for (const d of plan.dropColumns) consola.warn(`Dropped ${d.table}.${d.column} (data loss)`)
       consola.success('Schema pushed to the database')
     } catch (error) {
       fail(error)

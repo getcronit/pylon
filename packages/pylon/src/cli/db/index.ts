@@ -125,6 +125,11 @@ export interface DbCommandOptions {
   resolve?: 'applied' | 'rolled-back'
   /** `fix-deps`: write the backfilled tuples to disk (default: report only). */
   write?: boolean
+  /** `push`: detect-only — return the destructive drift (orphan columns + rename candidates) and
+   *  apply nothing, so the parent (TTY) can prompt before a second, applying call. */
+  pushDetect?: boolean
+  /** `push`: orphan columns to DROP (data loss), confirmed via `--force` or the interactive prompt. */
+  dropColumns?: Array<{table: string; column: string}>
 }
 
 /** Migrations that reference a cross-app table but don't declare the `[app, migration]`
@@ -183,6 +188,11 @@ export interface DbCommandResult {
   drift?: SchemaDrift
   /** `push`: whether the schema was synced. */
   pushed?: boolean
+  /** `push --detect`: the destructive drift a push would face (nothing was applied). */
+  pushDrift?: {
+    renameCandidates: Array<{table: string; from: string; to: string}>
+    dropColumns: Array<{table: string; column: string}>
+  }
   /** `create` (and dev auto-create on `push`/`migrate`): the target database and
    *  whether this run created it (false = it already existed). */
   database?: {name: string; created: boolean}
@@ -598,7 +608,18 @@ export async function runDbCommandCore(
       // if missing before syncing the schema into it.
       const created = await ensureDatabaseForDev(orm, connectionString)
       orm.connect({connectionString})
-      await orm.syncSchema()
+      // Detect-only pass: report the destructive drift so the parent (TTY) can prompt, then re-run
+      // this command with the confirmed renames/drops. Nothing is applied here.
+      if (options.pushDetect) {
+        const {renameCandidates, dropColumns} = await orm.pushPlan()
+        return {command: 'push', pushed: false, pushDrift: {renameCandidates, dropColumns}, database: created}
+      }
+      // Apply pass: additive always; the destructive plan (renames / column drops) is whatever the
+      // parent confirmed (empty = a plain additive push).
+      await orm.syncSchema(undefined, {
+        renames: options.renames,
+        dropColumns: options.dropColumns
+      })
       return {command: 'push', pushed: true, database: created}
     }
     case 'squash': {
