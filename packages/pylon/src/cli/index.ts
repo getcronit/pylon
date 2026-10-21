@@ -449,6 +449,7 @@ db.command('diff')
     'Conversion expression for the REVERSE of a --using type change (omit and the ' +
       'migration is irreversible), e.g. --using-down user.age=\'age::text\''
   )
+  .option('--non-interactive', 'Never prompt to confirm renames; emit the usual --rename hints instead')
   .action(async (name, options) => {
     try {
       const renames = ((options.rename as string[]) ?? []).map(spec => {
@@ -485,6 +486,53 @@ db.command('diff')
       }
       for (const spec of (options.using as string[]) ?? []) addCast(spec, 'using')
       for (const spec of (options.usingDown as string[]) ?? []) addCast(spec, 'usingDown')
+
+      // Interactive rename confirmation (TTY): a detect-only pass finds the drop+add pairs that look
+      // like renames; ask the operator, and fold the confirmed ones into `renames`/`tableRenames` so
+      // the real generate below emits a data-preserving RENAME instead of drop+add. Off a TTY (or with
+      // --non-interactive / CI) this is skipped — the existing "re-run with --rename" warnings stand.
+      const interactive = !!process.stdout.isTTY && !options.nonInteractive && !process.env.CI
+      if (interactive) {
+        const detect = await runDbCommand({
+          command: 'diff',
+          name,
+          app: options.app,
+          models: entryOf(options),
+          dir: options.dir,
+          renames,
+          tableRenames,
+          castHints,
+          detectOnly: true
+        })
+        const colSeen = new Set(renames.map(r => `${r.table}.${r.from}`))
+        for (const c of detect.renameCandidates ?? []) {
+          if (colSeen.has(`${c.table}.${c.from}`)) continue
+          colSeen.add(`${c.table}.${c.from}`)
+          const ans = await consola.prompt(`Column ${c.table}.${c.from} looks renamed to ${c.to}.`, {
+            type: 'select',
+            options: [
+              {label: `Rename ${c.from} → ${c.to}  (keep the data)`, value: 'rename'},
+              {label: `Drop ${c.from} + add ${c.to}  (DELETE the data)`, value: 'drop'}
+            ],
+            initial: 'rename'
+          })
+          if (ans === 'rename') renames.push(c)
+        }
+        const tableSeen = new Set(tableRenames.map(r => `${r.from}=${r.to}`))
+        for (const c of detect.tableRenameCandidates ?? []) {
+          if (tableSeen.has(`${c.from}=${c.to}`)) continue
+          tableSeen.add(`${c.from}=${c.to}`)
+          const ans = await consola.prompt(`Table ${c.from} looks renamed to ${c.to}.`, {
+            type: 'select',
+            options: [
+              {label: `Rename table ${c.from} → ${c.to}  (keep the data)`, value: 'rename'},
+              {label: `Drop + recreate  (DELETE the table's data)`, value: 'drop'}
+            ],
+            initial: 'rename'
+          })
+          if (ans === 'rename') tableRenames.push(c)
+        }
+      }
 
       const {created, destructive, renameCandidates, tableRenameCandidates, diffs, warnings} =
         await runDbCommand({

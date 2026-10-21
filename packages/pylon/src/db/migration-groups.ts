@@ -234,16 +234,20 @@ export async function generateGroup(
     castHints?: CastHint[]
     now?: () => string
     siblings?: MigrationGroup[]
+    /** Detect-only: compute rename candidates, write no migration (for the interactive prompt). */
+    dryRun?: boolean
   } = {}
 ): Promise<GeneratedMigration | null> {
-  const crossAppCreator = opts.siblings
+  // A dry run needs no cross-app creator wiring (it writes nothing).
+  const crossAppCreator = opts.siblings && !opts.dryRun
     ? await crossAppCreatorFor(group, opts.siblings, load)
     : undefined
   return groupRunner(group, {now: opts.now}).generate(name, load, {
     renames: opts.renames,
     tableRenames: opts.tableRenames,
     castHints: opts.castHints,
-    crossAppCreator
+    crossAppCreator,
+    dryRun: opts.dryRun
   })
 }
 

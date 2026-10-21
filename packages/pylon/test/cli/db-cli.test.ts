@@ -61,6 +61,23 @@ describe('pylon db CLI (model-loading bridge, no DB)', () => {
     const res = await runDbCommand({command: 'diff', name: 'again', models: 'models.ts', dir: migrationsDir, cwd: fixtureCwd})
     expect(res.created).toBeNull()
   }, 30000)
+
+  it('diff --detectOnly returns rename candidates and writes no migration', async () => {
+    const before = await fs.readdir(migrationsDir)
+    const res = await runDbCommand({
+      command: 'diff',
+      name: 'x',
+      models: 'models.ts',
+      dir: migrationsDir,
+      cwd: fixtureCwd,
+      detectOnly: true
+    })
+    expect(res.created).toBeNull()
+    expect(Array.isArray(res.renameCandidates)).toBe(true)
+    expect(Array.isArray(res.tableRenameCandidates)).toBe(true)
+    // Detect-only is side-effect-free — the migrations dir is untouched.
+    expect(await fs.readdir(migrationsDir)).toEqual(before)
+  }, 30000)
 })
 
 // `baseline` adopts an existing database — it needs a live DB to introspect.

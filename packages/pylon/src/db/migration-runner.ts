@@ -312,6 +312,9 @@ export class MigrationRunner {
        * are ordered by the intra-app sequence, so this only ever names other apps.
        */
       crossAppCreator?: (table: string) => readonly [string, string] | undefined
+      /** Detect-only: compute changes + rename candidates, write NOTHING (returns `name: ''`). Lets
+       *  the CLI prompt the operator about possible renames BEFORE the real, writing generate pass. */
+      dryRun?: boolean
     } = {}
   ): Promise<GeneratedMigration | null> {
     const prev = await this.foldHistory(load)
@@ -322,6 +325,19 @@ export class MigrationRunner {
       castHints: opts.castHints
     })
     if (changes.length === 0) return null
+
+    // Detect-only: hand back the candidates without the cross-app refusal check or the file write, so
+    // the caller can confirm renames interactively and then run the real generate with `--rename`.
+    if (opts.dryRun) {
+      return {
+        name: '',
+        changes,
+        unsupported: [],
+        warnings: backfillWarnings(changes),
+        renameCandidates: renameCandidates(changes),
+        tableRenameCandidates: tableRenameCandidates(changes)
+      }
+    }
 
     const {unsupported} = renderChanges(changes)
     // Cross-app FK-dependent type changes can't be coordinated in one migration (the

@@ -147,6 +147,7 @@ export interface ProjectApp {
       tableRenames?: Array<{from: string; to: string}>
       castHints?: Array<{table: string; column: string; using?: string; usingDown?: string}>
       siblings?: GroupLike[]
+      dryRun?: boolean
     }
   ): Promise<{
     name: string

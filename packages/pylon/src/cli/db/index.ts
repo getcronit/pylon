@@ -130,6 +130,9 @@ export interface DbCommandOptions {
   pushDetect?: boolean
   /** `push`: orphan columns to DROP (data loss), confirmed via `--force` or the interactive prompt. */
   dropColumns?: Array<{table: string; column: string}>
+  /** `diff`: detect-only — compute rename candidates and write no migration, so the CLI can confirm
+   *  renames interactively before the real generate pass. */
+  detectOnly?: boolean
 }
 
 /** Migrations that reference a cross-app table but don't declare the `[app, migration]`
@@ -335,6 +338,26 @@ export async function runDbCommandCore(
         throw new Error(
           `Unknown app "${options.app}" (apps: ${groups.map(g => g.name).join(', ')}).`
         )
+      }
+      // Detect-only: compute rename candidates across the target apps and write nothing, so the CLI
+      // can confirm renames interactively, then re-run `diff` with the chosen `--rename` hints.
+      if (options.detectOnly) {
+        const rc: Array<{table: string; from: string; to: string}> = []
+        const trc: Array<{from: string; to: string}> = []
+        for (const group of targets as typeof groups) {
+          const made = await orm.generateGroup(group, options.name ?? 'migration', loadMigrationFile, {
+            renames: options.renames,
+            tableRenames: options.tableRenames,
+            castHints: options.castHints,
+            siblings: groups,
+            dryRun: true
+          })
+          if (made) {
+            rc.push(...made.renameCandidates)
+            trc.push(...made.tableRenameCandidates)
+          }
+        }
+        return {command: 'diff', created: null, renameCandidates: rc, tableRenameCandidates: trc}
       }
       // Cross-app FK retypes first: emit the coordinated pre/retype/post migrations
       // across apps (throws on an unsatisfiable one-sided retype). The per-app pass
