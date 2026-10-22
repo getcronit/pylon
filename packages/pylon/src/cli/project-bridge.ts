@@ -14,7 +14,9 @@
 import path from 'node:path'
 import {pathToFileURL} from 'node:url'
 import type {PhysicalSchema, PylonIR, Rename} from '../ir'
-import type {SyncOptions} from '../db'
+// Self-ref (not `../db`) so the feature boundary stays external — a type-only import erases at
+// build, but the boundary check is text-level and the self-ref is the documented convention.
+import type {SyncOptions} from '@getcronit/pylon/db'
 
 /** The project's pylon-db migration/IR API, as driven by `runDbCommandCore` in the
  *  child. Typed locally so pylon-dev needn't take a runtime dependency on the ORM. */

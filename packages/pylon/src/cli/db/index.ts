@@ -11,23 +11,63 @@
 import {promises as fs} from 'node:fs'
 import path from 'node:path'
 import {pathToFileURL} from 'node:url'
+import {rolldown} from 'rolldown'
 import {describeChange, isDestructive, type SchemaChange} from '../../ir'
 import {loadProjectApp, closeProjectApp, type ProjectApp} from '../project-bridge.js'
 
+let migrationLoadSeq = 0
+
 /**
- * Load a migration file. `loadProjectApp` has already registered tsx in this process, so the migration
- * `.ts` transpiles on `import` exactly as the models entry did — so the migration (and any models a
- * data migration pulls in) imports straight from disk: it resolves against the project's own
- * `node_modules` and shares the ONE ORM instance the models registered into.
+ * Load a migration file into the project's module scope. A migration imports `@getcronit/pylon/db`
+ * (and a data migration may pull in project models) by BARE specifier, which resolves only against the
+ * project's own `node_modules` — but the migrations dir can live anywhere (a tmpdir in the e2e harness,
+ * or outside the project), so importing the file from where it sits fails: Node's ESM resolver walks up
+ * from the file and finds no `@getcronit/pylon`, and letting tsx transpile the `.ts` to CJS instead only
+ * trades that for a `require(esm)` cycle (the ORM is mid-evaluation up the stack).
  *
- * This replaces an earlier rolldown bundle written into the project root. That bundle leaked: its
- * cleanup removed only the entry file, so code-split chunks (`rolldown-runtime-*.js`, per-module
- * `<name>-<hash>.js`) piled up in the repo. A direct import writes nothing.
+ * So bundle it to ONE self-contained ESM file written into the project root (`cwd`): bare imports stay
+ * external — resolving to the project's single ORM instance at import time, never a second copy — while
+ * the migration's own code and any relative/project modules it touches are inlined. We `generate()` in
+ * memory with `inlineDynamicImports` (one chunk) and write only that entry, so nothing can leak; an
+ * earlier version wrote the whole bundle and its cleanup missed the code-split sidecars, piling
+ * `rolldown-runtime-*.js` / `<name>-<hash>.js` into the repo. The temp file is `.mjs` (ESM, so an import
+ * cycle through the ORM is legal via live bindings), dot-prefixed, and removed in `finally`.
  */
-function createMigrationLoader() {
+function createMigrationLoader(cwd: string) {
   return async function loadMigrationFile(filePath: string): Promise<unknown> {
-    const mod = (await import(/* @vite-ignore */ pathToFileURL(filePath).href)) as {default: unknown}
-    return mod.default
+    const stem = `.pylon-migration.${process.pid}.${migrationLoadSeq++}`
+    const outFile = path.join(cwd, `${stem}.mjs`)
+    // rolldown has no inline `tsconfigRaw`; write a temp tsconfig to FORCE
+    // `useDefineForClassFields: false` so a data migration's model-field initializers run as
+    // assignments the model proxy can harvest. `tsconfig` applies globally, so it holds even when
+    // the migration lives in a tmpdir. The ORM is decorator-free.
+    const tsconfig = path.join(cwd, `${stem}.tsconfig.json`)
+    await fs.writeFile(tsconfig, JSON.stringify({compilerOptions: {useDefineForClassFields: false}}))
+    try {
+      const bundle = await rolldown({
+        input: {[stem]: filePath},
+        // Any bare import (@getcronit/pylon/db, npm packages) stays external so it resolves to the
+        // PROJECT's instance at import time; relative/absolute project code is inlined.
+        external: id => !id.startsWith('.') && !path.isAbsolute(id),
+        platform: 'node',
+        tsconfig
+      })
+      try {
+        const {output} = await bundle.generate({format: 'esm', inlineDynamicImports: true})
+        const entry = output.find(o => o.type === 'chunk' && o.isEntry)
+        if (!entry || entry.type !== 'chunk') {
+          throw new Error(`migration bundle produced no entry chunk for ${filePath}`)
+        }
+        await fs.writeFile(outFile, entry.code)
+      } finally {
+        await bundle.close()
+      }
+      const mod = (await import(/* @vite-ignore */ pathToFileURL(outFile).href)) as {default: unknown}
+      return mod.default
+    } finally {
+      await fs.rm(outFile, {force: true})
+      await fs.rm(tsconfig, {force: true})
+    }
   }
 }
 
@@ -232,7 +272,7 @@ export async function runDbCommandCore(
   const cwd = options.cwd ?? process.cwd()
   const dir = path.resolve(cwd, options.dir ?? './migrations')
 
-  const loadMigrationFile = createMigrationLoader()
+  const loadMigrationFile = createMigrationLoader(cwd)
 
   // Apps mode: models tagged via `models.app(name)` are DERIVED into migration
   // groups from the registry (group + inferred deps). Each group's dir is
