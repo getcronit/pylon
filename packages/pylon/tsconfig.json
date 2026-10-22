@@ -1,27 +1,51 @@
 {
-    "compilerOptions": {
-      // add Bun type definitions
-  
-      // enable latest features
-      "lib": ["esnext"],
-      "module": "esnext",
-      "target": "esnext",
-  
-      "moduleResolution": "node", // support `import` from `node_modules`
-      "noImplicitAny": false,
-      "noImplicitThis": false,
-  
-      "jsx": "react-jsx", // support JSX
-      "allowJs": true, // allow importing `.js` from `.ts`
-      "esModuleInterop": true, // allow default imports for CommonJS modules
-  
-      // best practices
-      "strict": true,
-      "forceConsistentCasingInFileNames": true,
-      "skipLibCheck": true,
-      "experimentalDecorators": true,
-    },
-    "include": ["src/**/*"],
-    "exclude": ["node_modules/**/*", "**/*.test.ts", "**/*.test.tsx", "**/__tests__/**/*"]
-  }
-  
+  "compilerOptions": {
+    // add Bun type definitions
+
+    // enable latest features
+    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "target": "ES2022",
+    "module": "ES2022",
+
+    "moduleResolution": "bundler", // support `import` from `node_modules`
+    "noImplicitAny": false,
+    "noImplicitThis": false,
+
+    "jsx": "react-jsx", // support JSX
+    "allowJs": true, // allow importing `.js` from `.ts`
+    "esModuleInterop": true, // allow default imports for CommonJS modules
+
+    // Class-field INITIALIZERS must run (assignment semantics), not be hoisted to
+    // `defineProperty` — the ORM field builders (`id = id()`) and the compiler's own
+    // field-initialized classes seed/harvest through their initializers. At the
+    // ES2022 target this defaults to `true`; oxc's `true` lowering breaks that
+    // initializer timing (esbuild's happened not to), so pin it false. Matches the
+    // shipped tsconfig.pylon.json; emit-only, so declarations are unaffected.
+    "useDefineForClassFields": false,
+
+    // best practices
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "rootDir": "./src",
+    "outDir": "./dist",
+    // No `baseUrl` (deprecated → removed in TS 7.0): `paths` are resolved relative to
+    // THIS config file's directory, so they carry the `./src/` prefix explicitly.
+    // NOTE: the @getcronit/pylon self-reference paths live in tsconfig.typecheck.json
+    // (used by `tsc` for declarations), NOT here. esbuild reads THIS file per-source,
+    // and if the self-refs were here it would rewrite `@getcronit/pylon/ir` into an
+    // external `../ir` directory import (invalid ESM). Without them, esbuild treats
+    // self-refs as external packages that resolve at runtime via the exports map.
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src"],
+  "exclude": [
+    "dist",
+    "node_modules/**/*",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/__tests__/**/*"
+  ]
+}

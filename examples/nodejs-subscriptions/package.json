@@ -12,9 +12,7 @@
     "@getcronit/pylon": "workspace:^",
     "@hono/node-server": "^1.12.2"
   },
-  "devDependencies": {
-    "@getcronit/pylon-dev": "workspace:^"
-  },
+  "devDependencies": {},
   "repository": {
     "type": "git",
     "url": "https://github.com/getcronit/pylon.git"
