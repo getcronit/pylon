@@ -47,7 +47,11 @@ export const PACKAGES = {
       'asyncContext', // AsyncLocalStorage primitive behind getContext
       // Reads PYLON_ROLE for the run-role gate. Plumbing the queues battery reads across
       // the feature boundary via the self-ref; the role is set by the worker entry, not users.
-      'currentRole'
+      'currentRole',
+      // Lists the apps constructed in this process. Exported from core only so the
+      // subprocess-free CLI loader can reach it across the boundary via the self-ref
+      // (it loads the project's core and introspects each app) — not a user-facing feature.
+      'getApps'
     ]
   },
 
