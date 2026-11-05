@@ -826,7 +826,13 @@ export class SchemaParser {
           } else {
             let firstType = type.getNonNullableType()
 
-            if (firstType.isUnion() && !isPrimitive(firstType)) {
+            // An optional enum argument (`'a' | 'b' | undefined`) is still an
+            // enum once null and undefined are removed: recLoop handles it as one
+            if (
+              firstType.isUnion() &&
+              !isPrimitive(firstType) &&
+              !isPrimitiveUnion(firstType)
+            ) {
               consola.warn(
                 `Warning: Union types in input fields are not supported yet. Defaulting to the first type (${this.checker.typeToString(
                   firstType
