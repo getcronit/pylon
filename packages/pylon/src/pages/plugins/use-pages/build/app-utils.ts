@@ -33,6 +33,14 @@ interface ScanContext {
   rootError?: string
   /** Root `pages/not-found.tsx` component, if any (used for the top-level catch-all). */
   rootNotFound?: string
+  /**
+   * Root `pages/root.tsx` component, if any — the optional APP-ROOT the framework mounts in
+   * place of its fixed single `RouterProvider`. When present the app owns the top-level
+   * composition (e.g. a multi-pane stack): the framework hands it a `mount(path, {primary})`
+   * primitive and the request `location`; when absent the framework keeps its default single
+   * router, so existing apps are unaffected. See the hydration plugins + setup/index.tsx.
+   */
+  appRoot?: string
 }
 
 /**
@@ -516,7 +524,7 @@ function generateRouteFileContent(
   return `${context.imports.join('\n')}
 
 import {useMemo, Suspense} from 'react'
-import {__PYLON_ROUTER_INTERNALS_DO_NOT_USE, __PYLON_INTERNALS_DO_NOT_USE, GlobalErrorPage, StatusPage} from '@getcronit/pylon/pages'
+import {__PYLON_ROUTER_INTERNALS_DO_NOT_USE, __PYLON_INTERNALS_DO_NOT_USE, GlobalErrorPage, StatusPage, ErrorBoundary, setPrimaryNavigate as __pylonSetPrimaryNavigate} from '@getcronit/pylon/pages'
 const Outlet = __PYLON_ROUTER_INTERNALS_DO_NOT_USE.Outlet
 
 const ErrorElement: React.FC<{standalone: boolean, component?: React.ComponentType<{error: Error, reset: () => void}>, notFound?: React.ComponentType}> = ({standalone, component: UserErrorBoundary, notFound: UserNotFound}) => {
@@ -524,7 +532,11 @@ const ErrorElement: React.FC<{standalone: boolean, component?: React.ComponentTy
   const { useRouteError, isRouteErrorResponse, Navigate } = __PYLON_ROUTER_INTERNALS_DO_NOT_USE;
 
   const error = useRouteError();
-  console.error(error);
+  // A thrown redirect (3xx Response with a Location) is CONTROL FLOW, not an error — it is resolved
+  // just below with <Navigate>. Logging it spams the console, and in a multi-pane app EVERY in-pane
+  // redirect (e.g. a list index → its default child) would log on each hop. Log everything else.
+  const __pylonIsRedirect = error instanceof Response && error.status >= 300 && error.status < 400 && !!error.headers.get('Location');
+  if (!__pylonIsRedirect) console.error(error);
 
   let message = 'An unexpected error occurred.';
 
@@ -692,6 +704,17 @@ const routes = ${serialize([rootRoute, notFoundRoute].filter(Boolean))}
 
 export default routes
 
+// The CONTENT route subtree — everything UNDER the root "/" layout. A pane mounts THIS (not
+// \`routes\`) so it renders the page WITHOUT re-rendering the root layout's document shell. See
+// the App-Root \`mount()\` primitive.
+export const contentRoutes = (routes[0] && routes[0].children) || []
+
+// The optional APP-ROOT (\`pages/root.tsx\`): when defined, the framework mounts it in place of its
+// fixed single \`RouterProvider\` and hands it the \`mount(path, {primary})\` primitive + \`location\`
+// + \`context\`, so the app owns the top-level composition (e.g. a pane stack). \`undefined\` keeps
+// the framework's default single router — existing apps are unaffected.
+export const AppRoot = ${context.appRoot ?? 'undefined'}
+
 `
 }
 
@@ -703,6 +726,14 @@ export function makeAppFiles() {
   const context: ScanContext = {imports: [], routeSlugs: []}
 
   const rootRoute = scanDirectory(PAGES_DIR, context)
+
+  // Optional APP-ROOT: `pages/root.tsx`. When present, its default export is imported and wired as
+  // `export const AppRoot` (consumed by the hydration plugins + SSR). Detected here, after the
+  // route scan, so its import rides the same `context.imports` block as the route modules.
+  if (fs.existsSync(path.join(PAGES_DIR, 'root.tsx'))) {
+    context.appRoot = 'PylonAppRoot'
+    context.imports.push(`import ${context.appRoot} from "./../pages/root";`)
+  }
 
   // A root `pages/error.tsx` is the one boundary that catches render errors app-wide
   // (it cascades to every segment). Without it, an uncaught error falls back to the

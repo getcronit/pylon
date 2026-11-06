@@ -1,3 +1,5 @@
+import {getPrimaryNavigate} from './window-navigate'
+
 class PylonErrorResponse {
   public readonly data: any
 
@@ -84,9 +86,11 @@ export function redirect(
     headers?: HeadersInit
   }
 ): never {
-  if (typeof window !== 'undefined' && (window as any).__PYLON_NAVIGATE__) {
+  const clientNavigate =
+    typeof window !== 'undefined' ? getPrimaryNavigate() : null
+  if (clientNavigate) {
     setTimeout(() => {
-      ;(window as any).__PYLON_NAVIGATE__(url, {
+      clientNavigate(url, {
         replace: true
       })
     }, 0)

@@ -410,20 +410,63 @@ export function injectAppHydrationPlugin(
             }
 
             // @ts-ignore
-            const router = __pylonBasename
-              // @ts-ignore
-              ? __PYLON_ROUTER_INTERNALS_DO_NOT_USE.createBrowserRouter(routes, {basename: __pylonBasename})
-              // @ts-ignore
-              : __PYLON_ROUTER_INTERNALS_DO_NOT_USE.createBrowserRouter(routes)
-
+            let __pylonTree
             // @ts-ignore
-            window.__PYLON_NAVIGATE__ = router.navigate
+            if (typeof AppRoot !== 'undefined' && AppRoot) {
+              // App-Root (pane stack). PRIMARY pane (= Pane 0, the URL) uses the real BROWSER router so
+              // it HYDRATES the server's StaticRouter markup cleanly. Additional panes are MEMORY
+              // routers, opened client-side after hydration. Panes are SIBLINGS → no nested <Router>.
+              // @ts-ignore
+              const __primaryRouter = __pylonBasename
+                // @ts-ignore
+                ? __PYLON_ROUTER_INTERNALS_DO_NOT_USE.createBrowserRouter(routes, {basename: __pylonBasename})
+                // @ts-ignore
+                : __PYLON_ROUTER_INTERNALS_DO_NOT_USE.createBrowserRouter(routes)
+              // WINDOW-NAVIGATE: code above the pane stack (app shell, dialogs, redirect()) targets the
+              // PRIMARY pane (Pane 0) through this framework-internal reference.
+              // @ts-ignore
+              __pylonSetPrimaryNavigate(__primaryRouter.navigate)
+              // @ts-ignore
+              const mount = (p, opts) =>
+                opts && opts.primary
+                  ? <__PYLON_ROUTER_INTERNALS_DO_NOT_USE.RouterProvider router={__primaryRouter} />
+                  // @ts-ignore
+                  : <__PYLON_ROUTER_INTERNALS_DO_NOT_USE.RouterProvider router={__PYLON_ROUTER_INTERNALS_DO_NOT_USE.createMemoryRouter(contentRoutes, {initialEntries: [p]})} />
+              // @ts-ignore
+              const __ctx = (window).__pylonStaticData?.context
+              // WINDOW-ROUTE-CONTEXT: route data mirroring the browser URL (= active Pane 0), so
+              // window-level overlays can call useRouteData()/useIsMobile() ABOVE the panes. A pane's
+              // own RouteDataProvider shadows this inside the pane.
+              // @ts-ignore
+              const __windowRoute = {path: window.location.pathname, params: {}, searchParams: Object.fromEntries(new URLSearchParams(window.location.search)), context: __ctx}
+              // DEFAULT-ERROR-BOUNDARY: an App-Root-level crash shows GlobalErrorPage, not a whitescreen.
+              // @ts-ignore
+              __pylonTree = (
+                <ErrorBoundary fallback={({error}) => <GlobalErrorPage error={error} standalone />}>
+                  <__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider props={__windowRoute} name="app-root">
+                    <AppRoot mount={mount} location={window.location} context={__ctx} />
+                  </__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider>
+                </ErrorBoundary>
+              )
+            } else {
+              // Default (no App-Root): one browser router, address-bar-bound, exactly as before.
+              // @ts-ignore
+              const router = __pylonBasename
+                // @ts-ignore
+                ? __PYLON_ROUTER_INTERNALS_DO_NOT_USE.createBrowserRouter(routes, {basename: __pylonBasename})
+                // @ts-ignore
+                : __PYLON_ROUTER_INTERNALS_DO_NOT_USE.createBrowserRouter(routes)
+              // @ts-ignore
+              __pylonSetPrimaryNavigate(router.navigate)
+              // @ts-ignore
+              __pylonTree = <__PYLON_ROUTER_INTERNALS_DO_NOT_USE.RouterProvider router={router} />
+            }
 
             startTransition(() => {
               hydrateRoot(
                 document,
                   <__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider client={client}>
-                    <__PYLON_ROUTER_INTERNALS_DO_NOT_USE.RouterProvider router={router} />
+                    {__pylonTree}
                   </__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider>
               , ${hydrateOptions})
             })

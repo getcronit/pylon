@@ -147,6 +147,10 @@ export const setup = async (
   // freshly-hashed SSR routes — with no app re-import, no DB reconnect, no plugin
   // re-setup. See rfcs/DEV_SERVER.md (Step 0/1).
   let routes: any
+  // The optional APP-ROOT (`pages/root.tsx`, surfaced as the app module's `AppRoot` export). When
+  // set, SSR renders it in place of the fixed `StaticRouterProvider`, handing it a server `mount()`
+  // that SSRs the PRIMARY pane and leaves the rest to the client. `undefined` keeps the default.
+  let appRoot: any
   // Definite-assignment: set by loadPages() (awaited before any request), which TS
   // can't see through the closure.
   let handler!: ReturnType<typeof createStaticHandler>
@@ -199,7 +203,9 @@ export const setup = async (
 
     // The SSR routes bundle is content-hashed (manifest-addressed), so re-importing
     // after a rebuild resolves a NEW specifier — cache-clean, no invalidation hack.
-    routes = (await import(`${root}/${pagesManifest['app.js']}`)).default
+    const __appMod = await import(`${root}/${pagesManifest['app.js']}`)
+    routes = __appMod.default
+    appRoot = __appMod.AppRoot
     handler = createStaticHandler(routes)
     // Stale handlers close over the PREVIOUS routes object; a dev hot-swap would otherwise
     // keep serving the old tree on every prefixed URL.
@@ -858,17 +864,62 @@ export const setup = async (
           })()
         : undefined
 
-    const renderComponent = (ctx: StaticHandlerContext) => (
-      <__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider
-        client={pagesClient}
-        responseCookies={responseCookies}
-        staticData={{context: pagesContext, i18n, metadata, messages}}>
-        <StaticRouterProvider
-          router={createStaticRouter(routeHandler.dataRoutes, ctx)}
-          context={ctx}
-        />
-      </__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider>
-    )
+    // Capitalised alias so the App-Root can be used as a JSX element (same transform as the rest
+    // of this file), and only when `pages/root.tsx` defined one.
+    const AppRootComp = appRoot as React.ComponentType<any> | undefined
+
+    const renderComponent = (ctx: StaticHandlerContext) => {
+      // App-Root mount primitive (server): the PRIMARY pane is SSR'd via the static router for THIS
+      // request; any other pane renders nothing server-side (the client fills it from a memory
+      // router). The App-Root is expected to render only its primary pane during SSR (gating the
+      // rest until mounted), so `mount` is normally called once here — a non-primary call returns
+      // null. This matches the design's "secondary panes are CSR" stance.
+      const serverMount = (_path: string, opts?: {primary?: boolean}) =>
+        opts?.primary ? (
+          // hydrate={false}: do NOT let StaticRouterProvider render its `__staticRouterHydrationData`
+          // <script> INLINE — inside a pane that would be a server-only node the client never
+          // re-renders (the client router just reads the global), i.e. a guaranteed hydration
+          // mismatch. We emit that data OUT OF TREE via bootstrapScriptContent instead (see below),
+          // the same way pylon emits `__pylonStaticData`.
+          <StaticRouterProvider
+            router={createStaticRouter(routeHandler.dataRoutes, ctx)}
+            context={ctx}
+            hydrate={false}
+          />
+        ) : null
+
+      return (
+        <__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider
+          client={pagesClient}
+          responseCookies={responseCookies}
+          staticData={{context: pagesContext, i18n, metadata, messages}}>
+          {AppRootComp ? (
+            // WINDOW-ROUTE-CONTEXT (SSR parity): same route-data context the client wraps the App-Root
+            // in, so SSR'd window-level overlays can read useRouteData()/useIsMobile(). DOM-transparent
+            // (context provider only), so it adds no hydration asymmetry.
+            <__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider
+              props={{
+                path: new URL(c.req.url).pathname,
+                params: {},
+                searchParams: Object.fromEntries(new URL(c.req.url).searchParams),
+                context: pagesContext
+              }}
+              name="app-root">
+              <AppRootComp
+                mount={serverMount}
+                location={new URL(c.req.url)}
+                context={pagesContext}
+              />
+            </__PYLON_INTERNALS_DO_NOT_USE.RouteDataProvider>
+          ) : (
+            <StaticRouterProvider
+              router={createStaticRouter(routeHandler.dataRoutes, ctx)}
+              context={ctx}
+            />
+          )}
+        </__PYLON_INTERNALS_DO_NOT_USE.DataClientProvider>
+      )
+    }
 
     // The half of the hydration envelope known BEFORE render (auth/features/role context,
     // negotiated locale, active messages). Emitted via React's bootstrap channel (see
@@ -880,9 +931,26 @@ export const setup = async (
       ...(i18n ? {i18n} : {}),
       ...(messages ? {messages} : {})
     }
-    const bootstrapScriptContent =
+    // When the App-Root owns the mount, StaticRouterProvider runs with hydrate={false} (its inline
+    // script would be a server-only node inside a pane → a hydration mismatch), so React Router's
+    // hydration envelope is emitted HERE instead — out-of-tree, on the same bootstrap channel. The
+    // client's createBrowserRouter reads `window.__staticRouterHydrationData` before it mounts, so
+    // it starts already-initialized and hydrates the SSR markup synchronously (no fallback flash).
+    // Pages carry no RR loaders (data flows through useData), so this envelope is tiny.
+    const rrHydrationScript = AppRootComp
+      ? `window.__staticRouterHydrationData = ${serializeForScript({
+          loaderData: context.loaderData,
+          actionData: context.actionData,
+          errors: context.errors
+        })};`
+      : ''
+    const pylonStaticScript =
       Object.keys(bootstrapData).length > 0
         ? `window.__pylonStaticData = ${serializeForScript(bootstrapData)};`
+        : ''
+    const bootstrapScriptContent =
+      pylonStaticScript || rrHydrationScript
+        ? `${pylonStaticScript}${rrHydrationScript}`
         : undefined
 
     // The operation-keyed hydration payload, as a trailing inline script. The store is only

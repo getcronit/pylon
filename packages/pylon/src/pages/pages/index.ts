@@ -1,6 +1,12 @@
 export * as __PYLON_ROUTER_INTERNALS_DO_NOT_USE from 'react-router'
 export * as __PYLON_INTERNALS_DO_NOT_USE from './internals'
 
+import {
+  useNavigate as __useRouterNavigate,
+  useInRouterContext
+} from 'react-router'
+import {navigate, setPrimaryNavigate} from './window-navigate'
+
 export {Image} from './image'
 export {
   useRouteData,
@@ -54,3 +60,25 @@ export * from './http'
 export * from './use-data'
 export * from './use-mutation'
 export {op, type Op} from './op'
+
+/** The React Router client hooks the app uses, re-exported BY NAME so pages import them from
+ * '@getcronit/pylon/pages' instead of the __PYLON_ROUTER_INTERNALS_DO_NOT_USE escape hatch. These are
+ * RR's own hooks verbatim — inside a page/pane (always a <Router>) they just work. (`redirect` is NOT
+ * here: Pylon has its own in ./http.) */
+export {useLocation, useParams, useSearchParams, useBlocker} from 'react-router'
+
+/**
+ * Navigation that works both INSIDE a page/pane (a `<Router>`) and ABOVE the pane stack (the app
+ * shell, dialogs, the task sheet). React Router's own `useNavigate` throws outside a `<Router>`, so
+ * this detects router membership and falls back to the primary pane's navigate there. A component's
+ * router membership is fixed for its lifetime, so the branch — and thus the hook order — is stable
+ * across renders. For plain, non-hook call sites use the imperative `navigate()` instead.
+ */
+export function useNavigate(): ReturnType<typeof __useRouterNavigate> | typeof navigate {
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  if (useInRouterContext()) return __useRouterNavigate()
+  return navigate
+}
+
+/** Window-Navigate: the imperative `navigate()` + the hydration seed. See './window-navigate'. */
+export {navigate, setPrimaryNavigate}
