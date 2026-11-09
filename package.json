@@ -17,12 +17,13 @@
   },
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.190",
-    "@changesets/changelog-github": "^0.5.0",
-    "@changesets/cli": "^2.27.12",
+    "@changesets/changelog-github": "^1.0.1",
+    "@changesets/cli": "^3.0.3",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/commit-analyzer": "^13.0.0",
     "@semantic-release/release-notes-generator": "^14.0.0",
     "@types/node": "^18.14.0",
+    "prettier": "^3.9.10",
     "rimraf": "^6.0.1",
     "semantic-release": "^24.0.0",
     "semantic-release-monorepo": "^8.0.2",
@@ -31,10 +32,5 @@
   "resolutions": {
     "graphql": "^16.9.0"
   },
-  "pnpm": {
-    "overrides": {
-      "graphql": "^16.9.0"
-    }
-  },
-  "packageManager": "pnpm@10.34.5+sha512.a4ee05f2f73658255bd6a89859c065a45c28a57daefae2c893a168ee2b73168c37b91e83e57ea67654ad03f03031746430e8bce38e362e042605fb8abc80192e"
+  "packageManager": "pnpm@11.28.11+sha512.740184d10f81f5d5b165be88560ee7ba62406c4134896abc27a580109eec2f47c1e41d91251c944c2cababcb1c22461799ebb72de2ec625af2030b0e36c735a3"
 }
