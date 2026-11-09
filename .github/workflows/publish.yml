@@ -297,11 +297,13 @@ jobs:
           npm config list 2>&1 | sed -E 's/(_authToken|_password|_auth)=.*/\1=<redacted>/'
           echo "### env npm_config_* / NODE_AUTH (redacted) ###"
           env | grep -iE '^(npm_config_|NODE_AUTH)' | sed -E 's/(authToken|_auth|password|TOKEN)=.*/\1=<redacted>/I' || echo "(none)"
-          echo "### EXACT changeset read ###"
+          echo "### A) EXACT changeset read, STANDALONE ###"
           out=$(npm info @getcronit/pylon --registry=https://registry.npmjs.org/ --json 2>err.txt); code=$?
-          echo "exit=$code stdout_len=${#out}"
-          echo "--- stdout (first 300) ---"; printf '%s' "$out" | head -c 300; echo
-          echo "--- stderr ---"; cat err.txt
+          echo "exit=$code stdout_len=${#out}"; echo "--- stderr ---"; cat err.txt
+          echo "### B) SAME read UNDER pnpm exec (how changeset runs it) ###"
+          pnpm exec bash -c 'npm info @getcronit/pylon --registry=https://registry.npmjs.org/ --json >o.txt 2>e.txt; echo "exit=$? stdout_len=$(wc -c <o.txt)"; echo "--- stderr ---"; cat e.txt'
+          echo "### C) npm_config_* that pnpm exec injects (redacted) ###"
+          pnpm exec bash -c 'env | grep -iE "^npm_config_" | sed -E "s/(token|auth|password)=.*/\1=<redacted>/I"' || echo "(none)"
           true
 
       - name: Resolve PR dist-tag
