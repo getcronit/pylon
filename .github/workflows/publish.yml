@@ -65,19 +65,6 @@ jobs:
           cache: 'pnpm'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Keep registry reads anonymous under OIDC
-        # setup-node's `registry-url` writes `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`
-        # into the job .npmrc. Under OIDC we set no NODE_AUTH_TOKEN, so it resolves to setup-node's
-        # placeholder and the registry 401s even READ requests — changesets then can't see which
-        # versions are already published, tries to REPUBLISH them, and npm rejects with "cannot
-        # publish over the previously published versions" (red job). OIDC authenticates the publish
-        # itself via id-token, so strip only the dud auth line and let reads go anonymous.
-        run: |
-          for f in "${NPM_CONFIG_USERCONFIG:-}" "$RUNNER_TEMP/.npmrc" "$HOME/.npmrc"; do
-            [ -n "$f" ] && [ -f "$f" ] && sed -i '/:_authToken=/d' "$f" && echo "stripped auth line from $f"
-          done
-          true
-
       - name: Setup pnpm store
         run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
 
@@ -152,23 +139,15 @@ jobs:
           cache: 'pnpm'
           registry-url: 'https://registry.npmjs.org'
 
-      # OIDC trusted publishing needs npm >= 11.5.1; the runner ships npm 10, so upgrade to
-      # latest. npm@latest (12.x) requires node >= 22 (used here) and rejects unknown config —
-      # so pnpm must be >= 10.34.5 (see the root `packageManager`): older pnpm leaked its
-      # `--no-git-checks` flag into the `npm publish` subprocess it shells out to, which npm 12
-      # fatally rejected (EUNKNOWNCONFIG); hence the pnpm 10.34.5 pin.
+      # OIDC trusted publishing needs npm >= 11.5.1; the runner ships npm 10, so upgrade.
+      # Pin to npm 11 (NOT @latest): npm 12 changed `npm info --json` to return an ARRAY,
+      # which changesets 2.29.8 doesn't handle — it reads `.versions` off the array (undefined),
+      # concludes every already-published package is unpublished, and tries to republish them,
+      # so npm rejects with "cannot publish over the previously published versions". npm 11.x
+      # (>= 11.5.1) still returns an object AND supports OIDC. Lifted once we move to
+      # changesets 3 + pnpm-native publish (which normalizes the npm 12 array).
       - name: Upgrade npm for OIDC publishing
-        run: npm i -g npm@latest
-
-      - name: Keep registry reads anonymous under OIDC
-        # See the `version` job: the OIDC-empty NODE_AUTH_TOKEN makes setup-node's .npmrc
-        # 401 read requests, so changesets tries to republish already-published packages.
-        # Strip the dud auth line; OIDC still authenticates the publish via id-token.
-        run: |
-          for f in "${NPM_CONFIG_USERCONFIG:-}" "$RUNNER_TEMP/.npmrc" "$HOME/.npmrc"; do
-            [ -n "$f" ] && [ -f "$f" ] && sed -i '/:_authToken=/d' "$f" && echo "stripped auth line from $f"
-          done
-          true
+        run: npm i -g npm@11
 
       - name: Setup pnpm store
         run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
@@ -263,48 +242,19 @@ jobs:
           cache: 'pnpm'
           registry-url: 'https://registry.npmjs.org'
 
-      # OIDC trusted publishing needs npm >= 11.5.1; the runner ships npm 10, so upgrade to
-      # latest. npm@latest (12.x) requires node >= 22 (used here) and rejects unknown config —
-      # so pnpm must be >= 10.34.5 (see the root `packageManager`): older pnpm leaked its
-      # `--no-git-checks` flag into the `npm publish` subprocess it shells out to, which npm 12
-      # fatally rejected (EUNKNOWNCONFIG); hence the pnpm 10.34.5 pin.
+      # OIDC trusted publishing needs npm >= 11.5.1; the runner ships npm 10, so upgrade.
+      # Pin to npm 11 (NOT @latest): npm 12's `npm info --json` returns an ARRAY that
+      # changesets 2.29.8 mishandles → it treats every already-published package as
+      # unpublished and tries to republish them (collision → red job). npm 11.x returns an
+      # object AND supports OIDC. Lifted with the changesets 3 + pnpm-native-publish move.
       - name: Upgrade npm for OIDC publishing
-        run: npm i -g npm@latest
-
-      - name: Keep registry reads anonymous under OIDC
-        # See the `version` job: the OIDC-empty NODE_AUTH_TOKEN makes setup-node's .npmrc
-        # 401 read requests, so changesets can't tell which packages are already published
-        # and tries to republish the unchanged base-version ones (collision → red job).
-        # Strip the dud auth line; OIDC still authenticates the publish via id-token.
-        run: |
-          for f in "${NPM_CONFIG_USERCONFIG:-}" "$RUNNER_TEMP/.npmrc" "$HOME/.npmrc"; do
-            [ -n "$f" ] && [ -f "$f" ] && sed -i '/:_authToken=/d' "$f" && echo "stripped auth line from $f"
-          done
-          true
+        run: npm i -g npm@11
 
       - name: Install dependencies
         run: pnpm i --frozen-lockfile
 
       - name: Build packages
         run: pnpm build
-
-      - name: DIAGNOSE npm info (temporary)
-        run: |
-          set +e
-          echo "### npm=$(npm -v)  node=$(node -v)"
-          echo "### NPM_CONFIG_USERCONFIG=$NPM_CONFIG_USERCONFIG"
-          echo "### npm config list (redacted) ###"
-          npm config list 2>&1 | sed -E 's/(_authToken|_password|_auth)=.*/\1=<redacted>/'
-          echo "### env npm_config_* / NODE_AUTH (redacted) ###"
-          env | grep -iE '^(npm_config_|NODE_AUTH)' | sed -E 's/(authToken|_auth|password|TOKEN)=.*/\1=<redacted>/I' || echo "(none)"
-          echo "### A) EXACT changeset read, STANDALONE ###"
-          out=$(npm info @getcronit/pylon --registry=https://registry.npmjs.org/ --json 2>err.txt); code=$?
-          echo "exit=$code stdout_len=${#out}"; echo "--- stderr ---"; cat err.txt
-          echo "### B) SAME read UNDER pnpm exec (how changeset runs it) ###"
-          pnpm exec bash -c 'npm info @getcronit/pylon --registry=https://registry.npmjs.org/ --json >o.txt 2>e.txt; echo "exit=$? stdout_len=$(wc -c <o.txt)"; echo "--- stderr ---"; cat e.txt'
-          echo "### C) npm_config_* that pnpm exec injects (redacted) ###"
-          pnpm exec bash -c 'env | grep -iE "^npm_config_" | sed -E "s/(token|auth|password)=.*/\1=<redacted>/I"' || echo "(none)"
-          true
 
       - name: Resolve PR dist-tag
         id: channel
