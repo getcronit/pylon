@@ -145,7 +145,7 @@ jobs:
       # `--no-git-checks` flag into the `npm publish` subprocess it shells out to, which npm 12
       # fatally rejected (EUNKNOWNCONFIG); hence the pnpm 10.34.5 pin.
       - name: Upgrade npm for OIDC publishing
-        run: npm i -g npm@latest
+        run: npm i -g npm@11
 
       - name: Setup pnpm store
         run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
@@ -246,7 +246,7 @@ jobs:
       # `--no-git-checks` flag into the `npm publish` subprocess it shells out to, which npm 12
       # fatally rejected (EUNKNOWNCONFIG); hence the pnpm 10.34.5 pin.
       - name: Upgrade npm for OIDC publishing
-        run: npm i -g npm@latest
+        run: npm i -g npm@11
 
       - name: Install dependencies
         run: pnpm i --frozen-lockfile
