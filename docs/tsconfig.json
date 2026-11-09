@@ -1,23 +1,20 @@
 {
+  "extends": "@getcronit/pylon/tsconfig.pylon.json",
+  "include": [
+    "pylon.d.ts",
+    "pylon.config.ts",
+    "src/**/*.ts",
+    "pages",
+    "components",
+    "lib",
+    ".pylon"
+  ],
   "compilerOptions": {
-    "target": "es5",
-    "lib": ["dom", "dom.iterable", "esnext"],
-    "allowJs": true,
-    "skipLibCheck": true,
-    "strict": false,
-    "forceConsistentCasingInFileNames": true,
-    "noEmit": true,
-    "incremental": true,
-    "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "node",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "jsx": "preserve",
+    // No baseUrl (deprecated → removed in TS 7.0); `@/*` resolves relative to this
+    // config's directory, which is what baseUrl:"." did.
     "paths": {
-      "@*": ["./*"]
-    }
-  },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules"]
+      "@/*": ["./*"]
+    },
+    "jsx": "react-jsx"
+  }
 }

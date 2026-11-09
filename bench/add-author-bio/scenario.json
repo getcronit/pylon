@@ -1,0 +1,10 @@
+{
+  "name": "add-author-bio",
+  "base": "../../e2e/fixtures/mcp-demo-app",
+  "prompt": "Add an optional `bio` text field to the Author model (nullable, so existing rows stay valid). Then make sure the project verifies clean — generate a migration if one is needed.",
+  "expect": {
+    "verdict": "pass",
+    "entityHasField": ["Author", "bio"],
+    "migrationCreated": true
+  }
+}

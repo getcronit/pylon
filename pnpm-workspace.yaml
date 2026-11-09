@@ -1,12 +1,24 @@
 packages:
   - 'examples/*'
   - 'packages/*'
+  - 'e2e'
+  - 'docs'
+
+# pnpm 11 no longer reads the `pnpm.overrides` field in package.json; its new home is
+# here. Keeps the graphql single-instance pin (peer-dep correctness across the graph).
+overrides:
+  graphql: ^16.9.0
 
 # pnpm 11 removed `onlyBuiltDependencies` and defaults `strictDepBuilds: true`, so an
 # unreviewed dependency build script now FAILS `pnpm install` (pnpm 10 only warned).
 # Review the trusted native-toolchain packages here so install stays green. Their
-# scripts just link prebuilt platform binaries shipped via optionalDependencies.
+# scripts just link/download prebuilt platform binaries (shipped via optionalDependencies
+# or a postinstall fetch). This set is v3-specific: besides esbuild/sharp/workerd it adds
+# Prisma (pylon-db e2e) and msgpackr-extract (native msgpack addon, used by workerd/caching).
 allowBuilds:
+  '@prisma/engines': true
   esbuild: true
+  msgpackr-extract: true
+  prisma: true
   sharp: true
   workerd: true

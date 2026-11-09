@@ -1,0 +1,96 @@
+/**
+ * Proves cross-table search via a virtual `search` field whose toWhere ORs FTS
+ * predicates across the model AND a relation — the union the old per-model
+ * searchIds() did, expressed as one WhereInput. Postgres-only.
+ */
+import {afterAll, beforeAll, describe, expect, it} from 'vitest'
+import {Pylon} from '@getcronit/pylon'
+import {
+  type ModelConfig,
+  connect,
+  Database,
+  foreignKey,
+  id,
+  manager,
+  Model,
+  type Relation,
+  setDefaultDatabase,
+  syncSchema,
+  text
+} from '@/db/index'
+
+class XsAuthor extends Model {
+  static config = {table: 'xs_author', search: {columns: ['bio']}} satisfies ModelConfig<XsAuthor>
+  static objects = manager(XsAuthor)
+  id = id()
+  bio = text()
+}
+new Pylon({db: {models: [XsAuthor]}})
+
+class XsBook extends Model {
+  static config = {
+  table: 'xs_book',
+  search: {columns: ['title']},
+  query: {
+    fields: {
+      // bare-term `search` across the book's own FTS + the author's FTS
+      search: {
+        toWhere: (_op, v) => ({
+          OR: [{fts: {search: v}}, {author: {fts: {search: v}}}]
+        })
+      }
+    }
+  }
+} satisfies ModelConfig<XsBook>
+  static objects = manager(XsBook)
+  id = id()
+  title = text()
+  authorId = foreignKey(() => XsAuthor)
+  declare author: Relation<XsAuthor>
+}
+new Pylon({db: {models: [XsBook]}})
+
+const connectionString =
+  process.env.DATABASE_URL ?? 'postgres://pylon:pylon@localhost:5433/pylon_test'
+const runDb = process.env.DATABASE_URL || process.env.PYLON_ORM_IT
+
+describe.skipIf(!runDb)('cross-table search virtual (Postgres)', () => {
+  let db: Database
+  beforeAll(async () => {
+    db = connect({connectionString})
+    for (const t of ['xs_book', 'xs_author']) {
+      await db.kysely.schema.dropTable(t).ifExists().cascade().execute()
+    }
+    await syncSchema()
+    const rare = await XsAuthor.objects.create({bio: 'rare botany expert'})
+    const boring = await XsAuthor.objects.create({bio: 'general writer'})
+    await XsBook.objects.create({title: 'Common Title', authorId: rare.id}) // matches via AUTHOR
+    await XsBook.objects.create({title: 'Botany Basics', authorId: boring.id}) // matches via OWN title
+    await XsBook.objects.create({title: 'Cooking', authorId: boring.id}) // no match
+  })
+  afterAll(async () => {
+    if (db) {
+      for (const t of ['xs_book', 'xs_author']) {
+        await db.kysely.schema.dropTable(t).ifExists().cascade().execute()
+      }
+      await db.destroy()
+    }
+    setDefaultDatabase(undefined)
+  })
+
+  it('a BARE term routes through the search virtual (own OR relation FTS)', async () => {
+    const hits = await XsBook.objects.query('botany').all()
+    expect(hits.map(b => b.title).sort()).toEqual(['Botany Basics', 'Common Title'])
+  })
+
+  it('explicit search:term works too', async () => {
+    const hits = await XsBook.objects.query('search:botany').all()
+    expect(hits.map(b => b.title).sort()).toEqual(['Botany Basics', 'Common Title'])
+  })
+
+  it('a bare term composes with other clauses', async () => {
+    // botany AND title:Botany* → only the own-title match
+    const hits = await XsBook.objects.query('botany title:Botany*').all()
+    expect(hits.map(b => b.title)).toEqual(['Botany Basics'])
+  })
+})

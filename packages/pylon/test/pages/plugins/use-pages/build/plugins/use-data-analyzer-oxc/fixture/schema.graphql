@@ -1,0 +1,21 @@
+type Query {
+  me: User
+  user(id: ID!): User
+  posts(first: Int, after: String): PostConnection!
+}
+type Mutation {
+  createUser(name: String!): User
+}
+type User {
+  id: ID!
+  name: String
+  email: String
+  avatarUrl: String
+}
+type Post { id: ID! title: String }
+type PostConnection {
+  edges: [PostEdge!]!
+  pageInfo: PageInfo!
+}
+type PostEdge { cursor: String! node: Post! }
+type PageInfo { hasNextPage: Boolean! hasPreviousPage: Boolean! startCursor: String endCursor: String }

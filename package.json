@@ -3,7 +3,6 @@
   "private": true,
   "workspaces": {
     "packages": [
-      "packages/pylon-telemetry",
       "packages/*",
       "examples/*"
     ]
@@ -13,16 +12,17 @@
     "ci:release": "changeset publish",
     "ci:version": "changeset version && pnpm i --no-frozen-lockfile --lockfile-only --ignore-scripts",
     "clean": "pnpm -r --filter \"./packages/*\" exec -- rimraf dist",
-    "build": "pnpm -r --filter \"./packages/*\" run build"
+    "build": "pnpm -r --workspace-concurrency=1 --filter \"./packages/*\" run build",
+    "typecheck": "pnpm -r typecheck"
   },
   "devDependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.190",
     "@changesets/changelog-github": "^1.0.1",
     "@changesets/cli": "^3.0.3",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/commit-analyzer": "^13.0.0",
     "@semantic-release/release-notes-generator": "^14.0.0",
     "@types/node": "^18.14.0",
-    "esbuild": "^0.23.1",
     "prettier": "^3.9.10",
     "rimraf": "^6.0.1",
     "semantic-release": "^24.0.0",
