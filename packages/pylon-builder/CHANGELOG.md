@@ -1,5 +1,11 @@
 # @getcronit/pylon-builder
 
+## 2.6.10
+
+### Patch Changes
+
+- [#119](https://github.com/getcronit/pylon/pull/119) [`430b512`](https://github.com/getcronit/pylon/commit/430b512b2b67f7cf8903e01522ec0a6548f731cb) Thanks [@ckhatton-pvfscaffolding](https://github.com/ckhatton-pvfscaffolding)! - fix(builder): stop warning about optional enum arguments as unsupported unions
+
 ## 2.6.9
 
 ### Patch Changes
