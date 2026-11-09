@@ -243,6 +243,17 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ steps.channel.outputs.tag }}"
+          # A canary is a SNAPSHOT of pending changesets. With none, `changeset
+          # version --snapshot` bumps nothing, so `changeset publish` falls back to
+          # the BASE versions — harmless for already-published ones, but a
+          # not-yet-released version (e.g. a pending `x.y.z`) would be PUBLISHED under
+          # the PR dist-tag and thereby BURNED, blocking its real `latest` release.
+          # So skip the canary entirely when there are no pending changesets.
+          if [ -z "$(find .changeset -maxdepth 1 -name '*.md' ! -name 'README.md' 2>/dev/null)" ]; then
+            echo "No pending changesets — nothing to snapshot; skipping canary publish."
+            echo "published-count=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           echo "Publishing canary channel: $TAG"
           # Invoke the changeset BINARY directly via `pnpm exec`. Plain
           # `pnpm changeset ...` runs the repo's `"changeset": "changeset --"`
