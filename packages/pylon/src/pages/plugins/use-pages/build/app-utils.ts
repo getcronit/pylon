@@ -155,6 +155,30 @@ export function getLoadingComponentName(filePath: string): string {
 }
 
 /**
+ * Converts a file path to a corresponding hydrate component name.
+ *
+ * `hydrate.tsx` is the SEGMENT'S hydration fallback ONLY — it is wired to the route's
+ * `HydrateFallback` (what React Router renders while a router initializes / hydrates), but it does
+ * NOT add a Suspense boundary around the page the way `loading.tsx` does. Use it when you want to
+ * restyle the from-nothing load (a freshly opened route/pane) WITHOUT turning in-place navigations
+ * into a per-segment Suspense fallback. Cascades to nested segments like `loading.tsx`, and takes
+ * precedence over `loading.tsx` for the `HydrateFallback`. (Loader-based data needs only this; a page
+ * that suspends in render — React.lazy, `use()` — still wants `loading.tsx` for its Suspense.)
+ * @param filePath - The file path to convert.
+ * @returns The generated hydrate component name.
+ */
+export function getHydrateComponentName(filePath: string): string {
+  const segments = filePath
+    .replace(PAGES_DIR, '')
+    .replace(/\\/g, '/')
+    .replace(/hydrate\.tsx$/, '')
+    .split('/')
+    .filter(Boolean)
+
+  return (segments.map(formatSegment).join('') || 'Root') + 'Hydrate'
+}
+
+/**
  * Converts dynamic route segments from [param] format to :param format.
  * @param segment - A segment of the route.
  * @returns The converted route segment.
@@ -193,7 +217,8 @@ function processLayoutItem(
   context: ScanContext,
   errorComponentName?: string,
   notFoundComponentName?: string,
-  loadingComponentName?: string
+  loadingComponentName?: string,
+  hydrateComponentName?: string
 ): void {
   const layoutComponentName = getLayoutComponentName(relativePath)
   context.imports.push(`import ${layoutComponentName} from ${importPath};`)
@@ -240,9 +265,11 @@ function processLayoutItem(
     notFoundComponentName
   )
 
-  // The segment's `loading.tsx` (own or inherited) is the hydration fallback; the built-in
-  // `HydrateFallback` is the default when none is defined.
-  route.HydrateFallback = loadingComponentName ?? 'HydrateFallback'
+  // `hydrate.tsx` (own or inherited) styles the hydration fallback WITHOUT a Suspense boundary;
+  // `loading.tsx` also serves as one for backward-compat; the built-in `HydrateFallback` is the
+  // default when neither is defined.
+  route.HydrateFallback =
+    hydrateComponentName ?? loadingComponentName ?? 'HydrateFallback'
 }
 
 /**
@@ -254,7 +281,8 @@ function processPageItem(
   route: Route,
   errorComponentName?: string,
   notFoundComponentName?: string,
-  loadingComponentName?: string
+  loadingComponentName?: string,
+  hydrateComponentName?: string
 ): void {
   const catchAllParam = relativePath.match(/\[\.\.\.(.+)\]/)?.[1]
   const pageComponentName = getPageComponentName(relativePath)
@@ -274,7 +302,8 @@ function processPageItem(
     index: true,
     errorElement: buildErrorElement(false, errorComponentName, notFoundComponentName),
     lazy: `async () => {const i = await import(${importPath}).catch((e) => {console.error("[pylon] failed to load route module", ${importPath}, e); if (typeof window !== 'undefined') { window.location.reload(); return new Promise(() => {}); } throw e;}); return {Component: ${wrappedComponentExpr}}}`,
-    HydrateFallback: loadingComponentName ?? 'HydrateFallback'
+    HydrateFallback:
+      hydrateComponentName ?? loadingComponentName ?? 'HydrateFallback'
   })
 }
 
@@ -354,7 +383,8 @@ export function scanDirectory(
   basePath: string = '',
   inheritedError?: string,
   inheritedNotFound?: string,
-  inheritedLoading?: string
+  inheritedLoading?: string,
+  inheritedHydrate?: string
 ): Route | null {
   const items = fs.readdirSync(directory, {withFileTypes: true})
   const route: Route = {path: basePath || '/', children: []}
@@ -387,10 +417,12 @@ export function scanDirectory(
   const ownError = detect('error.tsx', getErrorComponentName)
   const ownNotFound = detect('not-found.tsx', getNotFoundComponentName)
   const ownLoading = detect('loading.tsx', getLoadingComponentName)
+  const ownHydrate = detect('hydrate.tsx', getHydrateComponentName)
   // This segment's components, and what its descendants inherit.
   const errorComponentName = ownError ?? inheritedError
   const notFoundComponentName = ownNotFound ?? inheritedNotFound
   const loadingComponentName = ownLoading ?? inheritedLoading
+  const hydrateComponentName = ownHydrate ?? inheritedHydrate
   // Record the ROOT files: `rootError` drives the "no root error boundary" warning,
   // `rootNotFound` feeds the top-level catch-all in makeAppFiles.
   if (basePath === '') {
@@ -412,7 +444,8 @@ export function scanDirectory(
         relativePath,
         errorComponentName,
         notFoundComponentName,
-        loadingComponentName
+        loadingComponentName,
+        hydrateComponentName
       )
       if (childRoute) {
         route.children!.push(childRoute)
@@ -425,7 +458,8 @@ export function scanDirectory(
         context,
         errorComponentName,
         notFoundComponentName,
-        loadingComponentName
+        loadingComponentName,
+        hydrateComponentName
       )
       hasLayout = true
     } else if (item.name === 'page.tsx') {
@@ -435,7 +469,8 @@ export function scanDirectory(
         route,
         errorComponentName,
         notFoundComponentName,
-        loadingComponentName
+        loadingComponentName,
+        hydrateComponentName
       )
       pageFound = true
     }
