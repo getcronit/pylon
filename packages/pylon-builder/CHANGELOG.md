@@ -1,5 +1,11 @@
 # @getcronit/pylon-builder
 
+## 2.6.11
+
+### Patch Changes
+
+- [#121](https://github.com/getcronit/pylon/pull/121) [`3c1e36e`](https://github.com/getcronit/pylon/commit/3c1e36e087691d5b57e4bc3d5685feeaae5aff36) Thanks [@schettn](https://github.com/schettn)! - Re-release the builder fix for optional enum arguments (originally shipped in [#119](https://github.com/getcronit/pylon/issues/119)). Version 2.6.10 was consumed by a CI canary snapshot and published under the `canary-pr-121` dist-tag, which permanently reserves that version on npm — so it can never reach `latest`. This re-releases the same fix as 2.6.11.
+
 ## 2.6.10
 
 ### Patch Changes
