@@ -176,15 +176,42 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Gate for the canary job — UNGATED and cheap (checkout + a file check). A canary is
+  # a snapshot of PENDING changesets; with none there is nothing to publish AND the
+  # fallback would burn base versions (see the canary job). Because the canary job is
+  # `environment: release`, GitHub asks for approval BEFORE any in-job step can decide
+  # to skip — so a changeset-less PR would hang a reviewer request forever. Deciding it
+  # here, at job level, lets `needs`/`if` skip the canary job entirely (approval and
+  # all) when there is nothing to snapshot.
+  changes:
+    name: Detect pending changesets
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    outputs:
+      has: ${{ steps.check.outputs.has }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          if [ -n "$(find .changeset -maxdepth 1 -name '*.md' ! -name 'README.md' 2>/dev/null)" ]; then
+            echo "has=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # Per-PR canary snapshot under `canary-pr-<number>`. Uses the SAME `release`
   # environment (npm allows only one), so it's covered by the same reviewer gate.
   canary:
     name: Publish snapshot under channel dist-tag
+    needs: changes
     # SECURITY: only same-repo PRs (trusted collaborators). Fork PRs have
     # head.repo.full_name = "<fork-owner>/<repo>" != github.repository → SKIPPED, so
     # untrusted fork code never runs build/publish or reaches the OIDC id-token.
+    # `needs.changes.outputs.has == 'true'` skips the whole job (incl. the `release`
+    # approval gate) when there are no pending changesets to snapshot.
     if:
       ${{ github.event_name == 'pull_request' &&
+      needs.changes.outputs.has == 'true' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.actor != 'dependabot[bot]' && github.actor != 'dependabot-preview[bot]'
       && github.actor != 'renovate[bot]' }}
@@ -243,17 +270,12 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ steps.channel.outputs.tag }}"
-          # A canary is a SNAPSHOT of pending changesets. With none, `changeset
-          # version --snapshot` bumps nothing, so `changeset publish` falls back to
-          # the BASE versions — harmless for already-published ones, but a
-          # not-yet-released version (e.g. a pending `x.y.z`) would be PUBLISHED under
-          # the PR dist-tag and thereby BURNED, blocking its real `latest` release.
-          # So skip the canary entirely when there are no pending changesets.
-          if [ -z "$(find .changeset -maxdepth 1 -name '*.md' ! -name 'README.md' 2>/dev/null)" ]; then
-            echo "No pending changesets — nothing to snapshot; skipping canary publish."
-            echo "published-count=0" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          # The `changes` job gates this whole job on pending changesets existing, so a
+          # canary here always has something to snapshot. (Without changesets,
+          # `changeset version --snapshot` bumps nothing and `changeset publish` would
+          # fall back to BASE versions — burning a not-yet-released `x.y.z` under the PR
+          # dist-tag and blocking its real `latest` release. The job-level gate prevents
+          # that by never starting this job in the first place.)
           echo "Publishing canary channel: $TAG"
           # Invoke the changeset BINARY directly via `pnpm exec`. Plain
           # `pnpm changeset ...` runs the repo's `"changeset": "changeset --"`
