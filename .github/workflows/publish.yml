@@ -65,6 +65,19 @@ jobs:
           cache: 'pnpm'
           registry-url: 'https://registry.npmjs.org'
 
+      - name: Keep registry reads anonymous under OIDC
+        # setup-node's `registry-url` writes `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`
+        # into the job .npmrc. Under OIDC we set no NODE_AUTH_TOKEN, so it resolves to setup-node's
+        # placeholder and the registry 401s even READ requests — changesets then can't see which
+        # versions are already published, tries to REPUBLISH them, and npm rejects with "cannot
+        # publish over the previously published versions" (red job). OIDC authenticates the publish
+        # itself via id-token, so strip only the dud auth line and let reads go anonymous.
+        run: |
+          for f in "${NPM_CONFIG_USERCONFIG:-}" "$RUNNER_TEMP/.npmrc" "$HOME/.npmrc"; do
+            [ -n "$f" ] && [ -f "$f" ] && sed -i '/:_authToken=/d' "$f" && echo "stripped auth line from $f"
+          done
+          true
+
       - name: Setup pnpm store
         run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
 
@@ -146,6 +159,16 @@ jobs:
       # fatally rejected (EUNKNOWNCONFIG); hence the pnpm 10.34.5 pin.
       - name: Upgrade npm for OIDC publishing
         run: npm i -g npm@latest
+
+      - name: Keep registry reads anonymous under OIDC
+        # See the `version` job: the OIDC-empty NODE_AUTH_TOKEN makes setup-node's .npmrc
+        # 401 read requests, so changesets tries to republish already-published packages.
+        # Strip the dud auth line; OIDC still authenticates the publish via id-token.
+        run: |
+          for f in "${NPM_CONFIG_USERCONFIG:-}" "$RUNNER_TEMP/.npmrc" "$HOME/.npmrc"; do
+            [ -n "$f" ] && [ -f "$f" ] && sed -i '/:_authToken=/d' "$f" && echo "stripped auth line from $f"
+          done
+          true
 
       - name: Setup pnpm store
         run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
@@ -247,6 +270,17 @@ jobs:
       # fatally rejected (EUNKNOWNCONFIG); hence the pnpm 10.34.5 pin.
       - name: Upgrade npm for OIDC publishing
         run: npm i -g npm@latest
+
+      - name: Keep registry reads anonymous under OIDC
+        # See the `version` job: the OIDC-empty NODE_AUTH_TOKEN makes setup-node's .npmrc
+        # 401 read requests, so changesets can't tell which packages are already published
+        # and tries to republish the unchanged base-version ones (collision → red job).
+        # Strip the dud auth line; OIDC still authenticates the publish via id-token.
+        run: |
+          for f in "${NPM_CONFIG_USERCONFIG:-}" "$RUNNER_TEMP/.npmrc" "$HOME/.npmrc"; do
+            [ -n "$f" ] && [ -f "$f" ] && sed -i '/:_authToken=/d' "$f" && echo "stripped auth line from $f"
+          done
+          true
 
       - name: Install dependencies
         run: pnpm i --frozen-lockfile
