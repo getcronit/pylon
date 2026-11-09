@@ -54,7 +54,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4.0.0
+        uses: pnpm/action-setup@v6.1.1
         with:
           run_install: false
 
@@ -63,7 +63,6 @@ jobs:
         with:
           node-version: 22
           cache: 'pnpm'
-          registry-url: 'https://registry.npmjs.org'
 
       - name: Setup pnpm store
         run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
@@ -128,7 +127,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4.0.0
+        uses: pnpm/action-setup@v6.1.1
         with:
           run_install: false
 
@@ -137,17 +136,6 @@ jobs:
         with:
           node-version: 22
           cache: 'pnpm'
-          registry-url: 'https://registry.npmjs.org'
-
-      # OIDC trusted publishing needs npm >= 11.5.1; the runner ships npm 10, so upgrade.
-      # Pin to npm 11 (NOT @latest): npm 12 changed `npm info --json` to return an ARRAY,
-      # which changesets 2.29.8 doesn't handle — it reads `.versions` off the array (undefined),
-      # concludes every already-published package is unpublished, and tries to republish them,
-      # so npm rejects with "cannot publish over the previously published versions". npm 11.x
-      # (>= 11.5.1) still returns an object AND supports OIDC. Lifted once we move to
-      # changesets 3 + pnpm-native publish (which normalizes the npm 12 array).
-      - name: Upgrade npm for OIDC publishing
-        run: npm i -g npm@11
 
       - name: Setup pnpm store
         run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
@@ -170,8 +158,10 @@ jobs:
         # changesets/action runs the publish command AND pushes the release git tags.
         # With no pending changesets (the state that made shouldPublish true), it just
         # publishes. `changeset publish` only pushes versions not already on the
-        # registry. OIDC: id-token: write + npm >= 11.5.1 + a Trusted Publisher
-        # (repo + this workflow + environment `release`) per package.
+        # registry. In this pnpm workspace changesets 3 delegates to `pnpm publish`, so
+        # pnpm does the OIDC handshake itself — no `npm i -g npm@11` upgrade, no stored
+        # NPM_TOKEN. OIDC: id-token: write + a Trusted Publisher (repo + this workflow +
+        # environment `release`) per package.
         uses: changesets/action@v1
         with:
           publish: pnpm ci:release
@@ -231,7 +221,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4.0.0
+        uses: pnpm/action-setup@v6.1.1
         with:
           run_install: false
 
@@ -240,15 +230,6 @@ jobs:
         with:
           node-version: 22
           cache: 'pnpm'
-          registry-url: 'https://registry.npmjs.org'
-
-      # OIDC trusted publishing needs npm >= 11.5.1; the runner ships npm 10, so upgrade.
-      # Pin to npm 11 (NOT @latest): npm 12's `npm info --json` returns an ARRAY that
-      # changesets 2.29.8 mishandles → it treats every already-published package as
-      # unpublished and tries to republish them (collision → red job). npm 11.x returns an
-      # object AND supports OIDC. Lifted with the changesets 3 + pnpm-native-publish move.
-      - name: Upgrade npm for OIDC publishing
-        run: npm i -g npm@11
 
       - name: Install dependencies
         run: pnpm i --frozen-lockfile
@@ -263,11 +244,12 @@ jobs:
       - name: Version snapshot + publish under PR tag
         id: publish
         env:
-          # No NPM_TOKEN: `changeset publish` authenticates to npm via OIDC
-          # trusted publishing (id-token: write above + npm >= 11.5.1). Requires
-          # a Trusted Publisher configured for this repo+workflow on each package.
-          # `changeset version` runs the @changesets/changelog-github plugin
-          # (.changeset/config.json), which calls the GitHub API and needs a token.
+          # No NPM_TOKEN: changesets 3 delegates publishing to `pnpm publish` in this
+          # pnpm workspace, so pnpm performs the OIDC trusted-publishing handshake itself
+          # (id-token: write above). Requires a Trusted Publisher configured for this
+          # repo+workflow on each package. `changeset version` runs the
+          # @changesets/changelog-github plugin (.changeset/config.json), which calls the
+          # GitHub API and needs a token.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
