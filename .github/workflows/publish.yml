@@ -288,6 +288,22 @@ jobs:
       - name: Build packages
         run: pnpm build
 
+      - name: DIAGNOSE npm info (temporary)
+        run: |
+          set +e
+          echo "### npm=$(npm -v)  node=$(node -v)"
+          echo "### NPM_CONFIG_USERCONFIG=$NPM_CONFIG_USERCONFIG"
+          echo "### npm config list (redacted) ###"
+          npm config list 2>&1 | sed -E 's/(_authToken|_password|_auth)=.*/\1=<redacted>/'
+          echo "### env npm_config_* / NODE_AUTH (redacted) ###"
+          env | grep -iE '^(npm_config_|NODE_AUTH)' | sed -E 's/(authToken|_auth|password|TOKEN)=.*/\1=<redacted>/I' || echo "(none)"
+          echo "### EXACT changeset read ###"
+          out=$(npm info @getcronit/pylon --registry=https://registry.npmjs.org/ --json 2>err.txt); code=$?
+          echo "exit=$code stdout_len=${#out}"
+          echo "--- stdout (first 300) ---"; printf '%s' "$out" | head -c 300; echo
+          echo "--- stderr ---"; cat err.txt
+          true
+
       - name: Resolve PR dist-tag
         id: channel
         run: echo "tag=canary-pr-${{ github.event.number }}" >> "$GITHUB_OUTPUT"
